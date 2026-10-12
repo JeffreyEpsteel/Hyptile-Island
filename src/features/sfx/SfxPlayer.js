@@ -41,7 +41,7 @@ function baseUrl() {
 
 	} catch ( e ) {
 
-		return import.meta.env.BASE_URL + 'audio/sfx/';
+		return 'audio/sfx/'; // no import.meta.env (plain node): relative to the page
 
 	}
 

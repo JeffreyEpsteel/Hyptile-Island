@@ -27,7 +27,7 @@ function baseUrl() {
 
 	} catch ( e ) {
 
-		return import.meta.env.BASE_URL + 'audio/combat/'; // base-relative: the site may live under a sub-path (GitHub Pages)
+		return 'audio/combat/'; // no import.meta.env (plain node): relative to the page
 
 	}
 
