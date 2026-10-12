@@ -37,15 +37,15 @@ Copyright (c) 2020 Microsoft** (the full text ships as `tools/roster/rocketbox/L
 | Package | Version | Copyright | Licence | In the game? |
 |---|---|---|---|---|
 | [@dimforge/rapier3d-compat](https://github.com/dimforge/rapier) | 0.21.0 | Copyright 2020 Dimforge EURL | Apache-2.0 (no NOTICE file in the package) | yes: destruction physics (`src/physics/rapier`) |
-| [@colyseus/sdk](https://colyseus.io) | 0.18.5 | Copyright (c) 2015-2026 Endel Dreyer | MIT | yes: multiplayer client |
+| [@colyseus/sdk](https://github.com/colyseus/colyseus.js) | 0.18.5 | Copyright (c) 2015-2026 Endel Dreyer | MIT | yes: multiplayer client |
 | [@colyseus/schema](https://github.com/colyseus/schema) | 5.0.39 | Copyright (c) 2018 Endel Dreyer | MIT | yes: client and server state |
-| [colyseus](https://colyseus.io) | 0.18.9 | Copyright (c) 2015-2026 Endel Dreyer | MIT | the multiplayer server (`server/`) |
+| [colyseus](https://github.com/colyseus/colyseus) | 0.18.9 | Copyright (c) 2015-2026 Endel Dreyer | MIT | the multiplayer server (`server/`) |
 | [ws](https://github.com/websockets/ws) | 8.22.0 | Copyright (c) 2011 Einar Otto Stangvik; (c) 2013 Arnout Kazemier and contributors; (c) 2016 Luigi Pinca and contributors | MIT | the relay server |
-| [three.js](https://threejs.org) | 0.186.1 | Copyright (c) 2010-2026 three.js authors | MIT | installed but not imported by the game (it runs on its own engine); the SMAA lookup textures and the SMAA / FXAA ports come from three.js (Tidewater section) |
+| [three.js](https://github.com/mrdoob/three.js) | 0.186.1 | Copyright (c) 2010-2026 three.js authors | MIT | installed but not imported by the game (it runs on its own engine); the SMAA lookup textures and the SMAA / FXAA ports come from three.js (Tidewater section) |
 | [three-avbd](https://github.com/sbobyn/three-avbd) | 0.3.0 | Copyright (c) 2026 Steven Bobyn (its notices credit Chris Giles' avbd-demo2d / avbd-demo3d, MIT) | MIT | **evaluated, not shipped**: read and rejected in favour of Rapier (`src/physics/README.md`) |
-| [Vite](https://vite.dev) | 8.3.0 | Copyright (c) 2019-present, VoidZero Inc. and Vite contributors | MIT | build tool (its small runtime helpers end up in the bundle) |
+| [Vite](https://github.com/vitejs/vite) | 8.3.0 | Copyright (c) 2019-present, VoidZero Inc. and Vite contributors | MIT | build tool (its small runtime helpers end up in the bundle) |
 | [webgpu](https://github.com/dawn-gpu/node-webgpu) (Dawn for Node) | 0.6.1 | Copyright 2017-2025 The Dawn & Tint Authors | package MIT; Dawn BSD-3-Clause | headless tests only, not shipped |
-| Colyseus agent skill (`.claude/skills/colyseus`) | - | Copyright (c) 2026 Endel Dreyer | MIT | development tooling only |
+| [Colyseus agent skill](https://github.com/colyseus/skill) (`.claude/skills/colyseus`) | - | Copyright (c) 2026 Endel Dreyer | MIT | development tooling only |
 
 ## Fonts
 
