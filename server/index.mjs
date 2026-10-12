@@ -1,0 +1,416 @@
+#!/usr/bin/env node
+// Hyptile Island server on Colyseus 0.18 (@colyseus/core + @colyseus/ws-transport, state in @colyseus/schema): the plain and
+// crew rooms, the persistent universe, GET /health and the admin console.
+//
+//   node server/index.mjs [--port 8765] [--host 0.0.0.0] [--room-cap 16] [--max-rooms 64] [--reconnect-seconds 60]
+//   node server/index.mjs --universe hyptile [--data server-data/hyptile] [--max-players 16] [--backup-days 14]
+//
+// Clients (src/net/NetClient.js over @colyseus/sdk) talk HTTP + WebSocket to this one port: POST /matchmake/... picks the room,
+// the socket joins it. Rooms (server/rooms.mjs): 'room' is any named room (ws://host:8765/island is the default; any path is a
+// room) and the crew rooms (6 letters, reserved by a 'createCrew' message, an unknown code is refused with 'nocrew'; at most
+// --max-rooms rooms exist); 'universe' is the persistent universe at ws://host:8765/universe when started with --universe
+// (server/universe.mjs: captains = name + sha256 of their browser's token, saved games, world events with respawn timers,
+// offline captains' moored boats, the shared market, the chat log and the pirates, written to --data every ~10 s, on shutdown
+// and copied to a daily backup; its clock runs from the universe's creation, online or not). The room's host (the oldest
+// connected player, migrating when they leave or drop) alone may send 'world' (AI ships); the server relays shots ('fx'),
+// forwards damage reports ('hit') to the host and seats guests on a host's boat ('ride': range / capacity / policy checked).
+// A dropped client keeps its seat --reconnect-seconds. The console (stdin) takes admin commands: help, list, captains, kick,
+// ban, unban, release, save, backup, announce, stop. The message vocabulary lives in src/net/Protocol.js.
+//
+// One server per process (Colyseus' matchmaker is a module singleton). `startServer( opts )` is exported for tests (close()
+// it before starting the next); `attachConsole` / `stopOnSignals` for launchers. One PC needs no Colyseus presence / Redis
+// driver (docs/HOSTING.md has the note on scaling).
+
+import http from 'node:http';
+import readline from 'node:readline';
+import { pathToFileURL } from 'node:url';
+import { defineServer, defineRoom, unregisterRoomDefinitions, matchMaker, createRouter, createEndpoint } from '@colyseus/core';
+import { WebSocketTransport } from '@colyseus/ws-transport';
+import {
+	PROTOCOL_VERSION, SEND_HZ, MAX_PLAYERS, MAX_SAVE, UNIVERSE_PATH, RECONNECT_SECONDS, captainKey, cleanText,
+} from '../src/net/Protocol.js';
+import { Universe } from './universe.mjs';
+import { makeRooms } from './rooms.mjs';
+
+let active = null; // the running server of this process
+
+export function startServer( options = {} ) {
+
+	if ( active ) throw new Error( 'a Hyptile Island server is already running in this process: close() it first' );
+	const opts = {
+		port: 8765, host: '0.0.0.0', roomCap: MAX_PLAYERS,
+		tickHz: SEND_HZ, clockEveryMs: 10000, pingMs: 3000, pingRetries: 3,
+		maxRooms: 64, emptyMs: 30000, crewHoldMs: 120000, crewPerAddress: 4, crewEveryMs: 3000,
+		universe: null, data: null, universeCap: MAX_PLAYERS, flushMs: 10000, backupDays: 14, saveEveryMs: 2000, marketEveryMs: 5000,
+		newCaptainsPerHour: 5, reconnectSeconds: RECONNECT_SECONDS,
+		log: ( ...a ) => console.log( new Date().toISOString(), ...a ),
+		...options,
+	};
+	const ctx = { opts, universe: null, rooms: new Map(), creating: new Set(), closing: false };
+
+	// the persistent universe (one per server)
+	if ( opts.universe ) {
+
+		ctx.universe = new Universe( { name: opts.universe, dir: opts.data, log: opts.log, backupDays: opts.backupDays } ).load();
+		ctx.universe.newPerHour = opts.newCaptainsPerHour;
+
+	}
+
+	const universe = ctx.universe;
+	const uniRoom = () => ctx.rooms.get( UNIVERSE_PATH ) || null;
+	const health = () => {
+
+		const body = { ok: true, version: PROTOCOL_VERSION, transport: 'colyseus', uptime: Math.round( process.uptime() ), players: 0, rooms: {} };
+		for ( const r of ctx.rooms.values() ) {
+
+			const n = r.connected().length;
+			body.rooms[ r.label ] = { players: n, timeOfDay: r.dayClock().timeOfDay };
+			body.players += n;
+
+		}
+
+		if ( universe ) body.universe = { ...universe.info(), players: uniRoom() ? uniRoom().connected().length : 0, cap: opts.universeCap, captains: Object.keys( universe.state.captains ).length };
+		return body;
+
+	};
+
+	const json = ( body ) => new Response( JSON.stringify( body ), { status: 200, headers: { 'content-type': 'application/json', 'cache-control': 'no-store' } } ); // (CORS: Colyseus adds it)
+	const quiet = () => {};
+	const warn = ( ...a ) => opts.log( 'colyseus:', ...a );
+	const server = http.createServer();
+	// a universe save may be MAX_SAVE; anything bigger than twice that is cut by ws itself (close 1009)
+	const transport = new WebSocketTransport( { server, maxPayload: MAX_SAVE * 2, pingInterval: opts.pingMs, pingMaxRetries: opts.pingRetries } );
+	const { HyptileRoom, UniverseRoom } = makeRooms( ctx );
+	const rooms = { room: defineRoom( HyptileRoom ).filterBy( [ 'room' ] ) }; // joinOrCreate by name; crews by id
+	if ( universe ) rooms.universe = defineRoom( UniverseRoom ); // joinById 'universe'
+	// (signals are ours: stopOnSignals saves the universe first; the console logger stays quiet)
+	const gs = defineServer( {
+		rooms,
+		routes: createRouter( {
+			health: createEndpoint( '/health', { method: 'GET' }, async () => json( health() ) ),
+			root: createEndpoint( '/', { method: 'GET' }, async () => json( health() ) ),
+		} ),
+		transport, greet: false, gracefullyShutdown: false,
+		logger: { debug: quiet, trace: quiet, info: quiet, log: quiet, warn, error: warn },
+	} );
+
+	const flushTimer = universe ? setInterval( () => {
+
+		try {
+
+			universe.flush();
+
+		} catch ( e ) {
+
+			opts.log( `universe: flush failed: ${ e.message }` );
+
+		}
+
+	}, opts.flushMs ) : 0;
+
+	const srv = { server, gs, rooms: ctx.rooms, opts, universe, ctx, ready: null, close: null, admin: null, get port() { return server.address() ? server.address().port : opts.port; } };
+	active = srv;
+
+	// ---- admin commands (the console; also callable from tests): returns the answer as text
+
+	const everyone = () => {
+
+		const out = [];
+		for ( const r of ctx.rooms.values() ) for ( const m of r.order.values() ) out.push( { room: r, m } );
+		return out;
+
+	};
+	const findClient = ( name ) => {
+
+		const k = captainKey( name );
+		return everyone().find( ( { m } ) => captainKey( m.name ) === k || m.id === name || m.captainKey === k ) || null;
+
+	};
+	const admin = ( line ) => {
+
+		const [ cmd = '', ...rest ] = String( line || '' ).trim().split( /\s+/ );
+		const arg = rest.join( ' ' );
+		switch ( cmd.toLowerCase() ) {
+
+			case '': return '';
+			case 'help': case '?':
+				return [
+					'list                 who is online (every room)',
+					'captains             every captain of the universe',
+					'kick <name>          disconnect a player (they may come back)',
+					'ban <name> [reason]  ban a captain from the universe (and kick)',
+					'unban <name>         lift a ban',
+					'release <name>       free a name whose browser was lost (the next to join with it owns it)',
+					'save                 write the universe to disk now',
+					'backup               make a backup copy now',
+					'announce <text>      a server message in every chat',
+					'stop                 save and shut the server down',
+				].join( '\n' );
+			case 'list': {
+
+				const lines = everyone().map( ( { room, m } ) => `${ room.label.padEnd( 10 ) } ${ m.id } ${ m.name }${ m.captainKey ? ' (captain)' : '' } from ${ m.remote }${ m.dropped ? ' (reconnecting)' : '' }` );
+				return lines.length ? lines.join( '\n' ) : 'nobody online';
+
+			}
+
+			case 'captains': {
+
+				if ( ! universe ) return 'no universe on this server';
+				const list = universe.captainList().sort( ( a, b ) => b.lastSeen - a.lastSeen );
+				return list.length ? list.map( ( c ) => `${ c.name.padEnd( 24 ) } last seen ${ c.lastSeen ? new Date( c.lastSeen ).toISOString().slice( 0, 16 ).replace( 'T', ' ' ) : '-' }  $${ Math.round( c.money ) }${ c.banned ? '  BANNED' : '' }` ).join( '\n' ) : 'no captains yet';
+
+			}
+
+			case 'kick': {
+
+				const f = findClient( arg );
+				if ( ! f ) return `nobody called "${ arg }" is online`;
+				f.room.kick( f.m, 'kicked', 'The server admin disconnected you' );
+				return `kicked ${ f.m.name }`;
+
+			}
+
+			case 'ban': {
+
+				if ( ! universe ) return 'no universe on this server';
+				if ( ! rest.length ) return 'usage: ban <name> [reason]';
+				// the longest run of words that names a captain is the name, the rest the reason (an unknown name is reserved)
+				let name = rest[ 0 ], reason = rest.slice( 1 ).join( ' ' );
+				for ( let i = rest.length; i > 0; i -- ) {
+
+					if ( universe.findCaptain( rest.slice( 0, i ).join( ' ' ) ) ) {
+
+						name = rest.slice( 0, i ).join( ' ' );
+						reason = rest.slice( i ).join( ' ' );
+						break;
+
+					}
+
+				}
+
+				const banned = universe.ban( name, reason );
+				if ( ! banned ) return `no captain "${ name }"`;
+				const u = uniRoom();
+				if ( u ) for ( const m of [ ...u.order.values() ] ) if ( m.captainKey === captainKey( banned ) ) u.kick( m, 'banned', 'You are banned from this universe' );
+				universe.flush();
+				return `banned ${ banned }`;
+
+			}
+
+			case 'unban': {
+
+				if ( ! universe ) return 'no universe on this server';
+				const n = universe.unban( arg );
+				if ( n ) universe.flush();
+				return n ? `unbanned ${ n }` : `"${ arg }" is not banned`;
+
+			}
+
+			case 'release': {
+
+				if ( ! universe ) return 'no universe on this server';
+				const u = uniRoom();
+				if ( u ) for ( const m of u.order.values() ) if ( m.captainKey === captainKey( arg ) ) return `${ m.name } is online: kick them first`;
+				const n = universe.release( arg );
+				if ( n ) universe.flush();
+				return n ? `released ${ n }: the next browser to join as ${ n } owns the name and its game` : `no captain "${ arg }"`;
+
+			}
+
+			case 'save':
+				if ( ! universe ) return 'no universe on this server';
+				universe.flush( true );
+				return `saved to ${ universe.dir }`;
+			case 'backup':
+				if ( ! universe ) return 'no universe on this server';
+				universe.flush( true );
+				return `backup in ${ universe.backup( true ) }`;
+			case 'announce': {
+
+				const text = cleanText( arg, 200 );
+				if ( ! text ) return 'usage: announce <text>';
+				const at = Date.now();
+				for ( const r of ctx.rooms.values() ) r.broadcastExcept( 'chat', { id: '', name: 'Server', text, at, system: true } );
+				if ( universe ) universe.pushChat( { name: 'Server', text, at, system: true } );
+				return `announced to ${ everyone().length } player(s)`;
+
+			}
+
+			default:
+				return `unknown command "${ cmd }" (type help)`;
+
+		}
+
+	};
+
+	let closing = null;
+	const close = () => closing || ( closing = ( async () => {
+
+		ctx.closing = true;
+		clearInterval( flushTimer );
+		await srv.ready.catch( () => {} );
+		try {
+
+			// every room says goodbye (4001: the clients retry later); leaving captains moor their boats first
+			await Promise.race( [ gs.gracefullyShutdown( false ), new Promise( ( r ) => setTimeout( r, 3000 ).unref() ) ] );
+
+		} catch ( e ) {
+
+			opts.log( `shutdown: ${ e && e.message || e }` );
+
+		}
+
+		ctx.rooms.clear();
+		unregisterRoomDefinitions( Object.keys( rooms ) ); // (the matchmaker outlives this server in the process)
+		if ( universe ) {
+
+			try {
+
+				universe.flush();
+
+			} catch ( e ) {
+
+				opts.log( `universe: final flush failed: ${ e.message }` );
+
+			}
+
+		}
+
+		await new Promise( ( resolve ) => {
+
+			if ( ! server.listening ) return resolve();
+			server.close( () => resolve() );
+			if ( server.closeAllConnections ) server.closeAllConnections();
+			setTimeout( resolve, 1500 ).unref();
+
+		} );
+		if ( active === srv ) active = null;
+
+	} )() );
+
+	srv.ready = ( async () => {
+
+		await new Promise( ( resolve, reject ) => {
+
+			server.once( 'error', reject );
+			gs.listen( opts.port, opts.host ).then( resolve, reject );
+
+		} );
+		if ( universe ) await matchMaker.createRoom( 'universe', {} );
+		return server.address().port;
+
+	} )();
+	srv.ready.catch( () => { if ( active === srv ) active = null; clearInterval( flushTimer ); } );
+	srv.close = close;
+	srv.admin = admin;
+	return srv;
+
+}
+
+// ---- the console and shutdown (the CLI below and tools/host/serve-universe.mjs)
+
+// admin commands typed into the server window; `stop` (or Ctrl-C) saves and exits
+export function attachConsole( srv, { input = process.stdin, output = process.stdout, onStop = null } = {} ) {
+
+	if ( ! input || ! input.readable ) return null;
+	const rl = readline.createInterface( { input, output, terminal: !! input.isTTY, prompt: '> ' } );
+	rl.on( 'line', ( line ) => {
+
+		const cmd = line.trim().toLowerCase();
+		if ( cmd === 'stop' || cmd === 'quit' || cmd === 'exit' ) {
+
+			rl.close();
+			if ( onStop ) onStop( 'stop' );
+			return;
+
+		}
+
+		const answer = srv.admin( line );
+		if ( answer ) output.write( answer + '\n' );
+		rl.prompt();
+
+	} );
+	// a terminal's Ctrl-C reaches readline, not the process
+	rl.on( 'SIGINT', () => { if ( onStop ) onStop( 'SIGINT' ); } );
+	return rl;
+
+}
+
+// Ctrl-C, a service stop or the console window closing: the universe is written before the process ends
+export function stopOnSignals( srv, log = console.log ) {
+
+	let stopping = false;
+	const stop = ( sig ) => {
+
+		if ( stopping ) return;
+		stopping = true;
+		log( `\n${ sig }: saving and closing` );
+		srv.close().then( () => process.exit( 0 ) );
+		setTimeout( () => process.exit( 0 ), 3000 ).unref();
+
+	};
+
+	for ( const sig of [ 'SIGINT', 'SIGTERM', 'SIGHUP', 'SIGBREAK' ] ) {
+
+		try { process.on( sig, () => stop( sig ) ); } catch ( e ) { /* not on this platform */ }
+
+	}
+
+	// the last word: a synchronous flush however the process ends
+	process.on( 'exit', () => { try { if ( srv.universe ) srv.universe.flush(); } catch ( e ) { /* nothing more to do */ } } );
+	return stop;
+
+}
+
+// ---- CLI
+
+function parseArgs( argv ) {
+
+	const o = { port: Number( process.env.PORT ) || 8765, host: process.env.HOST || '0.0.0.0', roomCap: MAX_PLAYERS, console: true };
+	for ( let i = 0; i < argv.length; i ++ ) {
+
+		const a = argv[ i ], v = argv[ i + 1 ];
+		if ( a === '--port' ) o.port = Number( v ), i ++;
+		else if ( a === '--host' ) o.host = v, i ++;
+		else if ( a === '--room-cap' ) o.roomCap = Math.max( 1, Number( v ) | 0 ), i ++;
+		else if ( a === '--max-rooms' ) o.maxRooms = Math.max( 1, Number( v ) | 0 ), i ++;
+		else if ( a === '--universe' ) o.universe = v, i ++;
+		else if ( a === '--data' ) o.data = v, i ++;
+		else if ( a === '--max-players' ) o.universeCap = Math.max( 1, Math.min( 64, Number( v ) | 0 ) ), i ++;
+		else if ( a === '--backup-days' ) o.backupDays = Math.max( 1, Number( v ) | 0 ), i ++;
+		else if ( a === '--reconnect-seconds' ) o.reconnectSeconds = Math.max( 0, Math.min( 600, Number( v ) | 0 ) ), i ++;
+		else if ( a === '--no-console' ) o.console = false;
+		else if ( a === '--help' || a === '-h' ) {
+
+			console.log( 'usage: node server/index.mjs [--port 8765] [--host 0.0.0.0] [--room-cap 16] [--max-rooms 64]\n' +
+				'                            [--universe <name> [--data <dir>] [--max-players 16] [--backup-days 14]] [--reconnect-seconds 60] [--no-console]' );
+			process.exit( 0 );
+
+		}
+
+	}
+
+	return o;
+
+}
+
+const isMain = process.argv[ 1 ] && pathToFileURL( process.argv[ 1 ] ).href === import.meta.url;
+if ( isMain ) {
+
+	const o = parseArgs( process.argv.slice( 2 ) );
+	const srv = startServer( o );
+	const stop = stopOnSignals( srv );
+	srv.ready.then( ( port ) => {
+
+		console.log( `Hyptile Island server (Colyseus) listening on ws://${ o.host }:${ port }/<room> (default room 'island', cap ${ o.roomCap }); health: http://${ o.host }:${ port }/health` );
+		if ( srv.universe ) console.log( `Universe '${ srv.universe.name }' at ws://${ o.host }:${ port }/${ UNIVERSE_PATH } (data: ${ srv.universe.dir }); type help for admin commands` );
+		if ( o.console ) attachConsole( srv, { onStop: stop } );
+
+	}, ( e ) => {
+
+		console.error( 'listen failed:', e.message );
+		process.exit( 1 );
+
+	} );
+
+}

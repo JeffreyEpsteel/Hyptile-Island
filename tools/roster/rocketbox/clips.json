@@ -1,0 +1,96 @@
+{
+  "source": "https://github.com/microsoft/Microsoft-Rocketbox (MIT, Assets/Animations/all_animations_max_motextr_<set>)",
+  "note": "set = static (in place), xy (travels on the ground), xyz (travels, sit/stand/turn). opts: loop zero sit keepz (see retarget.py)",
+  "clips": [
+    {
+      "name": "Idle_Breathe",
+      "set": "static",
+      "file": "m_idle_breathe_01",
+      "opts": "loop"
+    },
+    {
+      "name": "Walk_InPlace",
+      "set": "xy",
+      "file": "m_walk_neutral_01",
+      "opts": "loop"
+    },
+    {
+      "name": "Run_InPlace",
+      "set": "xy",
+      "file": "m_run_neutral_01",
+      "opts": "loop"
+    },
+    {
+      "name": "Wave",
+      "set": "static",
+      "file": "m_wave_01",
+      "opts": ""
+    },
+    {
+      "name": "Friendly_Wave",
+      "set": "static",
+      "file": "m_wave_02",
+      "opts": ""
+    },
+    {
+      "name": "Talk",
+      "set": "static",
+      "file": "m_gestic_talk_neutral_01",
+      "opts": ""
+    },
+    {
+      "name": "Chat_Gesture",
+      "set": "static",
+      "file": "m_gestic_talk_relaxed_01",
+      "opts": ""
+    },
+    {
+      "name": "Look_Around",
+      "set": "static",
+      "file": "m_idle_look_around_01",
+      "opts": ""
+    },
+    {
+      "name": "Cheer_Clap",
+      "set": "static",
+      "file": "m_cheer_01",
+      "opts": ""
+    },
+    {
+      "name": "Dance",
+      "set": "static",
+      "file": "m_dancing_silly",
+      "opts": ""
+    },
+    {
+      "name": "Laugh",
+      "set": "static",
+      "file": "m_gestic_laugh_loud",
+      "opts": ""
+    },
+    {
+      "name": "Shrug",
+      "set": "static",
+      "file": "m_gestic_shrug_01",
+      "opts": ""
+    },
+    {
+      "name": "Point",
+      "set": "static",
+      "file": "m_gestic_presentation_right_01",
+      "opts": ""
+    },
+    {
+      "name": "Beckon",
+      "set": "static",
+      "file": "m_invite_sit",
+      "opts": ""
+    },
+    {
+      "name": "Swagger_Idle",
+      "set": "static",
+      "file": "m_idle_neutral_03",
+      "opts": "loop"
+    }
+  ]
+}

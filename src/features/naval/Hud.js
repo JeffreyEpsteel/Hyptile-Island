@@ -1,0 +1,323 @@
+// Naval HUD: a hull bar and the two reload indicators while at the helm, offscreen arrows for pirates within
+// 400 m, a hit marker when the player's ball lands and a red wedge toward whoever hit the player.
+// Class prefix `nv-`; the stylesheet is injected once. Colours come from the game's tokens (--tw-*) with fallbacks.
+//
+//   const hud = new NavalHud( { doc: document } );   // doc optional: without a DOM nothing is built (node)
+//   hud.update( model, dt )                           // model from hudModel( naval ) every frame
+//   hud.hitMarker( 'hit' | 'sunk' );  hud.damageFrom( angle )   angle: radians clockwise from screen-up
+//   hud.dispose()
+//
+// Pure helpers (tested in node): arrowFor( camera, point ) and hudModel( naval ).
+//
+// Wave 4: the battery rows say plainly what each side can do - READY or the seconds left, the gun count, and the range to
+// the target the side would fire at ("142 m", "no target") - and the aim assist (AimAssist.js) draws each loaded side's
+// arc, the lead marker, and the hit / short / long / wide line after a broadside. model.aim carries the two aim plans.
+
+import { rotateByQuat } from './Ballistics.js';
+import { AimAssist, aimPlan, AIM_CSS } from './AimAssist.js';
+
+export const ARROW_RANGE = 400;
+const EDGE = 0.07; // screen fraction kept free around the arrows
+
+// Where a world point is on screen. camera: { position, quaternion, fov (deg), aspect }.
+// Returns { visible: bool (on screen), x, y (0..1, clamped to the edge when off screen), angle (rad clockwise from up), behind }
+export function arrowFor( camera, p, out = {} ) {
+
+	const q = camera.quaternion;
+	const rel = rotateByQuat( { x: - q.x, y: - q.y, z: - q.z, w: q.w }, { x: p.x - camera.position.x, y: p.y - camera.position.y, z: p.z - camera.position.z } );
+	const t = Math.tan( ( camera.fov || 60 ) * Math.PI / 360 );
+	const aspect = camera.aspect || 16 / 9;
+	const front = rel.z < - 0.01;
+	if ( front ) {
+
+		const nx = rel.x / ( - rel.z * t * aspect ), ny = rel.y / ( - rel.z * t );
+		if ( Math.abs( nx ) < 0.94 && Math.abs( ny ) < 0.94 ) {
+
+			out.visible = true;
+			out.behind = false;
+			out.x = 0.5 + nx * 0.5;
+			out.y = 0.5 - ny * 0.5;
+			out.angle = 0;
+			return out;
+
+		}
+
+	}
+
+	// off screen: along the direction of the point on the screen plane
+	let dx = rel.x, dy = rel.y;
+	if ( Math.hypot( dx, dy ) < 1e-4 ) { dx = 0; dy = - 1; }
+	const l = Math.hypot( dx, dy );
+	dx /= l; dy /= l;
+	const half = 0.5 - EDGE;
+	const k = Math.min( Math.abs( dx ) > 1e-6 ? half / Math.abs( dx ) : Infinity, Math.abs( dy ) > 1e-6 ? half / Math.abs( dy ) : Infinity );
+	out.visible = false;
+	out.behind = ! front;
+	out.x = 0.5 + dx * k;
+	out.y = 0.5 - dy * k;
+	out.angle = Math.atan2( dx, dy );
+	return out;
+
+}
+
+// What the HUD shows this frame, from the naval instance.
+export function hudModel( naval ) {
+
+	const app = naval.app || {};
+	const h = naval.playerHull;
+	const atHelm = !! ( app.player && app.player.mode === 'boat' );
+	const visible = atHelm && naval.active !== false;
+	// the aim plans (one per side) while at the helm with guns: the same target pick and lead as Naval.fire
+	let aim = null;
+	if ( visible && naval.playerGun.owned && ! h.sunk ) {
+
+		try { aim = [ aimPlan( naval, 'port' ), aimPlan( naval, 'starboard' ) ]; } catch ( e ) { aim = null; }
+
+	}
+
+	const guns = [ 'port', 'starboard' ].map( ( side, i ) => {
+
+		const total = naval.reloadTime( naval.playerGun.level );
+		const left = naval.reloadLeft[ side ];
+		const p = aim && aim[ i ];
+		return {
+			side, key: side === 'port' ? 'Z' : 'X', owned: naval.playerGun.owned, count: Math.max( 1, naval.playerGun.guns | 0 ), ready: left <= 0, frac: left <= 0 ? 1 : 1 - left / total,
+			left: Math.max( 0, left ), range: p && p.inArc ? p.range : null, target: p && p.inArc && p.target ? p.target.name : null,
+		};
+
+	} );
+	const model = {
+		visible,
+		hull: { hp: Math.ceil( h.hp ), max: h.max, frac: h.max > 0 ? h.hp / h.max : 0, low: h.hp / h.max < 0.34, sunk: h.sunk },
+		guns,
+		arrows: [],
+		aim,
+		camera: app.camera || null,
+		features: naval.features || null,
+	};
+	const cam = app.camera;
+	if ( model.visible && cam && cam.position ) {
+
+		const pos = app.boatCtl && app.boatCtl.position ? app.boatCtl.position : cam.position;
+		const reach = typeof naval.sightRange === 'function' ? naval.sightRange() : ARROW_RANGE; // the spyglass module
+		for ( const s of naval.ships ) {
+
+			if ( s.faction !== 'pirate' || ! s.alive ) continue;
+			const d = Math.hypot( s.x - pos.x, s.z - pos.z );
+			if ( d > reach ) continue;
+			const a = arrowFor( cam, { x: s.x, y: s.pose.y + 3, z: s.z } );
+			if ( a.visible ) continue;
+			model.arrows.push( { id: s.id, name: s.bounty ? s.captain : s.cls.label, dist: Math.round( d ), x: a.x, y: a.y, angle: a.angle, hunting: s.state === 'chase' || s.state === 'broadside' } );
+
+		}
+
+	}
+
+	return model;
+
+}
+
+const CSS = `
+.nv-root { position: fixed; left: var(--nv-left, 18px); bottom: var(--nv-bottom, 96px); z-index: 20; display: none; flex-direction: column; gap: 6px; min-width: 190px; pointer-events: none; font: 500 12px var(--tw-font, system-ui, sans-serif); color: var(--tw-ink, #e9eef2); text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6); }
+.nv-root.is-on { display: flex; }
+.nv-hull { display: flex; align-items: center; gap: 8px; }
+.nv-label { letter-spacing: 0.08em; text-transform: uppercase; font-size: 11px; color: var(--tw-ink-3, #9fb0bd); min-width: 34px; }
+.nv-bar { flex: 1; height: 7px; border-radius: 99px; background: var(--tw-fill-2, rgba(255, 255, 255, 0.16)); overflow: hidden; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35); }
+.nv-bar > span { display: block; height: 100%; width: 100%; background: #6fb878; transform-origin: left; transition: background 0.2s; }
+.nv-hull.is-low .nv-bar > span { background: #d9553f; }
+.nv-num { font: 500 12px var(--tw-mono, ui-monospace, monospace); min-width: 30px; text-align: right; }
+.nv-guns { display: flex; gap: 10px; }
+.nv-gun { flex: 1; display: flex; align-items: center; gap: 6px; opacity: 0.85; }
+.nv-gun.is-off { display: none; }
+.nv-gun kbd { font: 600 11px var(--tw-mono, ui-monospace, monospace); padding: 1px 5px; border-radius: 4px; background: rgba(0, 0, 0, 0.45); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.28); }
+.nv-gun i { flex: 1; height: 5px; border-radius: 99px; background: var(--tw-fill-2, rgba(255, 255, 255, 0.16)); overflow: hidden; }
+.nv-gun i > b { display: block; height: 100%; width: 0; background: var(--tw-sun, #f0b44a); }
+.nv-gun.is-ready i > b { background: #8fd18c; }
+.nv-gun em { font: 600 10.5px var(--tw-mono, ui-monospace, monospace); font-style: normal; min-width: 64px; text-align: right; color: var(--tw-ink-3, #9fb0bd); white-space: nowrap; }
+.nv-gun.is-ready em { color: #b8e6b4; }
+.nv-gun.is-target em { color: #ffe08a; }
+.nv-guns { flex-direction: column; gap: 4px; }
+.nv-arrows { position: fixed; inset: 0; z-index: 19; pointer-events: none; }
+.nv-arrow { position: absolute; transform: translate(-50%, -50%); display: flex; flex-direction: column; align-items: center; gap: 2px; font: 600 11px var(--tw-font, system-ui, sans-serif); color: #ffd9d2; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8); }
+.nv-arrow i { width: 0; height: 0; border-left: 9px solid transparent; border-right: 9px solid transparent; border-bottom: 18px solid #e0573f; filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.7)); }
+.nv-arrow.is-hunting i { border-bottom-color: #ff3b2a; }
+.nv-hit { position: fixed; left: 50%; top: 50%; width: 34px; height: 34px; margin: -17px 0 0 -17px; z-index: 21; pointer-events: none; opacity: 0; }
+.nv-hit::before, .nv-hit::after { content: ''; position: absolute; left: 50%; top: 0; width: 3px; height: 100%; margin-left: -1.5px; background: #fff; transform: rotate(45deg); border-radius: 2px; }
+.nv-hit::after { transform: rotate(-45deg); }
+.nv-hit.is-sunk::before, .nv-hit.is-sunk::after { background: #ffd24a; }
+.nv-dmg { position: fixed; inset: 0; z-index: 21; pointer-events: none; opacity: 0; }
+.nv-dmg > b { position: absolute; left: 50%; top: 5%; width: 38vmin; height: 12px; margin-left: -19vmin; border-radius: 99px; background: radial-gradient(closest-side, rgba(224, 40, 28, 0.95), rgba(224, 40, 28, 0)); transform-origin: 50% 45vh; }
+@media (prefers-reduced-motion: reduce) { .nv-bar > span { transition: none; } }
+${ AIM_CSS }`;
+
+let cssDone = false;
+
+export class NavalHud {
+
+	constructor( { doc = typeof document !== 'undefined' ? document : null } = {} ) {
+
+		this.doc = doc;
+		this.arrows = new Map();
+		this.hitT = 0;
+		this.dmgT = 0;
+		this.dmgAngle = 0;
+		this.root = null;
+		if ( ! doc ) return;
+		if ( ! cssDone ) {
+
+			const style = doc.createElement( 'style' );
+			style.id = 'nv-style';
+			style.textContent = CSS;
+			( doc.head || doc.body ).append( style );
+			cssDone = true;
+
+		}
+
+		const make = ( tag, cls, parent, text ) => {
+
+			const e = doc.createElement( tag );
+			if ( cls ) e.className = cls;
+			if ( text !== undefined ) e.textContent = text;
+			if ( parent ) parent.append( e );
+			return e;
+
+		};
+
+		this._make = make;
+		this.root = make( 'div', 'nv-root' );
+		this.hullRow = make( 'div', 'nv-hull', this.root );
+		make( 'span', 'nv-label', this.hullRow, 'Hull' );
+		const bar = make( 'span', 'nv-bar', this.hullRow );
+		this.hullFill = make( 'span', '', bar );
+		this.hullNum = make( 'b', 'nv-num', this.hullRow, '' );
+		this.gunRow = make( 'div', 'nv-guns', this.root );
+		this.gunEls = {};
+		for ( const [ side, key, label ] of [ [ 'port', 'Z', 'Port' ], [ 'starboard', 'X', 'Stbd' ] ] ) {
+
+			const g = make( 'div', 'nv-gun', this.gunRow );
+			make( 'kbd', '', g, key );
+			const name = make( 'span', '', g, label );
+			const i = make( 'i', '', g );
+			const fill = make( 'b', '', i );
+			this.gunEls[ side ] = { root: g, fill, name, label, status: make( 'em', '', g, '' ) };
+
+		}
+
+		this.arrowLayer = make( 'div', 'nv-arrows' );
+		this.hitEl = make( 'div', 'nv-hit' );
+		this.dmgEl = make( 'div', 'nv-dmg' );
+		this.dmgWedge = make( 'b', '', this.dmgEl );
+		const body = doc.body;
+		body.append( this.root, this.arrowLayer, this.hitEl, this.dmgEl );
+		this.aim = new AimAssist( { doc, css: false } );
+
+	}
+
+	hitMarker( kind = 'hit' ) {
+
+		this.hitT = 0.28;
+		this.hitKind = kind;
+
+	}
+
+	damageFrom( angle ) {
+
+		this.dmgT = 1.1;
+		this.dmgAngle = angle;
+
+	}
+
+	update( model, dt = 0.016 ) {
+
+		if ( ! this.root ) return;
+		const on = !! model.visible;
+		this.root.classList.toggle( 'is-on', on );
+		this.arrowLayer.style.display = on ? '' : 'none';
+		if ( on ) {
+
+			const h = model.hull;
+			this.hullFill.style.transform = `scaleX(${ Math.max( 0, Math.min( 1, h.frac ) ).toFixed( 3 ) })`;
+			this.hullRow.classList.toggle( 'is-low', h.low );
+			this.hullNum.textContent = h.sunk ? 'Sunk' : String( h.hp );
+			for ( const g of model.guns ) {
+
+				const e = this.gunEls[ g.side ];
+				const text = g.count > 1 ? `${ e.label } x${ g.count }` : e.label; // a ship's broadside: "Port x4"
+				if ( e.name.textContent !== text ) e.name.textContent = text;
+				e.root.classList.toggle( 'is-off', ! g.owned );
+				e.root.classList.toggle( 'is-ready', g.ready );
+				e.root.classList.toggle( 'is-target', g.ready && g.range !== null && g.range !== undefined );
+				e.fill.style.width = ( g.frac * 100 ).toFixed( 0 ) + '%';
+				// READY / seconds left, and the range to what this side would hit
+				const st = ( g.ready ? 'READY' : `${ ( g.left || 0 ).toFixed( 1 ) } s` ) + ( g.range !== null && g.range !== undefined ? ` · ${ g.range } m` : '' );
+				if ( e.status && e.status.textContent !== st ) e.status.textContent = st;
+
+			}
+
+			const seen = new Set();
+			for ( const a of model.arrows ) {
+
+				seen.add( a.id );
+				let e = this.arrows.get( a.id );
+				if ( ! e ) {
+
+					const root = this._make( 'div', 'nv-arrow', this.arrowLayer );
+					e = { root, tri: this._make( 'i', '', root ), label: this._make( 'span', '', root, '' ) };
+					this.arrows.set( a.id, e );
+
+				}
+
+				e.root.style.left = ( a.x * 100 ).toFixed( 1 ) + '%';
+				e.root.style.top = ( a.y * 100 ).toFixed( 1 ) + '%';
+				e.tri.style.transform = `rotate(${ a.angle.toFixed( 3 ) }rad)`;
+				e.label.textContent = `${ a.dist } m`;
+				e.root.classList.toggle( 'is-hunting', a.hunting );
+
+			}
+
+			for ( const [ id, e ] of this.arrows ) {
+
+				if ( seen.has( id ) ) continue;
+				e.root.remove();
+				this.arrows.delete( id );
+
+			}
+
+		}
+
+		if ( this.aim ) {
+
+			if ( model.features ) this.aim.bind( model.features );
+			this.aim.update( on ? model.aim : null, model.camera, arrowFor, dt );
+
+		}
+
+		if ( this.hitT > 0 ) {
+
+			this.hitT -= dt;
+			this.hitEl.style.opacity = String( Math.max( 0, this.hitT / 0.28 ) );
+			this.hitEl.classList.toggle( 'is-sunk', this.hitKind === 'sunk' );
+
+		} else if ( this.hitEl.style.opacity !== '0' ) this.hitEl.style.opacity = '0';
+
+		if ( this.dmgT > 0 ) {
+
+			this.dmgT -= dt;
+			this.dmgEl.style.opacity = String( Math.max( 0, Math.min( 1, this.dmgT / 0.6 ) ) );
+			this.dmgWedge.style.transform = `rotate(${ this.dmgAngle.toFixed( 3 ) }rad)`;
+
+		} else if ( this.dmgEl.style.opacity !== '0' ) this.dmgEl.style.opacity = '0';
+
+	}
+
+	dispose() {
+
+		if ( ! this.root ) return;
+		if ( this.aim ) this.aim.dispose();
+		for ( const el of [ this.root, this.arrowLayer, this.hitEl, this.dmgEl ] ) el.remove();
+		this.arrows.clear();
+		this.root = null;
+
+	}
+
+}
