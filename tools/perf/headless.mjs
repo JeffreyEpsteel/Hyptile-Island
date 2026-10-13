@@ -54,12 +54,12 @@ function dawnFlags() {
 
 const env = await installEnv( { search, width: W, height: H, power: arg( 'power', 'high-performance' ), flags: dawnFlags(), dawnDir: arg( 'dawn' ) } );
 if ( process.argv.includes( '--baseline' ) ) globalThis.__perfBaseline = true; // (read by the engine as it is built)
-if ( process.argv.includes( '--mem-top' ) ) globalThis.__gpuMemTrack = true; // (GPU._memTop(): live allocations by label)
 // --real-sizes: decoded images keep their real width / height (grey pixels; --mobile caps them at the phone's 512 px like
 // core/Quality.js installTextureCap) so GPU.memory counts the textures a browser would upload, not 2x2 stand-ins
 if ( process.argv.includes( '--real-sizes' ) ) {
 
 	const cap = process.argv.includes( '--mobile' ) ? 512 : Infinity;
+	if ( process.argv.includes( '--mobile' ) && ! globalThis.__phoneBudget ) globalThis.__phoneBudget = { textureMax: 512, charTexture: 256, propTexture: 256, terrainTexture: 1024, impostorFrame: 64, shadowSize: 512, animatedResidents: 6, marine: false, debrisScale: 0.5, canvasDpr: 1.5, minimapBake: 512, worldMapBake: 1024 };
 	if ( cap < Infinity ) globalThis.__assetImageCap = cap; // (the phone's decode queue and foam size too)
 	const dims = ( b ) => {
 
@@ -206,7 +206,17 @@ if ( bootArg ) {
 	const out = app.sceneRenderer && app.sceneRenderer.sceneRT;
 	console.log( `  canvas ${ app.engine.width }x${ app.engine.height } · scene ${ out ? out.width + 'x' + out.height : '?' } · render scale ${ app.settings.renderScale }` );
 	// the biggest allocations still alive (labels), for the phone budget
-	if ( process.argv.includes( '--mem-top' ) && GPU._memTop ) console.log( GPU._memTop() );
+	// --mem-top[=n]: the biggest live textures and buffers by label (GPU.memTop)
+	const topArg = process.argv.find( ( a ) => a.startsWith( '--mem-top' ) );
+	if ( topArg ) {
+
+		const n = Number( topArg.split( '=' )[ 1 ] ) || 25;
+		console.log( 'textures:' );
+		console.log( GPU.memTopText( n, 'texture' ) );
+		console.log( 'buffers:' );
+		console.log( GPU.memTopText( n, 'buffer' ) );
+
+	}
 	for ( const e of gpuErrors.slice( 0, 12 ) ) console.log( `GPU ${ e.kind } [${ e.stage }]${ e.label ? ' ' + e.label : '' }: ${ e.message.split( '\n' )[ 0 ] }` );
 	console.log( gpuErrors.length ? `boot FAILED: ${ gpuErrors.length } GPU errors` : 'boot ok: no GPU errors' );
 	process.exit( gpuErrors.length ? 1 : 0 );

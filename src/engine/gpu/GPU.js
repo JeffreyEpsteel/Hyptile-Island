@@ -209,35 +209,24 @@ export const GPU = {
 
 	},
 
-	// Sum what createBuffer / createTexture allocate (destroy() subtracts): GPU.memory, the phone budget.
+	// Sum what createBuffer / createTexture allocate (destroy() subtracts): GPU.memory, the phone budget, and the live
+	// totals per label (digits folded: 'char12' -> 'char#'; no references to the objects) for GPU.memTop().
 	_countAllocations( device ) {
 
 		const mem = this.memory;
 		const sizes = this._sizes = new WeakMap();
+		const byLabel = this._byLabel = new Map();
 		const cb = device.createBuffer, ct = device.createTexture;
-		// globalThis.__gpuMemTrack (headless runs): every live allocation by label, GPU._memTop() lists the biggest
-		const live = globalThis.__gpuMemTrack ? new Map() : null;
 		const add = ( key, n, obj, label ) => {
 
 			mem[ key ] += n;
 			if ( mem.total > mem.peak ) mem.peak = mem.total;
-			if ( live ) live.set( obj, { label: label || '(no label)', n } );
-
-		};
-		if ( live ) this._memTop = ( count = 25 ) => {
-
-			const by = new Map();
-			for ( const { label, n } of live.values() ) {
-
-				const k = label.replace( /\d+/g, '#' );
-				const e = by.get( k ) || { n: 0, c: 0 };
-				e.n += n;
-				e.c ++;
-				by.set( k, e );
-
-			}
-
-			return [ ...by ].sort( ( a, b ) => b[ 1 ].n - a[ 1 ].n ).slice( 0, count ).map( ( [ k, e ] ) => `  ${ ( e.n / 1048576 ).toFixed( 1 ).padStart( 7 ) } MB  x${ e.c }  ${ k }` ).join( '\n' );
+			const k = ( key === 'buffers' ? 'buffer ' : 'texture ' ) + String( label || '(no label)' ).replace( /\d+/g, '#' ).slice( 0, 60 );
+			const e = byLabel.get( k ) || { n: 0, c: 0 };
+			e.n += n;
+			e.c ++;
+			byLabel.set( k, e );
+			sizes.set( obj, { key, n, k } );
 
 		};
 
@@ -246,9 +235,7 @@ export const GPU = {
 			device.createBuffer = function ( d ) {
 
 				const b = cb.call( this, d );
-				const n = ( d && d.size ) || 0;
-				sizes.set( b, { key: 'buffers', n } );
-				add( 'buffers', n, b, d && d.label );
+				add( 'buffers', ( d && d.size ) || 0, b, d && d.label );
 				mem.bufferCount ++;
 				return b;
 
@@ -257,9 +244,7 @@ export const GPU = {
 			device.createTexture = function ( d ) {
 
 				const t = ct.call( this, d );
-				const n = textureBytes( d || {} );
-				sizes.set( t, { key: 'textures', n } );
-				add( 'textures', n, t, d && d.label );
+				add( 'textures', textureBytes( d || {} ), t, d && d.label );
 				mem.textureCount ++;
 				return t;
 
@@ -271,13 +256,14 @@ export const GPU = {
 				const destroy = C.prototype.destroy;
 				C.prototype.destroy = function () {
 
-					const s = sizes.get( this );
+					const s = GPU._sizes && GPU._sizes.get( this );
 					if ( s ) {
 
-						sizes.delete( this );
-						if ( live ) live.delete( this );
+						GPU._sizes.delete( this );
 						mem[ s.key ] -= s.n;
 						mem[ s.key === 'buffers' ? 'bufferCount' : 'textureCount' ] --;
+						const e = GPU._byLabel.get( s.k );
+						if ( e ) { e.n -= s.n; e.c --; if ( e.c <= 0 ) GPU._byLabel.delete( s.k ); }
 
 					}
 
@@ -294,6 +280,21 @@ export const GPU = {
 			console.warn( 'GPU allocation counter unavailable', e );
 
 		}
+
+	},
+
+	// the biggest live allocations: [ { label: 'texture char#', mb, count } ] (kind: 'texture' | 'buffer' | null for both)
+	memTop( count = 5, kind = null ) {
+
+		if ( ! this._byLabel ) return [];
+		return [ ...this._byLabel ].filter( ( [ k ] ) => ! kind || k.startsWith( kind ) ).sort( ( a, b ) => b[ 1 ].n - a[ 1 ].n ).slice( 0, count )
+			.map( ( [ label, e ] ) => ( { label, mb: Math.round( e.n / 104857.6 ) / 10, count: e.c } ) );
+
+	},
+
+	memTopText( count = 25, kind = null ) {
+
+		return this.memTop( count, kind ).map( ( e ) => `  ${ e.mb.toFixed( 1 ).padStart( 7 ) } MB  x${ e.count }  ${ e.label }` ).join( '\n' );
 
 	},
 

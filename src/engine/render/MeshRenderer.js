@@ -37,6 +37,31 @@ const _camPos = new Vector3();
 const _viewPos = new Vector3(); // the last main view's camera (distance culls in shadow passes too)
 const _o = new Vector3();
 
+// packed buffers and index buffers shared between geometries that hold the same static attribute objects
+const _sharedPacked = new WeakMap(); // first attribute object -> Map( layout key -> { buf, attrs } )
+const _sharedIndex = new WeakMap(); // index attribute -> { src, rec, ref }
+function sharedPackedGet( vb ) {
+
+	const a0 = vb.attrs[ 0 ] && vb.attrs[ 0 ].attr;
+	if ( ! a0 ) return null;
+	for ( const x of vb.attrs ) if ( ( x.attr.version ?? 0 ) !== 0 ) return null;
+	const m = _sharedPacked.get( a0 ), e = m && m.get( vb.key );
+	if ( ! e || e.attrs.length !== vb.attrs.length ) return null;
+	for ( let i = 0; i < e.attrs.length; i ++ ) if ( e.attrs[ i ] !== vb.attrs[ i ].attr ) return null;
+	e.buf.shared = ( e.buf.shared || 1 ) + 1;
+	return e.buf;
+
+}
+function sharedPackedSet( vb, buf ) {
+
+	const a0 = vb.attrs[ 0 ] && vb.attrs[ 0 ].attr;
+	if ( ! a0 ) return;
+	for ( const x of vb.attrs ) if ( ( x.attr.version ?? 0 ) !== 0 ) return;
+	let m = _sharedPacked.get( a0 );
+	if ( ! m ) _sharedPacked.set( a0, m = new Map() );
+	m.set( vb.key, { buf, attrs: vb.attrs.map( ( x ) => x.attr ) } );
+
+}
 const _layouts = new WeakMap();
 let _listToken = 0; // one per drawItems call (see BindingSet.getBindGroup)
 // GPU pipelines by shader module + bind group layouts + fixed-function state (shared across materials)
@@ -162,8 +187,8 @@ export class MeshRenderer {
 			if ( geometry.addEventListener ) geometry.addEventListener( 'dispose', () => {
 
 				for ( const b of g.buffers.values() ) b.buffer.destroy();
-				if ( g.packed ) for ( const b of g.packed.values() ) b.destroy();
-				if ( g.index ) g.index.buffer.destroy();
+				if ( g.packed ) for ( const b of g.packed.values() ) { if ( b.shared > 1 ) b.shared --; else b.destroy(); } // (shared with another geometry: it keeps it)
+				if ( g.index ) { if ( g.index.shared > 1 ) g.index.shared --; else g.index.buffer.destroy(); }
 				this.geometries.delete( geometry );
 
 			} );
@@ -188,7 +213,7 @@ export class MeshRenderer {
 		if ( ! b || b.size < conv.byteLength ) {
 
 			if ( b ) b.buffer.destroy();
-			b = { buffer: GPU.device.createBuffer( { label: attr.name || 'attribute', size: Math.max( 16, align4( conv.byteLength ) ), usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST } ), size: conv.byteLength, version: - 1 };
+			b = { buffer: GPU.device.createBuffer( { label: ( geometry.__label ? geometry.__label + ': ' : '' ) + ( attr.name || 'attribute' ), size: Math.max( 16, align4( conv.byteLength ) ), usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST } ), size: conv.byteLength, version: - 1 };
 			g.buffers.set( src, b );
 
 		}
@@ -218,12 +243,20 @@ export class MeshRenderer {
 
 	}
 
-	// the interleaved buffer of a packed layout entry (built once); an attribute updated since unpacks the geometry
+	// the interleaved buffer of a packed layout entry (built once); an attribute updated since unpacks the geometry.
+	// Geometries that share their attribute objects (the village: one vertex set, five draw ranges) share the packed
+	// buffer too (sharedPackedGet): 60 MB -> 12 MB on the home island.
 	_packedBuffer( geometry, vb ) {
 
 		const g = this._geometryGPU( geometry );
 		const map = g.packed || ( g.packed = new Map() );
 		let buf = map.get( vb.key );
+		if ( ! buf ) {
+
+			const sh = sharedPackedGet( vb );
+			if ( sh ) { map.set( vb.key, sh ); return sh; }
+
+		}
 		for ( const x of vb.attrs ) if ( ( x.attr.version ?? 0 ) !== 0 || geometry.attributes[ x.name ] !== x.attr ) {
 
 			geometry.__unpack = true; // (this draw still uses the packed data; the next frame's layout reads them one by one)
@@ -249,9 +282,10 @@ export class MeshRenderer {
 
 		}
 
-		buf = GPU.device.createBuffer( { label: 'packed ' + vb.key, size: out.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST } );
+		buf = GPU.device.createBuffer( { label: ( geometry.__label ? geometry.__label + ': ' : '' ) + 'packed ' + vb.key, size: out.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST } );
 		GPU.queue.writeBuffer( buf, 0, out );
 		map.set( vb.key, buf );
+		sharedPackedSet( vb, buf );
 		return buf;
 
 	}
@@ -262,11 +296,18 @@ export class MeshRenderer {
 		if ( ! index ) return null;
 		const g = this._geometryGPU( geometry );
 		if ( g.indexRef && g.indexSrc === index.array && g.indexVersion === ( index.version ?? 0 ) ) return g.indexRef;
+		// a static index attribute shared by several geometries (draw ranges of one vertex set) uploads once
+		if ( ! ( index.version ?? 0 ) && ! g.index ) {
+
+			const sh = _sharedIndex.get( index );
+			if ( sh && sh.src === index.array ) { g.index = sh.rec; g.indexVersion = 0; g.indexSrc = index.array; g.indexRef = sh.ref; sh.rec.shared = ( sh.rec.shared || 1 ) + 1; return sh.ref; }
+
+		}
 		const arr = index.array instanceof Uint16Array || index.array instanceof Uint32Array ? index.array : new Uint32Array( index.array );
 		if ( ! g.index || g.index.size < arr.byteLength ) {
 
-			if ( g.index ) g.index.buffer.destroy();
-			g.index = { buffer: GPU.device.createBuffer( { label: 'index', size: Math.max( 16, align4( arr.byteLength ) ), usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST } ), size: arr.byteLength };
+			if ( g.index ) { if ( g.index.shared > 1 ) g.index.shared --; else g.index.buffer.destroy(); }
+			g.index = { buffer: GPU.device.createBuffer( { label: ( geometry.__label ? geometry.__label + ': ' : '' ) + 'index', size: Math.max( 16, align4( arr.byteLength ) ), usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST } ), size: arr.byteLength };
 			g.indexVersion = - 1;
 
 		}
@@ -280,6 +321,7 @@ export class MeshRenderer {
 
 		g.indexSrc = index.array;
 		g.indexRef = { buffer: g.index.buffer, format: arr instanceof Uint16Array ? 'uint16' : 'uint32' };
+		if ( ! ( index.version ?? 0 ) ) _sharedIndex.set( index, { src: index.array, rec: g.index, ref: g.indexRef } );
 		return g.indexRef;
 
 	}
@@ -759,6 +801,8 @@ export class MeshRenderer {
 			// (redundant vertex / index buffer binds are skipped: each call into the GPU process costs as much as a draw)
 			off[ 0 ] = this._slot( o ) * DRAW_STRIDE;
 			rp.setBindGroup( 2, this.drawBindGroup, off, 0, 1 );
+			// who owns the buffers (GPU.memTop: the phone budget names its biggest meshes)
+			if ( geo.__label === undefined ) geo.__label = geo.name || o.name || ( o.parent && o.parent.name ) || material.name || '';
 			for ( let i = 0; i < vl.buffers.length; i ++ ) {
 
 				const vb = vl.buffers[ i ];

@@ -42,6 +42,37 @@ const SUN_DT0 = 6;
 const SUN_GROWTH = 1.22;
 const SUN_STEPS = 24; // reaches ~3 km
 
+// the terrain's height texture is shared with the grass field (same data, same format): one 16 MB r32float, not two
+const _heightTex = new WeakMap();
+export function sharedHeightTexture( heights, res ) {
+
+	let t = _heightTex.get( heights );
+	if ( ! t ) _heightTex.set( heights, t = dataTexture( heights, res, res, 'r32float', 'terrainHeights' ) );
+	return t;
+
+}
+
+// rgba8 maps halved (box filter) until they fit `max` px: the phone budget's terrain maps
+function shrinkRGBA( data, res, max ) {
+
+	while ( res > max ) {
+
+		const r = res >> 1, out = new Uint8Array( r * r * 4 );
+		for ( let y = 0; y < r; y ++ ) for ( let x = 0; x < r; x ++ ) for ( let c = 0; c < 4; c ++ ) {
+
+			const i = ( ( 2 * y ) * res + 2 * x ) * 4 + c;
+			out[ ( y * r + x ) * 4 + c ] = ( data[ i ] + data[ i + 4 ] + data[ i + res * 4 ] + data[ i + res * 4 + 4 ] + 2 ) >> 2;
+
+		}
+
+		data = out; res = r;
+
+	}
+
+	return [ data, res ];
+
+}
+
 function dataTexture( data, width, height, format, label, mips = false ) {
 
 	const tex = new Texture( { label, width, height, format, mips, usage: [ 'sample', 'copyDst' ], data } );
@@ -60,12 +91,15 @@ export class TerrainGPU {
 		const t0 = performance.now();
 
 		// heights: R32F, loaded with manual bilinear filtering (no sampler / float filtering needed)
-		this.heightTexture = dataTexture( terrain.heights, res, res, 'r32float', 'terrainHeights' );
+		this.heightTexture = sharedHeightTexture( terrain.heights, res );
 
 		const maps = bakeTerrainMaps( terrain );
 		// trilinear, clamp to edge (smpLinearClamp), linear data (no colour space)
-		this.normalTexture = dataTexture( maps.normal, res, res, 'rgba8unorm', 'terrainNormalRockAO', true );
-		this.splatTexture = dataTexture( maps.splat, res, res, 'rgba8unorm', 'terrainSplat', true );
+		// phones: the normal / splat maps at the budget's size (1024: 21 MB -> 5 MB each; sampled by uv, so the res is free)
+		const tmax = ( globalThis.__phoneBudget && globalThis.__phoneBudget.terrainTexture ) || res;
+		const [ nData, nRes ] = shrinkRGBA( maps.normal, res, tmax ), [ sData, sRes ] = shrinkRGBA( maps.splat, res, tmax );
+		this.normalTexture = dataTexture( nData, nRes, nRes, 'rgba8unorm', 'terrainNormalRockAO', true );
+		this.splatTexture = dataTexture( sData, sRes, sRes, 'rgba8unorm', 'terrainSplat', true );
 		this.detailTexture = getDetailTexture();
 
 		// coarse heights for the sun shadow march (half float is filterable everywhere)

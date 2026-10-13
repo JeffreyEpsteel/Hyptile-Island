@@ -2,7 +2,7 @@ import { Group } from '../scene/Group.js';
 import { Mesh } from '../scene/Mesh.js';
 import { BufferGeometry } from '../geometry/BufferGeometry.js';
 import { BufferAttribute } from '../geometry/BufferAttribute.js';
-import { Texture, StorageBuffer } from '../gpu/Texture.js';
+import { Texture, StorageBuffer, capImage } from '../gpu/Texture.js';
 import { generateMipmaps } from '../gpu/Mipmaps.js';
 import { Material } from './Material.js';
 import { decodeImage } from '../loaders/GLTF.js';
@@ -280,7 +280,9 @@ export class SkinnedModel {
 			if ( ! texCache.has( key ) ) {
 
 				const im = g.images[ src ];
-				const px = await decodeImage( im.bytes, im.mimeType );
+				let px = await decodeImage( im.bytes, im.mimeType );
+				const pb = globalThis.__phoneBudget; // phones: 256 px character maps (56 maps: 75 MB -> 19 MB)
+				if ( pb && pb.charTexture ) px = capImage( px, pb.charTexture );
 				const t = new Texture( { label: 'char' + src, width: px.width, height: px.height, format: srgb ? 'rgba8unorm-srgb' : 'rgba8unorm', data: px.data, mips: true, usage: [ 'sample', 'copyDst' ], sampler: 'anisoRepeat' } );
 				t.getGPU();
 				generateMipmaps( t );

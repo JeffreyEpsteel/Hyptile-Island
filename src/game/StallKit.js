@@ -2,7 +2,7 @@ import {
 	BufferGeometry, Float32BufferAttribute, Uint32BufferAttribute, Matrix4, Matrix3, Vector3, Quaternion, Euler,
 	CylinderGeometry, TorusGeometry, SphereGeometry, LatheGeometry, Vector2,
 } from '../engine/index.js';
-import { Texture } from '../engine/gpu/Texture.js';
+import { Texture, capImage } from '../engine/gpu/Texture.js';
 import { generateMipmaps } from '../engine/gpu/Mipmaps.js';
 import { commonModule } from '../engine/render/wgsl/common.js';
 import { ShaderModule } from '../engine/gpu/Shader.js';
@@ -61,6 +61,8 @@ async function pixels( url ) {
 // one texture array from same-sized images
 function arrayTexture( label, imgs, srgb ) {
 
+	const pb = globalThis.__phoneBudget; // phones: 256 px layers (three 20 MB arrays -> 5 MB each)
+	if ( pb && pb.propTexture ) imgs = imgs.map( ( im ) => capImage( im, pb.propTexture ) );
 	const w = imgs[ 0 ].width, h = imgs[ 0 ].height;
 	const data = new Uint8Array( w * h * 4 * imgs.length );
 	imgs.forEach( ( im, i ) => {

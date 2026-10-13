@@ -1,4 +1,5 @@
 import './core/BenchSeed.js';
+import './core/Quality.js'; // sets the phone budget before any loader runs
 import { installErrorLog } from './core/ErrorLog.js';
 const errorLog = installErrorLog(); // the in-game error log (F8) catches everything from here on
 import { crewCodeFromLocation } from './net/NetClient.js';
@@ -183,7 +184,8 @@ function startGame() {
 	window.addEventListener( 'pagehide', () => crumb( { ok: true, closed: true } ) );
 
 	// the last visit's start did not finish (the tab was ended: on iOS usually memory): say where, once
-	if ( lastBoot && ! lastBoot.ok && lastBoot.stage ) {
+	// (only a start that had reached the game or the shader compile: a tab closed during the loading stages is normal)
+	if ( lastBoot && ! lastBoot.ok && lastBoot.stage && ( lastBoot.frame > 0 || /shader/i.test( lastBoot.stage ) ) ) {
 
 		setTimeout( () => fail( 'The last start did not finish',
 			`It stopped during "${ lastBoot.stage }"${ lastBoot.compiling && /shader/i.test( lastBoot.stage ) ? ` while compiling #${ lastBoot.compileIndex } "${ lastBoot.compiling }"` : '' } (GPU memory ${ lastBoot.gpuMB } MB, frame ${ lastBoot.frame }${ lastBoot.error ? ', ' + lastBoot.error : '' }). If the page crashed or reloaded by itself, copy this and send it to us.`,

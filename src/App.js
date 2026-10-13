@@ -340,11 +340,12 @@ fn terrainWetness( xz: vec2f, h: f32 ) -> vec2f {
 		this.boatCtl = new BoatController( { model: this.boat, query: this.query, terrain: this.terrainData, colliders: this.colliders } );
 		this.boatSpray = new BoatSpray( { boat: this.boatCtl, spray: this.spray } );
 		// humpback cruising the deep water around the island (model fetched from public/models/whale)
-		this.whale = new Whale( { scene, terrain: this.terrainData, query: this.query, spray: this.spray } );
+		// (phones skip the whale: its model and maps against the memory budget)
+		this.whale = globalThis.__phoneBudget && globalThis.__phoneBudget.marine === false ? null : new Whale( { scene, terrain: this.terrainData, query: this.query, spray: this.spray } );
 		try {
 
-			await this.whale.load();
-			if ( this.reef && this.reef.setWhale ) this.reef.setWhale( this.whale ); // escort fish, foam and slick
+			await this.whale?.load();
+			if ( this.whale && this.reef && this.reef.setWhale ) this.reef.setWhale( this.whale ); // escort fish, foam and slick
 
 		} catch ( e ) {
 
@@ -1141,7 +1142,7 @@ fn terrainWetness( xz: vec2f, h: f32 ) -> vec2f {
 		this.village.update( dt );
 		if ( this.residents ) this.residents.update( dt, this.freeCam ? this.camera.position : this.player );
 		if ( this.vegetation ) this.vegetation.update( dt, this.camera );
-		if ( this.whale ) this.whale.update( dt, this.camera );
+		if ( this.whale ) this.whale?.update( dt, this.camera );
 		this.boat.update( dt );
 		this.wildlife.update( dt, this.camera, this.freeCam ? null : this.player );
 		this.localLights.update( this.camera, dt );

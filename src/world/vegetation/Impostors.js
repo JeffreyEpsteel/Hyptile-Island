@@ -24,7 +24,9 @@ const BLEND_DIST = 100; // m: three-frame blending within, nearest frame beyond
 const THIN = [ 140, 320 ]; // m: distance range over which the forest is thinned
 const THIN_FRACTION = 0.5; // share of the crowns removed at the far end
 const SHRUB_MAX = 180; // m: shrub impostors are dropped beyond (too small to matter)
-const FRAME_PX = 128;
+const FRAME_PX_DESKTOP = 128;
+// phones: 64 px frames (the three atlases: 41 MB -> 10 MB)
+const framePx = () => ( globalThis.__phoneBudget && globalThis.__phoneBudget.impostorFrame ) || FRAME_PX_DESKTOP;
 
 // hemi-octahedral decode: (u, v) in [-1, 1]^2 -> unit direction with y >= 0
 export function octDecode( u, v, out = new THREE.Vector3() ) {
@@ -74,6 +76,7 @@ export class ImpostorAtlas {
 		}
 
 		this.variantCount = v;
+		const FRAME_PX = framePx();
 		const W = v * OCT_N * FRAME_PX, H = OCT_N * FRAME_PX;
 		const make = ( name ) => {
 

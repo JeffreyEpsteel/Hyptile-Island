@@ -58,7 +58,7 @@ export const TIERS = {
 export const MOBILE = {
 	// textureMax 512 on phones: the roster's 56 character maps were 299 MB of GPU memory at 1024 (75 MB at 512; a
 	// character fills a few hundred pixels of a phone's internal resolution); the whole game measured ~1.07 GB at 1024
-	phone: { tier: 'low', ceiling: 'medium', maxScale: 0.75, shadowSize: 1024, shadowReach: 0.6, periods: [ 1, 6, 12 ], particles: 0.6, lights: 3, draw: 0.8, residents: 0.7, fx: 'low', textureMax: 512 },
+	phone: { tier: 'low', ceiling: 'medium', maxScale: 0.75, shadowSize: 512, shadowReach: 0.6, periods: [ 1, 6, 12 ], particles: 0.6, lights: 3, draw: 0.8, residents: 0.7, fx: 'low', textureMax: 512 },
 	tablet: { tier: 'low', ceiling: 'high', maxScale: 0.85, shadowSize: 1024, shadowReach: 0.8, periods: [ 1, 4, 8 ], particles: 0.8, lights: 4, draw: 0.9, residents: 0.85, fx: null, textureMax: 2048 },
 	tabletM: { tier: 'medium', ceiling: 'high', maxScale: 0.85, shadowSize: 1024, shadowReach: 0.8, periods: [ 1, 4, 8 ], particles: 0.8, lights: 4, draw: 0.9, residents: 0.85, fx: null, textureMax: 2048 },
 };
@@ -120,13 +120,41 @@ export function installTextureCap( max = 1024 ) {
 
 }
 
-// at import (before the first GLB loads): a phone gets the cap unless the URL says ?tex=full
-if ( typeof window !== 'undefined' && typeof location !== 'undefined' && ! /[?&]tex=full\b/.test( location.search ) ) {
+// The phone's memory budget (wave 7: iOS ended the tab at ~770 MB of GPU memory on an iPhone 17 Pro; the aim is <= 400 MB
+// GPU and a small JS heap). Systems read globalThis.__phoneBudget (null off phones) as they are built: no import needed,
+// so root-owned and data files can use it too. Inventory and numbers: docs/PERF.md, `tools/perf/headless.mjs --mobile --mem-top`.
+export const PHONE_BUDGET = {
+	textureMax: 512, // every decoded GLB / prop image (installTextureCap)
+	charTexture: 256, // skinned characters' maps (the roster's 56 maps: 75 MB at 512, 19 MB at 256)
+	propTexture: 256, // static GLBs (boats, props, fleet) and the harbour stalls' texture arrays
+	terrainTexture: 1024, // terrain normal / splat maps (2048 on desktop)
+	impostorFrame: 64, // vegetation impostor frame px (128 on desktop)
+	shadowSize: 512, // per cascade
+	animatedResidents: 6, // skinned residents animated / drawn at once; the rest hidden
+	marine: false, // whale, dolphins, fish schools
+	debrisScale: 0.5, // scattered nature (driftwood, pebbles, wrack) count
+	canvasDpr: 1.5, // HUD canvases' pixel ratio cap
+	minimapBake: 512, // the minimap's terrain bake (px)
+	worldMapBake: 1024, // the world map's bake (px, made on first open, freed on close)
+};
+
+// at import (before the first GLB loads): a phone gets the cap unless the URL says ?tex=full; ?phone forces the budget
+if ( typeof window !== 'undefined' && typeof location !== 'undefined' ) {
 
 	const prof = mobileProfile( detectDevice() );
-	if ( prof && prof.textureMax < 2048 ) installTextureCap( prof.textureMax );
+	const forced = /[?&]phone\b/.test( location.search );
+	if ( ( prof === MOBILE.phone || forced ) && ! globalThis.__phoneBudget ) globalThis.__phoneBudget = PHONE_BUDGET;
+	if ( ! /[?&]tex=full\b/.test( location.search ) ) {
+
+		const max = forced ? PHONE_BUDGET.textureMax : prof && prof.textureMax;
+		if ( max && max < 2048 ) installTextureCap( max );
+
+	}
 
 }
+
+// the phone budget value (null off phones)
+export const phoneBudget = ( key ) => ( globalThis.__phoneBudget ? globalThis.__phoneBudget[ key ] : null );
 
 export const STORAGE_KEY = 'hyptile-island.quality';
 export const WINDOW_S = 2;

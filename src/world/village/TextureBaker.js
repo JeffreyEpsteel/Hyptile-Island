@@ -571,6 +571,8 @@ ${ hor }
 // Bake orchestration.
 
 // out: name of the albedo / mask map, nra: name of the normal-roughness-AO map
+// phones bake the 1K sets at 512 (wood / thatch / stone A+N: 32 MB -> 8 MB)
+const phoneSet = ( s ) => globalThis.__phoneBudget && s.w > 512 ? { ...s, w: s.w >> 1, h: s.h >> 1 } : s;
 const SETS = [
 	{ name: 'wood', w: 1024, h: 1024, mx: 2.0, my: 1.0, hs: 0.0022, ao: 1.2, out: 'woodA', nra: 'woodN' },
 	{ name: 'paint', w: 512, h: 512, mx: 1.0, my: 0.5, hs: 0.0016, ao: 0.6, out: null, nra: 'paintN' },
@@ -600,7 +602,9 @@ export class VillageTextures {
 		this.jobs = [];
 		this._bytes = 0;
 
-		for ( const set of SETS ) {
+		for ( const set0 of SETS ) {
+
+			const set = phoneSet( set0 );
 
 			const job = { set, fields: null, albedo: null, nra: null };
 			if ( set.nra ) job.fields = new Texture( { label: 'vlgFields_' + set.name, width: set.w, height: set.h, format: 'rgba16float', usage: [ 'sample', 'storage' ] } );

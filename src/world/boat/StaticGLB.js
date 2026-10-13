@@ -1,6 +1,6 @@
 import { BufferAttribute, BufferGeometry, Color, Group, Matrix3, Matrix4, Mesh, Quaternion, Vector3 } from '../../engine/index.js';
 import { Material } from '../../engine/render/Material.js';
-import { Texture } from '../../engine/gpu/Texture.js';
+import { Texture, capImage } from '../../engine/gpu/Texture.js';
 import { generateMipmaps } from '../../engine/gpu/Mipmaps.js';
 import { loadGLB, decodeImage } from '../../engine/loaders/GLTF.js';
 
@@ -65,7 +65,9 @@ export async function loadStaticGLB( url, { materials = null, shadows = true, pr
 
 			const im = gltf.images[ src ];
 			if ( ! im || ! im.bytes ) return null;
-			const px = await decodeImage( im.bytes, im.mimeType );
+			let px = await decodeImage( im.bytes, im.mimeType );
+			const pb = globalThis.__phoneBudget; // phones: 256 px prop maps
+			if ( pb && pb.propTexture ) px = capImage( px, pb.propTexture );
 			const t = new Texture( { label: 'glb' + src, width: px.width, height: px.height, format: 'rgba8unorm-srgb', data: px.data, mips: true, usage: [ 'sample', 'copyDst' ], sampler: 'anisoRepeat' } );
 			t.getGPU();
 			generateMipmaps( t );

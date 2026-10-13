@@ -20,6 +20,9 @@ import { Dressing } from './Dressing.js';
 
 export function install( app, features, opts = {} ) {
 
+	// phones: no dolphin pods or bait schools (the memory budget)
+	if ( globalThis.__phoneBudget && globalThis.__phoneBudget.marine === false ) opts = { ...opts, dolphins: false, fish: false };
+
 	return new Dressing( app, features, opts );
 
 }

@@ -1,4 +1,5 @@
 import * as THREE from '../../engine/index.js';
+import { sharedHeightTexture } from '../TerrainGPU.js';
 import { Texture } from '../../engine/gpu/Texture.js';
 import { ShaderModule } from '../../engine/gpu/Shader.js';
 import { Material } from '../../engine/render/Material.js';
@@ -406,7 +407,7 @@ export class GrassField {
 		const maskData = mask.data, mres = mask.res;
 
 		// terrain heights (float, loaded + bilinearly filtered manually) and density mask
-		this.heightTex = new Texture( { label: 'grassHeights', width: res, height: res, format: 'r32float', data: terrain.heights } );
+		this.heightTex = sharedHeightTexture( terrain.heights, res ); // the terrain's own height texture (TerrainGPU)
 		// three-style handle: `heightTex.needsUpdate = true` re-uploads terrain.heights (Vegetation.refreshTerrain)
 		Object.defineProperty( this.heightTex, 'needsUpdate', { set: ( v ) => {
 

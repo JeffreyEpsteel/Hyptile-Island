@@ -274,7 +274,7 @@ export class WorldMap {
 
 		const T = this.app.terrainData;
 		if ( ! T || ! Number.isFinite( T.size ) ) return;
-		const n = Math.max( 256, Math.min( 1536, Math.round( T.size * 0.5 ) ) );
+		const n = Math.max( 256, Math.min( globalThis.__phoneBudget ? ( globalThis.__phoneBudget.worldMapBake || 1024 ) : 1536, Math.round( T.size * 0.5 ) ) );
 		this.terrainCanvas.width = this.silCanvas.width = n;
 		this.terrainCanvas.height = this.silCanvas.height = n;
 		this.terrainCanvas.style.width = this.silCanvas.style.width = n + 'px';
