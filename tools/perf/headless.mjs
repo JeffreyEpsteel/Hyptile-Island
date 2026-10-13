@@ -117,6 +117,54 @@ GPU.onError( ( e ) => gpuErrors.push( { ...e, stage } ) );
 const mb = ( n ) => ( n / 1048576 ).toFixed( 1 ) + ' MB';
 const memLine = ( what ) => console.log( `  GPU memory ${ what }: ${ mb( GPU.memory.total ) } (buffers ${ mb( GPU.memory.buffers ) }, textures ${ mb( GPU.memory.textures ) }, peak ${ mb( GPU.memory.peak ) })` );
 // pipeline compiles left (the precompile stage waits for them)
+// --trace-compile[=file]: compiles one at a time like a phone (GPU.compileConcurrency 1) and lists them in start order with
+// their time and WGSL size: the order an iPhone's loader walks (wave 7: it stopped after #113 'final (grade + tonemap)')
+const traceArg = process.argv.find( ( a ) => a === '--trace-compile' || a.startsWith( '--trace-compile=' ) );
+const compiles = [];
+// --mobile: the phone compile settings of main.js (one at a time, 12 s each, the loading frame compiles what it draws)
+if ( process.argv.includes( '--mobile' ) ) {
+
+	GPU.compileConcurrency = 1;
+	GPU.compileTimeout = 12000;
+	GPU.lazyPipelines = ! process.argv.includes( '--no-lazy' );
+
+}
+
+if ( traceArg ) {
+
+	GPU.compileConcurrency = 1;
+	GPU.compileTimeout = Infinity;
+	GPU.onCompileStart = ( label, index, desc ) => {
+
+		const mod = desc && ( desc.compute ? desc.compute.module : desc.vertex && desc.vertex.module );
+		const code = mod ? GPU.moduleSource.get( mod ) : null;
+		compiles.push( { n: compiles.length + 1, index, label, t: performance.now(), ms: 0, chars: code ? code.length : 0, lines: code ? code.split( '\n' ).length : 0, code, stage } );
+
+	};
+	GPU.onCompileEnd = ( label, index ) => {
+
+		const c = compiles.findLast( ( x ) => x.index === index );
+		if ( c ) c.ms = performance.now() - c.t;
+
+	};
+	process.on( 'exit', () => {
+
+		const rows = compiles.map( ( c ) => `${ String( c.n ).padStart( 4 ) }  ${ c.ms.toFixed( 0 ).padStart( 6 ) } ms  ${ String( c.chars ).padStart( 7 ) } chars  ${ String( c.lines ).padStart( 5 ) } lines  [${ c.stage }]  ${ c.label }` );
+		console.log( 'compile order (start order, one at a time):\n' + rows.join( '\n' ) );
+		// --trace-compile=<dir>: each compile's WGSL as <dir>/<n>-<label>.wgsl
+		const dir = traceArg.includes( '=' ) ? traceArg.split( '=' )[ 1 ] : null;
+		if ( dir ) {
+
+			mkdirSync( dir, { recursive: true } );
+			for ( const c of compiles ) if ( c.code ) writeFileSync( join( dir, `${ String( c.n ).padStart( 3, '0' ) }-${ c.label.replace( /[^\w.-]+/g, '_' ).slice( 0, 60 ) }.wgsl` ), c.code );
+
+		}
+
+	} );
+	globalThis.__compiles = compiles;
+
+}
+
 const tick = setInterval( () => { if ( GPU._pending && GPU._pending.size ) console.log( `  ${ ( ( performance.now() - t0 ) / 1000 ).toFixed( 0 ) } s: ${ GPU._pending.size } pipelines compiling` ); }, 15000 );
 const app = new App();
 let last = '';
@@ -125,6 +173,7 @@ console.log( `init ${ ( ( performance.now() - t0 ) / 1000 ).toFixed( 1 ) } s` );
 clearInterval( tick );
 if ( limitsDefault || noFeatures ) console.log( '  ' + GPU.describe().split( '\n' ).slice( 1, 3 ).join( '\n  ' ) );
 memLine( 'after init' );
+console.log( `  pipelines compiled for the first frame: ${ GPU.pipelineStats.requested } (${ GPU.pipelineStats.failed } failed, ${ GPU.pipelineStats.timedOut } timed out)` );
 // --mobile: the phone profile applied like AppUI does once the loader is gone (Quality with MOBILE.phone)
 if ( process.argv.includes( '--mobile' ) ) {
 
@@ -153,6 +202,7 @@ if ( bootArg ) {
 	await GPU.queue.onSubmittedWorkDone();
 	await new Promise( ( r ) => setTimeout( r, 300 ) ); // late uncapturederror events
 	memLine( `after ${ frames } frames` );
+	console.log( `  pipelines after ${ frames } frames: ${ GPU.pipelineStats.requested } (${ GPU.pipelineStats.done } done, ${ GPU.pipelineStats.timedOut } timed out)` );
 	const out = app.sceneRenderer && app.sceneRenderer.sceneRT;
 	console.log( `  canvas ${ app.engine.width }x${ app.engine.height } · scene ${ out ? out.width + 'x' + out.height : '?' } · render scale ${ app.settings.renderScale }` );
 	// the biggest allocations still alive (labels), for the phone budget

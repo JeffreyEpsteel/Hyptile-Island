@@ -61,10 +61,14 @@ function setStage( text ) {
 }
 
 // the stage with the shader compile count ('Compiling shaders… 32 / 400: water main')
+// (the pipeline(s) compiling NOW and for how long: a compile that hangs names itself)
 function stageText() {
 
 	const s = GPU.pipelineStats;
-	return /shader/i.test( boot.stage ) && s && s.requested ? `${ boot.stage } ${ s.done } / ${ s.requested }${ s.last ? ': ' + s.last : '' }` : boot.stage;
+	if ( ! s || ! s.requested || ( ! /shader/i.test( boot.stage ) && ! s.active.size ) ) return boot.stage;
+	const now = [ ...s.active ].map( ( h ) => h.label ).filter( Boolean );
+	const secs = s.startedAt ? ( ( performance.now() - s.startedAt ) / 1000 ).toFixed( 0 ) : 0;
+	return `${ boot.stage } ${ s.done } / ${ s.requested }${ now.length ? `: compiling ${ now.slice( 0, 3 ).join( ', ' ) } (${ secs } s)` : s.last ? ': last done ' + s.last : '' }${ s.timedOut ? ` · ${ s.timedOut } skipped (timeout)` : '' }`;
 
 }
 
@@ -89,8 +93,16 @@ function fail( title, message, { fatal = true, error = null } = {} ) {
 		if ( ! ui ) return;
 		if ( ! fatal ) {
 
-			// recoverable problems: one card per visit (the error log keeps the rest)
-			if ( boot.softShown ) return;
+			// recoverable problems: one card per visit (the error log keeps the rest); while it is open, more lines join it
+			const open = ui._fatal && ui._fatal.isConnected;
+			if ( boot.softShown && ! open ) return;
+			if ( open ) {
+
+				ui.showFatal( { message: `${ title }: ${ message }`, fatal: false } );
+				return;
+
+			}
+
 			boot.softShown = true;
 
 		}
@@ -114,6 +126,35 @@ if ( /[?&]diag\b/.test( location.search ) ) {
 function startGame() {
 
 	ui = new UI();
+	// Phones and WebKit (every iOS browser): pipelines compile one at a time with a 12 s limit each, each name logged
+	// before it starts, and the loading frame compiles only the mesh pipelines its view draws. An iPhone 17 Pro stopped at
+	// 'Compiling shaders… 113 / 282' with all of them started at once. ?compile=N (at once), ?compile=all, ?lazy=0|1 override.
+	{
+
+		const ua = navigator.userAgent || '';
+		const ios = /iPhone|iPad|iPod/.test( ua ) || ( /Macintosh/.test( ua ) && navigator.maxTouchPoints > 1 );
+		const safari = ios || ( /AppleWebKit/.test( ua ) && /Safari/.test( ua ) && ! /Chrome|Chromium|Edg|OPR/.test( ua ) );
+		const mobile = !! ( ui.device && ui.device.mobile ) || ios;
+		const q = new URLSearchParams( location.search );
+		if ( safari || mobile ) {
+
+			GPU.compileConcurrency = 1;
+			GPU.compileTimeout = mobile ? 12000 : 30000;
+
+		}
+
+		GPU.lazyPipelines = mobile;
+		if ( q.has( 'compile' ) ) GPU.compileConcurrency = q.get( 'compile' ) === 'all' ? Infinity : Math.max( 1, Number( q.get( 'compile' ) ) || 1 );
+		if ( q.has( 'lazy' ) ) GPU.lazyPipelines = q.get( 'lazy' ) !== '0';
+		GPU.onCompileStart = ( label, index ) => {
+
+			// (the breadcrumb, not the error log: 280 lines would push the errors out of its 60)
+			crumb( { compiling: label, compileIndex: index } );
+
+		};
+
+	}
+
 	const app = new App();
 	window.__ui = ui;
 
@@ -145,7 +186,7 @@ function startGame() {
 	if ( lastBoot && ! lastBoot.ok && lastBoot.stage ) {
 
 		setTimeout( () => fail( 'The last start did not finish',
-			`It stopped during "${ lastBoot.stage }" (GPU memory ${ lastBoot.gpuMB } MB, frame ${ lastBoot.frame }${ lastBoot.error ? ', ' + lastBoot.error : '' }). If the page crashed or reloaded by itself, copy this and send it to us.`,
+			`It stopped during "${ lastBoot.stage }"${ lastBoot.compiling && /shader/i.test( lastBoot.stage ) ? ` while compiling #${ lastBoot.compileIndex } "${ lastBoot.compiling }"` : '' } (GPU memory ${ lastBoot.gpuMB } MB, frame ${ lastBoot.frame }${ lastBoot.error ? ', ' + lastBoot.error : '' }). If the page crashed or reloaded by itself, copy this and send it to us.`,
 			{ fatal: false } ), 0 );
 
 	}

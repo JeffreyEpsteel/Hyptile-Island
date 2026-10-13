@@ -376,8 +376,21 @@ export const GPU = {
 	// run this frame (compute, post) call ready( handle ), which falls back to a synchronous create.
 	_pending: new Set(),
 	syncCompiles: [], // labels of pipelines needed before their async compile finished (diagnostics)
-	// compile progress for the loader and the error card ('compiling shaders 32 / 400: water main')
-	pipelineStats: { requested: 0, done: 0, failed: 0, last: '' },
+	// compile progress for the loader and the error card: started = the pipeline(s) compiling NOW (a hang names its culprit)
+	pipelineStats: { requested: 0, done: 0, failed: 0, timedOut: 0, last: '', started: '', startedAt: 0, active: new Set() },
+	// How many compiles run at once (Infinity: all at once, the desktop browsers' worker threads) and how long one may take
+	// before it is skipped (failed, non-fatal; a late result still revives it). main.js sets 1 / 12 s on phones and WebKit:
+	// on an iPhone the loader stopped at 'Compiling shaders… 113 / 282' with nothing moving (wave 7).
+	compileConcurrency: Infinity,
+	compileTimeout: 30000,
+	// phones (main.js): the loading frame compiles only the mesh pipelines its view draws; the rest when first in view
+	lazyPipelines: false,
+	onCompileStart: null, // ( label, index, desc ) before each compile starts (main.js: the boot breadcrumb)
+	onCompileEnd: null, // ( label, index, handle ) when it finished, failed or timed out
+	moduleSource: new WeakMap(), // GPUShaderModule -> WGSL (Shader.js; sizes for --trace-compile)
+	_queue: [],
+	_active: 0,
+	_compileIndex: 0,
 
 	renderPipeline( desc ) {
 
@@ -393,37 +406,98 @@ export const GPU = {
 
 	_async( desc, kind ) {
 
-		const h = { pipeline: null, label: desc.label, desc, kind, failed: false };
-		const st = this.pipelineStats;
-		st.requested ++;
-		// started after the current task: a kernel dispatched right after it was made (a one-off bake)
-		// compiles once, synchronously, instead of twice
-		const p = Promise.resolve().then( () => {
-
-			if ( h.pipeline ) { st.done ++; return; }
-			const create = kind === 'render' ? this.device.createRenderPipelineAsync : this.device.createComputePipelineAsync;
-			return create.call( this.device, desc ).then( ( pipeline ) => {
-
-				if ( ! h.pipeline ) h.pipeline = pipeline;
-				h.desc = null;
-				st.done ++;
-				st.last = desc.label || '';
-
-			}, ( e ) => {
-
-				h.failed = true;
-				st.done ++;
-				st.failed ++;
-				st.last = desc.label || '';
-				const msg = String( ( e && e.message ) || e ).split( '\n' ).slice( 0, 6 ).join( '\n' );
-				console.error( `WebGPU: pipeline "${ desc.label }" failed: ${ msg }` );
-				this.reportError( 'pipeline', msg, desc.label );
-
-			} );
-
-		} ).finally( () => this._pending.delete( p ) );
+		const h = { pipeline: null, label: desc.label, desc, kind, failed: false, index: this.pipelineStats.requested };
+		this.pipelineStats.requested ++;
+		let resolve;
+		const p = new Promise( ( r ) => { resolve = r; } ).finally( () => this._pending.delete( p ) );
 		this._pending.add( p );
+		this._queue.push( { h, resolve } );
+		// started after the current task: a kernel dispatched right after it was made (a one-off bake) compiles once,
+		// synchronously, instead of twice
+		Promise.resolve().then( () => this._pump() );
 		return h;
+
+	},
+
+	_pump() {
+
+		while ( this._active < this.compileConcurrency && this._queue.length ) this._compile( this._queue.shift() );
+
+	},
+
+	_compile( { h, resolve } ) {
+
+		const st = this.pipelineStats;
+		const label = h.label || '';
+		const finish = () => {
+
+			st.done ++;
+			st.last = label;
+			st.active.delete( h );
+			if ( this.onCompileEnd ) try { this.onCompileEnd( label, h.index, h ); } catch ( e ) { /* diagnostics only */ }
+			this._active --;
+			resolve();
+			// one macrotask between compiles when they are queued: the page (the loader, the stall timer) keeps running
+			if ( this._queue.length ) {
+
+				if ( this.compileConcurrency === Infinity ) this._pump();
+				else setTimeout( () => this._pump(), 0 );
+
+			}
+
+		};
+
+		this._active ++;
+		st.active.add( h );
+		if ( h.pipeline ) { finish(); return; } // compiled synchronously meanwhile (ready())
+		st.started = label;
+		st.startedAt = typeof performance !== 'undefined' ? performance.now() : Date.now();
+		this._compileIndex ++;
+		if ( this.onCompileStart ) try { this.onCompileStart( label, h.index, h.desc ); } catch ( e ) { /* diagnostics only */ }
+		const desc = h.desc;
+		const create = h.kind === 'render' ? this.device.createRenderPipelineAsync : this.device.createComputePipelineAsync;
+		let settled = false, timer = 0;
+		const ms = this.compileTimeout;
+		if ( ms > 0 && ms < Infinity ) timer = setTimeout( () => {
+
+			if ( settled ) return;
+			settled = true;
+			h.failed = true;
+			h.timedOut = true;
+			st.failed ++;
+			st.timedOut ++;
+			const msg = `did not compile within ${ ( ms / 1000 ).toFixed( 0 ) } s: skipped (#${ h.index } of the compile queue)`;
+			console.error( `WebGPU: pipeline "${ label }" ${ msg }` );
+			this.reportError( 'pipeline', msg, label );
+			finish();
+
+		}, ms );
+		let started;
+		try { started = create.call( this.device, desc ); } catch ( e ) { started = Promise.reject( e ); }
+		Promise.resolve( started ).then( ( pipeline ) => {
+
+			// a compile that finished after its timeout still counts: the pass works again from the next frame
+			if ( h.timedOut ) { h.pipeline = pipeline; h.failed = false; return; }
+			if ( settled ) return;
+			settled = true;
+			clearTimeout( timer );
+			if ( ! h.pipeline ) h.pipeline = pipeline;
+			h.desc = null;
+			finish();
+
+		}, ( e ) => {
+
+			if ( settled ) return;
+			settled = true;
+			clearTimeout( timer );
+			h.failed = true;
+			st.failed ++;
+			const msg = String( ( e && e.message ) || e ).split( '\n' ).slice( 0, 6 ).join( '\n' );
+			console.error( `WebGPU: pipeline "${ label }" failed: ${ msg }` );
+			this.reportError( 'pipeline', msg, label );
+			finish();
+
+		} );
 
 	},
 

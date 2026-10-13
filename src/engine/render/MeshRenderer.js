@@ -538,7 +538,8 @@ export class MeshRenderer {
 		}
 
 		// precompile: every mesh of the pass, hidden or not (builds all pipelines behind the loading screen)
-		const all = this.precompiling;
+		// GPU.lazyPipelines (phones, main.js): only what this view draws; the rest compiles when it first comes into view
+		const all = this.precompiling && ! GPU.lazyPipelines;
 		const dScale = this.distanceScale;
 		let culled = 0;
 		const visit = ( o ) => {
@@ -644,7 +645,7 @@ export class MeshRenderer {
 		const z = _v.setFromMatrixPosition( o.matrixWorld ).distanceToSquared( _camPos );
 		const push = ( material, start, count ) => {
 
-			if ( ! material || ( ! material.visible && ! this.precompiling ) ) return;
+			if ( ! material || ( ! material.visible && ! ( this.precompiling && ! GPU.lazyPipelines ) ) ) return;
 			const item = { object: o, geometry: geo, material, start, count, z, renderOrder: o.renderOrder || 0, pipeKey: material.id };
 			( material.transparent ? transparent : opaque ).push( item );
 

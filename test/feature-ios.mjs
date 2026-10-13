@@ -139,7 +139,7 @@ function stubDevice( limits = DEFAULT_LIMITS ) {
 	const c = composeShader( { modules: [ mod ], stage: 'compute', label: 'audit', code: '@compute @workgroup_size( 8 ) fn main() { let a = useBig3( vec2f( 0.0 ) ) + useBig7( vec2f( 0.5 ) ); }' } );
 	const entries = c.bindings.layout.entries;
 	ok( entries.length === 2 && entries.map( ( e ) => e.binding ).join() === '3,7', 'compute: only the 2 reached of 20 module textures are in the layout (binding numbers kept)' );
-	ok( /@binding\(19\) var big19/.test( c.code ), 'the unreached ones are still declared (unreached functions name them)' );
+	ok( /@binding\(7\) var big7/.test( c.code ) && /fn useBig7/.test( c.code ) && ! /big19|useBig19/.test( c.code ), 'the source sent to the browser has no unreached functions or their bindings (stripUnreached)' );
 	ok( entryPoints( '@vertex fn vs() {} @fragment fn fs() {} @compute @workgroup_size( 8, 8 ) fn main() {}' ).map( ( e ) => e.name ).join() === 'vs,fs,main', 'entry points of every stage are found' );
 	const over = stageOverruns( Array.from( { length: 17 }, ( _, i ) => [ 't' + i, { visibility: 2, texture: {} } ] ), DEFAULT_LIMITS );
 	ok( over.length === 1 && over[ 0 ].stage === 'fragment' && over[ 0 ].count === 17, 'a group over a per-stage limit is named (the warning before the device error)' );
@@ -230,6 +230,57 @@ function stubDevice( limits = DEFAULT_LIMITS ) {
 	ok( /try \{ app\.input\.requestLock\(\); \}/.test( main ), 'the start overlay: pointer lock guarded (iOS has none)' );
 	const input = src( 'src/core/Input.js' );
 	ok( /requestPointerLock\?\.\(\)\?\.catch\?\./.test( input ) && /! el \|\| ! el\.requestFullscreen/.test( input ), 'Input: pointer lock and fullscreen calls are guarded' );
+
+}
+
+// ---- 9. the compile queue (wave 7b: the iPhone stopped at 'Compiling shaders… 113 / 282'): one at a time on phones, each
+// named before it starts, a hung compile skipped after the timeout (a late result revives it), the page never waits
+{
+
+	const dev = stubDevice();
+	let hang = null;
+	const order = [];
+	dev.createRenderPipelineAsync = ( d ) => {
+
+		order.push( 'start ' + d.label );
+		if ( d.label === 'hangs' ) return new Promise( ( r ) => { hang = r; } );
+		return new Promise( ( r ) => setTimeout( () => r( { label: d.label } ), 2 ) );
+
+	};
+	GPU.device = dev;
+	GPU.compileConcurrency = 1;
+	GPU.compileTimeout = 60;
+	const named = [];
+	GPU.onCompileStart = ( label ) => { named.push( label ); order.push( 'named ' + label ); };
+	const before = GPU.pipelineStats.timedOut;
+	const seen = [];
+	const off = GPU.onError( ( e ) => seen.push( e ) );
+	const warn = console.error;
+	console.error = () => {};
+	const hs = [ 'a', 'hangs', 'b', 'c' ].map( ( label ) => GPU.renderPipeline( { label } ) );
+	let active = 0;
+	const peek = setInterval( () => { active = Math.max( active, GPU._active ); }, 1 );
+	const t0 = Date.now();
+	await GPU.pipelinesReady();
+	clearInterval( peek );
+	console.error = warn;
+	off();
+	ok( named.join() === 'a,hangs,b,c' && order.indexOf( 'named hangs' ) < order.indexOf( 'start hangs' ), 'each pipeline is named before its compile starts (the card and the breadcrumb show the one compiling)' );
+	ok( active <= 1, 'phones: one compile at a time' );
+	ok( hs[ 1 ].failed && hs[ 1 ].timedOut && ! hs[ 1 ].pipeline && hs[ 0 ].pipeline && hs[ 2 ].pipeline && hs[ 3 ].pipeline, 'a compile that hangs is skipped after the timeout; the next ones still compile' );
+	ok( GPU.pipelineStats.timedOut === before + 1 && seen.some( ( e ) => e.kind === 'pipeline' && e.label === 'hangs' && /did not compile within/.test( e.message ) ), 'the timeout reaches the error card, naming the pipeline' );
+	ok( Date.now() - t0 < 2000, 'pipelinesReady does not wait for a hung compile' );
+	hang( { label: 'late' } );
+	await new Promise( ( r ) => setTimeout( r, 5 ) );
+	ok( hs[ 1 ].pipeline && ! hs[ 1 ].failed, 'a compile that finishes after its timeout is used from then on' );
+	ok( GPU.ready( hs[ 2 ] ) === hs[ 2 ].pipeline, 'ready() returns the compiled pipeline' );
+	GPU.onCompileStart = null;
+	GPU.compileConcurrency = Infinity;
+	GPU.compileTimeout = 30000;
+	const main = src( 'src/main.js' );
+	ok( /GPU\.compileConcurrency = 1;/.test( main ) && /GPU\.compileTimeout = mobile \? 12000 : 30000;/.test( main ) && /GPU\.lazyPipelines = mobile;/.test( main ), 'main.js: phones / WebKit compile one at a time, 12 s each, the loading frame only what it draws' );
+	ok( /crumb\( \{ compiling: label, compileIndex: index \} \)/.test( main ), 'main.js: the pipeline compiling now is in the boot breadcrumb' );
+	ok( /const all = this\.precompiling && ! GPU\.lazyPipelines;/.test( src( 'src/engine/render/MeshRenderer.js' ) ), 'MeshRenderer: lazy pipelines precompile only what the view draws' );
 
 }
 

@@ -646,7 +646,7 @@ export function composeShader( { modules = [], bindings = {}, code = '', defines
 	src += set.declarations( 1 ) + '\n';
 	for ( const m of mods ) src += `// ---- ${ m.name }\n${ m.code }\n`;
 	src += code;
-	return { code: preprocess( src, defines ), bindings: set, group0: g0, modules: mods };
+	return { code: stripUnreached( preprocess( src, defines ), unused ), bindings: set, group0: g0, modules: mods };
 
 }
 
@@ -724,6 +724,7 @@ export function createShaderModule( code, label ) {
 	if ( m ) return m;
 	m = GPU.device.createShaderModule( { label, code } );
 	_moduleCache.set( code, m );
+	if ( GPU.moduleSource ) GPU.moduleSource.set( m, code );
 	if ( m.getCompilationInfo ) m.getCompilationInfo().then( ( info ) => {
 
 		const errs = info.messages.filter( ( x ) => x.type === 'error' );
@@ -745,3 +746,57 @@ export function createShaderModule( code, label ) {
 }
 
 export { UniformBlock };
+
+// The composed source without what no entry point reaches: comments, unreached functions and the declarations of the
+// group-1 bindings they named. A lit material pulls in ~1000 lines of modules (lighting, caustics, clouds, terrain,
+// shadows) that an unlit pass, a depth pass or a post pass never calls; Tint drops them, but the iPhone's WebKit
+// compiler handed whole sources to Metal (wave 7: its loader stalled at 'Compiling shaders… 113 / 282'). Shaders
+// shrink 2-10x; the result is the same program. ?nostrip (or globalThis.__noShaderStrip) keeps the full source.
+export function stripUnreached( code, unusedBindings = null ) {
+
+	if ( globalThis.__noShaderStrip || ( typeof location !== 'undefined' && /[?&]nostrip\b/.test( location.search || '' ) ) ) return code;
+	// (WGSL has no string literals: comments can go by pattern)
+	let src = code.replace( /\/\*[\s\S]*?\*\//g, ' ' ).replace( /\/\/[^\n]*/g, '' );
+	const entries = entryPoints( src );
+	if ( ! entries.length ) return code;
+	const keep = new Set();
+	for ( const e of entries ) for ( const id of reachableIdentifiers( src, e.name ) ) keep.add( id );
+	for ( const e of entries ) keep.add( e.name );
+	// top-level functions: [ start, end ) ranges of the unreached ones
+	const cut = [];
+	const re = /(^|\n)([ \t]*)fn\s+([A-Za-z_]\w*)\s*\(/g;
+	let m;
+	while ( ( m = re.exec( src ) ) ) {
+
+		const start = m.index + m[ 1 ].length;
+		const open = src.indexOf( '{', start );
+		if ( open < 0 ) break;
+		let depth = 0, i = open;
+		for ( ; i < src.length; i ++ ) {
+
+			const c = src[ i ];
+			if ( c === '{' ) depth ++;
+			else if ( c === '}' && -- depth === 0 ) break;
+
+		}
+
+		if ( depth !== 0 ) return code; // unbalanced: leave the source alone
+		re.lastIndex = i + 1;
+		// attributes on the line before (@must_use, an entry point's) keep it
+		if ( /@\w+(\s*\([^()]*\))?$/.test( src.slice( Math.max( 0, start - 200 ), start ).trimEnd() ) ) continue;
+		if ( ! keep.has( m[ 3 ] ) ) cut.push( [ start, i + 1 ] );
+
+	}
+
+	if ( cut.length ) {
+
+		let out = '', at = 0;
+		for ( const [ a, b ] of cut ) { out += src.slice( at, a ); at = b; }
+		src = out + src.slice( at );
+
+	}
+
+	if ( unusedBindings && unusedBindings.size ) src = src.replace( /@group\(\s*1\s*\)\s*@binding\(\s*\d+\s*\)\s*var(<[^>]*>)?\s+([A-Za-z_]\w*)\s*:[^;]*;\n?/g, ( s, acc, name ) => ( unusedBindings.has( name ) ? '' : s ) );
+	return src.replace( /\n[ \t]*(?=\n)/g, '\n' ).replace( /\n{3,}/g, '\n\n' );
+
+}
