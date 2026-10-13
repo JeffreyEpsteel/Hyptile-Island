@@ -1,5 +1,7 @@
 import { Material, ShaderModule, G } from '../engine/webgpu.js';
+import { Vector3 } from '../engine/index.js';
 import { commonModule } from '../engine/render/wgsl/common.js';
+import { localLightsModule } from '../materials/LocalLights.js';
 import { whaleWaterModule } from './WhaleWater.js';
 import { REFRACTION_GUARD } from './RefractionPass.js';
 
@@ -78,6 +80,9 @@ export class WaterMaterial extends Material {
 				ssr: [ 'f32', 1 ], // screen-space reflections on/off
 				debugMode: [ 'i32', 0 ],
 				hullActive: [ 'f32', 0 ],
+				// near-surface water lit by a lamp (diffuse radiance per unit wrapped irradiance, 1 / PI included):
+				// the green-blue the top metre of sea water scatters back
+				lampTint: [ 'vec3f', new Vector3( 0.035, 0.1, 0.095 ) ],
 			},
 		} );
 		this.isWaterMaterial = true;
@@ -89,6 +94,9 @@ export class WaterMaterial extends Material {
 		this.reflection = reflection;
 		this.clouds = null; // set by the app before the first frame
 		this.cheap = false;
+		// lamps and the flashlight (LocalLights) on the sea; read at the first build. Phones (globalThis.__phoneBudget)
+		// or localLightsCheap: the glint only
+		this.localLights = true;
 		this.cameraWaterHeightNode = null; // optional WGSL f32 expression replacing frame.cameraWaterHeight (may carry `.module`, e.g. query.cameraState().x)
 
 		const U = this.uniforms;
@@ -102,6 +110,7 @@ export class WaterMaterial extends Material {
 			roughness: U.waterRoughness,
 			reflectionStrength: U.reflectionStrength,
 			ssr: U.ssr,
+			lampTint: U.lampTint,
 		};
 		this.debugMode = U.debugMode;
 
@@ -161,7 +170,10 @@ export class WaterMaterial extends Material {
 		const REFL = !! ( this.reflection && this.reflection.module );
 
 		this.modules = [ commonModule, waterFresnelModule, waterHelpersModule, whaleWaterModule, S.module, sky && sky.module, CL && this.clouds.module,
-			SIM && S.shoreSim.module, REFL && this.reflection.module, this.cameraWaterHeightNode && this.cameraWaterHeightNode.module ].filter( Boolean );
+			SIM && S.shoreSim.module, REFL && this.reflection.module, this.cameraWaterHeightNode && this.cameraWaterHeightNode.module,
+			this.localLights && waterLampsModule ].filter( Boolean );
+		this.setDefine( 'WATER_LAMPS', this.localLights ? 1 : 0 );
+		this.setDefine( 'WATER_LAMPS_SPEC_ONLY', globalThis.__phoneBudget || this.localLightsCheap ? 1 : 0 );
 		this.bindings.waterSceneColor = { texture: this.sceneColorTexture };
 		this.bindings.waterSceneDepth = { texture: this.sceneDepthTexture, sampleType: 'unfilterable-float' };
 		if ( this.sceneDepthHalfTexture ) this.bindings.waterSceneDepthHalf = { texture: this.sceneDepthHalfTexture };
@@ -534,7 +546,16 @@ ${ SF ? '		let foamLit = surfFoamLight( surf.foamInfo, N, L, V, sunLight, pos );
 		// a thin bright rim just behind the edge: the rounded bead catches the sky
 		let rim = smoothstep( 0.0, 0.025, frontD ) * smoothstep( 0.1, 0.035, frontD ) * uprush;
 		let water = mix( transmitted, reflCol, F ) + sunSpec + skyRefl * ( 0.22 * rim );
-		let shaded = mix( water, foamCol + sunSpec * 0.05, sat( foam ) );
+		// ---- lamps and the flashlight (LocalLights block, after the sun / sky terms): the wrapped diffuse
+		// lights the near-surface water (what the Fresnel lets in) and the foam, plus the GGX glint
+		var lampLit = vec3f( 0.0 );
+#if WATER_LAMPS
+		let lamps = waterLocalLights( pos, N, V, alpha2 );
+		let lampWater = lamps.diffuse * mat.lampTint * ( 1.0 - F ) + lamps.spec;
+		let lampFoam = lamps.diffuse * ( 0.85 * INV_PI ) + lamps.spec * 0.05;
+		lampLit = waterLampClamp( mix( lampWater, lampFoam, sat( foam ) ) );
+#endif
+		let shaded = mix( water, foamCol + sunSpec * 0.05, sat( foam ) ) + lampLit;
 		// fade into the sand right at the leading edge (anti-aliased by the film thickness)
 		let edgeAA = smoothstep( 0.0, max( fwidth( thickness ) * 1.5, 0.004 ), thickness );
 		// contact shadow: the sand just ahead of the advancing edge is darkened (the bead's
@@ -584,6 +605,12 @@ ${ SF ? '		let foamLit = surfFoamLight( surf.foamInfo, N, L, V, sunLight, pos );
 
 		let foamUnder = ( frame.skyIrradiance + sunLight * 0.5 ) * 0.25;
 		outCol = mix( transmittedU * ( 1.0 - F ) + deepCol * F, foamUnder, sat( foam ) * 0.7 );
+#if WATER_LAMPS
+		// the lamps above light the surface from below, weakly (0.3x): a lit boat stays visible from under
+		// water. Air-side normal; the glint toward the refracted view ray (the lamp through Snell's window).
+		let lampsU = waterLocalLights( pos, - N, Td, alpha2 );
+		outCol += waterLampClamp( ( lampsU.diffuse * mat.lampTint + lampsU.spec ) * ( 0.3 * ( 1.0 - F ) ) );
+#endif
 
 	}
 
@@ -739,3 +766,71 @@ fn _waterSSR( posV: vec3f, Rv: vec3f, y0: f32, ry: f32 ) -> vec4f {
 
 // (the helpers read the material's scene-copy bindings waterSceneDepth / waterSceneColor: same shader)
 const waterHelpersModule = new ShaderModule( { name: 'waterHelpers', deps: [ commonModule ], code: WATER_HELPERS } );
+
+// --------------------------------------------------------------- lamps on the sea (LocalLights)
+// The same lights the standard materials take through hookLocalLights (src/materials/LocalLights.js: the
+// `localLights` block, up to 8 point / spot lights, slot 0 = the flashlight while it is on; ranges, cones
+// and night-scaled intensities from the block), shaded for a scattering surface in ONE loop:
+//   diffuse  ( N.L * 0.5 + 0.5 ) * WATER_LAMP_WRAP x the light: wrapped irradiance (the caller tints it)
+//   spec     the sun's GGX (D x Smith visibility x dielectric Fresnel) with a roughness floor: a tight dot
+//            on calm water, a soft streak on chop
+// Falloff as lighting.js: inverse square + 0.15 m^2, smooth range window ( 1 - ( d / r )^4 )^2, spot
+// profile, Beer-Lambert over the underwater part of the path. Skipped (uniform branch) with no lamp lit
+// and the flashlight off; WATER_LAMPS_SPEC_ONLY (phones) keeps only the glint.
+const WATER_LAMPS = /* wgsl */`
+const WATER_LAMP_WRAP: f32 = 0.6;
+// GGX alpha^2 floor of the lamp glint (alpha ~ 0.06)
+const WATER_LAMP_A2_MIN: f32 = 0.0036;
+
+struct WaterLamps { diffuse: vec3f, spec: vec3f }
+
+fn waterLocalLights( P: vec3f, N: vec3f, V: vec3f, alpha2: f32 ) -> WaterLamps {
+	var o = WaterLamps( vec3f( 0.0 ), vec3f( 0.0 ) );
+	// uniform branch: no lamp lit and no flashlight (daytime) -> no loop at all
+	if ( localLights.count <= 0 && localLights.flashOn < 0.5 ) { return o; }
+	let n = min( localLights.count, 8 );
+	let NdV = max( dot( N, V ), 1e-4 );
+	let a2 = max( alpha2, WATER_LAMP_A2_MIN );
+	for ( var i = 0; i < n; i++ ) {
+		let p = localLights.pos[ i ];
+		let d = p.xyz - P;
+		let d2 = dot( d, d );
+		if ( d2 >= p.w ) { continue; }
+		let c = localLights.col[ i ];
+		let sd = localLights.dir[ i ];
+		let invD = inverseSqrt( max( d2, 1e-6 ) );
+		let L = d * invD;
+		let x = d2 / p.w;
+		let win = sat( 1.0 - x * x );
+		// spot cone (the flashlight's, a work lamp's): hot centre, soft edge, faint spill; points: 1
+		let spot = localLightsSpotProfile( dot( - L, sd.xyz ), c.w, sd.w );
+		let under = sat( ( frame.seaLevel - min( P.y, p.y ) ) / max( abs( p.y - P.y ), 1e-3 ) );
+		let Tw = exp( - ( frame.waterAbsorption + frame.waterScattering ) * ( d2 * invD * under ) );
+		let lightColor = c.xyz * Tw * ( win * win * spot / ( d2 + 0.15 ) );
+		let NdL = dot( N, L );
+#if !WATER_LAMPS_SPEC_ONLY
+		o.diffuse += lightColor * ( ( NdL * 0.5 + 0.5 ) * WATER_LAMP_WRAP );
+#endif
+		if ( NdL > 0.0 ) {
+			let H = normalize( L + V );
+			let NdH = max( dot( N, H ), 0.0 );
+			let VdH = max( dot( V, H ), 0.0 );
+			let s = _waterDGGX( NdH, a2 ) * _waterVSmithGGX( NdL, NdV, a2 ) * fresnelDielectric( VdH, ${ IOR } ) * NdL;
+			o.spec += lightColor * min( s, 400.0 );
+		}
+	}
+	return o;
+}
+
+// Lamp light stays inside the HDR range the sky and the key light set (the auto exposure must not pump
+// when a boat lamp or the torch spot enters the frame): at most ~2x the irradiance they put on the surface,
+// scaled as a whole (keeps the hue)
+fn waterLampClamp( c: vec3f ) -> vec3f {
+	let skyTerm = frame.skyIrradiance * PI + frame.sunColor * max( frame.sunDir.y, 0.0 );
+	let cap = 2.0 * max( dot( skyTerm, vec3f( 0.2126, 0.7152, 0.0722 ) ), 0.02 );
+	let m = max( c.x, max( c.y, c.z ) );
+	return c * min( 1.0, cap / max( m, 1e-5 ) );
+}
+`;
+
+const waterLampsModule = new ShaderModule( { name: 'waterLamps', deps: [ commonModule, waterFresnelModule, waterHelpersModule, localLightsModule ], code: WATER_LAMPS } );
