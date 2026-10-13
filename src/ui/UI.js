@@ -1,6 +1,6 @@
 import { icon, brandMark } from './icons.js';
 import { t } from '../i18n/index.js';
-import { detectDevice } from '../core/Touch.js';
+import { detectDevice, tabStripLayout } from '../core/Touch.js';
 
 // Tidewater UI: settings panel (tabs → folders → controls), HUD, help,
 // photo mode, start overlay and loader. Plain DOM, no dependencies.
@@ -2120,6 +2120,8 @@ export class UI {
 		} );
 
 		this.pages = h( 'div', 'tw-pages' );
+		// the strip wraps onto rows and never scrolls: tell the CSS whether the active tab's name still fits
+		if ( typeof ResizeObserver !== 'undefined' ) new ResizeObserver( () => this._layoutTabs() ).observe( this.tabBar );
 
 		const foot = h( 'footer', 'tw-panel-foot' );
 		foot.innerHTML = '<span><kbd>H</kbd>Hide</span><span><kbd>F1</kbd>Controls</span><span><kbd>P</kbd>Photo mode</span>';
@@ -2658,6 +2660,7 @@ export class UI {
 		this.tabBar.append( tab.btn );
 		this.railTabs.append( tab.railBtn );
 		this.pages.append( tab.page );
+		this._layoutTabs();
 		let saved = null;
 		try {
 
@@ -2667,6 +2670,20 @@ export class UI {
 
 		if ( ! this.activeTab || saved === id ) this.selectTab( id, false );
 		return tab;
+
+	}
+
+	// tabStripLayout (core/Touch.js): the name of the active tab only shows when it costs no extra row of chips
+	_layoutTabs() {
+
+		const bar = this.tabBar;
+		if ( ! bar ) return;
+		const w = bar.clientWidth;
+		if ( ! w ) return; // hidden or not laid out yet: the observer calls again
+		const list = [ ...this.tabs.values() ].filter( ( x ) => ! x.btn.hidden );
+		const lay = tabStripLayout( w - 6, list.length, { activeIndex: list.indexOf( this.activeTab ) } );
+		bar.dataset.labels = lay.labels ? '1' : '0';
+		bar.dataset.rows = String( lay.rows );
 
 	}
 
@@ -2704,14 +2721,7 @@ export class UI {
 		this._closeMenu();
 		this._hideTip();
 
-		// keep the active tab visible when the strip overflows
-		const bar = this.tabBar, b = tab.btn;
-		requestAnimationFrame( () => {
-
-			if ( b.offsetLeft < bar.scrollLeft ) bar.scrollLeft = b.offsetLeft - 4;
-			else if ( b.offsetLeft + b.offsetWidth > bar.scrollLeft + bar.clientWidth ) bar.scrollLeft = b.offsetLeft + b.offsetWidth - bar.clientWidth + 4;
-
-		} );
+		this._layoutTabs();
 
 		if ( remember ) {
 

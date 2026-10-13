@@ -428,4 +428,7 @@ export default {
 	'touch.fs_ios': 'For fullscreen on iPhone / iPad: tap Share, then "Add to Home Screen", and open Hyptile Island from there',
 	'touch.fs_denied': 'Fullscreen is not allowed here: add the game to your home screen instead',
 	'touch.fullscreen': 'Fullscreen',
+	'touch.lights': 'Lights',
+	'touch.navLights': 'Nav',
+	'touch.landing': 'Landing',
 };

@@ -19,6 +19,8 @@
 //   planeThrottleKeys( target, current, out ) the seaplane slider -> ShiftLeft (more) / KeyC (less) until it is there
 //   promptAction( prompt )           the game's prompt ( p.prompt = { key, text } ) -> { code } | { button } | null
 //   contextButtons( s )              which action buttons show for a snapshot of the game -> Set of ids
+//   buttonIsOn( id, s )              a toggle button's lit state from the snapshot (lights, nav, landing)
+//   tabStripLayout( width, count )   the settings panel's tab chips: how many per row, how many rows, room for a label
 
 export const STICK = { dead: 0.16, ring: 1.18, sector: 0.38 };
 export const LOOK_PX = 1.7; // mouse counts per CSS px of drag at sensitivity 1 (Player turns 0.0022 rad per count)
@@ -178,7 +180,8 @@ export function promptAction( prompt ) {
 //      rodState, fight, prompt, guns: bool, boardOffer: bool, boardFight: bool, choices: bool (a 1 / 2 choice is
 //      asked: a surrender, the boarders' terms), melee: bool, freeCam }
 // -> Set of: interact, rod, cast, reel (right button: empty line / guard), jump, dodge, guard, fireL, fireR, board,
-//    camera, throttle (the boat lever), planeThrottle, dive, choice1, choice2
+//    camera, throttle (the boat lever), planeThrottle, dive, choice1, choice2, lights (boat), navLights + landing (plane)
+//    boatLights / planeNav / planeLanding (bool) are the toggles' state: see buttonIsOn
 export function contextButtons( s = {} ) {
 
 	const out = new Set();
@@ -210,6 +213,7 @@ export function contextButtons( s = {} ) {
 
 		out.add( 'throttle' );
 		out.add( 'camera' );
+		out.add( 'lights' ); // L: root toggles the lights of every hull
 		if ( s.helmAshore ) out.add( 'deck' ); // (E = step ashore then; Q = the deck)
 		if ( s.guns ) {
 
@@ -220,7 +224,16 @@ export function contextButtons( s = {} ) {
 
 	}
 
-	if ( mode === 'plane' ) { out.add( 'planeThrottle' ); out.add( 'camera' ); out.add( 'cockpit' ); }
+	if ( mode === 'plane' ) {
+
+		out.add( 'planeThrottle' );
+		out.add( 'camera' );
+		out.add( 'cockpit' );
+		out.add( 'navLights' ); // N
+		out.add( 'landing' ); // ;
+
+	}
+
 	if ( s.boardOffer || s.boardFight ) out.add( 'board' );
 	if ( s.choices ) {
 
@@ -230,5 +243,48 @@ export function contextButtons( s = {} ) {
 	}
 
 	return out;
+
+}
+
+// the toggles show lit while the thing is on (the snapshot's booleans)
+const TOGGLE_FLAG = { lights: 'boatLights', navLights: 'planeNav', landing: 'planeLanding' };
+
+export function buttonIsOn( id, s = {} ) {
+
+	const flag = TOGGLE_FLAG[ id ];
+	return !! ( flag && s[ flag ] );
+
+}
+
+// ---- the settings panel's tab strip (ui/UI.js)
+
+// The chips wrap onto rows and the strip never scrolls, so every tab stays reachable. width: the strip's inner width (px);
+// count: the tabs; the active tab shows its name, which makes it wider (activeIndex; -1: none). -> { perRow, rows, labels }
+// perRow: chips of the plain width per row; rows: rows needed (with the active label if it fits); labels: the active tab's
+// name fits without costing an extra row (else UI.js shows icons only).
+export function tabStripLayout( width, count, { chip = 40, gap = 3, label = 137, activeIndex = 0 } = {} ) {
+
+	count = Math.max( 0, Math.floor( Number( count ) || 0 ) );
+	const w = Math.max( chip, Number( width ) || 0 );
+	const perRow = Math.max( 1, Math.floor( ( w + gap ) / ( chip + gap ) ) );
+	const plainRows = count ? Math.ceil( count / perRow ) : 0;
+	const pack = ( withLabel ) => {
+
+		let rows = count ? 1 : 0, used = 0;
+		for ( let i = 0; i < count; i ++ ) {
+
+			const cw = chip + ( withLabel && i === activeIndex ? label : 0 );
+			const need = used ? used + gap + cw : cw;
+			if ( need > w && used ) { rows ++; used = cw; } else used = need;
+
+		}
+
+		return rows;
+
+	};
+
+	const labelRows = pack( true );
+	const labels = activeIndex >= 0 && activeIndex < count && labelRows <= plainRows;
+	return { perRow, rows: labels ? labelRows : plainRows, labels };
 
 }

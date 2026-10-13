@@ -1,7 +1,7 @@
 import { icon } from './icons.js';
 import { t } from '../i18n/index.js';
 import { detectDevice, stickVector, stickKeys, lookDelta, boatThrottleKeys, snapThrottle, planeDragKeys, planeThrottleKeys,
-	promptAction, contextButtons } from '../core/Touch.js';
+	promptAction, contextButtons, buttonIsOn } from '../core/Touch.js';
 
 // Touch controls for phones and tablets: everything feeds core/Input.js (the same key / button state the keyboard and
 // the gamepad produce), so Game, melee, naval, the seaplane and the panels need no changes.
@@ -45,6 +45,9 @@ const BUTTONS = {
 	camera: { label: 'View', code: 'KeyV' },
 	deck: { label: 'Deck', code: 'KeyQ' }, // at the helm next to land: E steps ashore, this one keeps the deck
 	cockpit: { label: 'Cockpit', code: 'Digit3' },
+	lights: { label: 'Lights', code: 'KeyL' }, // boat: root's L toggles every hull's lights
+	navLights: { label: 'Nav', code: 'KeyN' }, // seaplane cockpit keys (Seaplane.js COCKPIT_KEYS)
+	landing: { label: 'Landing', code: 'Semicolon' },
 	choice1: { label: '1', code: 'Digit1' },
 	choice2: { label: '2', code: 'Digit2' },
 };
@@ -166,7 +169,7 @@ export class TouchControls {
 		this.interactText = this.interactEl.firstChild;
 		this.btns = {};
 		const rowA = el( 'div', 'tc-row tc-row-a' ), rowB = el( 'div', 'tc-row tc-row-b' );
-		for ( const id of [ 'choice1', 'choice2', 'board', 'reel', 'guard', 'dodge', 'rod', 'camera', 'fireL', 'fireR' ] ) rowA.append( this._btn( id ) );
+		for ( const id of [ 'choice1', 'choice2', 'board', 'reel', 'guard', 'dodge', 'rod', 'camera', 'deck', 'cockpit', 'lights', 'navLights', 'landing', 'fireL', 'fireR' ] ) rowA.append( this._btn( id ) );
 		for ( const id of [ 'dive', 'jump', 'cast' ] ) rowB.append( this._btn( id ) );
 		this.actions.append( this.interactEl, rowA, rowB );
 		// the lever (boat: astern / stop / ahead / full; seaplane: 0..100 %)
@@ -671,6 +674,9 @@ export class TouchControls {
 			choices: ph === 'surrender' || !! ( boarding && boarding.hostile && boarding.hostile.phase === 'boarded' ),
 			melee: meleeOn,
 			helmAshore: !! ( app.player && app.player.helmAshore ),
+			boatLights: !! app.boatLightsOn,
+			planeNav: !! get( 'seaplane' )?.systems?.nav,
+			planeLanding: !! get( 'seaplane' )?.systems?.landing,
 		};
 
 	}
@@ -711,6 +717,7 @@ export class TouchControls {
 
 			const on = show.has( id );
 			if ( b.hidden === on ) b.hidden = ! on;
+			if ( on ) b.classList.toggle( 'is-on', buttonIsOn( id, s ) );
 
 		}
 

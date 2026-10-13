@@ -428,4 +428,7 @@ export default {
 	'touch.fs_ios': 'Pentru ecran complet pe iPhone / iPad: apasă Share, apoi „Add to Home Screen” și deschide Hyptile Island de acolo',
 	'touch.fs_denied': 'Ecranul complet nu este permis aici: adaugă jocul pe ecranul principal',
 	'touch.fullscreen': 'Ecran complet',
+	'touch.lights': 'Lumini',
+	'touch.navLights': 'Navigație',
+	'touch.landing': 'Aterizare',
 };

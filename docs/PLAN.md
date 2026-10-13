@@ -372,3 +372,19 @@ sliver under the footer), greeting clamped / hidden under 460 px. Getting ashore
 wading depth; at the helm, stopped by land, E steps straight ashore (Q keeps the deck; touch shows a Deck button).
 Boat swaps leak ~10 small GPU buffers each (count only, no MB growth over 16 swaps): follow-up.
 
+### Wave 9 (2026-10-13, root + 3 workers): combat you can play, settings you can reach
+User feedback: cannons uncontrollable, boats clip through each other (wants collisions with damage and visible
+destruction), pistol + musket to buy, settings tabs unreachable / drifting on mobile, light options on touch, AA off by
+default. Root: anti-aliasing off by default (PostFX aaMode 'none'; Settings > Performance turns TAA on), L at the helm
+toggles the boat's lights on every hull (App.setBoatLights / toggleBoatLights, app.boatLightsOn; L stays the flashlight
+elsewhere). Workers (briefs docs/briefs/w9-*.md, exclusive files, root patches reported): 9A naval collisions (SAT hull
+boxes, inverse-mass separation + impulse, closing-speed damage with a bow bonus, splinters / planks / smoke / audio,
+pirate ramming, RMB-aimed cannons + LMB fire, sandbox swivel gun, target hull bar with the 25 % cripple mark, shipCrippled
+event); 9B firearms feature (flintlock pistol + musket, cartridges at the chandlery, G draw, LMB fire, RMB aim, R reload,
+hitscan through the melee enemy API, peace zone); 9C settings panel as a fixed flex column with a wrapping tab strip and
+the pages as the only scroll region, touch light buttons (boat L, plane N / ;).
+Still open from the user's list: "improve fighting and combat per total" beyond these (next wave once 9A/9B land and
+are played), iOS constant lag (needs a profile with the pane visible), Low-quality clouds (resolution decoupled; judge
+on the phone).
+
+

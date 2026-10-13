@@ -1194,6 +1194,7 @@ body {
 }
 
 .tw-panel-head {
+	flex: 0 0 auto;
 	display: flex;
 	align-items: center;
 	justify-content: space-between;
@@ -1233,24 +1234,21 @@ body {
 	gap: calc(3 * var(--tw-u));
 	margin: 0 var(--tw-3) var(--tw-2);
 	padding: calc(3 * var(--tw-u));
-	overflow-x: auto;
+	flex: 0 0 auto;
+	flex-wrap: wrap; /* never scrolls: a short panel wraps the chips onto more rows, every tab stays reachable */
+	overflow: visible;
 	border-radius: calc(12 * var(--tw-u));
 	background: rgba(0, 0, 0, 0.22);
 	box-shadow: inset 0 0 0 1px var(--tw-line);
-	scrollbar-width: none;
-}
-
-.tw-tabs::-webkit-scrollbar {
-	display: none;
 }
 
 .tw-tab {
 	position: relative;
 	display: flex;
-	flex: 1 1 0;
+	flex: 1 1 calc(36 * var(--tw-u));
 	align-items: center;
 	justify-content: center;
-	min-width: calc(32 * var(--tw-u));
+	min-width: calc(36 * var(--tw-u));
 	height: calc(34 * var(--tw-u));
 	padding: 0 calc(9 * var(--tw-u));
 	border-radius: calc(9 * var(--tw-u));
@@ -1267,7 +1265,7 @@ body {
 }
 
 .tw-tab.is-active {
-	flex: 0 0 auto;
+	flex: 1 0 auto;
 	color: var(--tw-ink);
 	background: linear-gradient(180deg, rgba(var(--tw-aqua-rgb), 0.2), rgba(var(--tw-aqua-rgb), 0.09));
 	box-shadow: inset 0 0 0 1px rgba(var(--tw-aqua-rgb), 0.38), 0 0 18px -6px rgba(var(--tw-aqua-rgb), 0.5);
@@ -1282,6 +1280,13 @@ body {
 	overflow: hidden;
 	opacity: 0;
 	transition: max-width var(--tw-slow) var(--tw-ease), opacity var(--tw-med), margin var(--tw-slow) var(--tw-ease);
+}
+
+/* UI.js _layoutTabs: the name would cost an extra row of chips, so only the icon shows */
+.tw-tabs[data-labels='0'] .tw-tab.is-active .tw-tab-label {
+	max-width: 0;
+	margin-left: 0;
+	opacity: 0;
 }
 
 .tw-tab.is-active .tw-tab-label {
@@ -1332,6 +1337,7 @@ body {
 }
 
 .tw-panel-foot {
+	flex: 0 0 auto;
 	display: flex;
 	flex-wrap: wrap;
 	gap: calc(6 * var(--tw-u)) var(--tw-4);
@@ -2725,12 +2731,26 @@ body {
 .tw-root.is-touch .tw-photo-hint,
 .tw-root.is-touch .tw-start-keys,
 .tw-root.is-touch .tw-panel-foot { display: none !important; }
-/* the tab strip stays put while the sections scroll (on a phone Safari's toolbar resizes the viewport: the panel takes the
-   dynamic height and the tabs stick to the top of whatever scrolls, so Performance and the other right-hand tabs stay reachable) */
-.tw-tabs { position: sticky; top: 0; z-index: 3; }
-.tw-root.is-touch .tw-panel { max-height: calc(100dvh - var(--tw-safe-t, 0px) - var(--tw-safe-b, 0px) - 2 * var(--tw-3)); overscroll-behavior: contain; }
-.tw-root.is-touch .tw-tabs { padding-block: calc(6 * var(--tw-u)); }
-.tw-root.is-touch .tw-tab { min-width: 44px; min-height: 44px; }
+/* Settings on touch: a fixed-height column (head, wrapping tab strip, pages = the only scroller, foot hidden). Fixed to the
+   layout viewport with the dynamic height minus the safe insets, so it neither drifts with page scroll nor with the
+   on-screen keyboard / Safari's toolbar; the page itself is locked (html, body: overflow hidden, index.html: overscroll none). */
+.tw-root.is-touch .tw-panel {
+	position: fixed;
+	top: calc(var(--tw-3) + var(--tw-safe-t));
+	bottom: auto;
+	height: calc(100dvh - var(--tw-safe-t) - var(--tw-safe-b) - 2 * var(--tw-3));
+	max-height: calc(100dvh - var(--tw-safe-t) - var(--tw-safe-b) - 2 * var(--tw-3));
+	overscroll-behavior: contain;
+	touch-action: none;
+}
+.tw-root.is-touch .tw-pages { touch-action: pan-y; }
+.tw-root.is-touch .tw-tabs { padding-block: calc(4 * var(--tw-u)); }
+.tw-root.is-touch .tw-tab { min-width: 40px; min-height: 40px; height: 40px; }
+@media (max-height: 460px) {
+	.tw-root.is-touch .tw-panel-head { padding-block: calc(2 * var(--tw-u)); }
+	.tw-root.is-touch .tw-panel-title { font-size: var(--tw-fs-md); }
+	.tw-root.is-touch .tw-icon-btn { width: 40px; height: 40px; }
+}
 
 .tw-root.is-touch .tw-stats { display: none; }
 .tw-root.is-touch .tw-boat {
@@ -2890,6 +2910,7 @@ body {
 .tc-btn.is-down,
 .tc-tbtn.is-down { transform: scale(0.92); background: rgba(var(--tw-aqua-rgb), 0.45); }
 .tc-big { min-width: calc(80px * var(--tc-k)); height: calc(80px * var(--tc-k)); font-size: calc(14px * var(--tc-k)); background: rgba(var(--tw-aqua-rgb), 0.28); box-shadow: inset 0 0 0 2px rgba(var(--tw-aqua-rgb), 0.85), 0 6px 18px rgba(0, 0, 0, 0.35); }
+.tc-btn.is-on { background: rgba(var(--tw-sun-rgb), 0.5); box-shadow: inset 0 0 0 2px rgba(var(--tw-sun-rgb), 0.95), 0 4px 14px rgba(0, 0, 0, 0.3); } /* a toggle that is on: lights, nav, landing */
 .tc-big.is-hot { background: rgba(var(--tw-sun-rgb), 0.6); animation: tc-hot 0.6s ease-in-out infinite alternate; }
 .tc-big.is-warn { background: rgba(255, 90, 90, 0.55); box-shadow: inset 0 0 0 2px #ff9a9a, 0 6px 18px rgba(0, 0, 0, 0.35); }
 @keyframes tc-hot { to { transform: scale(1.08); } }

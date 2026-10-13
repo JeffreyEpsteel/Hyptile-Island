@@ -283,6 +283,7 @@ fn terrainWetness( xz: vec2f, h: f32 ) -> vec2f {
 		for ( const l of this.roid.lights || [] ) this.localLights.add( l );
 		for ( const l of [ ...this.ponsCove.lights, ...this.pons.lights, ...( this.ports.lights || [] ) ] ) this.localLights.add( l );
 		this.boatLights = addBoatLights( this.localLights, this.boat );
+		this.boatLightsOn = true;
 		// rough, large or heavily overdrawn surfaces (ground, rocks, debris, foliage) take the local
 		// lights as Lambert only; the village, pier and boat get the full BRDF (glints on wet wood, metal)
 		for ( const root of [ this.terrain.mesh, this.rocks.group, this.debris && this.debris.group, this.vegetation && this.vegetation.group ] ) if ( root ) root.traverse( ( o ) => {
@@ -554,6 +555,25 @@ fn terrainWetness( xz: vec2f, h: f32 ) -> vec2f {
 		this.boat.group.visible = !! id;
 		this.boatCtl.enabled = !! id;
 		this.player.setBoat( id ? this.boatCtl : null );
+		this.setBoatLights( this.boatLightsOn );
+
+	}
+
+	// the boat's lights (user option, L at the helm / on deck, a touch button): the lantern / nav glow on every hull and
+	// the lobster boat's local lights; off = dark even at night (the local lights otherwise fade in with the night)
+	setBoatLights( on ) {
+
+		this.boatLightsOn = on = on !== false;
+		if ( this.boat && this.boat.setNavLights ) this.boat.setNavLights( on );
+		for ( const l of this.boatLights || [] ) l.enabled = on;
+
+	}
+
+	toggleBoatLights() {
+
+		this.setBoatLights( ! this.boatLightsOn );
+		if ( this.ui && this.ui.ui ) this.ui.ui.toast( this.boatLightsOn ? 'Boat lights on' : 'Boat lights off' );
+		return this.boatLightsOn;
 
 	}
 
@@ -1060,8 +1080,14 @@ fn terrainWetness( xz: vec2f, h: f32 ) -> vec2f {
 		if ( this.input.hit( 'KeyT' ) ) this.toggleTime();
 		if ( this.input.hit( 'KeyL' ) ) {
 
-			const on = this.localLights.toggleFlashlight();
-			if ( this.ui ) this.ui.ui.toast( on ? 'Flashlight on' : 'Flashlight off' );
+			// at the helm L works the boat's lights (a touch button too); on foot and on deck it is the flashlight
+			if ( this.player && this.player.mode === 'boat' ) this.toggleBoatLights();
+			else {
+
+				const on = this.localLights.toggleFlashlight();
+				if ( this.ui ) this.ui.ui.toast( on ? 'Flashlight on' : 'Flashlight off' );
+
+			}
 
 		}
 

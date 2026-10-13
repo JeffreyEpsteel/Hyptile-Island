@@ -189,7 +189,8 @@ ${ taps }
 		// anti-aliasing: 'taa' (the temporal upscaler, jittered camera), 'smaataa' (SMAA, then the TAA:
 		// crisp stable geometric edges from SMAA, sub-pixel detail and dithering from the TAA) or a
 		// spatial filter ('smaa', 'fxaa', 'none') writing the same resolved image (AntiAlias.js)
-		this.aaMode = 'taa';
+		// off by default (user choice 2026-10-13: a crisper image; Settings > Performance > Anti-aliasing turns the temporal AA on)
+		this.aaMode = 'none';
 		this.aa = new AntiAlias( { src: () => this.beauty.texture, exposure: this.exposure } );
 
 		// ---- camera + object motion blur on the resolved image (gathered in the final pass, before

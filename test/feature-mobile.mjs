@@ -129,6 +129,31 @@ const env = ( { ua = '', points = 0, w = 1920, h = 1080, coarse = false, fine = 
 	b = T.contextButtons( { mode: 'swim' } );
 	ok( b.has( 'jump' ) && b.has( 'dive' ), 'swimming: up and dive' );
 	ok( T.contextButtons( { mode: 'plane' } ).has( 'planeThrottle' ), 'seaplane: the throttle lever' );
+	// the light buttons (wave 9): L in a boat; N and ; in the seaplane; the state only lights them
+	b = T.contextButtons( { mode: 'boat' } );
+	ok( b.has( 'lights' ) && ! b.has( 'navLights' ) && ! b.has( 'landing' ), 'boat: a Lights button, no plane lights' );
+	b = T.contextButtons( { mode: 'plane' } );
+	ok( b.has( 'navLights' ) && b.has( 'landing' ) && ! b.has( 'lights' ), 'seaplane: Nav and Landing, no boat lights' );
+	ok( T.contextButtons( { mode: 'boat', boatLights: true } ).has( 'lights' ) && T.contextButtons( { mode: 'plane', planeNav: true, planeLanding: true } ).has( 'navLights' ), 'the flags do not change which light buttons show' );
+	ok( ! T.contextButtons( { mode: 'walk' } ).has( 'lights' ) && ! T.contextButtons( { mode: 'walk' } ).has( 'navLights' ) && ! T.contextButtons( { mode: 'swim' } ).has( 'landing' ), 'on foot: no light buttons' );
+	ok( T.contextButtons( { mode: 'boat', busy: true } ).size === 0 && ! T.contextButtons( { mode: 'plane', freeCam: true } ).has( 'navLights' ), 'a panel open / free camera: no light buttons' );
+	ok( T.buttonIsOn( 'lights', { boatLights: true } ) && ! T.buttonIsOn( 'lights', { boatLights: false } ) && ! T.buttonIsOn( 'lights', {} ), 'Lights is lit from boatLights' );
+	ok( T.buttonIsOn( 'navLights', { planeNav: true } ) && ! T.buttonIsOn( 'navLights', { planeLanding: true } ) && T.buttonIsOn( 'landing', { planeLanding: true } ) && ! T.buttonIsOn( 'cast', { boatLights: true } ), 'Nav / Landing are lit from planeNav / planeLanding; other buttons never' );
+	{
+
+		// the snapshot reads the boat lights and the seaplane's systems (optional chaining: neither need exist)
+		const tc = Object.create( TouchControls.prototype );
+		tc._mode = () => 'plane';
+		tc._busy = () => false;
+		tc.app = { boatLightsOn: true, features: { get: ( n ) => ( n === 'seaplane' ? { systems: { nav: true, landing: false } } : null ) } };
+		let snap = tc.snapshot( null );
+		ok( snap.boatLights === true && snap.planeNav === true && snap.planeLanding === false, 'snapshot: boatLights, planeNav, planeLanding' );
+		tc.app = {};
+		snap = tc.snapshot( null );
+		ok( snap.boatLights === false && snap.planeNav === false && snap.planeLanding === false, 'snapshot: all false without the app state' );
+
+	}
+
 	ok( T.contextButtons( { mode: 'boat', boardOffer: true } ).has( 'board' ), 'a boarding offer: Board' );
 	ok( T.contextButtons( { mode: 'boat', helmAshore: true } ).has( 'deck' ) && ! T.contextButtons( { mode: 'boat' } ).has( 'deck' ), 'stopped by land: a Deck button (E steps ashore)' );
 	ok( T.contextButtons( { mode: 'deck', choices: true } ).has( 'choice2' ), 'a surrender: the 1 / 2 choices' );
