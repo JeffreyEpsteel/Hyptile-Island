@@ -104,7 +104,7 @@ const saved = globalThis.__phoneBudget;
 	const code = c.code;
 	const fnBody = ( code.match( /fn waterLocalLights\([\s\S]*?\n}\n/ ) || [ '' ] )[ 0 ];
 	ok( fnBody.length > 0, 'waterLocalLights is in the composed water shader' );
-	ok( /for \( var i = 0; i < n; i\+\+ \)/.test( fnBody ) && /min\( localLights\.count, 8 \)/.test( fnBody ), 'a single loop over at most 16 lights from the localLights block' );
+	ok( /for \( var i = 0; i < n; i\+\+ \)/.test( fnBody ) && /min\( localLights\.count, 16 \)/.test( fnBody ), 'a single loop over at most 16 lights from the localLights block' );
 	ok( ( fnBody.match( /\bfor\s*\(/g ) || [] ).length === 1, 'exactly one loop' );
 	ok( /if \( localLights\.count <= 0 && localLights\.flashOn < 0\.5 \) \{ return o; \}/.test( fnBody ), 'uniform early-out: no lamp lit and the flashlight off' );
 	ok( /localLights\.pos\[ i \]/.test( fnBody ) && /localLights\.col\[ i \]/.test( fnBody ) && /localLights\.dir\[ i \]/.test( fnBody ), 'reads pos / col / dir of the block' );
