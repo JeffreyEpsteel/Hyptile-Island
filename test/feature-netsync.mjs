@@ -210,6 +210,8 @@ try {
 	// ---- cannon fire is seen by everybody
 	G.naval.playerGun.owned = true;
 	H.naval.playerGun.owned = true;
+	// (wave 11: a hull carries shot in its magazine; a skiff's is empty unless it is stocked)
+	for ( const c of [ G, H ] ) if ( c.naval.ammo && c.naval.ammo.setMax && c.naval.ammo.rounds <= 0 ) c.naval.ammo.setMax( 20, { fill: true } );
 	G.app.boatCtl.position.set( gs.x + 40, 0, gs.z );
 	G.app.boatCtl.moored = false;
 	await run( both, 0.6 );

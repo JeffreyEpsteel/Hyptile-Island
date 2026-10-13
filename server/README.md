@@ -59,14 +59,22 @@ The protocol's vocabulary is unchanged from 2.x; each `{ t, ...body }` is a Coly
 | `clock` (every 10 s) | `clock { timeOfDay, timeSpeed, at, day?, seed? }` |
 | `ships`, `shipsAt`, `shipsHost` (the host's `world`, 12 Hz at most) | `world { at, host, ships }` to everybody but the host |
 | `moored` (universe) | (also announced as `boatMoored` / `boatUnmoored` events) |
+| `wrecks['<owner>:<id>']`: kind (`sinking` / `boat` / `plane`), model, pose, `t`, `parts` (wave 11) | read directly by `src/features/netsync/WreckLink.js` |
 
 Messages: `hello` (a later one updates the profile), `state`, `chat`, `ping`/`pong`, `createCrew`/`crew`,
-`ride`/`unride`/`ridePolicy` → `ride`/`unride`/`rideNo`/`policy`, `world`, `fx` (to the others, 12/s), `hit` (to the host,
+`ride`/`unride`/`ridePolicy` → `ride`/`unride`/`rideNo`/`policy`, `world`, `fx` (to the others, 30/s), `hit` (to the host,
 clamped to 60, 20/s), `event` (to the others, 10/s; the universe persists the kinds in `WORLD_EVENT_RULES`), `save`
 (universe, JSON text, 256 KB, 1 per 2 s) → `saved`, `market` (the host's, 1 per 5 s), `welcome`, `profile` (a probe's
 answer), `error { code, text }`. The sanitizers of `Protocol.js` run on the server for every message; frames over 4 kB
 are dropped (a save or a market snapshot may be bigger); 120 messages per second per client at most; the socket is
 closed above 512 KB (1009).
+
+Wave 11: `bump` (the host only: a remote boat's hull collision, forwarded to that boat's owner alone, near its boat, 10/s
+per boat), `wreck` (`add` / `del` of the sender's own entries, 4 per player, 40 per room, 8 messages/s; dropped when the
+owner leaves, kept over a reconnect), `fx` `ram` (from the host only). Fire rates (`Protocol.FireGate`): each cannon side
+fires a volley of at most 6 balls within 1.2 s, then nothing for 1.5 s (a ship's side 3.5 s); a firearm `gunshot` event no
+sooner than 0.8 x its reload after the last of that weapon; only the host fires balls that are not a player's (`o`).
+The admin console's `wrecks` lists the entries.
 
 Refusals at join are Colyseus errors whose code is a `REFUSAL` number, all in the application range (Colyseus keeps
 4000..4010): `full` 4101, `hello` 4102, `version` 4103, `rooms` 4104 (409 while a room is being created), `nocrew` 4105
@@ -93,6 +101,8 @@ node test/net-protocol.mjs     # rooms, crews, rides, ships, fx / hits, limits (
 node test/universe.mjs         # the persistent universe, NetClient + UniverseSession, a restart
 node test/colyseus.mjs         # schema by reflection, 15 Hz patches, reconnection, replace, probe, restart on the same port
 node test/feature-netsync.mjs  # two browser stacks: crews, a reconnect, rides, puppets, shots, hits, host migration
+node test/server-w11.mjs       # wave 11 rules: bumps to the owner only, wreck entries, fire rates
+node test/feature-netsync-w11.mjs  # two browser stacks: remote hull collisions, crew decks, rates, wrecks over a reconnect
 ```
 
 ## The persistent universe

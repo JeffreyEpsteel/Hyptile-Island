@@ -136,6 +136,7 @@ export function startServer( options = {} ) {
 			case 'help': case '?':
 				return [
 					'list                 who is online (every room)',
+					'wrecks               the wrecks the rooms show (sinking boats, boats on the bottom, seaplanes)',
 					'captains             every captain of the universe',
 					'kick <name>          disconnect a player (they may come back)',
 					'ban <name> [reason]  ban a captain from the universe (and kick)',
@@ -150,6 +151,19 @@ export function startServer( options = {} ) {
 
 				const lines = everyone().map( ( { room, m } ) => `${ room.label.padEnd( 10 ) } ${ m.id } ${ m.name }${ m.captainKey ? ' (captain)' : '' } from ${ m.remote }${ m.dropped ? ' (reconnecting)' : '' }` );
 				return lines.length ? lines.join( '\n' ) : 'nobody online';
+
+			}
+
+			case 'wrecks': {
+
+				const lines = [];
+				for ( const r of ctx.rooms.values() ) r.state.wrecks.forEach( ( w, key ) => {
+
+					const m = r.order.get( w.owner );
+					lines.push( `${ r.label.padEnd( 10 ) } ${ key.padEnd( 32 ) } ${ w.kind.padEnd( 8 ) } ${ w.model.padEnd( 10 ) } at ${ Math.round( w.x ) }, ${ Math.round( w.z ) }  ${ m ? m.name : '?' }` );
+
+				} );
+				return lines.length ? lines.join( '\n' ) : 'no wrecks';
 
 			}
 

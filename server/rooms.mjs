@@ -12,6 +12,11 @@
 // host's ships are schema state (server/schema.mjs); the rest are messages. The hello is the join options; refusals are
 // ServerErrors with a REFUSAL code. A dropped client keeps its seat RECONNECT_SECONDS (colyseus allowReconnection), so a
 // short network hiccup is not a leave; a replaced / kicked / banned one is closed with a KICK_CLOSE code.
+//
+// Wave 11 (multiplayer parity): 'bump' from the host goes to the owner of the struck boat only (the host resolves the remote
+// boats' hull collisions, src/features/netsync/HullLink.js); 'wreck' adds / removes the sender's own entries of the schema's
+// `wrecks` map (dropped with the owner in onLeave, kept over a reconnect); cannon 'fx' shots and firearm 'gunshot' events
+// faster than the weapon reloads are dropped (Protocol.FireGate); only the host fires balls that are not a player's ('o').
 
 import { Room, ServerError, CloseCode, matchMaker } from '@colyseus/core';
 import {
@@ -19,9 +24,13 @@ import {
 	UNIVERSE_PATH, DEFAULT_ROOM, REFUSAL, REFUSAL_HTTP,
 	sanitizeHello, sanitizeState, sanitizeChat, sanitizeRoom, sanitizeEvent, sanitizeWorld, sanitizeFx, sanitizeHit,
 	isCrewRoom, makeCrewCode,
+	sanitizeBump, sanitizeWreck, FireGate, CANNON_GATE, GUN_GATE, BUMP_REACH, MAX_WRECKS_PER_PLAYER, MAX_ROOM_WRECKS,
 } from '../src/net/Protocol.js';
 import { BOATS } from '../src/game/Boats.js';
-import { HyptileState, Player, writePlayerState, writeShips, writeMoored } from './schema.mjs';
+import { WEAPONS } from '../src/features/firearms/FirearmsData.js';
+import { HyptileState, Player, writePlayerState, writeShips, writeMoored, writeWreck } from './schema.mjs';
+
+const SHIP_GATE = { ...CANNON_GATE, reload: CANNON_GATE.shipReload };
 
 const ID_CHARS = 'abcdefghjkmnpqrstuvwxyz23456789';
 const makeId = ( taken ) => {
@@ -58,7 +67,7 @@ export function makeRooms( ctx ) {
 	const { opts } = ctx;
 	const log = ( ...a ) => opts.log( ...a );
 
-	const MESSAGES = [ 'hello', 'state', 'chat', 'ping', 'createCrew', 'ridePolicy', 'ride', 'unride', 'world', 'fx', 'hit', 'event', 'save', 'market' ];
+	const MESSAGES = [ 'hello', 'state', 'chat', 'ping', 'createCrew', 'ridePolicy', 'ride', 'unride', 'world', 'fx', 'hit', 'event', 'save', 'market', 'bump', 'wreck' ];
 
 	class HyptileRoom extends Room {
 
@@ -340,7 +349,7 @@ export function makeRooms( ctx ) {
 				client, id: makeId( this.order ), name: h.name, character: h.character, boat: h.boat, lastState: null, remote: auth.remote,
 				rideHost: null, rideSeat: 0, rideOpen: true, limits: new Map(), lastWorldAt: 0, lastCrewAt: 0, chatTimes: [],
 				captain: auth.captain, captainKey: auth.captainKey, startedAt: Date.now(), dropped: false, kicked: false, reconnection: null,
-				player: new Player(),
+				player: new Player(), gate: new FireGate(),
 			};
 			const pl = m.player;
 			pl.id = m.id;
@@ -440,6 +449,7 @@ export function makeRooms( ctx ) {
 			for ( const g of this.guestsOf( m.id ) ) this.unride( g, 'gone' );
 			this.order.delete( m.id );
 			this.state.players.delete( m.id );
+			this.dropWrecks( m.id );
 			const uni = this.uni;
 			if ( uni && m.captainKey ) {
 
@@ -481,6 +491,16 @@ export function makeRooms( ctx ) {
 				m.client.leave( REFUSAL[ code ] || CloseCode.WITH_ERROR, code );
 
 			} catch ( e ) { /* gone */ }
+
+		}
+
+		// every wreck entry of a player (gone for good: nobody is left to salvage or recover them)
+		dropWrecks( id ) {
+
+			const map = this.state.wrecks, gone = [];
+			map.forEach( ( e, key ) => { if ( e.owner === id ) gone.push( key ); } );
+			for ( const key of gone ) map.delete( key );
+			return gone.length;
 
 		}
 
@@ -745,9 +765,19 @@ export function makeRooms( ctx ) {
 
 		on_fx( c, m ) {
 
-			if ( ! this.allow( c, 'fx', 12, 1000 ) ) return;
+			if ( ! this.allow( c, 'fx', 30, 1000 ) ) return;
 			const fx = sanitizeFx( m );
 			if ( ! fx ) return;
+			const host = this.state.host === c.id;
+			if ( fx.kind === 'shot' ) {
+
+				// a player's ball never hurts a boat (d 0); only the host's ships fire the others; each side no faster than it reloads
+				if ( fx.o === 'player' ) fx.d = 0;
+				else if ( ! host ) return;
+				if ( ( c.lastGatePrune || 0 ) + 30000 < Date.now() ) { c.lastGatePrune = Date.now(); c.gate.prune( Date.now() ); }
+				if ( ! c.gate.volley( `shot|${ fx.o }|${ fx.sd || '?' }`, Date.now(), fx.o === 'player' ? CANNON_GATE : SHIP_GATE ) ) return;
+
+			} else if ( fx.kind === 'ram' && ! host ) return; // (the host resolves the remote hulls)
 			this.broadcastExcept( 'fx', { id: c.id, ...fx }, c );
 
 		}
@@ -770,9 +800,62 @@ export function makeRooms( ctx ) {
 			if ( ! this.allow( c, 'event', 10, 1000 ) ) return;
 			const e = sanitizeEvent( m );
 			if ( ! e ) return;
+			if ( e.kind === 'gunshot' ) {
+
+				// a flintlock holds one ball: a weapon's shots come no faster than it reloads
+				const d = e.data, w = WEAPONS[ d.weapon ];
+				if ( ! w || ! [ d.x, d.y, d.z ].every( Number.isFinite ) ) return;
+				if ( ! c.gate.single( 'gun|' + d.weapon, Date.now(), w.reload * GUN_GATE ) ) return;
+
+			}
+
 			const at = Date.now();
 			this.broadcastExcept( 'event', { kind: e.kind, data: e.data, from: c.id, at }, c );
 			if ( this.uni ) this.uni.recordEvent( c.captainKey, c.id, e.kind, e.data, at );
+
+		}
+
+		// the host resolved a hull collision of another player's boat: the impulse and the damage go to that boat's owner only
+		on_bump( c, m ) {
+
+			if ( this.state.host !== c.id || ! this.allow( c, 'bump', 30, 1000 ) ) return;
+			const b = sanitizeBump( m );
+			const t = b ? this.order.get( b.to ) : null;
+			if ( ! t || t === c || t.dropped ) return;
+			const tb = t.lastState && t.lastState.boat;
+			if ( ! tb ) return;
+			// the blow lands on that boat (where its owner last said it was)
+			const half = BOATS[ tb.id ] ? BOATS[ tb.id ].length / 2 : 5;
+			if ( Math.hypot( b.p[ 0 ] - tb.p[ 0 ], b.p[ 1 ] - tb.p[ 2 ] ) > half + BUMP_REACH ) return;
+			if ( ! this.allow( c, 'bump:' + t.id, 10, 1000 ) ) return;
+			const { to, ...body } = b;
+			this.tell( t, 'bump', { from: c.id, ...body } );
+
+		}
+
+		// a player's own wreck entries (keyed '<owner>:<id>': nobody else can touch them)
+		on_wreck( c, m ) {
+
+			if ( ! this.allow( c, 'wreck', 8, 1000 ) ) return;
+			const w = sanitizeWreck( m );
+			if ( ! w ) return;
+			const map = this.state.wrecks, key = c.id + ':' + w.id;
+			if ( w.op === 'del' ) {
+
+				if ( map.has( key ) ) map.delete( key );
+				return;
+
+			}
+
+			if ( ! map.has( key ) ) {
+
+				let mine = 0;
+				map.forEach( ( e ) => { if ( e.owner === c.id ) mine ++; } );
+				if ( mine >= MAX_WRECKS_PER_PLAYER || map.size >= MAX_ROOM_WRECKS ) return;
+
+			}
+
+			writeWreck( map, c.id, w );
 
 		}
 

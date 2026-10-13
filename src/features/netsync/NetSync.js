@@ -32,10 +32,24 @@
 //   the market: the world host sends trade.marketSnapshot() (on trade.onMarketChange, at most every 5 s); everybody else
 //   adopts the host's / the stored one with trade.adoptMarketSnapshot( snap ); app.universe (Universe.js) gets each NetClient
 // decorateState keeps every field another feature put on the state (out.plane...): the server passes them through.
+//
+// Wave 11, the waves 9-10 features for everybody in the room:
+//   sync.hulls  (HullLink.js)   remote boats are solid: the host resolves their hull collisions with the ships, its own boat
+//                               and each other and sends each owner its impulse + damage ('bump'); every client pushes its
+//                               own boat clear of the remote hulls it draws. The state carries hv: [ vx, vz, w, mass, maxHp ].
+//   sync.wrecks (WreckLink.js)  sinking boats, boat wrecks and seaplane wrecks as entries of the room's schema (wrecks),
+//                               drawn by naval Wrecks / Planks and seaplane Wreck + PlaneVisual in a passive mode
+//   sync.crew   (CrewLink.js)   the posted crew rides in the state (crew: [ [ id, post, side, slot ] ]); remote boats show
+//                               them with crew/Deck.js
+//   cannon fire carries its side and crew gunner (fx sd, c); the server drops shots and gunshots faster than the reload
+//   (Protocol.FireGate) and relays the host's 'ram' effects. All of it survives a reconnect (schema + state, re-sent wrecks).
 
 import { BOATS } from '../../game/Boats.js';
 import { CrewPanel } from './CrewPanel.js';
 import { NavalLink } from './NavalLink.js';
+import { HullLink } from './HullLink.js';
+import { WreckLink } from './WreckLink.js';
+import { CrewLink } from './CrewLink.js';
 import { crewCodeFromLocation } from '../../net/NetClient.js';
 import { crewUrl } from '../../net/Protocol.js';
 
@@ -66,6 +80,9 @@ export class NetSync {
 		this.openToGuests = true;
 		this.guests = [];
 		this.naval = new NavalLink( this );
+		this.hulls = new HullLink( this );
+		this.wrecks = new WreckLink( this );
+		this.crew = new CrewLink( this );
 		this.panel = null;
 		this._offs = [];
 		this._speeds = new Map(); // peer id -> { x, z, t, v }: boat speed from the interpolated transform
@@ -153,6 +170,8 @@ export class NetSync {
 
 		const net = this.net;
 		if ( ! net || ! net.online || ! net.sendEvent ) return false;
+		// a wreck is an entry of the room's state now (WreckLink): the naval feature's events stay home
+		if ( ( kind === 'wreck' || kind === 'wreckSalvaged' ) && this.wrecks.supported ) return true;
 		return net.sendEvent( kind, data );
 
 	}
@@ -607,7 +626,15 @@ export class NetSync {
 
 		}
 
-		if ( ! this.riding ) return s;
+		if ( ! this.riding ) {
+
+			// aboard her own boat: its way, mass and hull for the host's collisions; the posted crew for the others' decks
+			this._hullState( s );
+			try { this.crew.decorate( s ); } catch ( e ) { /* optional */ }
+			return s;
+
+		}
+
 		const p = this.ridePose();
 		if ( p ) {
 
@@ -625,6 +652,19 @@ export class NetSync {
 		s.diving = false;
 		s.action = null;
 		return s;
+
+	}
+
+	// hv: [ vx, vz, yaw rate, mass, max hull ] of the local boat (HullLink on the host reads it)
+	_hullState( s ) {
+
+		const b = this.app.boatCtl;
+		if ( ! s || ! s.boat || ! b || ! b.velocity ) return;
+		const n = this.features && this.features.get ? this.features.get( 'naval' ) : null;
+		const spec = BOATS[ s.boat.id ];
+		const r1 = ( v ) => Math.round( ( Number.isFinite( v ) ? v : 0 ) * 10 ) / 10;
+		s.hv = [ r1( b.velocity.x ), r1( b.velocity.z ), Math.round( ( b.angular ? b.angular.y : 0 ) * 100 ) / 100 || 0,
+			Math.round( b.mass || ( spec ? spec.mass : 0 ) || 0 ), Math.round( n && n.playerHull ? n.playerHull.max : 0 ) ];
 
 	}
 
@@ -707,6 +747,9 @@ export class NetSync {
 		this._anchor = null;
 		this._speeds.clear();
 		this.naval.bind( net );
+		this.hulls.bind( net );
+		this.wrecks.bind( net );
+		this.crew.clear();
 		if ( ! net ) {
 
 			this.universe = null;
@@ -772,6 +815,9 @@ export class NetSync {
 		}
 
 		this.naval.update( dt );
+		this.hulls.update( dt );
+		this.wrecks.update( dt );
+		this.crew.update( dt );
 		this._updateMarket( dt );
 		if ( net && net.universe ) {
 
@@ -803,6 +849,9 @@ export class NetSync {
 		this._market.off = null;
 		if ( this._off ) this._off();
 		this.naval.dispose();
+		this.hulls.dispose();
+		this.wrecks.dispose();
+		this.crew.dispose();
 		if ( this.panel ) this.panel.dispose();
 		this.panel = null;
 		this.net = null;

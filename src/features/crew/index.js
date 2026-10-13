@@ -124,6 +124,13 @@ export class CrewFeature {
 
 	}
 
+	// the posted members (netsync replicates them to the other players)
+	members() {
+
+		return this._members( this.ctx() );
+
+	}
+
 	berths() {
 
 		return berthsOf( this.ctx().boat );

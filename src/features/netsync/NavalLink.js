@@ -26,6 +26,10 @@
 // Without those functions NavalLink falls back on the naval feature's current internals (_launch, _shipHit, _manage,
 // _spawnBounty, world.fire, `active`, spawn, balls, fx, audio) with instance-level overrides that it removes again when the
 // role goes back to 'solo'. If the internals are not there the link simply does nothing.
+//
+// Wave 11: naval.netRole mirrors the role. A shot carries its side and crew gunner (fx sd / c: the server's FireGate keys a
+// volley per side; a remote crew gunner gestures on the shooter's deck, CrewLink). On a puppet the hull collisions against the
+// host's ships are prediction only (pushed clear, no local impulse or damage): the host resolves them (HullLink 'bump').
 
 import { WORLD_HZ } from '../../net/Protocol.js';
 
@@ -118,6 +122,7 @@ export class NavalLink {
 		this.role = role;
 		if ( ! n ) return;
 		n.netHooks = role === 'solo' ? null : this._hooks();
+		n.netRole = role;
 		if ( typeof n.setNetRole === 'function' ) {
 
 			n.setNetRole( role );
@@ -195,10 +200,14 @@ export class NavalLink {
 		const v = Math.hypot( vel.x, vel.y, vel.z );
 		if ( ! ( v > 1 ) ) return;
 		const owner = info.owner === 'player' || ! info.owner ? 'player' : String( info.owner );
-		net.sendFx( {
+		const crew = typeof info.crew === 'string' ? info.crew : info.crew && typeof info.crew.id === 'string' ? info.crew.id : null;
+		const fx = {
 			kind: 'shot', from: [ from.x, from.y, from.z ], dir: [ vel.x / v, vel.y / v, vel.z / v ], v,
 			d: owner === 'player' ? 0 : Math.min( info.damage || 0, 60 ), o: owner, big: !! info.big,
-		} );
+			sd: info.side === 'port' || info.side === 'starboard' ? info.side : '',
+		};
+		if ( crew ) fx.c = crew;
+		net.sendFx( fx );
 		this.stats.shotsOut ++;
 
 	}
@@ -248,6 +257,7 @@ export class NavalLink {
 			const info = { owner: 'remote:' + m.id, shooter: m.o, damage: m.d || 0, big: !! m.big, faction: m.o === 'player' ? 'player' : 'pirate' };
 			if ( typeof n.remoteShot === 'function' ) n.remoteShot( m.from, m.dir, m.v, info );
 			else this._remoteShot( n, m, info );
+			if ( m.c && this.sync.crew ) this.sync.crew.fired( m.id, m.c );
 
 		} else if ( m.kind === 'sink' && net && m.by === net.id ) {
 
@@ -310,7 +320,7 @@ export class NavalLink {
 				const ball = orig.call( this, m, dir, sigma, o );
 				try {
 
-					if ( ball ) link.onLocalShot( m, { x: ball.vx, y: ball.vy, z: ball.vz }, { owner: o.owner, damage: o.damage, big: o.big } );
+					if ( ball ) link.onLocalShot( m, { x: ball.vx, y: ball.vy, z: ball.vz }, { owner: o.owner, damage: o.damage, big: o.big, side: o.side, crew: o.crew } );
 
 				} catch ( e ) { /* never break the shot */ }
 
@@ -332,6 +342,36 @@ export class NavalLink {
 
 			n.world.fire = () => false;
 			n.world.escape = () => {};
+
+		}
+
+		// the host's ships are the host's to shove: our hull is only pushed clear of a puppet (prediction), and the impulse and
+		// the damage of the blow come back from the host (HullLink 'bump'), so they are not applied twice
+		if ( typeof n._collide === 'function' && n.collisions && typeof n._bodies === 'function' && typeof n._onContact === 'function' ) {
+
+			n._collide = function () {
+
+				const pb = typeof this._playerBody === 'function' ? this._playerBody() : null;
+				const imp = pb ? pb.impulse : null;
+				if ( pb ) pb.impulse = () => {};
+				try {
+
+					this.contacts = this.collisions.step( this.time, this._bodies() );
+
+				} finally {
+
+					if ( pb ) pb.impulse = imp;
+
+				}
+
+				for ( const c of this.contacts ) {
+
+					if ( ( c.a.ship && c.a.ship.puppet ) || ( c.b.ship && c.b.ship.puppet ) ) c.damage = null;
+					this._onContact( c );
+
+				}
+
+			};
 
 		}
 
@@ -366,6 +406,7 @@ export class NavalLink {
 		delete n._manage;
 		delete n._spawnBounty;
 		delete n._shipHit;
+		delete n._collide;
 		if ( n.world && this._orig ) {
 
 			if ( this._orig.fire ) n.world.fire = this._orig.fire;

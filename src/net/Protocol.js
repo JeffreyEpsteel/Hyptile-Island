@@ -20,6 +20,13 @@
 //     { t: 'world', ships: [ { id, k, n, x, z, y, s, hp, mx, st } ] }   the HOST only: AI ships at 5 Hz
 //     { t: 'fx', kind: 'shot', from: [ x, y, z ], dir: [ x, y, z ], v, d, o, big }   cannon fire, shown to everybody
 //     { t: 'hit', ship, dmg, part }            damage dealt to a ship; the server forwards it to the host only
+//     (wave 11) shots also carry sd ('port' | 'starboard' | '') and c (a crew gunner's id); { t: 'fx', kind: 'ram', x, y, z, v }
+//     a hull collision's splinters and crunch (the host sends it for the remote boats' blows)
+//     { t: 'bump', to, j: [ jx, jz ], p: [ px, pz ], dmg, v, by, f: [ x, z ] }   the HOST only: a hull collision of player `to`'s
+//                                              boat (src/features/netsync/HullLink.js); forwarded to that player alone
+//     { t: 'wreck', op: 'add', id, kind, model, x, y, z, yaw, pitch, roll, parts } / { t: 'wreck', op: 'del', id }
+//                                              the sender's own wrecks (kind 'sinking' | 'boat' | 'plane'): the room keeps them in
+//                                              its schema state (wrecks, key '<owner>:<id>') until deleted or the owner leaves
 //   server -> client
 //     { t: 'welcome', id, you: { id, name, character, boat }, peers: [ { id, name, character, boat, state? } ],
 //                     clock: { timeOfDay, timeSpeed, at }, room }
@@ -37,6 +44,10 @@
 //     { t: 'world', at, host, ships }          the host's ships, relayed to everybody else
 //     { t: 'fx', id, kind, ... }               a relayed effect (sender id added)
 //     { t: 'hit', from, ship, dmg, part }      to the host only
+//     { t: 'bump', from, j, p, dmg, v, by, f }  to the owner of the struck boat only (from: the host)
+//   state: wrecks { '<owner>:<id>': { owner, kind, model, x, y, z, yaw, pitch, roll, t, parts } } (t: the server's time of the add)
+//   Rate rules (FireGate below): a cannon side fires a volley of at most CANNON_GATE.perVolley balls within ripple s, then
+//   nothing until its reload; a firearm 'gunshot' event no faster than GUN_GATE x its reload; slower shots are dropped
 //   welcome also carries { host, rides: [ { guest, host, seat } ], crew }
 //
 // Version 2 (the persistent universe; v1 clients still join the island and crew rooms):
@@ -115,7 +126,7 @@ export const CREW_LETTERS = 'abcdefghjkmnpqrstuvwxyz'; // generated codes skip i
 export const MAX_WORLD_SHIPS = 12;
 export const MAX_HIT_DAMAGE = 60; // per hit message
 export const RIDE_RANGE = 14; // m between a would-be guest and the host's boat
-export const FX_KINDS = [ 'shot', 'hit', 'splash', 'sink' ];
+export const FX_KINDS = [ 'shot', 'hit', 'splash', 'sink', 'ram' ];
 export const WORLD_HZ = 5;
 
 const WORLD_LIMIT = 20000; // m; anything beyond is garbage
@@ -528,6 +539,8 @@ export function sanitizeFx( o ) {
 		fx.d = round( num( o.d, 0, MAX_HIT_DAMAGE, 0 ), 10 ); // damage the ball does to a boat it reaches (a ship's cannon: the receiver's own hull takes it)
 		fx.o = cleanText( o.o, 24 ) || 'player';
 		fx.big = o.big === true;
+		fx.sd = o.sd === 'port' || o.sd === 'starboard' ? o.sd : '';
+		if ( typeof o.c === 'string' && /^[\w-]{1,24}$/.test( o.c ) ) fx.c = o.c;
 		return fx;
 
 	}
@@ -550,6 +563,7 @@ export function sanitizeFx( o ) {
 
 	}
 
+	if ( o.kind === 'ram' ) fx.v = round( num( o.v, 0, 60, 0 ), 10 );
 	return fx;
 
 }
@@ -561,6 +575,96 @@ export function sanitizeHit( o ) {
 	const ship = cleanText( o.ship, 24 );
 	if ( ! ship || typeof o.dmg !== 'number' || ! Number.isFinite( o.dmg ) || o.dmg <= 0 ) return null;
 	return { ship, dmg: round( Math.min( o.dmg, MAX_HIT_DAMAGE ), 10 ), part: o.part === 'rigging' ? 'rigging' : 'hull' };
+
+}
+
+// ---- wave 11: hull collisions of remote boats, shared wrecks, fire rates
+
+export const MAX_BUMP_DAMAGE = 2000; // hull points one blow may cost (a brigantine ramming a skiff takes most of it)
+export const MAX_BUMP_IMPULSE = 2e6; // N s per component
+export const BUMP_REACH = 12; // m: the contact must lie within the struck boat's half length + this of its last position
+export const WRECK_KINDS = [ 'sinking', 'boat', 'plane' ];
+export const MAX_WRECKS_PER_PLAYER = 4;
+export const MAX_ROOM_WRECKS = 40;
+const WRECK_ID = /^[\w.-]{1,24}$/;
+
+// a hull collision the host resolved for player `to` (the impulse on that boat, the damage to its hull) or null
+export function sanitizeBump( o ) {
+
+	if ( ! o || typeof o !== 'object' || typeof o.to !== 'string' || ! /^[a-z0-9]{1,12}$/.test( o.to ) ) return null;
+	const j = vec( o.j, 2, MAX_BUMP_IMPULSE, 10 ), p = vec( o.p, 2, WORLD_LIMIT, 100 );
+	if ( ! j || ! p ) return null;
+	const f = vec( o.f, 2, WORLD_LIMIT, 10 );
+	return {
+		to: o.to, j, p, dmg: round( num( o.dmg, 0, MAX_BUMP_DAMAGE, 0 ), 10 ), v: round( num( o.v, 0, 60, 0 ), 100 ),
+		by: cleanText( o.by, 24 ), f: f || [ p[ 0 ], p[ 1 ] ],
+	};
+
+}
+
+// a player's own wreck: { op: 'add', id, kind, model, x, y, z, yaw, pitch, roll, parts } | { op: 'del', id } | null
+export function sanitizeWreck( o ) {
+
+	if ( ! o || typeof o !== 'object' || typeof o.id !== 'string' || ! WRECK_ID.test( o.id ) ) return null;
+	if ( o.op === 'del' ) return { op: 'del', id: o.id };
+	if ( o.op !== 'add' || ! WRECK_KINDS.includes( o.kind ) ) return null;
+	const model = typeof o.model === 'string' && /^[a-z][\w-]{0,23}$/.test( o.model ) ? o.model : null;
+	if ( ! model || ( o.kind !== 'plane' && ! BOATS[ model ] ) ) return null;
+	for ( const k of [ 'x', 'y', 'z' ] ) if ( typeof o[ k ] !== 'number' || ! Number.isFinite( o[ k ] ) || Math.abs( o[ k ] ) > WORLD_LIMIT ) return null;
+	const ang = ( v ) => round( ( ( num( v, - 100, 100, 0 ) + Math.PI ) % ( 2 * Math.PI ) + 2 * Math.PI ) % ( 2 * Math.PI ) - Math.PI, 1000 );
+	return {
+		op: 'add', id: o.id, kind: o.kind, model, x: round( o.x, 100 ), y: round( num( o.y, - 400, 400 ), 100 ), z: round( o.z, 100 ),
+		yaw: ang( o.yaw ), pitch: ang( o.pitch ), roll: ang( o.roll ), parts: Math.round( num( o.parts, 0, 0xffff, 0 ) ) & 0xffff,
+	};
+
+}
+
+export const CANNON_GATE = { ripple: 1.2, perVolley: 6, reload: 1.5, shipReload: 3.5 }; // s; the fastest player battery reloads in ~1.9 s
+export const GUN_GATE = 0.8; // a gunshot may follow the last of that weapon after this fraction of its reload (network jitter)
+
+// Shots no faster than the weapon reloads (server/rooms.mjs; times in ms). Pure: the tests drive it with their own clock.
+export class FireGate {
+
+	constructor() {
+
+		this.keys = new Map();
+
+	}
+
+	// a gun holding one ball: at most one shot per `reload` s
+	single( key, now, reload ) {
+
+		const last = this.keys.get( key );
+		if ( last !== undefined && now - last < reload * 1000 ) return false;
+		this.keys.set( key, now );
+		return true;
+
+	}
+
+	// one ball of a battery side: up to perVolley balls within ripple s of the volley's first one, then none until reload s after it
+	volley( key, now, { ripple = CANNON_GATE.ripple, perVolley = CANNON_GATE.perVolley, reload = CANNON_GATE.reload } = {} ) {
+
+		const v = this.keys.get( key );
+		if ( v && now - v.at < ripple * 1000 ) {
+
+			if ( v.n >= perVolley ) return false;
+			v.n ++;
+			return true;
+
+		}
+
+		if ( v && now - v.at < Math.max( ripple, reload ) * 1000 ) return false;
+		this.keys.set( key, { at: now, n: 1 } );
+		return true;
+
+	}
+
+	// forget keys idle for `ms`
+	prune( now, ms = 60000 ) {
+
+		for ( const [ k, v ] of this.keys ) if ( now - ( typeof v === 'number' ? v : v.at ) > ms ) this.keys.delete( k );
+
+	}
 
 }
 

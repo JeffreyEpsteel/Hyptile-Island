@@ -3,7 +3,7 @@
 // reads a Player back into the state object of src/net/Protocol.js (sanitizeState): p = [ x, y, z ], boat = { id, p, q, ... }.
 //
 //   HyptileState { room, crew, universe, host, at, players: { id: Player }, ships: [ Ship ], shipsAt, shipsHost,
-//                  moored: { captainKey: Moored }, clock: Clock }
+//                  moored: { captainKey: Moored }, clock: Clock, wrecks: { '<owner>:<id>': Wreck } }
 //   Player       profile fields (bumped `profile` on a hello) + the newest accepted state (bumped `seq`)
 
 import { schema, t } from '@colyseus/schema';
@@ -55,6 +55,15 @@ export const Clock = schema( {
 	seed: t.float64().default( 0 ),
 }, 'Clock' );
 
+// a player's wreck (wave 11): a boat going down ('sinking'), on the sea floor ('boat') or a seaplane's ('plane', parts: the bits of
+// the pieces torn off, src/features/netsync/WreckLink.js). Created and removed by its owner; gone when the owner leaves.
+export const Wreck = schema( {
+	owner: t.string().default( '' ), kind: t.string().default( '' ), model: t.string().default( '' ),
+	x: t.float32().default( 0 ), y: t.float32().default( 0 ), z: t.float32().default( 0 ),
+	yaw: t.float32().default( 0 ), pitch: t.float32().default( 0 ), roll: t.float32().default( 0 ),
+	t: t.float64().default( 0 ), parts: t.uint16().default( 0 ),
+}, 'Wreck' );
+
 export const HyptileState = schema( {
 	room: t.string().default( '' ),
 	crew: t.boolean().default( false ),
@@ -67,6 +76,7 @@ export const HyptileState = schema( {
 	shipsHost: t.string().default( '' ),
 	moored: t.map( Moored ),
 	clock: t.ref( Clock ),
+	wrecks: t.map( Wreck ),
 }, 'HyptileState' );
 
 const r2 = ( v ) => Math.round( v * 100 ) / 100;
@@ -159,5 +169,21 @@ export function writeMoored( map, m ) {
 	e.qx = q[ 0 ] || 0; e.qy = q[ 1 ] || 0; e.qz = q[ 2 ] || 0; e.qw = q[ 3 ] ?? 1;
 	e.at = m.at || 0;
 	map.set( m.captain, e );
+
+}
+
+// a sanitized wreck (Protocol.sanitizeWreck, op 'add') into the map under '<owner>:<id>'; t is kept from the first add
+export function writeWreck( map, owner, w, now = Date.now() ) {
+
+	const key = owner + ':' + w.id;
+	let e = map.get( key );
+	const fresh = ! e;
+	if ( fresh ) e = new Wreck();
+	const changed = fresh || e.kind !== w.kind; // (a boat that went down: the wreck's clock starts again)
+	e.owner = owner; e.kind = w.kind; e.model = w.model;
+	e.x = w.x; e.y = w.y; e.z = w.z; e.yaw = w.yaw; e.pitch = w.pitch; e.roll = w.roll; e.parts = w.parts;
+	if ( changed ) e.t = now;
+	if ( fresh ) map.set( key, e );
+	return key;
 
 }
