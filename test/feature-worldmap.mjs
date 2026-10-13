@@ -3,9 +3,9 @@
 // (stalls, ports, ships, bounties, search zones, seaplane, peers, boat) and the shared terrain bake.
 import { WORLD } from '../src/world/WorldLayout.js';
 import { install, WorldMapFeature } from '../src/features/worldmap/index.js';
-import { FogGrid, MapView, worldBounds, edgeClamp, niceScale, pickWaypoint, revealRadius, compass, viewAngle, yawAngle, FOG_CELL } from '../src/features/worldmap/MapLogic.js';
+import { FogGrid, MapView, worldBounds, edgeClamp, niceScale, pickWaypoint, revealRadius, compass, viewAngle, yawAngle, FOG_CELL, discoveryState, legendRows, LEGEND_KINDS, questPinMarker, questPinId, parkedAirframes, portMarkerKind } from '../src/features/worldmap/MapLogic.js';
 import { WorldMap } from '../src/ui/WorldMap.js';
-import { Minimap, TerrainBake, ICON } from '../src/game/Minimap.js';
+import { Minimap, TerrainBake, ICON, portKnown } from '../src/game/Minimap.js';
 import { CAMP } from '../src/features/melee/MeleeData.js';
 
 let fails = 0;
@@ -350,6 +350,204 @@ const mkFeatures = ( { sandbox = false, discovered = [] } = {} ) => {
 	const B2 = new TerrainBake( ctx, { n, x0: - 32, z0: - 32, ppm: n / 64 } );
 	while ( ! B2.step( T, 100 ) );
 	ok( B2.h === null && B2.heightAt( 0, 0 ) === null, 'the minimap bake drops its heights' );
+
+}
+
+// ---- wave 13C: discovery states, the legend, quest pins, parked planes, the airstrip and the pirate island on the map
+{
+
+	// discovery states: "?" until discovered, then named
+	const disc = ( ...ids ) => ( id ) => ids.includes( id );
+	const bw = WORLD.islands.find( ( i ) => i.id === 'blackwater' ), tm = WORLD.islands.find( ( i ) => i.id === 'tidemark' ), home = WORLD.islands.find( ( i ) => i.id === 'home' );
+	ok( bw && bw.pirate && tm && tm.tile, 'Blackwater is a pirate island and Tidemark a tile island in WORLD' );
+	ok( discoveryState( disc(), home ) === 'charted', 'the home island is always charted' );
+	ok( discoveryState( disc(), bw ) === 'unknown' && discoveryState( disc( 'tidemark' ), bw ) === 'unknown', 'Blackwater is a "?" until the stronghold sights it' );
+	ok( discoveryState( disc( 'blackwater' ), bw ) === 'charted' && discoveryState( disc( 'blackwater' ), tm ) === 'unknown', 'then it is named, and Tidemark is still unknown' );
+	ok( discoveryState( disc(), tm, true ) === 'charted' && discoveryState( disc(), bw, true ) === 'charted', 'the sandbox charts everything' );
+	ok( discoveryState( null, bw ) === 'unknown' && discoveryState( disc(), null ) === 'charted', 'garbage in: unknown / charted' );
+
+	// the legend
+	const kindsOf = ( o ) => legendRows( o ).map( ( r ) => r.kind );
+	const base = kindsOf( { discovered: disc(), kinds: new Set() } );
+	ok( [ 'me', 'boat', 'plane', 'peer', 'joe', 'trade', 'marta', 'yard', 'pons', 'board', 'camp', 'pirate', 'bounty', 'zone', 'wp', 'unknown', 'fog' ].every( ( k ) => base.includes( k ) ), 'the legend always explains you, the boat, planes, players, stalls, ports, boards, camp, ships, bounties, zones, waypoint, "?" and fog' );
+	ok( ! base.some( ( k ) => [ 'airstrip', 'isle', 'battery', 'wreck', 'death', 'quest', 'parked', 'pin' ].includes( k ) ), 'and nothing it cannot show yet (airstrip, pirate island, battery reach, wreck, sea chest, quest, parked plane, pin)' );
+	const withT = kindsOf( { discovered: disc( 'tidemark' ), kinds: new Set() } );
+	ok( withT.includes( 'airstrip' ) && ! withT.includes( 'isle' ), 'Tidemark discovered: the airstrip row' );
+	const withB = kindsOf( { discovered: disc( 'blackwater' ), kinds: new Set() } );
+	ok( withB.includes( 'isle' ) && withB.includes( 'battery' ) && ! withB.includes( 'airstrip' ), 'Blackwater discovered: the pirate island and its battery reach' );
+	const withK = kindsOf( { discovered: disc(), kinds: new Set( [ 'wreck', 'death', 'quest', 'parked', 'pin' ] ) } );
+	ok( [ 'wreck', 'death', 'quest', 'parked', 'pin' ].every( ( k ) => withK.includes( k ) ), 'wrecks, the sea chest, quest pins, parked planes and marked places appear with their markers' );
+	const all = kindsOf( { discovered: disc(), sandbox: true, kinds: new Set() } );
+	ok( all.includes( 'airstrip' ) && all.includes( 'isle' ) && all.includes( 'battery' ), 'the sandbox lists the discovery rows' );
+	const rows = legendRows( { discovered: disc( 'tidemark', 'blackwater' ), kinds: new Set( LEGEND_KINDS ) } );
+	ok( rows.length === LEGEND_KINDS.length && new Set( rows.map( ( r ) => r.kind ) ).size === rows.length, 'every kind once, in order' );
+	ok( rows.every( ( r ) => typeof r.key === 'string' && r.key.startsWith( 'worldmap.' ) && r.text && ( r.icon === '' || r.icon === '?' || ICON[ r.icon ] ) ), 'each row has an i18n key, a text and a real icon' );
+	ok( legendRows().length > 10 && legendRows( { kinds: [ 1 ] } ).length > 10, 'no options: the fixed rows; a non-Set kinds is ignored' );
+
+	// quest pins
+	ok( questPinMarker( { id: 'ferry', x: 10, z: 20, label: 'Tidemark fish hall' } ).id === questPinId( 'ferry' ) && questPinId( 'ferry' ) === 'quest:ferry', 'a pin has a quest: id' );
+	const pm = questPinMarker( { id: 7, x: 1.5, z: - 2, label: 'x'.repeat( 90 ) } );
+	ok( pm.kind === 'quest' && pm.icon === 'quest' && pm.label.length === 48, 'kind quest, its own icon, a trimmed label' );
+	ok( questPinMarker( null ) === null && questPinMarker( { id: 'a', x: NaN, z: 1 } ) === null && questPinMarker( { x: 1, z: 1 } ) === null && questPinMarker( { id: '', x: 1, z: 1 } ) === null, 'bad pins are refused' );
+	ok( questPinMarker( { id: 'a', x: 1, z: 2 } ).label === '', 'a pin without a label is fine' );
+
+	// parked airframes
+	const sp = {
+		af: 'jade', fleet: { jade: { owned: true }, kestrel: { owned: true }, petrel: { owned: true, lost: true }, albatross: { owned: false } },
+		base: ( id ) => id === 'kestrel' ? { kind: 'strip', x: 1650, z: 50 } : { kind: 'ramp', x: 0, z: - 20 },
+	};
+	const parked = parkedAirframes( sp, () => true );
+	ok( parked.length === 1 && parked[ 0 ].id === 'kestrel' && parked[ 0 ].name === 'Kestrel' && parked[ 0 ].x === 1650 && parked[ 0 ].port === 'tidemark', 'the Kestrel parked on the strip (not the one out, not a wreck, not an unbought one)' );
+	ok( parkedAirframes( sp, ( id ) => id === 'home' ).length === 0, 'its marker waits until Tidemark is discovered' );
+	sp.af = 'kestrel';
+	sp.fleet.jade.owned = true;
+	const parked2 = parkedAirframes( sp, () => true );
+	ok( parked2.length === 1 && parked2[ 0 ].id === 'jade' && parked2[ 0 ].port === 'home', 'with the Kestrel out the Jade is the parked one, at the ramp' );
+	ok( parkedAirframes( null ).length === 0 && parkedAirframes( {} ).length === 0 && parkedAirframes( { fleet: { a: { owned: true } }, af: 'b', base: () => { throw new Error( 'x' ); } } ).length === 0 && parkedAirframes( { fleet: { a: { owned: true } }, af: 'b', base: () => ( { x: NaN, z: 1 } ) } ).length === 0, 'no seaplane, no fleet, a failing or bad base: none' );
+
+	// the airstrip is its own badge kind
+	ok( portMarkerKind( { icon: 'plane' } ) === 'airstrip' && portMarkerKind( { icon: 'anchor' } ) === 'pons' && portMarkerKind( null ) === 'pons', 'the airstrip marker has its own kind' );
+	ok( portKnown( { state: { discovered: [ 'tidemark' ] } }, 'tidemark' ) && ! portKnown( { state: { discovered: [] } }, 'tidemark' ) && portKnown( {}, 'home' ), 'the minimap: a port is known from the save' );
+	const gm = { app: { features: { get: ( n ) => n === 'worldmap' ? { discovered: ( id ) => id === 'tidemark' } : null } }, state: { discovered: [] } };
+	ok( portKnown( gm, 'tidemark' ) && ! portKnown( gm, 'gull' ), 'the minimap asks the world map feature first (the sandbox charts everything)' );
+
+}
+
+{
+
+	// the feature: quest pins from events, saved; parked planes as markers
+	const handlers = new Map();
+	const reg = new Map();
+	const added = [], removed = [];
+	const mm = { addMarker: ( m ) => added.push( m ), removeMarker: ( id ) => removed.push( id ), setWaypoint: () => {} };
+	const F = {
+		sandbox: false, state: { discovered: [ 'tidemark' ] },
+		claimKey: () => true, emit: ( n, d ) => ( handlers.get( n ) || [] ).forEach( ( h ) => h( d ) ),
+		on: ( n, h ) => { handlers.set( n, [ ...( handlers.get( n ) || [] ), h ] ); return () => handlers.set( n, ( handlers.get( n ) || [] ).filter( ( q ) => q !== h ) ); },
+		get: ( n ) => reg.get( n ) || null,
+	};
+	const app = { terrainData: { size: 2048, origin: - 1024 }, player: { position: { x: 0, y: 2, z: 0 }, mode: 'walk' }, game: { minimap: mm } };
+	const m = install( app, F );
+
+	F.emit( 'questPin', { id: 'ferry', x: 1840, z: - 24, label: 'Tidemark fish hall' } );
+	ok( m.markers.has( 'quest:ferry' ) && m.markers.get( 'quest:ferry' ).kind === 'quest' && m.pins.size === 1, 'questPin puts a quest pin on the map' );
+	m.update( 0.01 );
+	ok( added.some( ( a ) => a.id === 'quest:ferry' && a.icon === 'quest' && a.label === 'Tidemark fish hall' ), 'and on the minimap' );
+	F.emit( 'questPin', { id: 'ferry', x: 1850, z: - 30, label: 'The tavern' } );
+	ok( m.markers.size === 1 && m.markers.get( 'quest:ferry' ).x === 1850 && m.markers.get( 'quest:ferry' ).label === 'The tavern', 'the same id again moves and relabels the pin' );
+	F.emit( 'questPin', { id: 'other', x: - 700, z: 690, label: 'Blackwater cove' } );
+	F.emit( 'questPin', { id: 'bad', x: 'x', z: 1 } );
+	F.emit( 'questPin', null );
+	ok( m.markers.size === 2 && m.pins.size === 2, 'a second quest, a bad payload ignored' );
+
+	const collected = [];
+	m._collectMarkers( collected );
+	const pin = collected.find( ( c ) => c.key === 'pin:quest:ferry' );
+	ok( pin && pin.kind === 'quest' && pin.edge && /The tavern/.test( pin.label ) && / km$/.test( pin.label ), 'the world map draws it on the edge with its label and the distance' );
+
+	const j = JSON.parse( JSON.stringify( m.toJSON() ) );
+	ok( Array.isArray( j.pins ) && j.pins.length === 2 && j.pins[ 0 ].id === 'ferry' && j.pins[ 0 ].x === 1850, 'pins are in the save' );
+	const m2 = install( { ...app, game: { minimap: null } }, F );
+	m2.fromJSON( j );
+	ok( m2.markers.has( 'quest:ferry' ) && m2.markers.has( 'quest:other' ) && m2.markers.get( 'quest:other' ).z === 690, 'a loaded game shows its pins again' );
+	m2.fromJSON( { v: 1, fog: null, wp: null } );
+	ok( m2.markers.size === 0 && m2.pins.size === 0, 'a save without pins clears them' );
+	m2.fromJSON( { v: 1, pins: [ { id: 1, x: 5, z: 5 }, { id: 2, x: NaN, z: 1 }, 'x', null ] } );
+	ok( m2.markers.size === 1, 'broken pins in a save are skipped' );
+	m2.dispose();
+	ok( ! ( 'pins' in new WorldMapFeature( app, null ).toJSON() ), 'no pins: nothing extra in the save' );
+
+	F.emit( 'questPinClear', { id: 'ferry' } );
+	ok( ! m.markers.has( 'quest:ferry' ) && m.markers.has( 'quest:other' ) && m.pins.size === 1, 'questPinClear removes that pin' );
+	m.update( 0.01 );
+	ok( removed.includes( 'quest:ferry' ), 'and takes it off the minimap' );
+	F.emit( 'questPinClear', { id: 'nothing' } );
+	F.emit( 'questPinClear', null );
+	F.emit( 'questPinClear', {} );
+	ok( m.markers.size === 1, 'clearing an unknown pin changes nothing' );
+	m.reset();
+	ok( m.markers.size === 0 && m.pins.size === 0, 'reset clears the pins' );
+
+	// parked planes
+	const sp = { af: 'jade', fleet: { jade: { owned: true }, kestrel: { owned: true } }, base: ( id ) => id === 'kestrel' ? { kind: 'strip', x: 1650, z: 50 } : { kind: 'ramp', x: 0, z: - 20 } };
+	reg.set( 'seaplane', sp );
+	m.update( 0.6 );
+	const pk = m.markers.get( 'parked:kestrel' );
+	ok( pk && pk.kind === 'parked' && pk.icon === 'plane' && /Kestrel/.test( pk.label ) && pk.x === 1650 && ! m.markers.has( 'parked:jade' ), 'the Kestrel parked on the strip is a marker (the plane out has the plane badge)' );
+	const c2 = [];
+	m._collectMarkers( c2 );
+	const cm = c2.find( ( c ) => c.key === 'pin:parked:kestrel' );
+	ok( cm && cm.minor && ! cm.edge, 'drawn small on the world map, not pinned to the edge' );
+	sp.af = 'kestrel';
+	m.update( 0.6 );
+	ok( ! m.markers.has( 'parked:kestrel' ) && m.markers.has( 'parked:jade' ), 'fly the Kestrel and the Jade is the parked one' );
+	F.state.discovered = [];
+	m.update( 0.6 );
+	ok( m.markers.has( 'parked:jade' ), 'a ramp plane at home needs no discovery' );
+	sp.fleet.jade.lost = true;
+	m.update( 0.6 );
+	ok( ! m.markers.has( 'parked:jade' ), 'a wreck is not parked' );
+	reg.delete( 'seaplane' );
+	m.update( 0.6 );
+	ok( m.markers.size === 0, 'no seaplane feature: no parked markers' );
+	m.dispose();
+	F.emit( 'questPin', { id: 'late', x: 1, z: 1 } );
+	ok( m.markers.size === 0, 'a disposed feature stops listening' );
+
+}
+
+{
+
+	// WorldMap._collect: the airstrip, the pirate island, the batteries' reach, the crew
+	const reg = new Map();
+	const feats = { get: ( n ) => reg.get( n ) || null };
+	const mk = ( ids, sandbox = false ) => ( { discovered: ( id ) => id === 'home' || sandbox || ids.includes( id ), waypoint: null, sandbox } );
+	const app = {
+		features: feats, player: { position: { x: 0, y: 0, z: 0 }, mode: 'walk' },
+		camera: { position: { x: 0, y: 5, z: 5 }, matrixWorld: { elements: [ 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1 ] } },
+		boatCtl: { position: { x: 70, z: - 20 } }, game: { state: { boat: 'skiff' } },
+		ports: { markers: [ { id: 'tidemark:airstrip', name: 'Airstrip', x: 1652, z: 52, icon: 'plane', port: 'tidemark' } ] },
+	};
+	const collect = ( F ) => {
+
+		const wm = Object.create( WorldMap.prototype );
+		wm.app = app;
+		wm.feature = F;
+		const list = [];
+		wm._collect( list );
+		return { list, wm, get: ( k ) => list.find( ( m ) => m.key === k ) };
+
+	};
+
+	let c = collect( mk( [] ) );
+	ok( ! c.get( 'port:tidemark:airstrip' ) && ! c.get( 'isle:blackwater' ), 'undiscovered: no airstrip badge and no pirate island badge' );
+	c = collect( mk( [ 'tidemark' ] ) );
+	ok( c.get( 'port:tidemark:airstrip' ) && c.get( 'port:tidemark:airstrip' ).kind === 'airstrip' && c.get( 'port:tidemark:airstrip' ).x === 1652, 'Tidemark discovered: the airstrip badge, its own kind' );
+	ok( ! c.get( 'isle:blackwater' ), 'a pirate island stays off the map until it is charted' );
+	c = collect( mk( [ 'blackwater' ] ) );
+	const isle = c.get( 'isle:blackwater' );
+	ok( isle && isle.kind === 'isle' && isle.x === WORLD.blackwater.center.x && isle.z === WORLD.blackwater.center.z, 'Blackwater charted: a skull on the island' );
+	ok( collect( mk( [], true ) ).get( 'isle:blackwater' ) && collect( mk( [], true ) ).get( 'port:tidemark:airstrip' ), 'the sandbox shows both' );
+
+	// the batteries' reach: the pirates' search zones carry kind 'battery'
+	reg.set( 'pirates', { searchZones: () => [
+		{ id: 'battery-seaward', kind: 'battery', x: 100, z: 650, r: 220, label: 'The seaward battery', silenced: false },
+		{ id: 'battery-channel', kind: 'battery', x: 60, z: 640, r: 220, label: 'The channel battery (silenced)', silenced: true },
+		{ id: 'z1', x: 200, z: - 400, r: 250, captain: 'Old Vane' },
+	] } );
+	c = collect( mk( [ 'blackwater' ] ) );
+	const rg = c.wm._regionList;
+	ok( rg.find( ( r ) => r.key === 'zone:battery-seaward' ).battery === true && rg.find( ( r ) => r.key === 'zone:battery-seaward' ).silenced === false && rg.find( ( r ) => r.key === 'zone:battery-seaward' ).r === 220, 'a battery zone is flagged battery with its range' );
+	ok( rg.find( ( r ) => r.key === 'zone:battery-channel' ).silenced === true && ! rg.find( ( r ) => r.key === 'zone:z1' ).battery, 'a silenced battery is flagged; a bounty zone is not a battery' );
+
+	// the crew count on the boat, the airframe on the plane badge
+	reg.set( 'crew', { posts: { pepe: 'gunner', doge: 'angler' } } );
+	reg.set( 'seaplane', { af: 'kestrel', marker: () => ( { x: 1700, z: 60, heading: 0 } ) } );
+	c = collect( mk( [ 'tidemark' ] ) );
+	ok( c.get( 'boat' ).label === '2 crew', 'the moored boat says how many crew are posted' );
+	ok( c.get( 'plane' ).label === 'Kestrel', 'the plane badge names the airframe' );
+	reg.delete( 'crew' );
+	ok( collect( mk( [] ) ).get( 'boat' ).label === '', 'no crew: no label' );
 
 }
 

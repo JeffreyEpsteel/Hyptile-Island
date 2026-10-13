@@ -1,5 +1,5 @@
 import { WORLD } from '../../world/WorldLayout.js';
-import { FogGrid, worldBounds, revealRadius, FOG_CELL } from './MapLogic.js';
+import { FogGrid, worldBounds, revealRadius, FOG_CELL, questPinMarker, questPinId, parkedAirframes } from './MapLogic.js';
 import { WorldMap } from '../../ui/WorldMap.js';
 import { iconFor } from '../../game/Minimap.js';
 
@@ -22,6 +22,15 @@ import { iconFor } from '../../game/Minimap.js';
 //                                              their owners re-add them after a load.
 //   m.update( dt ) / toJSON() / fromJSON( d ) / reset() / dispose()
 //
+// Wave 13C: the legend (src/ui/WorldMap.js, rows from MapLogic.legendRows) names every badge: ports, the airstrip (Tidemark
+// discovered), the pirate island and its battery reach (Blackwater discovered), wrecks, the sea chest, parked planes, quest
+// pins, the boat and its crew. Undiscovered islands are a "?" until discovered (MapLogic.discoveryState); Tidemark's terrain is
+// baked from its own tile. Two more kinds of generic marker come from here:
+//   quest pins   features 'questPin' { id, x, z, label } (the story feature: a step naming a place) puts a 'quest' pin on both
+//                maps, 'questPinClear' { id } removes it; they are kept in the save (m.pins), so a loaded game still shows
+//                them (the story feature raising questPin again just moves the same pin)
+//   parked planes  every owned airframe standing at its base other than the one out (seaplane.fleet / seaplane.base( id )): the
+//                Kestrel on the airstrip's pad, the seaplanes at the ramp; 'parked:<id>' markers kept in step every half second
 // Opening frees the mouse (pointer lock off) and blocks the rod (isOpen / wantsMouse through the registry); the
 // world keeps running (nothing pauses, single player or not). While it is open the map takes W A S D / arrows (pan),
 // + / - (zoom) and C (back to the player) so the player stands still. Event: waypointChanged { waypoint }.
@@ -40,6 +49,10 @@ export class WorldMapFeature {
 		this.fog = new FogGrid( this.bounds, FOG_CELL );
 		this.waypoint = null;
 		this.markers = new Map();
+		this.pins = new Map(); // quest id -> marker (saved)
+		this._parked = new Set(); // ids of the parked-plane markers
+		this._parkT = 0;
+		this.off = [];
 		this._mmMarks = { mm: null, sent: new Map() }; // what the minimap was given: id -> signature
 		this.ui = null;
 		this._uiFailed = false;
@@ -51,6 +64,53 @@ export class WorldMapFeature {
 		// menu's (created later): an Escape that closes the map never also opens the menu
 		this._onKey = ( e ) => this._key( e );
 		if ( typeof window !== 'undefined' && window.addEventListener ) window.addEventListener( 'keydown', this._onKey, { capture: true } );
+		if ( features && features.on ) {
+
+			this.off.push( features.on( 'questPin', ( e ) => this.pinQuest( e ) ) );
+			this.off.push( features.on( 'questPinClear', ( e ) => this.clearQuestPin( e && e.id ) ) );
+
+		}
+
+	}
+
+	// a quest step's place as a pin on both maps (the same id again moves / relabels it)
+	pinQuest( e ) {
+
+		const m = questPinMarker( e );
+		if ( ! m ) return false;
+		this.pins.set( m.id, m );
+		return this.addMarker( m );
+
+	}
+
+	clearQuestPin( id ) {
+
+		if ( id === undefined || id === null ) return false;
+		const key = questPinId( id );
+		const had = this.pins.delete( key );
+		return this.removeMarker( key ) || had;
+
+	}
+
+	// the airframes parked at their bases, as markers (only while their island is discovered)
+	_syncParked() {
+
+		const sp = this.features && this.features.get ? this.features.get( 'seaplane' ) : null;
+		const want = new Map();
+		for ( const p of parkedAirframes( sp, ( id ) => this.discovered( id ) ) ) want.set( 'parked:' + p.id, p );
+		for ( const id of [ ...this._parked ] ) if ( ! want.has( id ) ) {
+
+			this._parked.delete( id );
+			this.removeMarker( id );
+
+		}
+
+		for ( const [ id, p ] of want ) {
+
+			this._parked.add( id );
+			this.addMarker( { id, kind: 'parked', icon: 'plane', x: p.x, z: p.z, label: `${ p.name } (parked)`, mine: false } );
+
+		}
 
 	}
 
@@ -172,7 +232,7 @@ export class WorldMapFeature {
 
 			const d = p ? Math.hypot( m.x - p.x, m.z - p.z ) : null;
 			const far = d === null ? '' : d >= 1000 ? `${ ( d / 1000 ).toFixed( d >= 10000 ? 0 : 1 ) } km` : `${ Math.round( d ) } m`;
-			list.push( { key: 'pin:' + m.id, kind: m.kind, icon: iconFor( m.icon ), x: m.x, z: m.z, label: m.label ? ( far ? `${ m.label } · ${ far }` : m.label ) : far, minor: false, edge: true, rot: null, hot: m.kind === 'death' } );
+			list.push( { key: 'pin:' + m.id, kind: m.kind, icon: iconFor( m.icon ), x: m.x, z: m.z, label: m.label ? ( far ? `${ m.label } · ${ far }` : m.label ) : far, minor: m.kind === 'parked', edge: m.kind !== 'parked', rot: null, hot: m.kind === 'death' } );
 
 		}
 
@@ -252,6 +312,14 @@ export class WorldMapFeature {
 
 		}
 
+		this._parkT -= dt;
+		if ( this._parkT <= 0 ) {
+
+			this._parkT = 0.5;
+			this._syncParked();
+
+		}
+
 		this._syncMinimap();
 		this._syncMinimapMarkers();
 		if ( this.ui ) this.ui.update( dt );
@@ -261,7 +329,8 @@ export class WorldMapFeature {
 	toJSON() {
 
 		const wp = this.waypoint;
-		return { v: SAVE_VERSION, fog: this.fog.toJSON(), wp: wp ? { x: Math.round( wp.x * 10 ) / 10, z: Math.round( wp.z * 10 ) / 10 } : null };
+		const pins = [ ...this.pins.values() ].map( ( m ) => ( { id: m.id.slice( 6 ), x: Math.round( m.x * 10 ) / 10, z: Math.round( m.z * 10 ) / 10, label: m.label } ) );
+		return { v: SAVE_VERSION, fog: this.fog.toJSON(), wp: wp ? { x: Math.round( wp.x * 10 ) / 10, z: Math.round( wp.z * 10 ) / 10 } : null, ...( pins.length ? { pins } : {} ) };
 
 	}
 
@@ -269,6 +338,8 @@ export class WorldMapFeature {
 
 		if ( ! d || typeof d !== 'object' ) return;
 		this.fog.fromJSON( d.fog );
+		for ( const id of [ ...this.pins.keys() ] ) this.clearQuestPin( id.slice( 6 ) );
+		if ( Array.isArray( d.pins ) ) for ( const p of d.pins.slice( 0, 24 ) ) this.pinQuest( p );
 		const wp = d.wp;
 		this.setWaypoint( wp && Number.isFinite( wp.x ) && Number.isFinite( wp.z ) ? wp : null );
 
@@ -279,11 +350,16 @@ export class WorldMapFeature {
 		this.close();
 		this.fog.clear();
 		this.setWaypoint( null );
+		for ( const id of [ ...this.pins.keys() ] ) this.clearQuestPin( id.slice( 6 ) );
+		for ( const id of [ ...this._parked ] ) this.removeMarker( id );
+		this._parked.clear();
 
 	}
 
 	dispose() {
 
+		for ( const f of this.off ) try { f(); } catch ( e ) { /* ignore */ }
+		this.off.length = 0;
 		if ( typeof window !== 'undefined' && window.removeEventListener ) window.removeEventListener( 'keydown', this._onKey, { capture: true } );
 		if ( this.ui ) this.ui.dispose();
 		this.ui = null;

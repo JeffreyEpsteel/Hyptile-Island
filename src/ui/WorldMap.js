@@ -7,7 +7,7 @@ import { CAMP } from '../features/melee/MeleeData.js';
 import { BOARD_SITES } from '../features/notices/Sites.js';
 import { ensureMapCSS, ICON, TerrainBake } from '../game/Minimap.js';
 import { pinchStep } from '../core/Touch.js';
-import { MapView, edgeClamp, niceScale, pickWaypoint, compass, viewAngle, yawAngle, SEA_MODES } from '../features/worldmap/MapLogic.js';
+import { MapView, edgeClamp, niceScale, pickWaypoint, compass, viewAngle, yawAngle, SEA_MODES, legendRows, discoveryState, portMarkerKind } from '../features/worldmap/MapLogic.js';
 
 // The world map: a full-screen chart drawn like the minimap (the same terrain bake, palette, coastline, round
 // white-ringed badges and edge arrows), north up. The whole heightmap is baked once in row chunks (after the
@@ -24,6 +24,10 @@ import { MapView, edgeClamp, niceScale, pickWaypoint, compass, viewAngle, yawAng
 // (a click on it, or the right button, clears it). Keys while open: W A S D / arrows pan, + / - zoom, C back to the
 // player, M or Escape close. Gamepad: D-pad left opens / closes, left stick pans, right stick zooms, A sets / clears the
 // waypoint at the centre cross, B closes (the pad's game mapping is off while the map is open).
+// Wave 13C: the legend lists only what the map can show (MapLogic.legendRows: the airstrip once Tidemark is discovered, the pirate
+// island and its battery reach once Blackwater is, wrecks / the sea chest / quest pins / parked planes when there are some);
+// islands beyond the heightmap that have their own terrain tile (Tidemark) are baked from it into a canvas of their own; a pirate
+// island shows a skull badge once charted and its batteries' reach as red circles (grey once silenced).
 // Touch (wave 6): one finger drags, two fingers pinch-zoom about their midpoint (and pan with it), a tap sets the
 // waypoint; a pinch never ends in a waypoint (core/Touch.js pinchStep).
 
@@ -113,6 +117,11 @@ const CSS = /* css */`
 .wm-region.is-zone { border-color: rgba(255, 196, 92, 0.8); background: rgba(255, 196, 92, 0.07); }
 .wm-region.is-zone > em { color: #ffd99a; }
 .wm-lg > i.is-zone { background: rgba(255, 196, 92, 0.12); box-shadow: none; border: 1.2px dashed rgba(255, 196, 92, 0.9); }
+.wm-region.is-battery { border-color: rgba(255, 96, 84, 0.9); background: rgba(255, 96, 84, 0.1); }
+.wm-region.is-battery > em { color: #ffb4ab; }
+.wm-region.is-silenced { border-color: rgba(190, 200, 205, 0.7); background: rgba(190, 200, 205, 0.06); }
+.wm-region.is-silenced > em { color: #cfd8dc; }
+.wm-lg > i.is-battery { background: rgba(255, 96, 84, 0.14); box-shadow: none; border: 1.2px dashed rgba(255, 96, 84, 0.95); }
 .wm-cross { position: absolute; left: 50%; top: 50%; width: calc(26 * var(--tw-u)); height: calc(26 * var(--tw-u)); transform: translate(-50%, -50%); display: none;
 	pointer-events: none; background: linear-gradient(rgba(255,255,255,0.85), rgba(255,255,255,0.85)) center / 1.5px 100% no-repeat,
 	linear-gradient(rgba(255,255,255,0.85), rgba(255,255,255,0.85)) center / 100% 1.5px no-repeat; filter: drop-shadow(0 1px 2px rgba(0,0,0,0.7)); }
@@ -249,6 +258,7 @@ export class WorldMap {
 
 		// the whole heightmap at the minimap's resolution (0.5 px per metre), capped for huge worlds
 		this._bake = null;
+		this._outer = []; // islands beyond the heightmap with their own terrain tile: { id, canvas, bake }
 		this._initBake();
 
 		// the view's size, kept by a ResizeObserver (no layout reads per frame)
@@ -280,6 +290,27 @@ export class WorldMap {
 		this.terrainCanvas.style.width = this.silCanvas.style.width = n + 'px';
 		this.terrainCanvas.style.height = this.silCanvas.style.height = n + 'px';
 		this._bake = new TerrainBake( this.terrainCanvas.getContext( '2d' ), { n, x0: T.origin, z0: T.origin, ppm: n / T.size, jetties: true, keepHeights: true } );
+
+	}
+
+	// Tidemark and any other tile island lie outside the heightmap the main bake covers: each gets a canvas of its own, baked from
+	// the terrain's answers there (TerrainData.heightAt reads the attached tile), at about 0.5 px per metre
+	_initOuter() {
+
+		const T = this.app.terrainData;
+		if ( ! T || ! Number.isFinite( T.size ) ) return;
+		for ( const isl of WORLD.islands || [] ) {
+
+			if ( ! isl || ! isl.tile || ! isl.center || this._outer.some( ( o ) => o.id === isl.id ) ) continue;
+			const R = ( isl.radius || 300 ) + 80, n = Math.max( 128, Math.min( globalThis.__phoneBudget ? ( globalThis.__phoneBudget.worldMapBake || 1024 ) : 1024, Math.round( R ) ) );
+			const canvas = h( 'canvas', 'wm-outer' );
+			canvas.width = canvas.height = n;
+			canvas.style.width = canvas.style.height = n + 'px';
+			this.terrainCanvas.after( canvas );
+			const bake = new TerrainBake( canvas.getContext( '2d' ), { n, x0: isl.center.x - R, z0: isl.center.z - R, ppm: n / ( 2 * R ), jetties: true } );
+			this._outer.push( { id: isl.id, canvas, bake } );
+
+		}
 
 	}
 
@@ -621,25 +652,12 @@ export class WorldMap {
 		const touch = typeof document !== 'undefined' && !! document.querySelector( '.tw-root.is-touch' );
 		this.coordsHint.textContent = touch ? t( 'worldmap.hint_touch', 'Drag to pan · pinch to zoom · tap: waypoint' )
 			: t( 'worldmap.hint', 'Drag to pan · wheel to zoom · click: waypoint · M / Esc to close' );
-		const rows = [
-			[ 'me', ICON.arrow, t( 'worldmap.you', 'You' ) ],
-			[ 'boat', ICON.boat, t( 'worldmap.boat', 'Your boat' ) ],
-			[ 'plane', ICON.plane, t( 'worldmap.seaplane', 'Seaplane' ) ],
-			[ 'peer', '', t( 'worldmap.players', 'Other players' ) ],
-			[ 'joe', ICON.fish, t( 'worldmap.stall', 'Fish stall' ) ],
-			[ 'trade', ICON.crate, t( 'worldmap.trade', 'Trade stall' ) ],
-			[ 'marta', ICON.anchor, t( 'worldmap.chandlery', 'Chandlery' ) ],
-			[ 'yard', ICON.helm, t( 'worldmap.yard', 'Captain Roid’s yard' ) ],
-			[ 'pons', ICON.anchor, t( 'worldmap.port', 'Port' ) ],
-			[ 'board', ICON.board, t( 'worldmap.board', 'Notice board' ) ],
-			[ 'camp', ICON.swords, t( 'worldmap.camp', 'Raider camp' ) ],
-			[ 'pirate', ICON.skull, t( 'worldmap.pirate', 'Pirate ship' ) ],
-			[ 'bounty', ICON.target, t( 'worldmap.bounty', 'Bounty target' ) ],
-			[ 'zone', '', t( 'worldmap.searchZone', 'Search zone' ) ],
-			[ 'wp', ICON.flag, t( 'worldmap.waypoint', 'Waypoint' ) ],
-			[ 'unknown', '?', t( 'worldmap.unknown', 'Undiscovered' ) ],
-			[ 'fog', '', t( 'worldmap.fog', 'Unexplored' ) ],
-		];
+		// the rows follow what the map can show now: the kinds of marker on it, and what is discovered
+		const now = [];
+		try { this._collect( now ); } catch ( e ) { /* the legend still lists the fixed rows */ }
+		const kinds = new Set( now.map( ( m ) => String( m.kind ).split( ' ' )[ 0 ] ) );
+		const rows = legendRows( { discovered: ( id ) => this.feature.discovered( id ), sandbox: this.feature.sandbox, kinds } )
+			.map( ( r ) => [ r.kind, r.icon === '?' ? '?' : r.icon ? ICON[ r.icon ] || '' : '', t( r.key, r.text ) ] );
 		this.legendBtn.textContent = t( 'worldmap.legend', 'Legend' );
 		this.legendEl.innerHTML = rows.map( ( [ k, icon, text ] ) => `<span class="wm-lg"><i class="is-${ k }">${ icon }</i>${ esc( text ) }</span>` ).join( '' );
 
@@ -679,7 +697,21 @@ export class WorldMap {
 
 		}
 
-		if ( B.done ) return;
+		if ( B.done ) {
+
+			// then the tile islands, one at a time
+			if ( ! this._outer.length ) this._initOuter();
+			for ( const o of this._outer ) if ( ! o.bake.done ) {
+
+				o.bake.step( this.app.terrainData, this.isOpen ? 160 : 24 );
+				break;
+
+			}
+
+			return;
+
+		}
+
 		const mm = this.app.game && this.app.game.minimap;
 		if ( ! this.isOpen && ! ( mm && mm.baked ) && this._age < 4 ) return;
 		B.step( this.app.terrainData, this.isOpen ? 160 : 24 );
@@ -831,6 +863,7 @@ export class WorldMap {
 
 		}
 
+		for ( const o of this._outer ) place( o.canvas, o.bake.x0, o.bake.z0, o.bake.ppm );
 		const fog = this.feature.fog;
 		place( this.fogCanvas, fog.x0, fog.z0, FOG_PX / fog.cell );
 
@@ -1013,7 +1046,7 @@ export class WorldMap {
 		if ( F.discovered( 'pons' ) ) add( 'pons', 'pons', ICON.fish, PONS_STAND.x, PONS_STAND.z );
 		const pm = ( app.ports && app.ports.markers ) || [];
 		// a port's sub-markers (Tidemark's 'tidemark:airstrip') show once their port (m.port) is discovered
-		for ( const m of pm ) if ( F.discovered( m.port || m.id ) ) add( 'port:' + m.id, 'pons', m.icon === 'anchor' || m.icon === 'plane' ? ICON[ m.icon ] : ICON.fish, m.x, m.z );
+		for ( const m of pm ) if ( F.discovered( m.port || m.id ) ) add( 'port:' + m.id, portMarkerKind( m ), m.icon === 'anchor' || m.icon === 'plane' ? ICON[ m.icon ] : ICON.fish, m.x, m.z );
 		for ( const p of WORLD.ports || [] ) {
 
 			// ports without a marker of their own (islands added later): an anchor at the stand
@@ -1027,6 +1060,8 @@ export class WorldMap {
 		if ( sites ) for ( const id in sites ) if ( sites[ id ] && F.discovered( id ) ) add( 'trade:' + id, 'trade', ICON.crate, sites[ id ].x, sites[ id ].z, { minor: true } );
 		for ( const id in BOARD_SITES ) if ( F.discovered( id ) ) add( 'board:' + id, 'board', ICON.board, BOARD_SITES[ id ].x, BOARD_SITES[ id ].z, { minor: true } );
 		add( 'camp', 'camp', ICON.swords, CAMP.x, CAMP.z );
+		// a pirate island, once charted: a skull on its middle (its batteries' reach is drawn from the pirates' search zones)
+		for ( const isl of WORLD.islands || [] ) if ( isl && isl.pirate && isl.center && discoveryState( ( id ) => F.discovered( id ), isl, F.sandbox ) === 'charted' ) add( 'isle:' + isl.id, 'isle', ICON.skull, isl.center.x, isl.center.z );
 
 		// ships: pirates, and the captains the player's bounties hunt
 		const naval = feats && feats.get && feats.get( 'naval' );
@@ -1065,7 +1100,7 @@ export class WorldMap {
 			const id = zn.id !== undefined ? zn.id : i;
 			if ( hunted.has( id ) || regions.some( ( r ) => r.key === id ) ) return;
 			const r = Number.isFinite( zn.r ) ? zn.r : Number.isFinite( zn.radius ) ? zn.radius : REGION_R;
-			regions.push( { key: 'zone:' + id, x: c.x, z: c.z, r: Math.max( 10, r ), label: zn.label || zn.captain || zn.name || '', zone: true } );
+			regions.push( { key: 'zone:' + id, x: c.x, z: c.z, r: Math.max( 10, r ), label: zn.label || zn.captain || zn.name || '', zone: true, battery: zn.kind === 'battery', silenced: !! zn.silenced } );
 
 		} );
 
@@ -1073,9 +1108,15 @@ export class WorldMap {
 		const sp = feats && feats.get && feats.get( 'seaplane' );
 		let pl = null;
 		try { pl = sp && sp.marker ? sp.marker() : null; } catch ( e ) { pl = null; }
-		if ( pl ) add( 'plane', 'plane', ICON.plane, pl.x, pl.z, { rot: Number.isFinite( pl.heading ) ? yawAngle( pl.heading ) : null } );
+		const afName = sp && typeof sp.af === 'string' && sp.af ? sp.af[ 0 ].toUpperCase() + sp.af.slice( 1 ) : '';
+		if ( pl ) add( 'plane', 'plane', ICON.plane, pl.x, pl.z, { rot: Number.isFinite( pl.heading ) ? yawAngle( pl.heading ) : null, label: afName } );
 		const p = app.player, b = app.boatCtl;
-		if ( st && st.boat && b && b.position && ! ( p && [ 'boat', 'deck', 'seat' ].includes( p.mode ) ) ) add( 'boat', 'boat', ICON.boat, b.position.x, b.position.z );
+		if ( st && st.boat && b && b.position && ! ( p && [ 'boat', 'deck', 'seat' ].includes( p.mode ) ) ) {
+
+			const crew = feats && feats.get && feats.get( 'crew' ), n = crew && crew.posts ? Object.keys( crew.posts ).length : 0;
+			add( 'boat', 'boat', ICON.boat, b.position.x, b.position.z, n ? { label: `${ n } ${ t( 'worldmap.crew', 'crew' ) }` } : null );
+
+		}
 		const peers = app.remotePlayers && app.remotePlayers.peers;
 		if ( peers ) for ( const q of peers.values() ) {
 
@@ -1128,7 +1169,7 @@ export class WorldMap {
 
 			}
 
-			const known = this.feature.discovered( isl.id );
+			const known = discoveryState( ( id ) => this.feature.discovered( id ), isl, this.feature.sandbox ) === 'charted';
 			const text = known ? this._islandName( isl ) : '?';
 			if ( pl.text !== text ) {
 
@@ -1153,14 +1194,14 @@ export class WorldMap {
 			let e = this._regions.get( rg.key );
 			if ( ! e ) {
 
-				e = { el: h( 'div', 'wm-region' + ( rg.zone ? ' is-zone' : '' ), '<em></em>' ), label: null };
+				e = { el: h( 'div', 'wm-region' + ( rg.zone ? ' is-zone' : '' ) + ( rg.battery ? ' is-battery' : '' ), '<em></em>' ), label: null };
 				this.marksEl.prepend( e.el );
 				this._regions.set( rg.key, e );
 
 			}
 
 			e.seen = frame;
-			const tag = rg.zone ? t( 'worldmap.searchZone', 'Search zone' ) : t( 'worldmap.lastSeen', 'last seen' );
+			const tag = rg.battery ? ( rg.silenced ? t( 'worldmap.silenced', 'silenced' ) : t( 'worldmap.batteryReach', 'battery reach' ) ) : rg.zone ? t( 'worldmap.searchZone', 'Search zone' ) : t( 'worldmap.lastSeen', 'last seen' );
 			const label = rg.label ? `${ rg.label } · ${ tag.toLowerCase() }` : tag;
 			if ( e.label !== label ) {
 
@@ -1169,6 +1210,7 @@ export class WorldMap {
 
 			}
 
+			this._toggle( e.el, 'is-silenced', !! rg.silenced );
 			const s = V.toScreen( rg.x, rg.z, this._pt ), d = Math.max( 18, ( rg.r || REGION_R ) * 2 * V.k );
 			this._setStyle( e.el, 'display', '' );
 			this._setStyle( e.el, 'width', d.toFixed( 1 ) + 'px' );

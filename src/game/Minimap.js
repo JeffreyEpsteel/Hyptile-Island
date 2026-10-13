@@ -18,6 +18,9 @@ import { YARD } from './BoatYard.js';
 //                                        forwards its markers: the sea chest, the wreck); icon is an ICON name or an svg
 //                                        string; the distance from the player shows under it
 //   map.baked                            the island bake is finished
+//   Wave 13C: the airstrip's plane icon is its own badge kind ('airstrip', shown once Tidemark is discovered: portKnown( game, id )),
+//   the world map feature also forwards quest pins ('quest', from the story feature's questPin events) and the parked planes
+//   ('parked'); the shared styles cover 'airstrip', 'parked', 'quest' and 'isle' (a charted pirate island) for both maps
 //   a tap on it (touch controls on) opens the world map (src/features/worldmap)
 //
 // Shared with the world map (src/ui/WorldMap.js), so both draw the same chart:
@@ -56,6 +59,10 @@ const CSS = /* css */`
 .gm-mk.is-death > i, .wm-lg .is-death { background: #f4e2b8; color: #7a2b20; }
 .gm-mk.is-wreck > i, .wm-lg .is-wreck { background: #9fbcd0; color: #0b2c48; }
 .gm-mk.is-pin > i, .wm-lg .is-pin { background: #f2efe6; }
+.gm-mk.is-airstrip > i, .wm-lg .is-airstrip { background: #dfe9ee; color: #0b2c48; }
+.gm-mk.is-parked > i, .wm-lg .is-parked { background: #9db2bd; color: #0b1418; }
+.gm-mk.is-quest > i, .wm-lg .is-quest { background: #ffd66b; color: #5a3a00; }
+.gm-mk.is-isle > i, .wm-lg .is-isle { background: #3b2a2e; color: #ffc2c7; box-shadow: 0 1px 3px rgba(0,0,0,0.55), 0 0 0 1.5px rgba(255,122,133,0.9); }
 .gm-map .gm-mk > em { position: absolute; left: 0; top: calc(11 * var(--tw-u)); transform: translateX(-50%); font: 500 calc(9 * var(--tw-u)) var(--tw-mono);
 	font-style: normal; color: #fff; white-space: nowrap; text-shadow: 0 1px 2px rgba(0,0,0,0.85); pointer-events: none; }
 .gm-map .gm-mk.is-edge > em { display: none; }
@@ -113,6 +120,8 @@ export const ICON = {
 	crate: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"><path d="M4 9h16v11H4zM4 9l2.2-4.5h11.6L20 9M9.5 13h5"/></svg>',
 	helm: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="12" cy="12" r="5.5"/><path d="M12 2v20M2 12h20M4.9 4.9l14.2 14.2M19.1 4.9 4.9 19.1"/></svg>',
 	arrow: '<svg viewBox="0 0 24 24"><path d="M12 2 20 21 12 16.5 4 21Z" fill="#fff" stroke="#0b1418" stroke-width="1.4" stroke-linejoin="round"/></svg>',
+	// a quest step's pin (the story feature's questPin): a scroll with an exclamation mark
+	quest: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 21 12 12 21 3 12Z"/><path d="M12 8v5M12 16.2v.1" stroke-width="2.8"/></svg>',
 	// the generic markers (the death feature's sea chest, naval's wrecks)
 	chest: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"><path d="M3.5 10.5h17V20h-17zM3.5 10.5c0-3.6 2.4-6 5-6h7c2.6 0 5 2.4 5 6M10.5 10.5v3h3v-3"/></svg>',
 	wreck: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M4.2 11.6 19.6 7.4l.8 2.9-1.9 5.7H7.4zM9.3 4.2l1.6-.4 1.6 6.1-1.6.4zM3 19.5c1.5 0 1.5-1 3-1s1.5 1 3 1 1.5-1 3-1 1.5 1 3 1 1.5-1 3-1 1.5 1 3 1v1.8c-1.5 0-1.5-1-3-1s-1.5 1-3 1-1.5-1-3-1-1.5 1-3 1-1.5-1-3-1-1.5 1-3 1z"/></svg>',
@@ -124,6 +133,16 @@ export function iconFor( icon ) {
 	if ( typeof icon !== 'string' ) return ICON.flag;
 	if ( ICON[ icon ] ) return ICON[ icon ];
 	return /^\s*<svg[\s>]/.test( icon ) ? icon : ICON.flag;
+
+}
+
+// is this port's island discovered (the sandbox charts everything)? The world map feature answers; else the save's list
+export function portKnown( game, id ) {
+
+	const f = game && game.app && game.app.features, wm = f && f.get ? f.get( 'worldmap' ) : null;
+	if ( wm && typeof wm.discovered === 'function' ) return !! wm.discovered( id );
+	const st = game && game.state;
+	return id === 'home' || !! ( st && Array.isArray( st.discovered ) && st.discovered.includes( id ) );
 
 }
 
@@ -361,7 +380,11 @@ export class Minimap {
 			{ id: 'marta', ...mk( 'marta', ICON.anchor ), pos: () => ( { x: CHANDLERY.x, z: CHANDLERY.z } ) },
 			{ id: 'pons', ...mk( 'pons', ICON.fish ), pos: () => ( { x: PONS_STAND.x, z: PONS_STAND.z } ) },
 			// the other ports (src/game/ports: Gull Rock's lighthouse, Saltmarsh Key's buyer)
-			...( ( game.app.ports && game.app.ports.markers ) || [] ).map( ( m ) => ( { id: m.id, ...mk( 'pons', m.icon === 'anchor' || m.icon === 'plane' ? ICON[ m.icon ] : ICON.fish ), pos: () => ( { x: m.x, z: m.z } ) } ) ), // anchor, plane (Tidemark's airstrip) or fish
+			// anchor, plane (Tidemark's airstrip: its own badge, shown once Tidemark is discovered) or fish
+			...( ( game.app.ports && game.app.ports.markers ) || [] ).map( ( m ) => ( {
+				id: m.id, ...mk( m.icon === 'plane' ? 'airstrip' : 'pons', m.icon === 'anchor' || m.icon === 'plane' ? ICON[ m.icon ] : ICON.fish ), pos: () => ( { x: m.x, z: m.z } ),
+				hideWhen: m.port ? () => ! portKnown( game, m.port ) : null,
+			} ) ),
 			{ id: 'boat', ...mk( 'boat', ICON.boat ), pos: () => {
 
 				const b = game.app.boatCtl;

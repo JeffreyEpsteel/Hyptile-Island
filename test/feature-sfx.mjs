@@ -532,5 +532,33 @@ const quatY = ( deg ) => ( { x: 0, y: Math.sin( deg * Math.PI / 360 ), z: 0, w: 
 
 }
 
+// ---------------------------------------------------------------------------------------------- wave 13C parts (test/feature-ambience.mjs has the detail)
+
+{
+
+	const w = makeWorld();
+	ok( !! w.sfx.places && !! w.sfx.cues && !! w.sfx.synth, 'the place beds, the event cues and the synth player are part of the feature' );
+	// this stand-in context has no oscillators: the synthesised parts stay quietly out of it
+	let threw = false;
+	try {
+
+		w.app.audio.env.lx = 1840; w.app.audio.env.lz = - 24; w.app.audio.env.hour = 12;
+		run( w, 2 );
+		w.features.emit( 'strongholdClaimed', {} );
+		w.features.emit( 'cannonFired', { x: 0, y: 1, z: 0, by: 'pirate' } );
+		w.features.emit( 'explosion', { x: 0, y: 1, z: 0, by: 'powder' } );
+		w.features.emit( 'planeBailedOut', { x: 0, y: 90, z: 0 } );
+		run( w, 3 );
+
+	} catch ( e ) { threw = true; }
+
+	ok( ! threw && w.sfx.synth.count === 0 && w.sfx.places.bedNodes().length === 0 && w.sfx.failed.size === 0, 'synthesised cues and beds are skipped without oscillators, nothing throws' );
+	ok( count( w, 'thwack' ) === 0 && w.sfx.player.played.length === 0, 'and the sample bank is untouched by them' );
+	w.sfx.reset();
+	w.sfx.dispose();
+	ok( true, 'reset and dispose are safe' );
+
+}
+
 console.log( fails ? `\n${ fails } FAILED` : '\nall ok' );
 process.exit( fails ? 1 : 0 );

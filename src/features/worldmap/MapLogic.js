@@ -397,3 +397,114 @@ export function compass( dx, dz ) {
 
 export const viewAngle = ( fx, fz ) => Math.atan2( fx, - fz );
 export const yawAngle = ( yaw ) => Math.atan2( Math.sin( yaw ), - Math.cos( yaw ) ); // forward ( sin yaw, cos yaw )
+
+// ---- discovery, the legend and the pins (wave 13C), pure so the node test can run them
+//
+//   discoveryState( discovered, isl, sandbox )      'charted' (named, clear of the fog) | 'unknown' (a "?" and a faint silhouette);
+//                                                   the home island is always charted, the sandbox charts everything. A pirate
+//                                                   island turns charted when the stronghold sights it (state.discovered gets
+//                                                   'blackwater'); its battery reach is drawn only from then on
+//   legendRows( { discovered, sandbox, kinds, pirate } ) the legend's rows in order: { kind, icon (an ICON name or ''), key, text }.
+//                                                   Some rows wait for what they explain: the airstrip for Tidemark, the pirate
+//                                                   island and its battery reach for a charted pirate island, the others for a marker of
+//                                                   that kind (kinds: a Set of the kinds on the map now)
+//   questPinMarker( e ) -> marker | null            a story step naming a place: questPin { id, x, z, label } -> a 'quest' pin
+//   questPinId( id )                                 the marker id of a quest's pin (questPinClear { id } removes it)
+//   parkedAirframes( seaplane, discovered )          the owned airframes standing at their base (not the one out): [ { id, name, x, z, port } ]
+//   portMarkerKind( marker )                         the badge kind of a port's sub-marker: the airstrip's plane is its own kind
+
+export function discoveryState( discovered, isl, sandbox = false ) {
+
+	if ( sandbox || ! isl || isl.id === 'home' ) return 'charted';
+	return typeof discovered === 'function' && discovered( isl.id ) ? 'charted' : 'unknown';
+
+}
+
+// [ kind, icon, i18n key, text, when ]  when: undefined (always) | 'disc:<island>' | 'pirate' | 'kind:<marker kind>'
+const LEGEND = [
+	[ 'me', 'arrow', 'worldmap.you', 'You' ],
+	[ 'boat', 'boat', 'worldmap.boat', 'Your boat and crew' ],
+	[ 'plane', 'plane', 'worldmap.seaplane', 'Seaplane' ],
+	[ 'parked', 'plane', 'worldmap.parked', 'Parked plane', 'kind:parked' ],
+	[ 'peer', '', 'worldmap.players', 'Other players' ],
+	[ 'joe', 'fish', 'worldmap.stall', 'Fish stall' ],
+	[ 'trade', 'crate', 'worldmap.trade', 'Trade stall' ],
+	[ 'marta', 'anchor', 'worldmap.chandlery', 'Chandlery' ],
+	[ 'yard', 'helm', 'worldmap.yard', 'Captain Roid’s yard' ],
+	[ 'pons', 'anchor', 'worldmap.port', 'Port' ],
+	[ 'airstrip', 'plane', 'worldmap.airstrip', 'Airstrip', 'disc:tidemark' ],
+	[ 'board', 'board', 'worldmap.board', 'Notice board' ],
+	[ 'camp', 'swords', 'worldmap.camp', 'Raider camp' ],
+	[ 'isle', 'skull', 'worldmap.pirateIsle', 'Pirate island', 'pirate' ],
+	[ 'battery', '', 'worldmap.battery', 'Battery reach', 'pirate' ],
+	[ 'pirate', 'skull', 'worldmap.pirate', 'Pirate ship' ],
+	[ 'bounty', 'target', 'worldmap.bounty', 'Bounty target' ],
+	[ 'zone', '', 'worldmap.searchZone', 'Search zone' ],
+	[ 'wreck', 'wreck', 'worldmap.wreck', 'Wreck', 'kind:wreck' ],
+	[ 'death', 'chest', 'worldmap.chest', 'Sea chest', 'kind:death' ],
+	[ 'quest', 'quest', 'worldmap.quest', 'Quest', 'kind:quest' ],
+	[ 'pin', 'flag', 'worldmap.pin', 'Marked place', 'kind:pin' ],
+	[ 'wp', 'flag', 'worldmap.waypoint', 'Waypoint' ],
+	[ 'unknown', '?', 'worldmap.unknown', 'Undiscovered' ],
+	[ 'fog', '', 'worldmap.fog', 'Unexplored' ],
+];
+
+export const LEGEND_KINDS = LEGEND.map( ( r ) => r[ 0 ] );
+
+export function legendRows( { discovered = null, sandbox = false, kinds = null, pirate = null } = {} ) {
+
+	const known = ( id ) => sandbox || ( typeof discovered === 'function' && !! discovered( id ) );
+	const hasPirate = pirate === null ? ( ( typeof discovered === 'function' && discovered( 'blackwater' ) ) || sandbox ) : !! pirate;
+	const has = ( k ) => !! ( kinds && typeof kinds.has === 'function' && kinds.has( k ) );
+	const out = [];
+	for ( const [ kind, icon, key, text, when ] of LEGEND ) {
+
+		if ( when ) {
+
+			if ( when === 'pirate' ) { if ( ! hasPirate ) continue; } else if ( when.startsWith( 'disc:' ) ) { if ( ! known( when.slice( 5 ) ) ) continue; } else if ( when.startsWith( 'kind:' ) ) { if ( ! has( when.slice( 5 ) ) ) continue; }
+
+		}
+
+		out.push( { kind, icon, key, text } );
+
+	}
+
+	return out;
+
+}
+
+export const questPinId = ( id ) => 'quest:' + id;
+
+export function questPinMarker( e ) {
+
+	if ( ! e || e.id === undefined || e.id === null || e.id === '' || ! Number.isFinite( e.x ) || ! Number.isFinite( e.z ) ) return null;
+	return { id: questPinId( e.id ), kind: 'quest', icon: 'quest', x: e.x, z: e.z, label: typeof e.label === 'string' ? e.label.slice( 0, 48 ) : '', mine: true };
+
+}
+
+const cap = ( s ) => ( typeof s === 'string' && s ? s[ 0 ].toUpperCase() + s.slice( 1 ) : '' );
+
+// the airframes the seaplane feature keeps in its hangar records (sp.fleet) that are owned, not wrecked and not the one
+// out (sp.af: it has the plane marker): each stands at its base (sp.base( id ): the ramp's berth, the airstrip's pad)
+export function parkedAirframes( sp, discovered = null ) {
+
+	if ( ! sp || ! sp.fleet || typeof sp.fleet !== 'object' ) return [];
+	const out = [];
+	for ( const id of Object.keys( sp.fleet ) ) {
+
+		const r = sp.fleet[ id ];
+		if ( ! r || r.owned !== true || r.lost === true || id === sp.af ) continue;
+		let b = null;
+		try { b = typeof sp.base === 'function' ? sp.base( id ) : null; } catch ( e ) { b = null; }
+		if ( ! b || ! Number.isFinite( b.x ) || ! Number.isFinite( b.z ) ) continue;
+		const port = b.kind === 'strip' ? 'tidemark' : 'home';
+		if ( typeof discovered === 'function' && ! discovered( port ) ) continue;
+		out.push( { id, name: cap( id ), x: b.x, z: b.z, port } );
+
+	}
+
+	return out;
+
+}
+
+export const portMarkerKind = ( m ) => ( m && m.icon === 'plane' ? 'airstrip' : 'pons' );

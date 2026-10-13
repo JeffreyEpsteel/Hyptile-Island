@@ -61,11 +61,14 @@ export class PlaneAudio {
 			o.connect( g );
 			g.connect( lp );
 			o.start();
+			o._g = g; // (the second engine ramps its own gain)
 			return o;
 
 		};
 
 		const fire = osc( 'sawtooth', 0.5 ), sub = osc( 'square', 0.28 ), high = osc( 'sawtooth', 0.12 );
+		// the Albatross's second engine: the same voice a hair sharp, so the pair beats like two radials do
+		const fire2 = osc( 'sawtooth', 0 ), sub2 = osc( 'square', 0 );
 		// a slow wobble on the firing rate: nine cylinders never quite agree
 		const lfo = ctx.createOscillator();
 		lfo.frequency.value = 3.1;
@@ -92,7 +95,7 @@ export class PlaneAudio {
 		bp.connect( wash );
 		wash.connect( out );
 		noise.start();
-		this.nodes = { out, pan, lp, eng, fire, sub, high, lfo, noise, bp, wash, sources: [ fire, sub, high, lfo, noise ] };
+		this.nodes = { out, pan, lp, eng, fire, sub, high, fire2, sub2, lfo, noise, bp, wash, sources: [ fire, sub, high, fire2, sub2, lfo, noise ] };
 		this._buildCabin( ctx, buf );
 
 	}
@@ -255,7 +258,7 @@ export class PlaneAudio {
 
 	}
 
-	update( dt, { running = false, rpm = 0, airspeed = 0, x = 0, y = 0, z = 0, inside = false, cranking = false, flaps = false, horn = false } = {} ) {
+	update( dt, { running = false, rpm = 0, airspeed = 0, x = 0, y = 0, z = 0, inside = false, cranking = false, flaps = false, horn = false, engines = 1, failed = null } = {} ) {
 
 		// the starter turns the engine over: a quieter, slower drone under the whine
 		const on = running || cranking;
@@ -285,6 +288,16 @@ export class PlaneAudio {
 		const f = rev * 4.5 / 2; // pitched down an octave: the drone sits better under the music
 		n.fire.frequency.setTargetAtTime( f, t, k );
 		n.sub.frequency.setTargetAtTime( f / 2, t, k );
+		if ( n.fire2 ) {
+
+			const two = engines > 1 && ! ( failed && failed[ 1 ] );
+			n.fire2.frequency.setTargetAtTime( f * 1.013, t, k );
+			n.sub2.frequency.setTargetAtTime( f / 2 * 1.013, t, k );
+			n.fire2._g.gain.setTargetAtTime( two ? 0.5 : 0, t, 0.3 );
+			n.sub2._g.gain.setTargetAtTime( two ? 0.28 : 0, t, 0.3 );
+			n.fire._g.gain.setTargetAtTime( failed && failed[ 0 ] ? 0 : 0.5, t, 0.3 );
+
+		}
 		n.high.frequency.setTargetAtTime( f * 2.02, t, k );
 		n.lp.frequency.setTargetAtTime( 260 + 2400 * Math.pow( rpm, 1.4 ) + ( inside ? 0 : 300 ), t, k );
 		n.bp.frequency.setTargetAtTime( 380 + airspeed * 22 + rpm * 500, t, 0.2 );

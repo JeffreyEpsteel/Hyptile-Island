@@ -1335,6 +1335,7 @@ export class Seaplane {
 		this.audio.update( dt, {
 			running: f.engineOn, rpm: f.rpm, airspeed: f.airspeed, x: c.x, y: c.y, z: c.z, inside: this.piloted && p && p.view === 'first',
 			cranking: !! ( s && s.cranking ), flaps: Math.abs( f.flapPos - f.flaps ) > 0.01, horn: !! ( s && this.piloted && s.stallWarn ),
+			engines: f.geom && f.geom.engines ? f.geom.engines.length : 1, failed: f.engineFail || null,
 		} );
 
 	}
