@@ -123,6 +123,7 @@ export class Player {
 		this.deckYaw = 0;
 		this.deckGrounded = true;
 		this._ashore = null; // cached step-ashore target
+		this.helmAshore = false; // at the helm: E steps ashore (touch adds a Deck button for Q)
 		this._ashoreT = 0;
 		// set by the fishing game: while a line is out the helm / step ashore prompts give way
 		this.busy = false;
@@ -797,13 +798,14 @@ export class Player {
 
 			const w = b.toWorld( ep, new THREE.Vector3() );
 			const sgn = Math.sign( ep.x ) || 1;
-			for ( const reach of [ 0.9, 1.4, 2.0 ] ) {
+			// (a boat stops a few metres off a beach: the far reaches land in the shallows, where the walker wades)
+			for ( const reach of [ 0.9, 1.4, 2.0, 2.8, 3.8, 5.0 ] ) {
 
 				const out = new THREE.Vector3( w.x + rx * sgn * reach, w.y, w.z + rz * sgn * reach );
 				const g = this.groundAt( out.x, out.z, w.y + 2.5 );
 				const up = g - w.y;
-				if ( up > 1.7 || up < - 1.2 || g < water - 0.3 ) continue;
-				const score = Math.abs( up ) + reach * 0.2;
+				if ( up > 1.7 || up < - 1.6 || g < water - 0.9 ) continue;
+				const score = Math.abs( up ) + Math.max( 0, water - g ) * 0.5 + reach * 0.2;
 				if ( score < bestScore ) { bestScore = score; best = { out, g, ep }; }
 
 			}
@@ -1032,9 +1034,9 @@ export class Player {
 		this.mode = 'plane';
 		this.velocity.set( 0, 0, 0 );
 		this.helmYaw = 0;
-		this.helmPitch = - 0.05;
+		this.helmPitch = - 0.08; // the cockpit eye looks a touch down: the water ahead over the glare shield, the panel below
 		this.orbitYaw = ( v.heading ? v.heading() : 0 ) + Math.PI;
-		this.orbitPitch = 0.18;
+		this.orbitPitch = 0.14;
 		this.planeDist = v.chase || 17;
 		this.camInit = false;
 		this.armInit = false;
@@ -1104,7 +1106,8 @@ export class Player {
 
 		const f = v.focus || [ 0, 2.2, 0 ];
 		const target = v.toWorld( f, _v2 );
-		const pitch = this.orbitPitch - ( Math.abs( look.y ) < 0.5 ? Math.asin( THREE.MathUtils.clamp( fwd.y, - 1, 1 ) ) * 0.5 : 0 );
+		// the arm follows a third of the plane's pitch: in a climb or a dive the horizon stays on screen
+		const pitch = this.orbitPitch - ( Math.abs( look.y ) < 0.5 ? Math.asin( THREE.MathUtils.clamp( fwd.y, - 1, 1 ) ) * 0.35 : 0 );
 		const want = _v.set( Math.sin( this.orbitYaw ) * Math.cos( pitch ), Math.sin( pitch ), Math.cos( this.orbitYaw ) * Math.cos( pitch ) ).multiplyScalar( this.planeDist ).add( target );
 		const floor = Math.max( v.seaLevel ? v.seaLevel() : this.waterH, this.terrain.heightAt( want.x, want.z ) ) + 0.8;
 		want.y = Math.max( want.y, floor );
@@ -1120,6 +1123,8 @@ export class Player {
 		this.camPos.y = Math.max( this.camPos.y, floor );
 		this.camera.position.copy( this.camPos );
 		this._camY = this.camera.position.y;
+		// aim above the plane so it sits in the lower third with the sky and the horizon over it
+		target.y += this.camPos.distanceTo( target ) * 0.19;
 		this.camera.lookAt( target );
 
 	}
@@ -1253,7 +1258,25 @@ export class Player {
 		const wheel = inp.consumeWheel();
 
 		if ( inp.hit( 'KeyV' ) ) this.setView( this.camMode === 'first' ? 'third' : 'first' );
+		// stopped next to a pier or a beach: E steps straight ashore (the deck walk was a fiddle on a phone), Q keeps the deck
+		this._ashoreT -= dt;
+		if ( this._ashoreT <= 0 ) {
+
+			this._ashoreT = 0.25;
+			this._ashore = b.speed < 2.5 ? this.ashoreTarget() : null;
+
+		}
+
+		this.helmAshore = !! this._ashore;
 		if ( inp.hit( 'KeyE' ) ) {
+
+			if ( this._ashore ) this.exitBoat( this._ashore );
+			else this.leaveHelm();
+			return;
+
+		}
+
+		if ( this._ashore && inp.hit( 'KeyQ' ) ) {
 
 			this.leaveHelm();
 			return;
@@ -1267,7 +1290,7 @@ export class Player {
 		if ( inp.down( 'KeyA' ) ) steer += 1;
 		if ( inp.down( 'KeyD' ) ) steer -= 1;
 		b.setInput( throttle, steer, dt );
-		this.prompt = { key: 'E', text: 'Leave helm   ·   V  camera' };
+		this.prompt = this._ashore ? { key: 'E', text: 'Step ashore   ·   Q  deck   ·   V  camera' } : { key: 'E', text: 'Leave helm   ·   V  camera' };
 
 		// keep the player attached (for audio / queries)
 		b.toWorld( b.model.helmEye, this.position );

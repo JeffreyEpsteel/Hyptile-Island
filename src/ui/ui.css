@@ -2661,6 +2661,17 @@ body {
 .tw-root.is-coarse .gm-tab { min-height: 40px; }
 /* hover tooltips do not exist under a finger */
 .tw-root.is-coarse .tw-tip { display: none; }
+/* a vendor's list keeps room for its rows on a short landscape phone (the flex column squeezed it to a sliver under the
+   footer, with the first row's button clipped); the greeting and the footer note give way first */
+.tw-root.is-coarse .gm-panel .gm-list { flex: 1 1 auto; min-height: 120px; }
+.tw-root.is-coarse .gm-panel > h2 { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tw-root.is-coarse .gm-panel p.gm-sub { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.tw-root.is-coarse .gm-foot { flex: 0 0 auto; }
+.tw-root.is-coarse .gm-foot .gm-sub { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; margin: 0; }
+@media (max-height: 460px) {
+	.tw-root.is-coarse .gm-panel p.gm-sub { display: none; }
+	.tw-root.is-coarse .gm-foot .gm-sub { -webkit-line-clamp: 1; }
+}
 
 /* every panel fits the screen it is on and scrolls inside (a phone in landscape is ~390 px tall) */
 .tw-root.is-coarse .gm-panel,

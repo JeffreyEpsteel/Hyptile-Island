@@ -130,6 +130,7 @@ const env = ( { ua = '', points = 0, w = 1920, h = 1080, coarse = false, fine = 
 	ok( b.has( 'jump' ) && b.has( 'dive' ), 'swimming: up and dive' );
 	ok( T.contextButtons( { mode: 'plane' } ).has( 'planeThrottle' ), 'seaplane: the throttle lever' );
 	ok( T.contextButtons( { mode: 'boat', boardOffer: true } ).has( 'board' ), 'a boarding offer: Board' );
+	ok( T.contextButtons( { mode: 'boat', helmAshore: true } ).has( 'deck' ) && ! T.contextButtons( { mode: 'boat' } ).has( 'deck' ), 'stopped by land: a Deck button (E steps ashore)' );
 	ok( T.contextButtons( { mode: 'deck', choices: true } ).has( 'choice2' ), 'a surrender: the 1 / 2 choices' );
 	ok( T.contextButtons( { mode: 'walk', busy: true, prompt: { key: 'E', text: 'x' } } ).size === 0, 'a panel is open: no game buttons' );
 	b = T.contextButtons( { mode: 'free', freeCam: true, prompt: { key: 'F', text: 'Walk' } } );

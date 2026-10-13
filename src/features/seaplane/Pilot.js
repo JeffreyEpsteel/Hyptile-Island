@@ -2,7 +2,11 @@
 // a light stability assist, and what a contact event means for the plane (fine, a hard bounce, a crash).
 //
 //   const pilot = new Pilot();
-//   pilot.read( keys, pad, flight, dt );   // keys: { up, down, left, right, throttleUp, throttleDown, yawLeft, yawRight } (bools)
+//   pilot.read( keys, pad, flight, dt );   // keys: { up, down, left, right, throttleUp, throttleDown, yawLeft, yawRight,
+//                                          //         trimUp, trimDown } (bools)
+//   pilot.trim (-1..1, nose up +: = / - keys, the trim wheel), pilot.engageAutopilot( flight ) / disengageAutopilot(),
+//   pilot.ap { on, alt, dropped } (the autopilot holds the wings level and the altitude it was engaged at; a firm
+//   stick or the water drops it and sets `dropped` for the caller's toast)
 //                                          // pad: null | { pitch, roll, yaw, throttle } analogue -1..1 (throttle: rate)
 //   judge( event, hp ) -> { kind: 'fine' | 'landed' | 'tookOff' | 'bounce' | 'crash' | 'scrape', damage, onWater, text }
 //
@@ -26,6 +30,17 @@ export const PILOT = {
 	pitchDamp: 0.55, // per rad/s of pitch rate
 	turnRudder: 0.3, // rudder that follows the roll command (coordinated turns)
 	waterYawDamp: 2.5, // on the water: rudders against the yaw rate (per rad/s), so a gust or a wave does not start a water loop
+	trimRate: 0.45, // trim travel per second while = / - is held
+};
+
+// the altitude hold: a climb / sink rate towards the held altitude, the elevator after the rate error (PI)
+export const AUTOPILOT = {
+	altGain: 0.3, // m/s of climb per metre below the held altitude
+	maxRate: 3, // m/s
+	kp: 0.09, ki: 0.05, // elevator per m/s of rate error, and its integral
+	maxPitch: 0.55,
+	release: 0.5, // a stick held past this drops the autopilot
+	stallGuard: 3 * Math.PI / 180, // rad of stall margin: below it the autopilot lowers the nose
 };
 
 // sink rate (m/s) bands at touchdown
@@ -38,6 +53,8 @@ export class Pilot {
 
 		this.stick = { pitch: 0, roll: 0, yaw: 0 }; // keyboard stick, smoothed
 		this.throttle = 0;
+		this.trim = 0;
+		this.ap = { on: false, alt: 0, i: 0, dropped: null };
 
 	}
 
@@ -45,6 +62,29 @@ export class Pilot {
 
 		this.stick.pitch = this.stick.roll = this.stick.yaw = 0;
 		this.throttle = 0;
+		this.trim = 0;
+		this.disengageAutopilot();
+		this.ap.dropped = null;
+
+	}
+
+	// holds the current altitude with the wings level; only in the air
+	engageAutopilot( flight ) {
+
+		if ( ! flight || ! flight.airborne ) return false;
+		const ap = this.ap;
+		ap.on = true;
+		ap.alt = flight.position.y;
+		ap.i = 0;
+		ap.dropped = null;
+		return true;
+
+	}
+
+	disengageAutopilot() {
+
+		this.ap.on = false;
+		this.ap.i = 0;
 
 	}
 
@@ -69,8 +109,27 @@ export class Pilot {
 		}
 
 		this.throttle = clamp( this.throttle + thr * PILOT.throttleRate * dt, 0, 1 );
+		this.trim = clamp( this.trim + ( ( keys.trimUp ? 1 : 0 ) - ( keys.trimDown ? 1 : 0 ) ) * PILOT.trimRate * dt, - 1, 1 );
 		const c = flight.controls;
 		c.throttle = this.throttle;
+		c.trim = this.trim;
+		// the autopilot lets go when the plane is back on the water or the pilot takes the stick firmly
+		const ap = this.ap;
+		if ( ap.on ) {
+
+			if ( ! flight.airborne ) {
+
+				this.disengageAutopilot();
+				ap.dropped = 'water';
+
+			} else if ( Math.max( Math.abs( s.pitch ), Math.abs( s.roll ), pad ? Math.abs( pad.pitch || 0 ) : 0, pad ? Math.abs( pad.roll || 0 ) : 0 ) > AUTOPILOT.release ) {
+
+				this.disengageAutopilot();
+				ap.dropped = 'stick';
+
+			}
+
+		}
 
 		// body rates (pitch about +X, yaw about +Y, roll about +Z) from the world angular velocity
 		const q = flight.quaternion, w = flight.angular;
@@ -89,6 +148,20 @@ export class Pilot {
 		c.waterRudder = wet ? clamp( steer + s.yaw + yawDamp, - 1, 1 ) : 0;
 		yaw += yawDamp;
 
+		// the autopilot: a neutral stick for the wings (the assist below levels them) and the altitude hold's elevator
+		let apPitch = 0;
+		if ( ap.on ) {
+
+			const rate = clamp( ( ap.alt - flight.position.y ) * AUTOPILOT.altGain, - AUTOPILOT.maxRate, AUTOPILOT.maxRate );
+			const err = rate - flight.velocity.y;
+			ap.i = clamp( ap.i + err * AUTOPILOT.ki * dt, - 0.4, 0.4 );
+			apPitch = clamp( err * AUTOPILOT.kp + ap.i, - AUTOPILOT.maxPitch, AUTOPILOT.maxPitch );
+			if ( ( flight.stallMargin ?? 1 ) < AUTOPILOT.stallGuard ) apPitch = Math.min( apPitch, - 0.15 );
+			roll = 0;
+			pitch = 0;
+
+		}
+
 		// assist in the air: level the wings, damp the pitch
 		const hold = Math.min( 1, Math.abs( roll ) * 3 ), holdP = Math.min( 1, Math.abs( pitch ) * 3 );
 		const fly = flight.airborne ? 1 : 0;
@@ -96,6 +169,7 @@ export class Pilot {
 		roll += fly * ( 1 - hold ) * ( - PILOT.levelGain * bank ) - fly * PILOT.rollDamp * rz;
 		pitch += fly * ( 1 - holdP ) * PILOT.pitchDamp * rx; // + rx is nose-down rotation: answer with back stick
 		yaw += fly * PILOT.turnRudder * roll;
+		pitch += apPitch;
 		c.pitch = clamp( pitch, - 1, 1 );
 		c.roll = clamp( roll, - 1, 1 );
 		c.yaw = clamp( yaw, - 1, 1 );

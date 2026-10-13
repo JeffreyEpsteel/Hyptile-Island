@@ -3,6 +3,10 @@
 // and strikes mean, the site's clearances on the real heightmap, the purchase / repair / save, a full flight with
 // the real Player (board from the jetty, take off, refuse to climb out in the air, a nose-in crash and the tow home,
 // a gentle landing and climbing out into the water), multiplayer state and remote planes, and the exported GLB.
+// Wave 8, the cockpit: flaps (more lift and drag, a shorter takeoff), fuel burn and an empty tank, engine off = no
+// thrust, the starter and the master switch, the autopilot levelling the wings and holding the altitude, trim, the
+// stall warning, the panel's controls reachable by a ray from the eye (and a click on one), the face drawing on a
+// stand-in 2D context, refuelling, and the switches / fuel in the save.
 // No DOM, no GPU.
 //   node test/feature-seaplane.mjs
 import fs from 'node:fs';
@@ -22,6 +26,8 @@ import { WORLD } from '../src/world/WorldLayout.js';
 import { Player } from '../src/player/Player.js';
 import { STALL_SITES } from '../src/features/trade/stall.js';
 import { YARD } from '../src/game/BoatYard.js';
+import { Systems, FUEL, refuelCost, START_TIME, CONTROLS, TEX, FACE, rayPanel, hitControl, panelSnapshot, drawPanel } from '../src/features/seaplane/index.js';
+import { COCKPIT_KEYS } from '../src/features/seaplane/Seaplane.js';
 
 let fails = 0;
 const ok = ( c, msg ) => {
@@ -415,6 +421,357 @@ function makeWorld( { mode = null, money = 0 } = {} ) {
 	const map = new Map( [ [ 'x', { plane: { p: [ 1, 2, 3 ], q: [ 0, 0, 0, 1 ], thr: 0 } } ] ] );
 	r.ingest( map, 10000 );
 	ok( r.count === 1, 'also takes a Map of peer states' );
+
+}
+
+// ---------------------------------------------------------------- wave 8: the cockpit's flight systems
+{
+
+	// flaps: same state, more lift and drag with the flaps down; the motor takes its time
+	const level = ( flaps ) => {
+
+		const f = new Flight();
+		f.place( 0, 0, 0 );
+		f.position.y = 300;
+		f.velocity.set( 0, 0, 30 );
+		f.airborne = true;
+		f.flaps = flaps;
+		f.flapPos = flaps;
+		f.update( 1 / 60 );
+		return f;
+
+	};
+
+	const f0 = level( 0 ), f2 = level( 2 );
+	ok( f2.surfaces[ 0 ].cl > f0.surfaces[ 0 ].cl + 0.4, `flaps 2 add wing lift (CL ${ f0.surfaces[ 0 ].cl.toFixed( 2 ) } -> ${ f2.surfaces[ 0 ].cl.toFixed( 2 ) })` );
+	ok( f2.velocity.z < f0.velocity.z - 0.005, 'and drag (it slows faster)' );
+	ok( f2.stallMargin < f0.stallMargin, 'and the wing stalls at a lower angle' );
+	const takeoff = ( flaps ) => {
+
+		const g = new Flight();
+		g.place( 0, 0, 0 );
+		g.flaps = flaps;
+		g.flapPos = flaps;
+		const ev = fly( g, 40, ( p ) => { p.controls.throttle = 1; p.controls.pitch = p.forwardSpeed > 12 && ! p.airborne ? 0.6 : 0.1; } );
+		const l = ev.find( ( e ) => e.type === 'liftoff' );
+		return l ? { speed: l.speed, t: l.t } : { speed: Infinity, t: Infinity };
+
+	};
+
+	const t0 = takeoff( 0 ), t1 = takeoff( 1 );
+	ok( t1.speed < t0.speed - 1.5 && t1.t < t0.t, `flaps 1: off the water sooner (${ t0.speed.toFixed( 1 ) } m/s at ${ t0.t.toFixed( 1 ) } s -> ${ t1.speed.toFixed( 1 ) } m/s at ${ t1.t.toFixed( 1 ) } s)` );
+	const m = new Flight();
+	m.place( 0, 0, 0 );
+	m.flaps = 2;
+	fly( m, 1 );
+	const after1 = m.flapPos;
+	fly( m, 4 );
+	ok( after1 > 0.3 && after1 < 1 && m.flapPos === 2, `the flap motor runs them down over a few seconds (${ after1.toFixed( 2 ) } after 1 s)` );
+
+	// fuel: ~25 min at full power, the burn follows the rpm, empty stops the engine
+	const b = new Flight();
+	b.place( 0, 0, 0 );
+	b.engineOn = true;
+	b.rpm = 1;
+	for ( let i = 0; i < 60 * 30; i ++ ) {
+
+		b.controls.throttle = 1;
+		for ( let k = 0; k < 10; k ++ ) b.fuel > 0 && b.update( 0.1 ); // (update clamps a frame to 0.1 s)
+		b.position.set( 0, 500, 0 );
+		b.velocity.set( 0, 0, 40 );
+		b.quaternion.identity();
+		b.angular.set( 0, 0, 0 );
+		b.drainEvents();
+		if ( i === 299 ) ok( Math.abs( b.fuel - 0.8 ) < 0.02, `five minutes at full power burn a fifth of the tank (${ ( b.fuel * 100 ).toFixed( 0 ) }% left)` );
+
+	}
+
+	ok( b.fuel === 0 && ! b.engineOn, 'an empty tank stops the engine' );
+	const idle = new Flight();
+	idle.place( 0, 0, 0 );
+	idle.engineOn = true;
+	fly( idle, 60, ( p ) => { p.controls.throttle = 0; } );
+	ok( 1 - idle.fuel < ( 1 / 25 ) * 0.3, `idling burns far less (${ ( ( 1 - idle.fuel ) * 100 ).toFixed( 2 ) }% a minute)` );
+	const ev = [];
+	const e = new Flight();
+	e.place( 0, 0, 0 );
+	e.engineOn = true;
+	e.fuel = 0.00001;
+	ev.push( ...fly( e, 1, ( p ) => { p.controls.throttle = 1; } ) );
+	ok( ev.some( ( x ) => x.type === 'fuelOut' ), 'running dry raises a fuelOut event' );
+
+	// engine off: the lever does nothing
+	const off = new Flight();
+	off.place( 0, 0, 0 );
+	off.engineOn = false;
+	fly( off, 6, ( p ) => { p.controls.throttle = 1; } );
+	ok( off.thrust < 1 && off.airspeed < 0.5, `engine off: no thrust at full throttle (${ off.thrust.toFixed( 1 ) } N, ${ off.airspeed.toFixed( 2 ) } m/s)` );
+	const cut = new Flight();
+	cut.place( 0, 0, 0 );
+	cut.engineOn = true;
+	fly( cut, 4, ( p ) => { p.controls.throttle = 1; } );
+	const thr = cut.thrust;
+	cut.engineOn = false;
+	fly( cut, 5, ( p ) => { p.controls.throttle = 1; } );
+	ok( thr > 3000 && cut.thrust < thr * 0.02, `cutting the engine winds the thrust down (${ thr.toFixed( 0 ) } -> ${ cut.thrust.toFixed( 0 ) } N)` );
+
+	// trim: a neutral stick with nose-up trim still raises the elevator
+	const tr = new Flight();
+	tr.place( 0, 0, 0 );
+	tr.controls.trim = 1;
+	fly( tr, 1 );
+	ok( tr.deflect.elevator > 0.2, `nose-up trim deflects the elevator with the stick neutral (${ tr.deflect.elevator.toFixed( 2 ) })` );
+	const tp = new Pilot();
+	const tf = new Flight();
+	tf.place( 0, 0, 0 );
+	for ( let i = 0; i < 60; i ++ ) tp.read( { trimUp: true }, null, tf, 1 / 60 );
+	ok( tp.trim > 0.3 && tf.controls.trim === tp.trim, `= trims the nose up (${ tp.trim.toFixed( 2 ) })` );
+
+	// the autopilot: from a 35 degree bank and a sink, wings level and the altitude held
+	for ( const [ bank, vy ] of [ [ 35, 0 ], [ - 25, - 3 ] ] ) {
+
+		const a = new Flight();
+		a.place( 0, 0, 0 );
+		a.position.y = 400;
+		a.velocity.set( 0, vy, 40 );
+		a.quaternion.setFromAxisAngle( new E.Vector3( 0, 0, 1 ), bank / DEG );
+		a.airborne = true;
+		const ap = new Pilot();
+		ap.throttle = 0.6;
+		ok( ap.engageAutopilot( a ) && ap.ap.on, 'autopilot engages in the air' );
+		const alt0 = a.position.y;
+		let dev = 0;
+		fly( a, 30, ( q ) => { ap.read( {}, null, q, 1 / 60 ); dev = Math.max( dev, Math.abs( q.position.y - alt0 ) ); } );
+		ok( Math.abs( a.rollAngle() * DEG ) < 3 && Math.abs( a.position.y - alt0 ) < 5 && dev < 20 && ap.ap.on, `autopilot from ${ bank } deg bank: wings level (${ ( a.rollAngle() * DEG ).toFixed( 1 ) } deg), altitude held (${ ( a.position.y - alt0 ).toFixed( 1 ) } m, worst ${ dev.toFixed( 1 ) } m)` );
+		for ( let i = 0; i < 30; i ++ ) ap.read( { right: true }, null, a, 1 / 60 );
+		ok( ! ap.ap.on && ap.ap.dropped === 'stick', 'a firm stick takes it back' );
+
+	}
+
+	const gp = new Pilot();
+	const gf = new Flight();
+	gf.place( 0, 0, 0 );
+	ok( ! gp.engageAutopilot( gf ), 'no autopilot on the water' );
+
+	// the switches: the master feeds the starter and the lights; the starter cranks, then the engine runs
+	const sf = new Flight();
+	sf.place( 0, 0, 0 );
+	sf.engineOn = false;
+	const sp = new Pilot();
+	const sys = new Systems( sf, sp );
+	ok( sys.master && ! sys.nav && sys.lights.every( ( l ) => l.id === 'cabin' ? l.enabled : ! l.enabled ), 'master on, nav and landing lights off (the cabin lamp on)' );
+	sys.toggle( 'master' );
+	ok( ! sys.start().ok && sys.start().why === 'master' && sys.lights.every( ( l ) => ! l.enabled ), 'master off: no start, every light dark' );
+	sys.toggle( 'master' );
+	ok( sys.start().ok && sys.cranking, 'the starter cranks' );
+	let started = false, crankRpm = 0;
+	for ( let i = 0; i < 60 * 3; i ++ ) {
+
+		for ( const x of sys.update( 1 / 60, { hp: 100 } ) ) if ( x === 'started' ) started = i / 60;
+		sf.update( 1 / 60 );
+		if ( sys.cranking ) crankRpm = Math.max( crankRpm, sf.rpm );
+
+	}
+
+	ok( started && Math.abs( started - START_TIME ) < 0.1 && sf.engineOn && crankRpm > 0.02 && crankRpm < 0.08, `it catches after ${ started ? started.toFixed( 2 ) : '-' } s (the prop turns over at ${ ( crankRpm * 100 ).toFixed( 0 ) }% on the starter)` );
+	sys.toggle( 'nav' );
+	sys.toggle( 'landing' );
+	ok( sys.light( 'navL' ).enabled && sys.light( 'navR' ).enabled && sys.light( 'landing' ).enabled, 'nav and landing lights switch on' );
+	const lw = sys.light( 'landing' );
+	lw.update();
+	ok( lw.dir.z > 0.9 && lw.cosOuter < lw.cosInner && sys.light( 'navL' ).position.x > 6, 'the landing light is a spot ahead, the red nav light on the port tip' );
+	sp.engageAutopilot( Object.assign( sf, { airborne: true } ) );
+	sys.toggle( 'master' );
+	ok( ! sp.ap.on && sf.engineOn, 'master off drops the autopilot (the magnetos keep the engine running)' );
+	sys.toggle( 'master' );
+	sf.airborne = false;
+	ok( sys.stop().ok && ! sf.engineOn, 'stop cuts the engine' );
+	sf.fuel = 0;
+	ok( sys.start().why === 'fuel', 'no start on an empty tank' );
+	sys.update( 0.1, { hp: 70 } );
+	ok( sys.masterWarn, 'new damage lights the master warning' );
+	sys.ack();
+	ok( ! sys.masterWarn, 'a click silences it' );
+	sys.update( 0.1, { hp: 40 } );
+	sys.ack();
+	ok( sys.masterWarn, 'it stays lit while the hull is badly hurt' );
+	ok( refuelCost( 0.5 ) === FUEL.litres * FUEL.price / 2 && refuelCost( 0.5, true ) === 0, `refuelling half a tank costs $${ refuelCost( 0.5 ) } (free in the sandbox)` );
+
+	// the stall warning: slow, nose high
+	const st = new Flight();
+	st.place( 0, 0, 0 );
+	st.position.y = 300;
+	st.velocity.set( 0, 0, 22 );
+	st.airborne = true;
+	const ss = new Systems( st, null );
+	let warned = false;
+	fly( st, 6, ( p ) => { p.controls.throttle = 0; p.controls.pitch = 1; warned = warned || ss.stallWarn; } );
+	ok( warned, 'the stall warning sounds on the way into a stall' );
+	const cruise = level( 0 );
+	ok( ! new Systems( cruise, null ).stallWarn, 'and not in cruise' );
+
+}
+
+// ---------------------------------------------------------------- wave 8: the panel (layout, rays from the eye, drawing)
+{
+
+	const eye = new E.Vector3( ...GEOM.eye );
+	const centre = ( c ) => {
+
+		const u = ( c.x + c.w / 2 ) / TEX.w - 0.5, v = 0.5 - ( c.y + c.h / 2 ) / TEX.h;
+		return FACE.C.clone().addScaledVector( FACE.R, u * FACE.w ).addScaledVector( FACE.U, v * FACE.h );
+
+	};
+
+	let reach = 0;
+	for ( const c of CONTROLS ) {
+
+		const d = centre( c ).sub( eye ).normalize();
+		const hit = rayPanel( eye, d );
+		if ( hit && hitControl( hit.px, hit.py ) === c ) reach ++;
+
+	}
+
+	ok( reach === CONTROLS.length, `every control and gauge is hit by a ray from the eye to its centre (${ reach } / ${ CONTROLS.length })` );
+	ok( ! rayPanel( eye, new E.Vector3( 0, 0.05, 1 ).normalize() ), 'looking ahead out of the windscreen misses the panel' );
+	ok( CONTROLS.every( ( c ) => c.x >= 0 && c.y >= 0 && c.x + c.w <= TEX.w && c.y + c.h <= TEX.h ), 'the controls lie on the face' );
+	for ( let i = 0; i < CONTROLS.length; i ++ ) for ( let j = i + 1; j < CONTROLS.length; j ++ ) {
+
+		const a = CONTROLS[ i ], b = CONTROLS[ j ];
+		if ( a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h ) ok( false, `controls ${ a.id } and ${ b.id } overlap` );
+
+	}
+
+	// the six-pack sits in front of the pilot's seat (x +0.32): its centre column within 10 cm of his line of sight
+	const hdg = centre( CONTROLS.find( ( c ) => c.id === 'att' ) );
+	ok( Math.abs( hdg.x - GEOM.eye[ 0 ] ) < 0.1, `the attitude indicator is straight ahead of the pilot (x ${ hdg.x.toFixed( 2 ) })` );
+	// the eye clears the glare shield: the line to the water 12 deg down passes over the panel's top edge
+	const top = FACE.C.clone().addScaledVector( FACE.U, FACE.h / 2 );
+	const down = Math.atan2( eye.y - top.y, top.z - eye.z ) * DEG;
+	ok( down > 8 && down < 16, `over the panel the pilot sees the water from ${ down.toFixed( 1 ) } deg below the horizon` );
+
+	// drawing on a stand-in 2D context: every call is a known canvas method, nothing throws, the hover outline is drawn
+	const calls = new Map();
+	const ctx = new Proxy( {}, {
+		get: ( o, k ) => ( k in o ? o[ k ] : ( ...a ) => { calls.set( k, ( calls.get( k ) || 0 ) + 1 ); return k === 'getImageData' ? { data: new Uint8ClampedArray( 4 ) } : undefined; } ),
+		set: ( o, k, v ) => { o[ k ] = v; return true; },
+	} );
+	const W = makeWorld( { mode: 'sandbox' } );
+	W.sp.buy();
+	W.sp.board();
+	const snap = panelSnapshot( W.sp, 'master' );
+	ok( Object.values( snap ).every( ( v ) => v === null || typeof v === 'boolean' || typeof v === 'string' || Number.isFinite( v ) ), 'the panel snapshot is plain finite numbers' );
+	let threw = null;
+	try { drawPanel( ctx, snap ); drawPanel( ctx, { ...snap, bank: 70, pitch: - 50, airspeed: 999, alt: 12345, vs: - 40, heading: 359.7, fuel: 0, hp: 5, flapPos: 2, trim: - 1, master: false, hover: null } ); } catch ( err ) { threw = err; }
+	const known = [ 'fillRect', 'fillText', 'beginPath', 'arc', 'fill', 'stroke', 'moveTo', 'lineTo', 'closePath', 'save', 'restore', 'translate', 'rotate', 'clip', 'arcTo' ];
+	ok( ! threw && calls.get( 'fillText' ) > 80 && [ ...calls.keys() ].every( ( k ) => known.includes( k ) ), `the face draws (${ [ ...calls.values() ].reduce( ( a, b ) => a + b, 0 ) } canvas calls${ threw ? ', threw ' + threw.message : '' })` );
+	ok( W.sp.cockpit.redraws >= 0 && W.sp.lights.length === 4 && W.sp.wantsMouse(), 'the feature has its cockpit, four local lights and keeps the mouse while flying' );
+
+}
+
+// ---------------------------------------------------------------- wave 8: flying it with the real Player
+{
+
+	const W = makeWorld( { money: 50000 } );
+	const { sp, player, input, state, frame } = W;
+	sp.buy();
+	ok( sp.board() && ! sp.flight.engineOn, 'boarding: the engine is cold' );
+	ok( Object.keys( COCKPIT_KEYS ).every( ( k ) => sp.keys[ k ] ), `the cockpit keys are claimed (${ Object.keys( COCKPIT_KEYS ).join( ' ' ) })` );
+	input.pressed.add( 'KeyO' );
+	frame();
+	ok( sp.systems.cranking && sp.audio.state.clicks > 0, 'O cranks the starter (with a click)' );
+	for ( let i = 0; i < 150; i ++ ) frame();
+	ok( sp.flight.engineOn && sp.flight.rpm > 0.05, 'and the engine runs' );
+	input.pressed.add( 'BracketRight' );
+	frame();
+	ok( sp.flight.flaps === 1, '] lowers the flaps a notch' );
+	input.pressed.add( 'KeyN' );
+	frame();
+	ok( sp.systems.nav && sp.lights.find( ( l ) => l.id === 'navL' ).enabled, 'N: nav lights on' );
+	input.pressed.add( 'KeyO' );
+	frame();
+	ok( ! sp.flight.engineOn, 'O again stops it' );
+
+	// a click on the panel: the eye turned to the master switch, the left button pressed
+	player.setView( 'first' );
+	frame();
+	const c = CONTROLS.find( ( k ) => k.id === 'master' );
+	const u = ( c.x + c.w / 2 ) / TEX.w - 0.5, v = 0.5 - ( c.y + c.h / 2 ) / TEX.h;
+	const local = FACE.C.clone().addScaledVector( FACE.R, u * FACE.w ).addScaledVector( FACE.U, v * FACE.h );
+	const world = sp.flight.toWorld( local, new E.Vector3() );
+	W.camera.position.copy( sp.flight.toWorld( new E.Vector3( ...GEOM.eye ), new E.Vector3() ) );
+	W.camera.lookAt( world );
+	input.locked = true;
+	input.mouseDown = false;
+	sp.cockpit.update( 1 / 60 );
+	ok( sp.cockpit.hover === 'master', `looking at the master switch hovers it (${ sp.cockpit.hover })` );
+	input.mouseDown = true;
+	sp.cockpit.update( 1 / 60 );
+	ok( ! sp.systems.master, 'a click flips it off' );
+	input.mouseDown = false;
+	sp.cockpit.update( 1 / 60 );
+	input.mouseDown = true;
+	sp.cockpit.update( 1 / 60 );
+	input.mouseDown = false;
+	ok( sp.systems.master, 'and on again' );
+	player.setView( 'third' );
+
+	// shift with the engine off cranks it (the touch lever), then the takeoff with flaps 1 and the autopilot
+	input.keys.add( 'ShiftLeft' );
+	let took = false;
+	for ( let i = 0; i < 60 * 45 && ! took; i ++ ) {
+
+		if ( sp.flight.forwardSpeed > 18 ) input.keys.add( 'KeyS' );
+		frame();
+		took = sp.flight.airborne;
+
+	}
+
+	ok( took && sp.flight.engineOn, 'Shift on a stopped engine starts it; flaps 1 and off the water' );
+	for ( let i = 0; i < 240; i ++ ) frame();
+	input.keys.delete( 'KeyS' );
+	for ( let i = 0; i < 60; i ++ ) frame();
+	input.pressed.add( 'KeyY' );
+	frame();
+	ok( sp.pilot.ap.on && sp.systems.apOn, 'Y engages the autopilot in the air' );
+	const alt0 = sp.flight.position.y;
+	for ( let i = 0; i < 60 * 20; i ++ ) frame();
+	ok( Math.abs( sp.flight.position.y - alt0 ) < 15 && Math.abs( sp.flight.rollAngle() * DEG ) < 5, `it holds ${ ( alt0 - sp.flight.seaLevel() ).toFixed( 0 ) } m (${ ( sp.flight.position.y - alt0 ).toFixed( 1 ) } m off) with the wings level` );
+	const burnt = 1 - sp.flight.fuel;
+	ok( burnt > 0.005 && burnt < 0.05, `the flight burnt ${ ( burnt * 100 ).toFixed( 1 ) }% of the tank` );
+	const saved = JSON.parse( JSON.stringify( sp.toJSON() ) );
+	ok( Math.abs( saved.fuel - sp.flight.fuel ) < 0.001 && saved.switches && saved.switches.nav === true, 'fuel and switches go into the save' );
+	input.keys.clear();
+
+	// back home: refuel at the hangar
+	sp.reset();
+	sp.buy();
+	sp.flight.fuel = 0.5;
+	const m0 = state.money;
+	const r = sp.refuel();
+	ok( r.ok && sp.flight.fuel === 1 && state.money === m0 - FUEL.litres * FUEL.price / 2, `refuelled at the ramp for $${ m0 - state.money }` );
+	ok( ! sp.refuel().ok, 'a full tank needs nothing' );
+	sp.flight.position.x += 500;
+	sp.flight.fuel = 0.4;
+	ok( ! sp.refuel().ok && sp.view().canRefuel === false, 'away from the ramp there is no fuel' );
+	const W2 = makeWorld();
+	W2.sp.fromJSON( { owned: true, hp: 80, fuel: 0.3, switches: { master: false, nav: true, landing: false } } );
+	ok( W2.sp.flight.fuel === 0.3 && ! W2.sp.systems.master && W2.sp.systems.nav, 'fuel and switches come back from a save' );
+	W2.sp.fromJSON( { owned: true, hp: 80 } );
+	ok( W2.sp.flight.fuel === 1, 'an older save has a full tank' );
+
+	// the cockpit switch panel's actions (touch) run without a DOM
+	const W3 = makeWorld( { mode: 'sandbox' } );
+	W3.sp.buy();
+	W3.sp.board();
+	ok( W3.sp.act( 'engine', 'panel' ) && W3.sp.systems.cranking, 'the switch panel starts the engine' );
+	ok( W3.sp.act( 'flapsDown', 'panel' ) && W3.sp.act( 'flapsDown', 'panel' ) && ! W3.sp.act( 'flapsDown', 'panel' ) && W3.sp.flight.flaps === 2, 'two flap notches, no third' );
+	ok( W3.sp.act( 'trimUp', 'panel' ) && Math.abs( W3.sp.pilot.trim - 0.1 ) < 1e-9, 'trim steps a tenth' );
+	ok( ! W3.sp.act( 'ap', 'panel' ) && ! W3.sp.pilot.ap.on, 'no autopilot on the water' );
+	ok( ! W3.sp.act( 'map', 'panel' ), 'no world map feature here: the radio does nothing' );
+	for ( let i = 0; i < 30; i ++ ) W3.frame();
+	W3.sp.act( 'exit', 'panel' );
+	ok( ! W3.sp.piloted, 'climb out from the panel (at rest at the ramp)' );
 
 }
 

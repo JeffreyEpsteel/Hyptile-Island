@@ -43,6 +43,8 @@ const BUTTONS = {
 	fireL: { label: 'Port', code: 'KeyZ' },
 	fireR: { label: 'Starboard', code: 'KeyX' },
 	camera: { label: 'View', code: 'KeyV' },
+	deck: { label: 'Deck', code: 'KeyQ' }, // at the helm next to land: E steps ashore, this one keeps the deck
+	cockpit: { label: 'Cockpit', code: 'Digit3' },
 	choice1: { label: '1', code: 'Digit1' },
 	choice2: { label: '2', code: 'Digit2' },
 };
@@ -668,6 +670,7 @@ export class TouchControls {
 			boardOffer: !! ( boarding && ph === 'idle' && boarding.offer ), boardFight: ph === 'fight',
 			choices: ph === 'surrender' || !! ( boarding && boarding.hostile && boarding.hostile.phase === 'boarded' ),
 			melee: meleeOn,
+			helmAshore: !! ( app.player && app.player.helmAshore ),
 		};
 
 	}

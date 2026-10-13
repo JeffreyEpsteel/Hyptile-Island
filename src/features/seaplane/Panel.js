@@ -1,7 +1,9 @@
 // The hangar window (E at the seaplane ramp): buy the seaplane ($18,000 in a campaign, free in the sandbox), repair
 // it, bring it back to the berth, and the short flying notes. A glass panel in the HUD's look (the --tw-* tokens of
 // ui/ui.css, .tw-glass), built lazily the first time it opens; Escape or the close button shuts it.
-// Everything it shows comes from seaplane.view(); the buttons call seaplane.buy() / repair() / recall().
+// Everything it shows comes from seaplane.view(); the buttons call seaplane.buy() / repair() / refuel() / recall().
+// Wave 8: while piloting the same window is the cockpit's switch panel (3, or the touch controls' Cockpit button):
+// every panel control as a button (seaplane.act( id )), plus climbing out and refuelling when they are possible.
 
 import { t } from '../../i18n/index.js';
 
@@ -30,6 +32,11 @@ const CSS = /* css */`
 .sp-notes kbd { font: 600 var(--tw-fs-xs) var(--tw-mono); padding: 0 calc(4 * var(--tw-u)); border-radius: 4px; background: var(--tw-fill-2); color: var(--tw-ink); }
 .sp-msg { min-height: 1.4em; margin-top: var(--tw-2); color: var(--tw-ink-3); font-size: var(--tw-fs-sm); }
 .sp-msg.is-bad { color: var(--tw-coral); }
+.sp-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--tw-2); margin: var(--tw-3) 0; }
+.sp-grid .sp-btn { white-space: normal; padding: var(--tw-2) var(--tw-3); border-radius: var(--tw-r-md); }
+.sp-btn.is-on { color: var(--tw-aqua); box-shadow: inset 0 0 0 1px rgba(var(--tw-aqua-rgb), 0.55); }
+.sp-panel.is-cockpit { top: auto; bottom: var(--tw-edge); transform: translate(-50%, 8%); }
+.sp-panel.is-cockpit.is-open { transform: translate(-50%, 0); }
 `;
 
 let cssInstalled = false;
@@ -114,6 +121,8 @@ export class SeaplanePanel {
 
 		if ( ! this.el ) return;
 		const v = this.plane.view();
+		this.el.classList.toggle( 'is-cockpit', !! v.piloted );
+		if ( v.piloted ) return this._renderCockpit( v );
 		const rows = [];
 		let acts = '';
 		if ( ! v.owned ) {
@@ -127,13 +136,16 @@ export class SeaplanePanel {
 			const pct = Math.round( v.hp );
 			rows.push( `<div class="sp-row"><span>${ t( 'seaplane.condition', 'Condition' ) }</span><div class="sp-bar ${ pct < 35 ? 'is-low' : '' }"><i style="width:${ pct }%"></i></div><b>${ pct }%</b></div>` );
 			rows.push( `<div class="sp-row"><span>${ t( 'seaplane.where', 'Where' ) }</span><b>${ v.home ? t( 'seaplane.atRamp', 'At the ramp' ) : t( 'seaplane.away', 'Away from the ramp' ) }</b></div>` );
+			const fp = Math.round( v.fuel * 100 );
+			rows.push( `<div class="sp-row"><span>${ t( 'seaplane.fuel', 'Fuel' ) }</span><div class="sp-bar ${ fp < 15 ? 'is-low' : '' }"><i style="width:${ fp }%"></i></div><b>${ Math.round( v.litres ) } L</b></div>` );
 			if ( v.repairCost > 0 || pct < 100 ) acts += `<button class="sp-btn is-main" data-act="repair" ${ v.canRepair ? '' : 'disabled' }>${ t( 'seaplane.repair', 'Repair' ) } · ${ v.free ? t( 'seaplane.freeShort', 'free' ) : money( v.repairCost ) }</button>`;
+			if ( fp < 100 ) acts += `<button class="sp-btn is-main" data-act="refuel" ${ v.canRefuel ? '' : 'disabled' }>${ t( 'seaplane.refuel', 'Refuel' ) } · ${ v.free ? t( 'seaplane.freeShort', 'free' ) : money( v.refuelCost ) }</button>`;
 			if ( ! v.home && ! v.piloted ) acts += `<button class="sp-btn" data-act="recall">${ t( 'seaplane.recall', 'Tow it back to the ramp' ) }</button>`;
 
 		}
 
 		acts += `<button class="sp-btn" data-act="close">${ t( 'seaplane.close', 'Close' ) }</button>`;
-		const notes = t( 'seaplane.notes', 'Board at the door from the jetty (E). <kbd>Shift</kbd> / <kbd>Ctrl</kbd> throttle, <kbd>W</kbd> / <kbd>S</kbd> nose down / up, <kbd>A</kbd> / <kbd>D</kbd> bank (steer while taxiing), <kbd>,</kbd> / <kbd>.</kbd> rudder. Open the throttle, get on the step and pull back gently near 28 m/s. Land into the water slowly: a sink over 3 m/s bends the floats.' );
+		const notes = t( 'seaplane.notes2', 'Board at the door from the jetty (E). <kbd>O</kbd> starts the engine (or just open the throttle), <kbd>Shift</kbd> / <kbd>C</kbd> throttle, <kbd>W</kbd> / <kbd>S</kbd> nose down / up, <kbd>A</kbd> / <kbd>D</kbd> bank (steer while taxiing), <kbd>,</kbd> / <kbd>.</kbd> rudder, <kbd>[</kbd> / <kbd>]</kbd> flaps, <kbd>-</kbd> / <kbd>=</kbd> trim, <kbd>Y</kbd> autopilot, <kbd>V</kbd> the cockpit (click its switches). Flaps 1, get on the step and pull back gently near 26 m/s. Land into the water slowly: a sink over 3 m/s bends the floats. A full tank lasts about 25 minutes at full power.' );
 		this.el.innerHTML = `
 <div class="sp-head"><div><h2>${ t( 'seaplane.title', 'Seaplane hangar' ) }</h2><p class="sp-sub">${ t( 'seaplane.sub', 'A jade high-wing floatplane: takes off from and lands on the water' ) }</p></div></div>
 <div class="sp-rows">${ rows.join( '' ) }</div>
@@ -143,7 +155,48 @@ export class SeaplanePanel {
 
 	}
 
+	// the cockpit's switches as buttons (touch: the 3D panel cannot be tapped through the look drag)
+	_renderCockpit( v ) {
+
+		const c = v.cockpit;
+		const btn = ( id, label, on = false, dis = false ) => `<button class="sp-btn ${ on ? 'is-on' : '' }" data-ctl="${ id }" ${ dis ? 'disabled' : '' }>${ label }</button>`;
+		const flaps = [ t( 'seaplane.flapsUpShort', 'up' ), '1', '2' ][ c.flaps ] || '0';
+		const trim = ( c.trim > 0 ? '+' : '' ) + c.trim.toFixed( 1 );
+		const grid = [
+			btn( 'engine', c.engine ? t( 'seaplane.btnStop', 'Engine: stop' ) : c.cranking ? t( 'seaplane.btnCranking', 'Starting...' ) : t( 'seaplane.btnStart', 'Engine: start' ), c.engine ),
+			btn( 'master', t( 'seaplane.btnMaster', 'Master' ), c.master ),
+			btn( 'ap', t( 'seaplane.btnAp', 'Autopilot' ), c.ap ),
+			btn( 'nav', t( 'seaplane.btnNav', 'Nav lights' ), c.nav ),
+			btn( 'landing', t( 'seaplane.btnLanding', 'Landing light' ), c.landing ),
+			btn( 'map', t( 'seaplane.btnMap', 'Map' ) ),
+			btn( 'flapsUp', `${ t( 'seaplane.btnFlapsUp', 'Flaps up' ) } (${ flaps })`, false, c.flaps <= 0 ),
+			btn( 'flapsDown', `${ t( 'seaplane.btnFlapsDown', 'Flaps down' ) } (${ flaps })`, false, c.flaps >= 2 ),
+			btn( 'warn', t( 'seaplane.btnWarn', 'Silence warning' ) ),
+			btn( 'trimDown', `${ t( 'seaplane.btnTrimDown', 'Trim nose down' ) } (${ trim })` ),
+			btn( 'trimUp', `${ t( 'seaplane.btnTrimUp', 'Trim nose up' ) } (${ trim })` ),
+			c.canExit ? btn( 'exit', t( 'seaplane.climbOut', 'Climb out' ) ) : '',
+		].join( '' );
+		let acts = '';
+		if ( v.home && v.fuel < 0.995 ) acts += `<button class="sp-btn is-main" data-act="refuel" ${ v.canRefuel ? '' : 'disabled' }>${ t( 'seaplane.refuel', 'Refuel' ) } · ${ v.free ? t( 'seaplane.freeShort', 'free' ) : money( v.refuelCost ) }</button>`;
+		acts += `<button class="sp-btn" data-act="close">${ t( 'seaplane.close', 'Close' ) }</button>`;
+		this.el.innerHTML = `
+<div class="sp-head"><div><h2>${ t( 'seaplane.cockpit', 'Cockpit' ) }</h2><p class="sp-sub">${ t( 'seaplane.fuel', 'Fuel' ) } ${ Math.round( v.fuel * 100 ) }% · ${ t( 'seaplane.condition', 'Condition' ) } ${ Math.round( v.hp ) }%</p></div></div>
+<div class="sp-grid">${ grid }</div>
+<div class="sp-acts">${ acts }</div>
+<div class="sp-msg ${ this.msg && this.msg.bad ? 'is-bad' : '' }">${ this.msg ? this.msg.text : '' }</div>`;
+
+	}
+
 	_click( e ) {
+
+		const ctl = e.target && e.target.closest ? e.target.closest( '[data-ctl]' ) : null;
+		if ( ctl && ! ctl.disabled ) {
+
+			this.plane.act( ctl.dataset.ctl, 'panel' );
+			if ( this.isOpen ) this.render();
+			return;
+
+		}
 
 		const b = e.target && e.target.closest ? e.target.closest( '[data-act]' ) : null;
 		if ( ! b || b.disabled ) return;
@@ -152,6 +205,7 @@ export class SeaplanePanel {
 		let r = null;
 		if ( act === 'buy' ) r = p.buy();
 		else if ( act === 'repair' ) r = p.repair();
+		else if ( act === 'refuel' ) r = p.refuel();
 		else if ( act === 'recall' ) r = p.recall();
 		if ( r ) this.say( r.text, ! r.ok );
 		else this.render();

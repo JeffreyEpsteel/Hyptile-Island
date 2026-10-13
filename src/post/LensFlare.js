@@ -106,8 +106,12 @@ fn main() {
 ${ taps }
 	let cloudT = ${ hasClouds ? 'cloudsSunTransmittance( cloudsSampleView( flareParams.sunDir ).a )' : '1.0' };
 	let up = smoothstep( -0.02, 0.04, flareParams.sunDir.y );
-	let tgt = sky / ${ f( VIS_TAPS ) } * cloudT * up * flareParams.inView * flareParams.aboveWater;
-	let v = flareVisRW[ 0 ];
+	var tgt = sky / ${ f( VIS_TAPS ) } * cloudT * up * flareParams.inView * flareParams.aboveWater;
+	// the eased value is a feedback loop: one NaN (a NaN cloud texel, a bad frame) would stay for ever and the
+	// flare's light would black out every frame after it, so garbage never enters the buffer
+	if ( ! ( tgt >= 0.0 && tgt <= 1.0 ) ) { tgt = 0.0; }
+	var v = flareVisRW[ 0 ];
+	if ( ! ( v >= 0.0 && v <= 1.0 ) ) { v = 0.0; }
 	flareVisRW[ 0 ] = mix( v, tgt, 1.0 - exp( flareParams.dt * -14.0 ) );
 }
 `,
@@ -148,10 +152,11 @@ fn flareLight( uv: vec2f ) -> vec3f {
 	let p = ( uv - 0.5 ) * asp * vec2f( 1.0, -1.0 );
 	let s = ( flareParams.sunUV - 0.5 ) * asp * vec2f( 1.0, -1.0 );
 	let vis = flareVis[ 0 ];
+	// (a NaN or negative visibility adds nothing: a test of vis <= 0.0 is false for NaN, which once turned every pixel black)
+	if ( ! ( vis > 0.0 ) ) { return vec3f( 0.0 ); }
 	// light arriving from the sun disc (the key light colour follows the atmosphere's
 	// transmittance; at night the moon is the key light and flares only faintly)
-	let light = frame.sunColor * vis * flareParams.strength * 0.02;
-	if ( vis <= 0.0 ) { return vec3f( 0.0 ); }
+	let light = frame.sunColor * min( vis, 1.0 ) * flareParams.strength * 0.02;
 
 	var ghosts = vec3f( 0.0 );
 ${ ghosts }
@@ -206,13 +211,15 @@ ${ ghosts }
 		camera.updateMatrixWorld();
 		const v = _v.copy( camera.position ).addScaledVector( d, 1000 ).project( camera );
 		const ahead = _f.set( 0, 0, - 1 ).applyQuaternion( camera.quaternion ).dot( d ) > 0.05;
-		this.sunUV.value.set( v.x * 0.5 + 0.5, 0.5 - v.y * 0.5 );
+		// (a camera with a bad matrix for a frame projects to NaN: the sun is then simply out of view)
+		const finite = Number.isFinite( v.x ) && Number.isFinite( v.y );
+		this.sunUV.value.set( finite ? v.x * 0.5 + 0.5 : 0.5, finite ? 0.5 - v.y * 0.5 : 0.5 );
 		// fade out over the last 5% before the frame edge (no pop when the sun leaves the view)
-		const edge = Math.max( Math.abs( v.x ), Math.abs( v.y ) );
-		this.inView.value = ahead ? MathUtils.clamp( ( 1.0 - edge ) / 0.1, 0, 1 ) : 0;
+		const edge = finite ? Math.max( Math.abs( v.x ), Math.abs( v.y ) ) : 2;
+		this.inView.value = ahead && finite ? MathUtils.clamp( ( 1.0 - edge ) / 0.1, 0, 1 ) : 0;
 		this.aboveWater.value = aboveWater ? 1 : 0;
-		this.aspect.value = camera.aspect;
-		this.dt.value = Math.min( dt, 0.1 );
+		this.aspect.value = Number.isFinite( camera.aspect ) && camera.aspect > 0 ? camera.aspect : 16 / 9;
+		this.dt.value = Number.isFinite( dt ) ? Math.min( Math.max( dt, 0 ), 0.1 ) : 1 / 60;
 		// sun disc radius (0.265°) in pixels of the depth buffer
 		const h = this._depthH || 1080;
 		this.discPx.value = Math.max( 1.5, 0.004625 / Math.tan( MathUtils.degToRad( camera.fov ) * 0.5 ) * h * 0.5 );

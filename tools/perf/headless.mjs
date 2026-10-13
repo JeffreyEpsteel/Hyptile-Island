@@ -288,6 +288,51 @@ if ( process.argv.includes( '--trace-calls' ) ) {
 // TAA: the bloom chain spreads it over its coarse texels (wave 5: a palm trunk's pow() of its height below the ground).
 // Fails (exit 1) when any frame leaves a NaN / Inf in the scene colour or the TAA input (the composite, which the Low
 // tier feeds the TAA without the haze and AO passes in between).
+// --nan-plane[=glass|panel|plane|avatar|none]: board the seaplane (bought first) in first person and count non-finite
+// pixels, with one part hidden (bisecting what poisons the frame)
+const nanPlane = process.argv.find( ( a ) => a.startsWith( '--nan-plane' ) );
+if ( nanPlane ) {
+
+	const hide = ( nanPlane.split( '=' )[ 1 ] || 'none' );
+	const { readTexture } = await import( '../../src/engine/gpu/Readback.js' );
+	const count = async ( tex ) => {
+
+		const { data } = await readTexture( tex );
+		const u = new Uint16Array( data );
+		let n = 0;
+		for ( let i = 0; i < u.length; i ++ ) if ( ( u[ i ] & 0x7c00 ) === 0x7c00 ) n ++;
+		return n;
+
+	};
+	app.settings.timeOfDay = 11; app.settings.timeSpeed = 0;
+	const sp = app.features.get( 'seaplane' ), p = app.player;
+	sp.buy();
+	for ( let i = 0; i < 30; i ++ ) app.frame( 1 / 60 );
+	const vis = ( re, on ) => { let n = 0; app.scene.traverse( ( o ) => { if ( o.name && re.test( o.name ) ) { o.visible = on; n ++; } } ); return n; };
+	if ( hide === 'glass' ) vis( /seaplane-glass/, false );
+	if ( hide === 'panel' ) vis( /seaplane-panel/, false );
+	if ( hide === 'plane' ) { const g = sp.model && ( sp.model.group || sp.model.root ); if ( g ) g.visible = false; }
+	if ( hide === 'avatar' && app.avatar && app.avatar.group ) app.avatar.group.visible = false;
+	const before = await count( app.sceneRenderer.sceneRT.textures[ 0 ] );
+	p.position.set( 2.5, 0.5, - 17 );
+	for ( let i = 0; i < 10; i ++ ) app.frame( 1 / 60 );
+	const ok = sp.board();
+	for ( let i = 0; i < 10; i ++ ) app.frame( 1 / 60 );
+	if ( p.view !== 'first' && p.toggleView ) p.toggleView();
+	let sc = 0, be = 0;
+	for ( let i = 0; i < 20; i ++ ) { app.frame( 1 / 60 ); if ( i % 5 === 4 ) { sc += await count( app.sceneRenderer.sceneRT.textures[ 0 ] ); be += await count( app.post.beauty.texture ); } }
+	// the picture itself (is it black?) and its mean brightness
+	const { canvasPNG } = await import( './shot.mjs' );
+	const shotFile = ( process.argv.find( ( a ) => a.startsWith( '--out=' ) ) || '--out=.' ).split( '=' )[ 1 ] + `/plane-${ hide }.png`;
+	try { await canvasPNG( GPU, shotFile ); } catch ( e ) { console.log( 'shot failed: ' + e.message ); }
+	const { data: bd } = await readTexture( app.post.beauty.texture );
+	const bu = new Uint16Array( bd ); let sum = 0, nz = 0;
+	for ( let i = 0; i < bu.length; i += 4 ) { const h = bu[ i ]; const e = ( h >> 10 ) & 0x1f, m = h & 0x3ff; const v = e === 0 ? m * Math.pow( 2, - 24 ) : Math.pow( 2, e - 25 ) * ( 1024 + m ); sum += v; if ( v > 0.002 ) nz ++; }
+	console.log( `nan-plane hide=${ hide }: boarded ${ ok } view ${ p.view } · before ${ before } · scene ${ sc } · TAA input ${ be } non-finite · beauty mean ${ ( sum / ( bu.length / 4 ) ).toFixed( 4 ) }, lit pixels ${ ( 100 * nz / ( bu.length / 4 ) ).toFixed( 1 ) }% · ${ shotFile }` );
+	process.exit( 0 );
+
+}
+
 const nanArg = process.argv.find( ( a ) => a.startsWith( '--nan-check' ) );
 if ( nanArg ) {
 

@@ -152,7 +152,8 @@ export const GPU = {
 		this.requestedLimits = limits;
 
 		const noFeatures = ( featureMode || ( /[?&]features=none\b/.test( search ) ? 'none' : 'auto' ) ) === 'none';
-		const requiredFeatures = noFeatures ? [] : OPTIONAL_FEATURES.filter( ( f ) => adapter.features.has( f ) );
+		// (skipFeatures: optional features a platform's driver advertises but cannot build pipelines with; main.js fills it)
+		const requiredFeatures = noFeatures ? [] : OPTIONAL_FEATURES.filter( ( f ) => adapter.features.has( f ) && ! this.skipFeatures.has( f ) );
 		this.features = new Set( requiredFeatures );
 		this.hasTimestamp = this.features.has( 'timestamp-query' );
 		this.hasFloat32Filterable = this.features.has( 'float32-filterable' );
@@ -375,6 +376,7 @@ export const GPU = {
 	// pipeline created synchronously would stall the GPU process (and with it the page) at first use.
 	// Handles are { pipeline, label }; `pipeline` is null until the compile finishes. Users that must
 	// run this frame (compute, post) call ready( handle ), which falls back to a synchronous create.
+	skipFeatures: new Set(), // optional features not to request (see requestDevice)
 	_pending: new Set(),
 	syncCompiles: [], // labels of pipelines needed before their async compile finished (diagnostics)
 	// compile progress for the loader and the error card: started = the pipeline(s) compiling NOW (a hang names its culprit)

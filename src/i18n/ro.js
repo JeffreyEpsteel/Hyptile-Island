@@ -315,6 +315,8 @@ export default {
 	'hud.freecam': 'Cameră liberă',
 	'hud.boat1': 'Barcă · prima persoană',
 	'hud.boat3': 'Barcă · persoana a treia',
+	'hud.plane1': 'Hidroavion · cabină',
+	'hud.plane3': 'Hidroavion · vedere din spate',
 	'hud.deck': 'Pe punte',
 	'hud.dive': 'Scufundare',
 	'hud.swim': 'Înot',

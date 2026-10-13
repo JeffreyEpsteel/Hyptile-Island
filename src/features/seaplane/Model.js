@@ -1,8 +1,9 @@
 // The seaplane's look: public/models/seaplane/Seaplane.glb (tools/seaplane/build_seaplane.py) through
 // world/boat/StaticGLB.js, loaded once and shared by the local plane and the other players' planes. The propeller
 // meshes (materials SeaplaneProp / SeaplanePropTip) move into a pivot at GEOM.prop and spin about +Z in code; the
-// glass goes to the late (transparent) pass. Until the GLB arrives (or if it fails to load) a small procedural
-// stand-in from GeoKit boxes is shown, so the plane is never invisible.
+// glass goes to the late (transparent) pass, nearly clear with a slight sea-green tint, a Fresnel edge and a faint
+// diagonal reflection streak (wave 8: the pilot must see out). Until the GLB arrives (or if it fails to load) a
+// small procedural stand-in from GeoKit boxes is shown, so the plane is never invisible.
 //
 //   const models = new PlaneModels( { scene } );
 //   const v = models.create();          v.setPose( position, quaternion );  v.spin( dt, rpm01 );  v.setVisible( b );  v.dispose()
@@ -17,6 +18,20 @@ import { GEOM } from './Flight.js';
 export const MODEL_URL = 'models/seaplane/Seaplane.glb';
 const PREFIX = 'seaplane-';
 const PROP_SPIN = 38; // rad/s shown at full power: the real 2200 rpm would strobe at the frame rate
+
+// the cabin glass: mostly clear, more reflective at grazing angles, one soft streak across each pane (the GLB's
+// planar UV: u along the length / height, v up)
+export const GLASS = {
+	opacity: 0.1,
+	surface: /* wgsl */`
+	let fres = pow( max( 1.0 - abs( dot( in.N, in.V ) ), 0.0 ), 4.0 ); // (max: a negative base is NaN in WGSL and poisons the TAA history)
+	let band = fract( ( in.uv.x + in.uv.y * 0.8 ) * 1.3 );
+	let streak = smoothstep( 0.0, 0.05, band ) * ( 1.0 - smoothstep( 0.05, 0.16, band ) );
+	s.alpha = clamp( s.alpha + fres * 0.4 + streak * 0.07, 0.0, 0.7 );
+	s.albedo = mix( s.albedo, vec3f( 1.0 ), streak * 0.35 );
+	s.roughness = 0.04;
+`,
+};
 
 function defaultBase() {
 
@@ -80,7 +95,8 @@ export class PlaneModels {
 	_ensureLoad() {
 
 		if ( this.ready ) return this.ready;
-		this.ready = Promise.resolve( this._load( this.baseUrl + MODEL_URL, { shadows: true, prefix: PREFIX, materials: () => ( { underwaterLighting: 'lite' } ) } ) ).then( ( glb ) => {
+		const materials = ( info ) => ( /Glass/.test( info && info.name ) ? { underwaterLighting: 'lite', opacity: GLASS.opacity, surface: GLASS.surface } : { underwaterLighting: 'lite' } );
+		this.ready = Promise.resolve( this._load( this.baseUrl + MODEL_URL, { shadows: true, prefix: PREFIX, materials } ) ).then( ( glb ) => {
 
 			if ( ! glb || ! glb.meshes ) throw new Error( 'empty seaplane GLB' );
 			const body = [], prop = [];

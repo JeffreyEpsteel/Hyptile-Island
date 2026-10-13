@@ -315,6 +315,8 @@ export default {
 	'hud.freecam': 'Free camera',
 	'hud.boat1': 'Boat · 1st person',
 	'hud.boat3': 'Boat · 3rd person',
+	'hud.plane1': 'Seaplane · cockpit',
+	'hud.plane3': 'Seaplane · chase view',
 	'hud.deck': 'On deck',
 	'hud.dive': 'Diving',
 	'hud.swim': 'Swimming',

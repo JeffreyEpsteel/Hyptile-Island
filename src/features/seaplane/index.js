@@ -17,5 +17,8 @@ export { Seaplane, PRICE, REPAIR_PER_HP } from './Seaplane.js';
 export { Flight, GEOM, SPEC, liftCoefficient, waterResistance } from './Flight.js';
 export { Pilot, judge, PILOT, TOUCH, MAX_HP } from './Pilot.js';
 export { SITE, jettyPoint, distToBerth } from './Site.js';
+export { Systems, FUEL, refuelCost, START_TIME, STALL_WARN } from './Systems.js';
+export { Cockpit, CONTROLS, TEX, FACE, rayPanel, hitControl, panelSnapshot, drawPanel } from './Cockpit.js';
+export { AUTOPILOT } from './Pilot.js';
 
 export default { install };

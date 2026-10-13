@@ -355,3 +355,20 @@ card fits, iOS media unlock for sound. Melee swings anywhere the rod is stowed. 
 (pump the rod), rod breaks past 1.14 tension (state.rodBroken, Ethena repairs), fishing from a still boat's helm.
 Multiplayer on Pages: no page-host default (isStaticHost), https tunnel addresses, tools/host/HOST_UNIVERSE_TUNNEL.cmd
 (cloudflared quick tunnel) + HOSTING.md. Cockpit rework: docs/briefs/w8-cockpit.md (worker).
+
+### Cockpit landed + iPhone round 3 (2026-10-13, root)
+Seaplane cockpit (worker wave 8, integrated): live instrument panel (six-pack, lamps, fuel / hull bars, flaps, trim, radio),
+clickable switches (mouse ray / keys U O N ; Y [ ] - = M, touch Cockpit panel = 3), master + starter + fuel tank (refuel at
+the ramp), nav / landing / cabin lights, flaps and trim in Flight.js, autopilot level hold, chase-view instrument strip,
+HUD off the windscreen in first person, engine / flap / stall / switch sounds. HUD mode label "Seaplane · cockpit / chase view".
+Black screen after the engine ran (Chrome, not Dawn): the lens flare's eased visibility (a storage float) had gone NaN
+once and `mix()` kept it NaN for ever; `vis <= 0.0` is false for NaN so every pixel got NaN light -> black. Fixed in
+src/post/LensFlare.js: the kernel drops non-finite / out-of-range values, flareLight returns 0 unless vis > 0, update()
+guards a non-finite projection / dt. The first NaN's source was not caught (clouds history scanned clean afterwards).
+iPhone (user report, frame 15974, 507 MB, killed while "boatTrap main" compiled after quick boat swaps): MeshRenderer no
+longer compiles pipelines synchronously on phones (syncPipelines = !GPU.lazyPipelines; a swapped boat pops in when its
+async compile is done). Boat yard panel on a short landscape phone: the list kept 120 px min-height (it was squeezed to a
+sliver under the footer), greeting clamped / hidden under 460 px. Getting ashore: ashoreTarget() reaches 5 m and accepts
+wading depth; at the helm, stopped by land, E steps straight ashore (Q keeps the deck; touch shows a Deck button).
+Boat swaps leak ~10 small GPU buffers each (count only, no MB growth over 16 swaps): follow-up.
+

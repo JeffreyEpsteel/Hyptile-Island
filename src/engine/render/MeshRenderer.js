@@ -97,7 +97,9 @@ export class MeshRenderer {
 		// true: a draw compiles its pipeline on the spot (one-off bakes, portraits, tests); the engine's
 		// scene renderer sets false: pipelines compile in the background and a draw is skipped until
 		// its pipeline is ready (no first-use stalls)
-		this.syncPipelines = true;
+		// a pipeline that is still compiling: compile it now on the main thread (desktop) or skip the mesh until it is ready
+		// (phones: a synchronous compile of a swapped boat's materials hung the page long enough for WebKit to kill it)
+		this.syncPipelines = ! GPU.lazyPipelines;
 		// perf culls (see the header): Quality sets them per tier. globalThis.__perfBaseline (tools/perf/headless.mjs
 		// --baseline) switches all of wave 4's renderer work off, for the 'before' numbers of docs/PERF.md
 		const on = globalThis.__perfBaseline !== true;
@@ -487,6 +489,20 @@ export class MeshRenderer {
 		const key = `${ material.__pk }|${ vl.key }|${ passKey }`;
 		let p = this.pipelines.get( key );
 		if ( ! p ) p = this._createPipeline( material, vl, pass, key );
+		else if ( p.clip && p.handle.failed ) {
+
+			// a driver that advertises clip-distances but cannot build a pipeline with them (Android Adreno: VK_ERROR_UNKNOWN):
+			// the feature is dropped for the session and the pipeline rebuilt on the fragment-discard path
+			if ( GPU.features.has( 'clip-distances' ) ) {
+
+				GPU.features.delete( 'clip-distances' );
+				console.warn( `WebGPU: "${ p.label }" failed with clip distances: rebuilding every clipped pipeline without them` );
+
+			}
+
+			p = this._createPipeline( material, vl, pass, key );
+
+		}
 		if ( vl.pipelines ) vl.pipelines.set( passKey, { materialKey: material.__pk, p } );
 		return p;
 
@@ -548,7 +564,7 @@ export class MeshRenderer {
 
 		}
 
-		const p = { handle, bindings: c.bindings, label: desc.label };
+		const p = { handle, bindings: c.bindings, label: desc.label, clip: !! ( src.defines && src.defines.CLIP_DISTANCES ) };
 		this.pipelines.set( key, p );
 		this.stats.pipelines = this.pipelines.size;
 		return p;

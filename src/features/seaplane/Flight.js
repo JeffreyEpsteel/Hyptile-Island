@@ -8,6 +8,9 @@
 //   f.groundAt = ( x, z ) => terrainHeight;         // optional
 //   f.update( dt );                                 // fixed 120 Hz sub-steps inside
 //   f.airspeed, f.alpha, f.stall, f.airborne, f.onWater, f.agl, f.events (drained by the caller)
+//   f.flaps = 0 | 1 | 2 (notch asked for; f.flapPos follows at the motor's pace), f.controls.trim (-1..1, nose up +),
+//   f.fuel (0..1: ~25 min at full power; empty stops the engine with a { type: 'fuelOut' } event), f.cranking (the
+//   starter turns the propeller over), f.stallMargin (rad of wing alpha left before the stall)
 //
 // Frames: the model frame is the boat frame (+Z forward, +Y up, +X port), origin between the float keels at the
 // centre of mass' station. Air: every lifting surface (two wing halves with incidence and dihedral, the tailplane,
@@ -35,7 +38,11 @@ export const GEOM = {
 	probes: [ [ 1.35, 2.6 ], [ - 1.35, 2.6 ], [ 1.35, - 3.0 ], [ - 1.35, - 3.0 ] ], // [ x, z ]: port bow, starboard bow, port stern, starboard stern
 	com: [ 0, 1.75, 0 ],
 	seat: [ 0.32, 1.45, 1.15 ], // the pilot's floor under the left seat (avatar feet origin)
-	eye: [ 0.32, 2.92, 1.2 ], // the pilot's eye: over the cowling (top 2.8 at z 2.85), under the wing (3.14)
+	// the pilot's eye, 0.8 m over the seat cushion (top 1.93): over the glare shield (lip 2.5 at z 2.4: ~11 deg down
+	// to the water ahead) and the lowered cowling (2.5), under the roof (3.1) and the wing (3.14)
+	eye: [ 0.32, 2.74, 1.2 ],
+	// the instrument panel's live face (Cockpit.js): centre, width, height, tilt (rad, its top leans towards the nose)
+	panel: { c: [ 0, 2.27, 2.4 ], w: 1.22, h: 0.4, tilt: 0.26 },
 	door: [ 1.35, 0.62, 1.0 ], // on the port float's deck beside the cabin door
 	prop: [ 0, 2.2, 3.85 ], propRadius: 1.3,
 	span: 14.6, length: 10.4,
@@ -72,6 +79,12 @@ export const SPEC = {
 	waterRudder: { area: 0.07, slope: 3.0, max: 30 * DEG, z: - 3.8 },
 	// contact
 	groundK: 260000, groundC: 26000, groundMu: 0.45,
+	// wave 8: flaps (per full deflection, two notches: 1 = takeoff, 2 = landing), pitch trim, fuel
+	flaps: { dcl: 0.62, cd0: 0.045, stallDrop: 3 * DEG, rate: 0.55 }, // rate: notches per second (the motor)
+	trim: 0.32, // elevator travel at full trim
+	fuelMinutes: 25, // at full power; the burn follows the rpm (idling lasts ~2 h)
+	fuelIdle: 0.12, // share of the full-power burn at zero rpm
+	crank: 0.06, // rpm while the starter turns the engine over
 };
 
 // float sections: [ z, area factor (beam taper), keel rise ]
@@ -110,6 +123,8 @@ const _F = new Vector3(), _T = new Vector3(), _com = new Vector3(), _invQ = new 
 const _vb = new Vector3(), _wb = new Vector3(), _r = new Vector3(), _vl = new Vector3(), _f = new Vector3(), _p = new Vector3();
 const _n = new Vector3(), _c = new Vector3(), _a = new Vector3(), _t = new Vector3(), _fw = new Vector3(), _pw = new Vector3();
 const _vp = new Vector3(), _up = new Vector3();
+const _ws = {}; // a wing half's section with the flaps applied (scratch)
+const _ff = new Vector3();
 
 export class Flight {
 
@@ -124,7 +139,13 @@ export class Flight {
 		this.velocity = new Vector3(); // centre of mass, world
 		this.angular = new Vector3(); // world
 		this.wind = new Vector3();
-		this.controls = { throttle: 0, pitch: 0, roll: 0, yaw: 0, waterRudder: 0 };
+		this.controls = { throttle: 0, pitch: 0, roll: 0, yaw: 0, waterRudder: 0, trim: 0 };
+		this.flaps = 0; // notch asked for (0..2)
+		this.flapPos = 0; // where the flaps are (0..2, follows at spec.flaps.rate)
+		this.fuel = 1;
+		this.cranking = false;
+		this.wingAlpha = 0;
+		this.stallMargin = 1;
 		this.deflect = { elevator: 0, aileron: 0, rudder: 0 }; // -1..1, lagging the controls
 		this.engineOn = true;
 		this.rpm = 0;
@@ -277,13 +298,38 @@ export class Flight {
 
 		const sp = this.spec, c = this.controls;
 		dt = Math.min( dt, 0.1 );
-		// engine spools after the lever; the control surfaces follow the stick
-		const lever = this.engineOn ? Math.max( clamp( c.throttle, 0, 1 ), sp.idle ) : 0;
+		// fuel: the burn follows the rpm; an empty tank stops the engine
+		if ( this.engineOn && sp.fuelMinutes ) {
+
+			this.fuel = Math.max( 0, this.fuel - dt * ( sp.fuelIdle + ( 1 - sp.fuelIdle ) * this.rpm ) / ( sp.fuelMinutes * 60 ) );
+			if ( this.fuel <= 0 ) {
+
+				this.engineOn = false;
+				this.events.push( { type: 'fuelOut' } );
+
+			}
+
+		}
+
+		// engine spools after the lever (the starter only turns it over); the control surfaces follow the stick
+		const lever = this.engineOn ? Math.max( clamp( c.throttle, 0, 1 ), sp.idle ) : this.cranking ? ( sp.crank || 0.06 ) : 0;
 		const tau = lever > this.rpm ? sp.spoolUp : sp.spoolDown;
 		this.rpm += ( lever - this.rpm ) * ( 1 - Math.exp( - dt / tau ) );
+		// the flap motor runs at a steady pace towards the notch
+		const fl = sp.flaps;
+		if ( fl ) {
+
+			const want = clamp( Math.round( this.flaps ), 0, 2 );
+			this.flaps = want;
+			const step = fl.rate * dt;
+			this.flapPos += clamp( want - this.flapPos, - step, step );
+
+		}
+
 		const k = 1 - Math.exp( - dt * sp.controlRate );
 		const d = this.deflect;
-		d.elevator += ( clamp( c.pitch, - 1, 1 ) - d.elevator ) * k;
+		// the trim offsets the elevator's rest position (positive: nose up)
+		d.elevator += ( clamp( c.pitch + clamp( c.trim || 0, - 1, 1 ) * ( sp.trim || 0 ), - 1, 1 ) - d.elevator ) * k;
 		d.aileron += ( clamp( c.roll, - 1, 1 ) - d.aileron ) * k;
 		d.rudder += ( clamp( c.yaw, - 1, 1 ) - d.rudder ) * k;
 
@@ -350,10 +396,26 @@ export class Flight {
 		_f.set( 0, 0, thrust ).applyQuaternion( q );
 		addWorld( _f, this.toWorldXYZ( sp.thrustPoint[ 0 ], sp.thrustPoint[ 1 ], sp.thrustPoint[ 2 ], _pw ) );
 
-		// lifting surfaces
+		// lifting surfaces (the flaps add camber and drag to the wing halves and stall them a little earlier)
 		const defl = sp.deflection, d = this.deflect;
+		const flapK = sp.flaps ? this.flapPos / 2 : 0;
 		let wingAlpha = 0;
-		for ( const s of this.surfaces ) {
+		for ( const s0 of this.surfaces ) {
+
+			let s = s0;
+			if ( s0.side && flapK > 0 ) {
+
+				const fl = sp.flaps;
+				s = _ws;
+				s.cl0 = s0.cl0 + fl.dcl * flapK;
+				s.slope = s0.slope;
+				s.stall = s0.stall - fl.stallDrop * flapK;
+				s.cd0 = s0.cd0 + fl.cd0 * flapK;
+				s.ar = s0.ar;
+				s.p = s0.p; s.n = s0.n; s.c = s0.c; s.slip = s0.slip; s.control = s0.control; s.dcl = s0.dcl; s.side = s0.side; s.area = s0.area;
+
+			}
+
 
 			// local velocity of the surface through the air (body frame)
 			_vl.copy( wb ).cross( _r.copy( s.p ).sub( this.com ) ).add( vb );
@@ -368,22 +430,28 @@ export class Flight {
 			cl += s.dcl * delta * ( 1 - sstep( Math.abs( alpha ), s.stall + 0.05, s.stall + 0.3 ) ) * ( vc > 0 ? 1 : 0.2 );
 			const stalled = sstep( Math.abs( alpha ), s.stall, s.stall + 0.12 );
 			const cd = s.cd0 + ( cl * cl / ( Math.PI * 0.78 * s.ar ) ) * ( 1 - stalled ) + 1.2 * Math.sin( alpha ) ** 2 * stalled + Math.abs( delta ) * 0.05;
-			s.alpha = alpha;
-			s.cl = cl;
+			s0.alpha = alpha;
+			s0.cl = cl;
 			if ( s.side ) wingAlpha += alpha * 0.5;
 			const vlen = Math.sqrt( v2 );
 			const qS = 0.5 * RHO_AIR * v2 * s.area;
 			// lift perpendicular to the in-plane flow (towards +n for positive alpha), drag against it
 			_a.copy( s.n ).multiplyScalar( vc ).addScaledVector( s.c, - vn ).divideScalar( vlen );
 			_f.copy( s.c ).multiplyScalar( - vc ).addScaledVector( s.n, - vn ).divideScalar( vlen );
-			_f.multiplyScalar( qS * cd ).addScaledVector( _a, qS * cl );
+			// the flaps' extra lift acts over the centre of mass' station: more lift and drag, no pitch-up balloon
+			const dclF = s === s0 ? 0 : sp.flaps.dcl * flapK * ( 1 - stalled );
+			_f.multiplyScalar( qS * cd ).addScaledVector( _a, qS * ( cl - dclF ) );
 			// a stalled wing half drops (asymmetric buffet)
 			addWorld( _f.applyQuaternion( q ), this.toWorld( s.p, _pw ) );
+			if ( dclF ) addWorld( _ff.copy( _a ).multiplyScalar( qS * dclF ).applyQuaternion( q ), this.toWorldXYZ( s.p.x, s.p.y, this.com.z - 0.05, _pw ) );
 
 		}
 
 		const ws = this.surfaces[ 0 ];
-		this.stall = V > 6 ? sstep( wingAlpha, ws.stall - 0.07, ws.stall + 0.04 ) : 0;
+		const wStall = ws.stall - ( sp.flaps ? sp.flaps.stallDrop * flapK : 0 );
+		this.stall = V > 6 ? sstep( wingAlpha, wStall - 0.07, wStall + 0.04 ) : 0;
+		this.wingAlpha = wingAlpha;
+		this.stallMargin = wStall - wingAlpha;
 		// fuselage, floats and struts: parasitic drag and side force
 		if ( V > 0.05 ) {
 

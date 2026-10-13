@@ -5,7 +5,9 @@
 // muffle apply. Built on the first update with the engine running; a no-op without app.audio (node tests, ?noAudio).
 //
 //   const s = new PlaneAudio( app );
-//   s.update( dt, { running, rpm, airspeed, x, y, z, inside } );   s.dispose()
+//   s.update( dt, { running, rpm, airspeed, x, y, z, inside, cranking, flaps, horn } );   s.click( kind );   s.dispose()
+// Wave 8, the cockpit (straight into the bus, no panner: they are in the cabin with you): the starter's whine while it
+// cranks, the flap motor's whir while the flaps travel, the stall horn (a warbling square) and a switch click.
 
 export class PlaneAudio {
 
@@ -14,7 +16,7 @@ export class PlaneAudio {
 		this.app = app;
 		this.nodes = null;
 		this.level = 0; // eased engine-running level
-		this.state = { rpm: 0, airspeed: 0, gain: 0 }; // last values (tests)
+		this.state = { rpm: 0, airspeed: 0, gain: 0, horn: false, flaps: false, cranking: false, clicks: 0 }; // last values (tests)
 
 	}
 
@@ -89,29 +91,126 @@ export class PlaneAudio {
 		wash.connect( out );
 		noise.start();
 		this.nodes = { out, pan, lp, eng, fire, sub, high, lfo, noise, bp, wash, sources: [ fire, sub, high, lfo, noise ] };
+		this._buildCabin( ctx, buf );
 
 	}
 
-	update( dt, { running = false, rpm = 0, airspeed = 0, x = 0, y = 0, z = 0, inside = false } = {} ) {
+	// the cabin's own sounds: starter whine, flap motor, stall horn, and the bus the clicks play into
+	_buildCabin( ctx, noiseBuf ) {
 
-		this.level += ( ( running ? 1 : 0 ) - this.level ) * ( 1 - Math.exp( - dt * ( running ? 2.5 : 1.2 ) ) );
+		const a = this.app.audio, n = this.nodes;
+		const cab = ctx.createGain();
+		cab.gain.value = 1;
+		cab.connect( a.sfxAbove || a.master || ctx.destination );
+		const tone = ( type, freq, gain ) => {
+
+			const o = ctx.createOscillator();
+			o.type = type;
+			o.frequency.value = freq;
+			const g = ctx.createGain();
+			g.gain.value = 0;
+			o.connect( g );
+			o.start();
+			n.sources.push( o );
+			return { o, g, peak: gain };
+
+		};
+
+		// starter: a geared whine
+		const st = tone( 'sawtooth', 160, 0.07 );
+		const stLp = ctx.createBiquadFilter();
+		stLp.type = 'lowpass';
+		stLp.frequency.value = 900;
+		st.g.connect( stLp );
+		stLp.connect( cab );
+		// flap motor: a buzzing whir with a little flutter
+		const fm = tone( 'triangle', 310, 0.05 );
+		const fmV = ctx.createOscillator();
+		fmV.frequency.value = 23;
+		const fmVG = ctx.createGain();
+		fmVG.gain.value = 9;
+		fmV.connect( fmVG );
+		fmVG.connect( fm.o.frequency );
+		fmV.start();
+		n.sources.push( fmV );
+		fm.g.connect( cab );
+		// stall horn: a square at 420 Hz, warbled 7 times a second
+		const hn = tone( 'square', 420, 0.06 );
+		const hnLp = ctx.createBiquadFilter();
+		hnLp.type = 'lowpass';
+		hnLp.frequency.value = 1600;
+		const hnAm = ctx.createGain();
+		hnAm.gain.value = 0.6;
+		const hnL = ctx.createOscillator();
+		hnL.frequency.value = 7;
+		const hnLG = ctx.createGain();
+		hnLG.gain.value = 0.4;
+		hnL.connect( hnLG );
+		hnLG.connect( hnAm.gain );
+		hnL.start();
+		n.sources.push( hnL );
+		hn.g.connect( hnAm );
+		hnAm.connect( hnLp );
+		hnLp.connect( cab );
+		Object.assign( n, { cab, starter: st, flapMotor: fm, horn: hn, noiseBuf } );
+
+	}
+
+	// a switch click (or a heavier 'clunk' for the flap lever / the starter button)
+	click( kind = 'switch' ) {
+
+		this.state.clicks ++;
+		const ctx = this.ctx, n = this.nodes;
+		if ( ! ctx || ! n || ! n.cab || ( this.app.audio && this.app.audio._muted ) ) return;
+		try {
+
+			const t = ctx.currentTime;
+			const src = ctx.createBufferSource();
+			src.buffer = n.noiseBuf;
+			const f = ctx.createBiquadFilter();
+			f.type = 'bandpass';
+			f.frequency.value = kind === 'clunk' ? 900 : 3200;
+			f.Q.value = 1.2;
+			const g = ctx.createGain();
+			g.gain.setValueAtTime( kind === 'clunk' ? 0.5 : 0.35, t );
+			g.gain.exponentialRampToValueAtTime( 0.001, t + ( kind === 'clunk' ? 0.09 : 0.035 ) );
+			src.connect( f );
+			f.connect( g );
+			g.connect( n.cab );
+			src.start( t, Math.random() );
+			src.stop( t + 0.12 );
+
+		} catch ( e ) { /* a missed click is fine */ }
+
+	}
+
+	update( dt, { running = false, rpm = 0, airspeed = 0, x = 0, y = 0, z = 0, inside = false, cranking = false, flaps = false, horn = false } = {} ) {
+
+		// the starter turns the engine over: a quieter, slower drone under the whine
+		const on = running || cranking;
+		this.level += ( ( running ? 1 : cranking ? 0.45 : 0 ) - this.level ) * ( 1 - Math.exp( - dt * ( on ? 2.5 : 1.2 ) ) );
 		const a = this.app && this.app.audio;
-		const gain = a && a._muted ? 0 : this.level * ( inside ? 0.55 : 0.8 );
+		const muted = !! ( a && a._muted );
+		const gain = muted ? 0 : this.level * ( inside ? 0.55 : 0.8 );
 		this.state.rpm = rpm;
 		this.state.airspeed = airspeed;
 		this.state.gain = gain;
+		this.state.horn = horn;
+		this.state.flaps = flaps;
+		this.state.cranking = cranking;
 		const ctx = this.ctx;
 		if ( ! ctx ) return;
 		if ( ! this.nodes ) {
 
-			if ( ! running ) return;
+			if ( ! on && ! horn && ! flaps ) return;
 			try { this._build( ctx ); } catch ( e ) { console.warn( 'seaplane: audio failed', e ); this.app = null; return; }
 
 		}
 
 		const n = this.nodes, t = ctx.currentTime, k = 0.08;
 		// a nine-cylinder radial fires 4.5 times a revolution: idle ~600 rpm, full power ~2200
-		const rev = ( 600 + 1600 * rpm ) / 60;
+		// (on the starter: a slow chug of the cylinders coming round)
+		const rev = running ? ( 600 + 1600 * rpm ) / 60 : Math.max( 1.5, rpm * 2200 * 2.5 / 60 );
 		const f = rev * 4.5 / 2; // pitched down an octave: the drone sits better under the music
 		n.fire.frequency.setTargetAtTime( f, t, k );
 		n.sub.frequency.setTargetAtTime( f / 2, t, k );
@@ -120,6 +219,16 @@ export class PlaneAudio {
 		n.bp.frequency.setTargetAtTime( 380 + airspeed * 22 + rpm * 500, t, 0.2 );
 		n.wash.gain.setTargetAtTime( Math.min( 0.9, rpm * 0.25 + airspeed / 55 * 0.5 ), t, 0.2 );
 		n.out.gain.setTargetAtTime( gain, t, 0.1 );
+		if ( n.cab ) {
+
+			const cabin = muted ? 0 : inside ? 1 : 0.35;
+			n.starter.g.gain.setTargetAtTime( cranking ? n.starter.peak * cabin : 0, t, 0.05 );
+			n.starter.o.frequency.setTargetAtTime( cranking ? 150 + 110 * Math.min( 1, rpm / 0.06 ) : 120, t, 0.3 );
+			n.flapMotor.g.gain.setTargetAtTime( flaps ? n.flapMotor.peak * cabin : 0, t, 0.04 );
+			n.horn.g.gain.setTargetAtTime( horn ? n.horn.peak * cabin : 0, t, 0.03 );
+
+		}
+
 		const p = n.pan;
 		if ( p.positionX ) {
 

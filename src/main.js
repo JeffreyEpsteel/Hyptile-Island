@@ -145,6 +145,10 @@ function startGame() {
 		}
 
 		GPU.lazyPipelines = mobile;
+		// Android (Adreno 8xx, Chrome 152): every pipeline whose vertex stage writes clip_distances failed with
+		// VK_ERROR_UNKNOWN (the refraction pass of 17 materials); the fragment discard path replaces it there
+		if ( /Android/i.test( ua ) && ! q.has( 'clip' ) ) GPU.skipFeatures.add( 'clip-distances' );
+		if ( q.has( 'nofeat' ) ) for ( const f of String( q.get( 'nofeat' ) ).split( ',' ) ) if ( f ) GPU.skipFeatures.add( f );
 		if ( q.has( 'compile' ) ) GPU.compileConcurrency = q.get( 'compile' ) === 'all' ? Infinity : Math.max( 1, Number( q.get( 'compile' ) ) || 1 );
 		if ( q.has( 'lazy' ) ) GPU.lazyPipelines = q.get( 'lazy' ) !== '0';
 		GPU.onCompileStart = ( label, index ) => {

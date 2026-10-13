@@ -210,6 +210,7 @@ export function contextButtons( s = {} ) {
 
 		out.add( 'throttle' );
 		out.add( 'camera' );
+		if ( s.helmAshore ) out.add( 'deck' ); // (E = step ashore then; Q = the deck)
 		if ( s.guns ) {
 
 			out.add( 'fireL' );
@@ -219,7 +220,7 @@ export function contextButtons( s = {} ) {
 
 	}
 
-	if ( mode === 'plane' ) out.add( 'planeThrottle' );
+	if ( mode === 'plane' ) { out.add( 'planeThrottle' ); out.add( 'camera' ); out.add( 'cockpit' ); }
 	if ( s.boardOffer || s.boardFight ) out.add( 'board' );
 	if ( s.choices ) {
 
