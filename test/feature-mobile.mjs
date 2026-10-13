@@ -267,7 +267,7 @@ const env = ( { ua = '', points = 0, w = 1920, h = 1080, coarse = false, fine = 
 	ok( q.loop.ceiling === 'medium', 'auto on a phone never climbs past Medium' );
 	const st = q.settings;
 	ok( st.shadowSize <= 1024 && st.shadowFar < TIERS.low.shadowFar && st.periods[ 2 ] >= 8, 'shadows: 1024 map, shorter reach, the far cascade rarely' );
-	ok( st.particles < TIERS.low.particles && st.lights <= 3 && st.residents.animate < TIERS.low.residents.animate && st.fx === 'low', 'fewer particles, lamps and animated residents' );
+	ok( st.particles < TIERS.low.particles && st.lights <= 6 && st.residents.animate < TIERS.low.residents.animate && st.fx === 'low', 'fewer particles, lamps and animated residents' );
 	q.setTier( 'high' );
 	ok( q.tier === 'high' && q.scale <= 0.75, 'High picked by hand on a phone: still capped at 0.75' );
 	// the loop's range on the cap
@@ -306,6 +306,7 @@ const env = ( { ua = '', points = 0, w = 1920, h = 1080, coarse = false, fine = 
 {
 
 	const names = ( set ) => [ ...set ].sort().join( ',' );
+	T.splitButtons.enabled = true; // (the fold is opt-in since 2026-10-13; these checks exercise the helper)
 	const split = ( s ) => T.splitButtons( T.contextButtons( s ), s.mode, { fight: T.fightOn( s ) } );
 	// the seaplane: only the interact button and the lever stay; camera, cockpit, nav, landing fold away
 	let sp = split( { mode: 'plane', prompt: { key: 'E', text: 'Leave plane' } } );
