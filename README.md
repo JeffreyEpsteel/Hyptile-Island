@@ -1,8 +1,10 @@
 # Hyptile Island
 
-The $HYPTILE game: an island fishing adventure that runs in your browser. You play one of the eight Hyptile-family
-characters. Wake up at Jade Landing with a rod, earn a boat from Captain Roid, take PoorGoat's quests out past the
-reef, sail eight islands, fight pirates, fly a seaplane, run a trading route and meet your crew on a universe server.
+The $HYPTILE game: an island fishing adventure that runs in your browser. It is our own creation, grown out of our
+Unreal game *Upside-Down Fishing* and its naval fork, rebuilt for the web with a lot of AI help and a long list of
+open-source projects that we credit below. You play one of the eight Hyptile-family characters. Wake up at Jade
+Landing with a rod, earn a boat from Captain Roid, take PoorGoat's quests out past the reef, sail eight islands,
+fight pirates, fly a seaplane, run a trading route and meet your crew on a universe server.
 
 **Play now:** https://jeffreyepsteel.github.io/Hyptile-Island/ (Chrome or Edge with WebGPU, nothing to install).
 
@@ -66,12 +68,33 @@ Pushes to `main` build and deploy to GitHub Pages (`.github/workflows/pages.yml`
 
 ## Credits
 
-Hyptile Island is built on **[Tidewater](https://github.com/dgreenheck/tidewater)** by DRG Software Solutions LLC
-(dgreenheck): its tropical island, FFT ocean, sky, village and fishing are the foundation, and its own WebGPU / WGSL
-engine still draws everything. The game's design comes from the owner's Unreal project *Upside-Down Fishing* and its
-naval fork, including Captain Roid's model and click-voice; the Hyptile family characters and the key art are the
-owner's. Third-party work: three.js (MIT), Rapier (Apache-2.0), Colyseus, @colyseus/sdk and @colyseus/schema (MIT),
-ws (MIT), Vite (MIT), the webgpu / Dawn package used by the tests, Microsoft Rocketbox motion capture for the
-character animation, Google Fonts (Inter, Caveat Brush, Kalam, Permanent Marker), and the Colyseus agent skill (MIT).
-three-avbd (MIT) was evaluated for the destructible world and not shipped. Every entry with its licence text is in
-[CREDITS.md](CREDITS.md) and under Credits in the game's menus.
+Hyptile Island is the project owner's game, converted from the owner's Unreal project *Upside-Down Fishing* (UE 5.8)
+and its naval fork: the characters, Captain Roid, the ships and modules, the authored animations, the key art and
+the design are ours. Everyone and everything that helped the conversion, in no particular order:
+
+**Made with**
+- Claude Code by Anthropic (Fable, Opus and Sonnet agents): root integration and most of the browser code.
+- OpenAI Codex / ChatGPT (GPT-6.1 workers) and OpenCode (free catalog models: MiMo, Space Bunny) during the Unreal
+  and naval-fork phases; JEV game-dev assistance through OpenRouter.
+- Unreal Engine 5.8 (the original game), Blender 5.2 (models, rigs, retargeting), ComfyUI with TRELLIS.2 (character
+  and prop generation), ElevenLabs (text-to-sound effects and Captain Roid's clicks).
+
+**Open source we built with**
+- [Tidewater](https://github.com/dgreenheck/tidewater) by DRG Software Solutions LLC (dgreenheck), MIT: the WebGPU /
+  WGSL engine, the FFT ocean, sky and shore shaders we started from. Most of the game above it is new, but the engine
+  still draws it.
+- [three.js](https://github.com/mrdoob/three.js) (MIT): the SMAA / FXAA ports and lookup textures; installed for math.
+- [Rapier](https://github.com/dimforge/rapier) by Dimforge (Apache-2.0): the destructible-world physics.
+- [Colyseus](https://github.com/colyseus/colyseus), [@colyseus/sdk](https://github.com/colyseus/colyseus.js),
+  [@colyseus/schema](https://github.com/colyseus/schema) and the [Colyseus agent skill](https://github.com/colyseus/skill)
+  by Endel Dreyer (MIT): the multiplayer server and client.
+- [three-avbd](https://github.com/sbobyn/three-avbd) by Steven Bobyn (MIT), with Chris Giles' AVBD demos: evaluated
+  for the destruction physics; not shipped.
+- [ws](https://github.com/websockets/ws) (MIT), [Vite](https://github.com/vitejs/vite) (MIT),
+  [node-webgpu / Dawn](https://github.com/dawn-gpu/node-webgpu) (MIT / BSD-3-Clause, tests only).
+- Microsoft Rocketbox Avatar Library (MIT): motion-capture clips retargeted onto our rig; Poly Haven (CC0) scans and
+  textures; Freesound recordists (CC0) field recordings; Google Fonts (Inter, JetBrains Mono, Caveat Brush, Kalam,
+  Permanent Marker, Cabin Sketch, Oswald; OFL / Apache-2.0).
+- The papers and techniques behind the ocean, sky, anti-aliasing and the AVBD solver are listed in
+  [CREDITS.md](CREDITS.md), which also carries every licence text and the same list in full. The game's menus have
+  a Credits panel with the same entries.

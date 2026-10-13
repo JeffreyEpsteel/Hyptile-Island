@@ -23,7 +23,12 @@ export const CREDIT_SECTIONS = [
 		[ 'Fleet, ships, ship modules, marine life, harbour props, authored animations', 'the project owner (naval fork)', 'the owner\'s own work' ],
 		[ 'Melee, cannon and impact sounds', 'the project owner (ElevenLabs generations)', 'the owner\'s own work' ],
 	] ],
-	[ 'Built on Tidewater', [
+	[ 'Made with', [
+		[ 'Claude Code (Anthropic: Fable, Opus and Sonnet agents)', 'root integration and most of the browser code', 'tooling' ],
+		[ 'OpenAI Codex / ChatGPT, OpenCode free models, JEV via OpenRouter', 'the Unreal and naval-fork phases', 'tooling' ],
+		[ 'Unreal Engine 5.8, Blender 5.2, ComfyUI (TRELLIS.2), ElevenLabs', 'the original game, models and rigs, art, sounds', 'tooling; generations under the owner's accounts' ],
+	] ],
+	[ 'Open source we built with', [
 		[ 'Tidewater: engine, island, ocean, sky, fishing', 'DRG Software Solutions LLC (github.com/dgreenheck/tidewater)', 'MIT' ],
 		[ 'Field recordings (public/audio)', 'the Freesound recordists listed in public/audio/CREDITS.md', 'CC0 1.0' ],
 		[ 'Beach debris scans, stall textures and props', 'Poly Haven', 'CC0 1.0' ],

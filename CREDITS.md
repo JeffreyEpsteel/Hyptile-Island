@@ -1,10 +1,24 @@
 # Credits
 
-Hyptile Island is a fork of **Tidewater** (github.com/dgreenheck/tidewater, MIT, Copyright (c) 2026 DRG Software
-Solutions LLC). The code is released under the MIT license in `LICENSE`. The third-party software and assets below
-keep their own licences; licence texts that must travel with the game are at the end of this file. Every entry was
-checked against the files in this repository (`package.json`, `node_modules/*/LICENSE`, the per-folder credit
-files). Where an author is not known it says "unknown - to confirm".
+Hyptile Island is the project owner's game, converted from the owner's Unreal project **Upside-Down Fishing** and its
+naval fork, with a lot of AI help and the open-source projects listed here. It started from **Tidewater**
+(github.com/dgreenheck/tidewater, MIT, Copyright (c) 2026 DRG Software Solutions LLC), whose engine still draws the
+game; most of what runs on top of it is new. The code is released under the MIT license in `LICENSE`. The
+third-party software and assets below keep their own licences; licence texts that must travel with the game are at
+the end of this file. Every entry was checked against the files in this repository (`package.json`,
+`node_modules/*/LICENSE`, the per-folder credit files). Where an author is not known it says "unknown - to confirm".
+
+## Made with
+
+| Tool | Used for |
+|---|---|
+| Claude Code (Anthropic: Fable, Opus and Sonnet agents) | root integration and most of the browser code, the briefs in `docs/briefs/` |
+| OpenAI Codex / ChatGPT (GPT-6.1 workers), OpenCode (free catalog models MiMo and Space Bunny) | the Unreal game and naval-fork phases, bounded worker tasks |
+| JEV game-dev assistance (OpenRouter) | routing and triage during the Unreal work |
+| Unreal Engine 5.8 | the original game *Upside-Down Fishing* and its naval fork |
+| Blender 5.2 | models, rigs, retargeting (`tools/roster`, `tools/roid`, `tools/modules`, `tools/seaplane`) |
+| ComfyUI (TRELLIS.2, Pixal3D) | the character, prop and key-art generations |
+| ElevenLabs text-to-sound | sound effects and Captain Roid's clicks |
 
 ## Hyptile Island
 
