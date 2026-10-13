@@ -6,11 +6,12 @@ import { Vector3 } from '../../engine/index.js';
 //   helmGrips( boatCtl, outL, outR )        both hands on the helm (world), false when the hull has no known handholds
 //   contactTargets( out, { player, rod, boat, action } )   the player's targets this frame (one reusable object):
 //       the off hand on the crank knob while holding / reeling / fighting a fish (solved in the rod hand's frame, so it
-//       follows this frame's rod with no lag), both hands on the wheel at the helm.
+//       follows this frame's rod with no lag), both hands on the wheel at the helm; out.steer is the boat's steering
+//       (-1..1, + = port) for the helmsman's lean (Avatar) and out.stand the feet's place at the wheel (world, model.helmStand).
 //
-// Boat models may carry their own handholds: model.helmGrips = { left: {x,y,z}, right: {x,y,z} } (boat frame), else the
-// lobster boat's wheel (BoatModel.wheelPivot / wheelMesh) is used. Fleet hulls and ships are single meshes without a
-// wheel / tiller / oar node, so they keep the clip's hands until they declare helmGrips.
+// Boat models may carry fixed handholds: model.helmGrips = { left: {x,y,z}, right: {x,y,z} } (boat frame); else every hull's
+// wheel: model.wheelGrips( outL, outR ) (BoatModel / FleetBoatModel / ShipBoatModel: the rim points turning with the wheel),
+// else a bare wheelPivot / wheelMesh pair.
 
 // FishingRod.js reel geometry (rod frame: +Y along the blank from the butt, the reel below at -Z): the reel seat held at
 // SEAT_Y, the crank axis at BODY_Y / REEL_Z, the arm 0.052 m, the T-knob centre 0.058 m out on the left (-X)
@@ -28,7 +29,7 @@ export function crankKnobLocal( crankAngle, out ) {
 const WHEEL_R = 0.2; // Wheelhouse.wheelGeometry rim radius
 const GRIP_ANGLE = Math.PI / 6; // ten and two o'clock (from the helmsman's left, +X of the wheel = port)
 const HAND_TURN = 0.6; // rad the hands follow the wheel before they slide on the rim
-const _p = new Vector3();
+const _p = new Vector3(), _gl = new Vector3(), _gr = new Vector3();
 
 export function helmGrips( boatCtl, outL, outR ) {
 
@@ -38,6 +39,15 @@ export function helmGrips( boatCtl, outL, outR ) {
 
 		boatCtl.toWorld( _p.copy( m.helmGrips.left ), outL );
 		boatCtl.toWorld( _p.copy( m.helmGrips.right ), outR );
+		return true;
+
+	}
+
+	if ( typeof m.wheelGrips === 'function' ) {
+
+		if ( ! m.wheelGrips( _gl, _gr ) ) return false;
+		boatCtl.toWorld( _p.copy( _gl ), outL );
+		boatCtl.toWorld( _p.copy( _gr ), outR );
 		return true;
 
 	}
@@ -54,7 +64,8 @@ export function helmGrips( boatCtl, outL, outR ) {
 // the rim point at angle a in the pivot frame (spokes in its XY plane) -> boat frame -> world
 function rimPoint( boatCtl, piv, a, out ) {
 
-	_p.set( WHEEL_R * Math.cos( a ), WHEEL_R * Math.sin( a ), 0 ).applyQuaternion( piv.quaternion ).add( piv.position );
+	const r = boatCtl.model.wheelRadius || WHEEL_R;
+	_p.set( r * Math.cos( a ), r * Math.sin( a ), 0 ).applyQuaternion( piv.quaternion ).add( piv.position );
 	return boatCtl.toWorld( _p, out );
 
 }
@@ -74,10 +85,15 @@ export function contactTargets( out, { player, rod, boat, action } ) {
 	const L = out.leftHand, R = out.rightHand;
 	L.weight = 0; R.weight = 0;
 	out.weight = 1;
+	const bm = boat && boat.model;
+	out.steer = player && player.mode === 'boat' && bm ? ( Number.isFinite( bm.steering ) ? bm.steering : Number.isFinite( boat.steer ) ? boat.steer : 0 ) : 0;
+	out.stand = null;
 	if ( player && player.mode === 'boat' && HELM[ action ] && helmGrips( boat, L.position, R.position ) ) {
 
 		L.socket = null; R.socket = null;
 		L.weight = 1; R.weight = 1;
+		// where the helmsman's feet go at this wheel (the avatar steps there from the helm point)
+		if ( bm.helmStand ) out.stand = boat.toWorld( _p.copy( bm.helmStand ), out._stand || ( out._stand = new Vector3() ) );
 
 	} else if ( rod && rod.equipped && ROD_GRIP[ action ] && player && player.mode !== 'swim' && player.mode !== 'boat' ) {
 

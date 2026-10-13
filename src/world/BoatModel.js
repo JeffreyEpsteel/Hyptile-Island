@@ -9,7 +9,46 @@ import { buildDeckGear, TRAPS, TRAP, HAULER } from './boat/DeckGear.js';
 import { propellerGeometry, rudderGeometry, PROP, RUDDER } from './boat/Running.js';
 
 const STATIC_BUCKETS = [ 'hull', 'gelcoat', 'wood', 'fittings', 'trap', 'glow', 'glass' ];
-const WHEEL_TURNS = 0.75; // wheel turns from centre to hard over
+export const WHEEL_TURNS = 0.75; // wheel turns from centre to hard over
+// ---- the helm wheel, shared by every hull (FleetBoatModel / ShipBoatModel use these too): a pivot in the boat frame whose
+// local Z is the axle (pointing away from the helmsman, into the dash), X the helmsman's left (port), the spokes in its XY plane;
+// the wheel node under it spins about its local Z. The hands hold the rim at gripAngle above the horizontal on each side and
+// follow the wheel's turn up to HAND_TURN (then they slide on the rim: a soft limit, no jump); HELM_REACH: how far behind
+// the wheel the helmsman stands (helmStand).
+export const HAND_TURN = 0.9;
+export const HELM_REACH = 0.42;
+
+// -1..1 (+ = port) -> the wheel's spin: counter-clockwise as seen from the helm for a turn to port
+export function steerWheel( wheel, a, turns = WHEEL_TURNS ) {
+
+	if ( wheel ) wheel.rotation.z = - MathUtils.clamp( a, - 1, 1 ) * turns * Math.PI * 2;
+
+}
+
+// both hand targets on the rim, boat frame (the pivot must sit in the boat frame); returns false without a pivot
+export function wheelGripPoints( pivot, wheel, radius, gripAngle, outL, outR ) {
+
+	if ( ! pivot ) return false;
+	const turn = wheel ? wheel.rotation.z : 0;
+	const f = HAND_TURN * Math.tanh( turn / HAND_TURN );
+	rimPoint( pivot, radius, gripAngle + f, outL );
+	rimPoint( pivot, radius, Math.PI - gripAngle + f, outR );
+	return true;
+
+}
+
+function rimPoint( pivot, r, a, out ) {
+
+	return out.set( r * Math.cos( a ), r * Math.sin( a ), 0 ).applyQuaternion( pivot.quaternion ).add( pivot.position );
+
+}
+
+// where the helmsman's feet go: HELM_REACH behind the wheel centre (along the boat's -Z), at deck height y
+export function helmStandFor( pivot, y, out = new Vector3() ) {
+
+	return out.set( pivot.position.x, y, pivot.position.z - HELM_REACH );
+
+}
 const THROTTLE_ANGLE = 0.6; // lever travel (rad) from neutral to full
 const RADAR_RPM = 24;
 const PROP_DISPLAY_RPS = 5;
@@ -96,6 +135,9 @@ export class BoatModel {
 		this.wheelPivot.quaternion.setFromUnitVectors( new Vector3( 0, 0, 1 ), parts.wheelAxis );
 		this.group.add( this.wheelPivot );
 		this.wheelMesh = addPart( 'wheel', wheelGeometry(), materials.wood, new Vector3(), this.wheelPivot );
+		this.wheelRadius = 0.2; // Wheelhouse.wheelGeometry rim
+		this.wheelGripAngle = Math.PI / 6; // ten and two
+		this.wheelTurns = WHEEL_TURNS;
 
 		this.throttleMesh = addPart( 'throttle', throttleGeometry(), materials.fittings, parts.throttlePivot );
 		this.radarMesh = addPart( 'radar', radarArrayGeometry(), materials.fittings, parts.radarPivot );
@@ -152,6 +194,7 @@ export class BoatModel {
 		// ---- anchor points (boat frame)
 
 		this.helmEye = new Vector3( HOUSE.helmX, 1.85, 0.3 );
+		this.helmStand = helmStandFor( this.wheelPivot, lines.deckY ); // the feet at the wheel (Player's boat pose may use it)
 		this.boardPoint = new Vector3( 0, lines.deckY, - 1.75 );
 
 		this.exitPoints = [];
@@ -232,8 +275,22 @@ export class BoatModel {
 
 		const a = MathUtils.clamp( angle, - 1, 1 );
 		this._steer = a;
-		this.wheelMesh.rotation.z = - a * WHEEL_TURNS * Math.PI * 2;
+		steerWheel( this.wheelMesh, a, this.wheelTurns );
 		this.rudderMesh.rotation.y = - a * RUDDER.maxAngle;
+
+	}
+
+	// the steering set last (-1..1, + = port)
+	get steering() {
+
+		return this._steer;
+
+	}
+
+	// the helmsman's hand targets on the wheel rim (boat frame), turning with the wheel
+	wheelGrips( outL, outR ) {
+
+		return wheelGripPoints( this.wheelPivot, this.wheelMesh, this.wheelRadius, this.wheelGripAngle, outL, outR );
 
 	}
 

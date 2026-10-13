@@ -3,6 +3,7 @@ import { SkinnedModel } from '../engine/render/Skinning.js';
 import { loadGLB } from '../engine/loaders/GLTF.js';
 import { CLIPS, characterUrl, CHARACTERS } from '../game/Characters.js';
 import { ContactIK } from './ik/ContactIK.js';
+import { ProcPose, repairHelmClip, bindLike } from './ik/ProcPose.js';
 import { AnimGraph } from './anim/AnimGraph.js';
 
 // A roster character in the world (the local player in third person, or a remote player): one
@@ -31,6 +32,10 @@ import { AnimGraph } from './anim/AnimGraph.js';
 //   a.setIKTargets( { leftHand, rightHand, leftFoot, rightFoot, look, weight } | null )   contact targets, world space: each { x, y, z }
 //        or { position, quaternion?, socket?: bone name (position in that bone's frame), pole?, weight? }; kept until changed
 //        (src/player/ik/Grips.js contactTargets() builds the helm / rod grips). a.ik: the ContactIK (null for rigs without the bones).
+//   At the wheel (mode 'boat', not rowing / paddling) the helm state plays a standing base (the roster's Helm_Idle / Steer_* are
+//        bind poses: repairHelmClip swaps in the idle; a.helmBase says which), the feet step to request.stand, the hands go on
+//        the rim by the IK and src/player/ik/ProcPose.js adds the lean with request.steer (or pose.steer) and the sway against
+//        the hull; rigs without the IK get arms-forward. In the water ProcPose treads (still) or flutter-kicks (the crawl clip).
 //
 //   Animation graph (src/player/anim: AnimGraph + the data module AnimDef.js, hot-reloaded): a state machine (idle / walk / jog /
 //   run / sprint on the ground, jump / fall / land, swim, deck, seated, helm, ride, plane, action loops, ragdoll / getup, fishing)
@@ -60,6 +65,11 @@ const _q = new Quaternion(), _yq = new Quaternion(), _m = new Matrix4(), _v = ne
 const _w = new Vector3(), _eyeA = new Vector3(), _eyeB = new Vector3();
 const _yAxis = new Vector3( 0, 1, 0 ), _xAxis = new Vector3( 1, 0, 0 );
 const WAIST = 0.62; // the rig's waist height (m): the pivot of the swim pitch
+const DIVE_PITCH = 0.6; // rad past prone (nose-down) while diving down, as much head-up while rising (from the vertical speed)
+// at the wheel these actions keep the graph's helm state (a standing base): the hands are on the rim by the contact IK and the
+// steering is a procedural lean (src/player/ik/ProcPose.js), not the Steer_Left / Steer_Right clips
+const HELM_ACT = { helm: true, steerLeft: true, steerRight: true };
+const SWAY = { gain: 0.6, omega: 6, zeta: 0.5, max: 0.3 }; // the helmsman's upper body against the hull roll / pitch
 const SWIM_PITCH = 1.2, SWIM_PITCH_FAST = 1.35; // rad forward of upright (the rig faces +Z, so +X pitches the head forward)
 // action -> CLIPS key. One-shots play through and hand back to the pose loop; loops hold while the action is set
 export const ONE_SHOT = {
@@ -648,6 +658,12 @@ export class Avatar {
 		this._lastAir = 0;
 		this._prevYaw = null;
 		this._dbgT = 0;
+		this._proc = null; // ProcPose: the helm lean / hands, treading water and the crawl kick (src/player/ik/ProcPose.js)
+		this.helmBase = null; // 'clip' | 'idle' | 'none': what the helm state plays on this rig (repairHelmClip)
+		this._bindClips = new Map();
+		this._helmW = 0; this._steerS = 0;
+		this._sway = { x: 0, z: 0, vx: 0, vz: 0 };
+		this._tread = 0; this._crawl = 0;
 		if ( ANIM_DEBUG && ! Avatar._debugOwner ) Avatar._debugOwner = this;
 		this.ready = this.setCharacter( character );
 		scene.add( this.group );
@@ -694,6 +710,10 @@ export class Avatar {
 		this._rd = null;
 		this._eyes = model.hasMorph( 'Blink_L' ) || model.hasMorph( 'Gaze_Left' ) ? new EyeDriver( model ) : null;
 		this.group.add( model.group );
+		// the roster's helm clip is its bind pose (an A at the wheel): the helm state plays a standing idle instead
+		this.helmBase = repairHelmClip( model );
+		this._bindClips = new Map();
+		this._proc = ProcPose.create( model );
 		// one pose hook for both procedural drivers: the ragdoll while down, else the contact IK
 		this.ik = ContactIK.create( model );
 		if ( this.ik ) {
@@ -721,6 +741,7 @@ export class Avatar {
 			else {
 
 				graph.post( mm );
+				if ( this._proc ) this._proc.apply( mm ); // the helm lean / hands, the water (before the IK takes the hands)
 				graph.capture( mm ); // the next inertial blend starts from this (before the IK)
 				if ( this.ik ) this.ik.apply( mm );
 				return;
@@ -778,6 +799,9 @@ export class Avatar {
 
 		// transform: feet at the position, facing the yaw (the rig faces +Z; Player.yaw faces -Z at 0)
 		this.group.position.copy( pose.position );
+		// at the wheel the feet step from the helm point to the hull's helmStand (handed over with the grips), within reach
+		const stand = pose.mode === 'boat' && this._helmW > 0 && this._ikReq && this._ikReq.stand;
+		if ( stand && stand.distanceToSquared( pose.position ) < 1 ) this.group.position.lerp( stand, smooth( this._helmW ) );
 		_yq.setFromAxisAngle( _yAxis, pose.yaw + Math.PI + this._dyaw );
 		if ( pose.frame ) this.group.quaternion.copy( pose.frame ).multiply( _yq );
 		else this.group.quaternion.copy( _yq );
@@ -798,7 +822,8 @@ export class Avatar {
 
 			const s = pose.speed || 0;
 			let target = s < 0.2 ? 0.08 : s < 1.9 ? SWIM_PITCH : SWIM_PITCH_FAST;
-			if ( pose.diving ) target = s < 0.2 ? 0.5 : SWIM_PITCH_FAST + 0.12 - Math.max( 0, Math.min( 0.5, ( pose.vy || 0 ) * 0.4 ) );
+			// diving: nose-down past prone while going down, head-up while coming up, upright when hovering
+			if ( pose.diving ) target = s < 0.2 ? 0.5 : Math.PI / 2 - Math.max( - DIVE_PITCH, Math.min( DIVE_PITCH, ( pose.vy || 0 ) * 0.4 ) );
 			if ( this._pitch === undefined || this._wasSwim !== true ) this._pitch = Math.min( target, 0.3 );
 			this._pitch += ( target - this._pitch ) * Math.min( 1, dt * 4 );
 			this.group.quaternion.multiply( _q.setFromAxisAngle( _xAxis, this._pitch ) );
@@ -845,7 +870,10 @@ export class Avatar {
 		const bact = ROD[ act ] ? null : act;
 		this._actionMontage( bact );
 		let loopClip = null;
-		if ( bact && LOOPS[ bact ] && m.clips.has( CLIPS[ LOOPS[ bact ] ] ) && ! ( bact === 'seated' && pose.mode === 'seat' ) && ! ( bact === 'helm' && pose.mode === 'boat' ) ) loopClip = CLIPS[ LOOPS[ bact ] ];
+		// (the graph's own seated / helm states play those: no duplicate action state; at the wheel a bind-pose loop such as the
+		// roster's Seated_Idle on an idle skiff is dropped too, so the helm state's standing base shows instead of the A)
+		if ( bact && LOOPS[ bact ] && m.clips.has( CLIPS[ LOOPS[ bact ] ] ) && ! ( bact === 'seated' && pose.mode === 'seat' ) && ! ( pose.mode === 'boat' && ( HELM_ACT[ bact ] || this._isBind( CLIPS[ LOOPS[ bact ] ] ) ) ) ) loopClip = CLIPS[ LOOPS[ bact ] ];
+		this._procFrame( dt, pose, pose.mode === 'boat' && ! loopClip );
 		// rod actions ride on the upper body over the locomotion (never swimming, at the helm or under a full-body montage)
 		const rodAct = act && ROD[ act ] && pose.mode !== 'swim' && pose.mode !== 'boat' && ! g.fullBusy && m.clips.has( CLIPS[ ROD[ act ] ] ) ? act : null;
 		g.update( dt, this._context( dt, pose, loopClip, rodAct ) );
@@ -865,6 +893,66 @@ export class Avatar {
 		}
 
 		m.update( dt );
+
+	}
+
+	// a clip of this model that is its bind pose (cached)
+	_isBind( name ) {
+
+		let b = this._bindClips.get( name );
+		if ( b === undefined ) {
+
+			b = bindLike( this.model.clips.get( name ), this.model );
+			this._bindClips.set( name, b );
+
+		}
+
+		return b;
+
+	}
+
+	// the procedural pass's inputs this frame: at the wheel (the lean with the steering, the sway against the hull, the arms
+	// where no IK hand holds the rim), in the water (treading when still, the crawl's kick when moving)
+	_procFrame( dt, pose, atHelm ) {
+
+		const pp = this._proc;
+		if ( ! pp ) return;
+		const d = Math.min( Math.max( dt, 0 ), 0.05 ), k = 1 - Math.exp( - d * 6 );
+		// the helm
+		this._helmW = atHelm ? Math.min( 1, this._helmW + d / 0.3 ) : Math.max( 0, this._helmW - d / 0.2 );
+		const req = this._ikReq;
+		const st = Number.isFinite( pose.steer ) ? pose.steer : req && Number.isFinite( req.steer ) ? req.steer : 0;
+		this._steerS += ( Math.max( - 1, Math.min( 1, st ) ) - this._steerS ) * k;
+		// the world's up in the model frame: the body keeps part of the way back to it, on a soft spring (a little sway)
+		const sw = this._sway;
+		if ( this._helmW > 0 ) {
+
+			_v.set( 0, 1, 0 ).applyQuaternion( _q.copy( this.group.quaternion ).invert() );
+			const tx = SWAY.gain * Math.atan2( _v.x, _v.y ), tz = SWAY.gain * Math.atan2( _v.z, _v.y ), o = SWAY.omega;
+			sw.vx += ( o * o * ( tx - sw.x ) - 2 * SWAY.zeta * o * sw.vx ) * d;
+			sw.vz += ( o * o * ( tz - sw.z ) - 2 * SWAY.zeta * o * sw.vz ) * d;
+			sw.x = Math.max( - SWAY.max, Math.min( SWAY.max, sw.x + sw.vx * d ) );
+			sw.z = Math.max( - SWAY.max, Math.min( SWAY.max, sw.z + sw.vz * d ) );
+
+		} else { sw.x = sw.z = sw.vx = sw.vz = 0; }
+
+		const h = pp.helm, ik = this.ik;
+		h.weight = smooth( this._helmW );
+		h.steer = this._steerS;
+		h.upX = sw.x; h.upZ = sw.z;
+		// rigs without the IK (or a hand the IK does not hold): the plain upper-body pose, hands forward at wheel height
+		h.armL = ik && this.ikEnabled ? 1 - ik.hands[ 0 ].w : 1;
+		h.armR = ik && this.ikEnabled ? 1 - ik.hands[ 1 ].w : 1;
+		// the water
+		const swim = pose.mode === 'swim';
+		const crawl = swim ? smooth( ( ( pose.speed || 0 ) - 0.15 ) / 0.6 ) : 0;
+		const kw = 1 - Math.exp( - d * ( swim ? 5 : 12 ) ); // (out of the water quickly: the legs walk again)
+		this._crawl += ( crawl - this._crawl ) * kw;
+		this._tread += ( ( swim ? 1 - crawl : 0 ) - this._tread ) * kw;
+		if ( ! swim && this._tread < 0.01 && this._crawl < 0.01 ) this._tread = this._crawl = 0;
+		pp.swim.tread = this._tread;
+		pp.swim.crawl = this._crawl;
+		pp.swim.time += d;
 
 	}
 

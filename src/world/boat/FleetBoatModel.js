@@ -1,4 +1,4 @@
-import { BoxGeometry, Group, MathUtils, Mesh, Vector3 } from '../../engine/index.js';
+import { BoxGeometry, CylinderGeometry, Group, MathUtils, Mesh, Object3D, Vector3 } from '../../engine/index.js';
 import { Material } from '../../engine/render/Material.js';
 import { BOATS, boatUrl } from '../../game/Boats.js';
 import { RHO_SEAWATER } from './HullLines.js';
@@ -6,6 +6,8 @@ import { SimpleHullLines } from './SimpleHullLines.js';
 import { buildHullVolume } from './HullBuilder.js';
 import { loadStaticGLB } from './StaticGLB.js';
 import { triangleCount } from './GeoKit.js';
+import { wheelGeometry } from './Wheelhouse.js';
+import { WHEEL_TURNS, steerWheel, wheelGripPoints, helmStandFor } from '../BoatModel.js';
 
 // A fleet hull (Boats.js kind 'fleet'): the GLB visual under a SimpleHullLines body, with the
 // same public interface as the procedural BoatModel so BoatController / Player / BoatSpray /
@@ -16,7 +18,13 @@ import { triangleCount } from './GeoKit.js';
 //   model.group, lines, dimensions, hydro, helmEye, helmPoint, boardPoint, exitPoints, propeller,
 //   rudder, bowSprayPoints, hullSamples, colliders, stations, contactPoints, outline, physics,
 //   meshes (by material name once loaded), materials, setSteering / setThrottle / setPropellerRPM /
-//   setNavLights, update( dt ), createHullVolumeGeometry(), triangleCount, dispose()
+//   setNavLights, update( dt ), createHullVolumeGeometry(), triangleCount, dispose(),
+//   the helm wheel as on BoatModel: wheelPivot / wheelMesh / wheelRadius / wheelGripAngle / wheelTurns, helmStand, steering,
+//   wheelGrips( outL, outR ) (the hands' targets on the rim, boat frame, turning with the wheel)
+//
+// The fleet GLBs are single merged meshes with no wheel / tiller node, so every fleet hull gets the lobster boat's procedural
+// wheel (Wheelhouse.wheelGeometry) on a pedestal HELM_WHEEL.ahead in front of the helm point; it exists from the constructor
+// (setSteering turns it before the GLB is in) and moves into the hull node when the GLB arrives.
 //
 // Boat frame as BoatModel: +Z forward, +Y up, +X port, y = 0 the design waterline. The hull GLBs
 // are authored in this frame (keel at y ~ -0.22, deck floor ~ 0.31, gunwale ~ 0.62-0.7).
@@ -36,6 +44,8 @@ const OUTLINE = [ [ 0, 0.3, 4.1 ], [ 1.2, 0.3, 2.0 ], [ - 1.2, 0.3, 2.0 ], [ 1.4
 
 // per-hull extras: solid wheelhouse box of the launch (GLB extents)
 const WHEELHOUSE = { launch: { x: 0.63, y0: 0.31, y1: 1.68, z0: 1.2, z1: 1.8 } };
+// the pedestal wheel of the fleet hulls: centre ahead of the helm point and above the deck (m), the face tilted back (rad)
+const HELM_WHEEL = { ahead: 0.42, height: 0.92, tilt: 0.42, radius: 0.2 };
 // The GLBs already have the bow at +Z: the rudder blade hangs at -Z (checked with test/world-fleet.mjs).
 
 export class FleetBoatModel {
@@ -66,6 +76,12 @@ export class FleetBoatModel {
 		this.group.add( ph );
 		this._placeholder = ph;
 
+		// the helm wheel (before the GLB: setSteering works from the start)
+		this._helmParts = null;
+		this.wheelGripAngle = Math.PI / 6;
+		this.wheelTurns = WHEEL_TURNS;
+		this._buildHelm( spec, lines );
+
 		this.ready = loadStaticGLB( boatUrl( spec ) ).then( ( glb ) => {
 
 			this._glb = glb;
@@ -75,7 +91,9 @@ export class FleetBoatModel {
 			this.group.remove( ph );
 			ph.geometry.dispose && ph.geometry.dispose();
 			this._placeholder = null;
-			this.group.add( this._adoptGLB( glb ) );
+			const hull = this._adoptGLB( glb );
+			this.group.add( hull );
+			this._mountHelm( hull );
 			this.loaded = true;
 			return this;
 
@@ -119,6 +137,7 @@ export class FleetBoatModel {
 
 		this.helmEye = new Vector3( spec.helm.x, 1.55, spec.helm.z ); // standing at the tiller
 		this.helmPoint = { x: spec.helm.x, z: spec.helm.z };
+		this.helmStand = helmStandFor( this.wheelPivot, lines.deckY ); // the feet at the wheel (Player's boat pose may use it)
 		this.boardPoint = new Vector3( spec.board.x, lines.deckY, spec.board.z );
 
 		this.exitPoints = [];
@@ -196,10 +215,66 @@ export class FleetBoatModel {
 
 	}
 
-	// -1..1, positive turns to port
+	// -1..1, positive turns to port (the wheel turns counter-clockwise as seen from the helm)
 	setSteering( a ) {
 
 		this._steer = MathUtils.clamp( a, - 1, 1 );
+		steerWheel( this.wheelMesh, this._steer, this.wheelTurns );
+
+	}
+
+	get steering() {
+
+		return this._steer;
+
+	}
+
+	// the helmsman's hand targets on the wheel rim (boat frame), turning with the wheel
+	wheelGrips( outL, outR ) {
+
+		return wheelGripPoints( this.wheelPivot, this.wheelMesh, this.wheelRadius, this.wheelGripAngle, outL, outR );
+
+	}
+
+	// the procedural wheel on a pedestal in front of the helm point (a teak wheel, a brass binnacle cap)
+	_buildHelm( spec, lines ) {
+
+		const deck = lines.deckY, W = HELM_WHEEL;
+		const stand = new Group();
+		stand.name = 'boat-helm';
+		const wood = new Material( { name: 'boat-helm-wood', color: 0x8a5a36, roughness: 0.6, underwaterLighting: 'lite' } );
+		const brass = new Material( { name: 'boat-helm-brass', color: 0xb8913f, roughness: 0.35, metalness: 0.85, underwaterLighting: 'lite' } );
+		const pivot = this.wheelPivot = new Object3D();
+		pivot.name = 'boat-wheel-pivot';
+		pivot.position.set( spec.helm.x, deck + W.height, spec.helm.z + W.ahead );
+		pivot.rotation.x = W.tilt; // the axle runs forward and down into the pedestal
+		const wheelGeo = wheelGeometry();
+		const wheel = this.wheelMesh = new Mesh( wheelGeo, wood );
+		wheel.name = 'boat-wheel';
+		pivot.add( wheel );
+		stand.add( pivot );
+		// the pedestal from the deck up to the shaft, just ahead of the wheel
+		const h = W.height - 0.07;
+		const postGeo = new CylinderGeometry( 0.045, 0.065, h, 12 );
+		const post = new Mesh( postGeo, wood );
+		post.position.set( pivot.position.x, deck + h / 2, pivot.position.z + 0.09 );
+		const capGeo = new BoxGeometry( 0.13, 0.11, 0.15 );
+		const cap = new Mesh( capGeo, brass );
+		cap.position.set( pivot.position.x, deck + h + 0.02, pivot.position.z + 0.08 );
+		cap.rotation.x = W.tilt;
+		for ( const m of [ wheel, post, cap ] ) { m.castShadow = true; m.receiveShadow = true; }
+		stand.add( post, cap );
+		this.group.add( stand );
+		this.wheelRadius = W.radius;
+		this._helm = stand;
+		this._helmParts = { geos: [ wheelGeo, postGeo, capGeo ], mats: [ wood, brass ] };
+
+	}
+
+	// the GLB is in: the helm goes into the hull node (the fleet GLBs are in the boat frame)
+	_mountHelm( hull ) {
+
+		if ( this._helm && hull !== this.group ) hull.add( this._helm );
 
 	}
 
@@ -232,6 +307,12 @@ export class FleetBoatModel {
 
 		if ( this._placeholder ) this._placeholder.geometry.dispose && this._placeholder.geometry.dispose();
 		if ( this._glb ) this._glb.dispose();
+		if ( this._helmParts ) {
+
+			for ( const g of this._helmParts.geos ) g.dispose && g.dispose();
+			for ( const m of this._helmParts.mats ) m.dispose && m.dispose();
+
+		}
 
 	}
 
