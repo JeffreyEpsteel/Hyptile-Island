@@ -7,6 +7,7 @@ import { SANDBOX_ONLY, modeLabel } from '../game/GameMode.js';
 import { t, tx, observeDom } from '../i18n/index.js';
 import { Accessibility } from './Accessibility.js';
 import { Quality, TIERS } from '../core/Quality.js';
+import { TouchControls } from './TouchControls.js';
 
 // Binds the Tidewater UI (panel + HUD) to the running app.
 const SEA = {
@@ -302,6 +303,25 @@ export class AppUI {
 
 		} } );
 
+		// ---------------------------------------------------------------- Touch and mobile (ui/TouchControls.js)
+		// the stick, the drag-to-look and the action buttons for phones and tablets; hidden on a desktop until a finger
+		// is used (a touch laptop), hidden again by a hardware key or a gamepad (plain English: no i18n keys yet)
+		const touch = this.touch = new TouchControls( { app, ui } );
+		const ts = touch.settings;
+		s.touchMode = ts.mode;
+		s.touchSens = ts.sensitivity;
+		s.touchInvert = !! ts.invert;
+		s.touchSize = ts.size;
+		s.touchHaptics = !! ts.haptics;
+		const dev = touch.device;
+		const mobileF = game.addFolder( 'Touch and mobile', { icon: 'move', open: !! dev.touch } );
+		mobileF.addSelect( { label: 'Touch controls', object: s, key: 'touchMode', tooltip: 'Auto: on a phone or tablet, and on a touch laptop once you touch the screen (a key or a gamepad hides them again).', options: [ { label: 'Auto', value: 'auto' }, { label: 'On', value: 'on' }, { label: 'Off', value: 'off' } ], onChange: ( v ) => touch.set( 'mode', v ) } );
+		mobileF.addSlider( { label: 'Look sensitivity', object: s, key: 'touchSens', min: 0.3, max: 3, step: 0.05, format: ( v ) => `${ v.toFixed( 2 ) }x`, onChange: ( v ) => touch.set( 'sensitivity', v ) } );
+		mobileF.addToggle( { label: 'Invert look (up / down)', object: s, key: 'touchInvert', onChange: ( v ) => touch.set( 'invert', v ) } );
+		mobileF.addSlider( { label: 'Button size', object: s, key: 'touchSize', min: 0.8, max: 1.3, step: 0.05, format: ( v ) => `${ Math.round( v * 100 ) }%`, onChange: ( v ) => touch.set( 'size', v ) } );
+		if ( typeof navigator !== 'undefined' && navigator.vibrate ) mobileF.addToggle( { label: 'Vibrate on press', object: s, key: 'touchHaptics', onChange: ( v ) => touch.set( 'haptics', v ) } );
+		mobileF.addInfo( { label: 'Device', get: () => ( dev.phone ? 'Phone' : dev.tablet ? ( dev.appleSilicon ? 'Tablet (M-series)' : 'Tablet' ) : dev.touch ? 'Touch screen' : 'Desktop' ) + ( dev.webgpu ? '' : ' · no WebGPU' ) } );
+
 		// ---------------------------------------------------------------- Controls (key remapping) and Access (options, language)
 		a11y.buildSettings( ui );
 
@@ -496,6 +516,7 @@ export class AppUI {
 			ui.setPrompt( 'F', t( 'prompt.walk', 'Walk' ) );
 			ui.setBoatGauges( { visible: false } );
 			ui.setDepth( { visible: false } );
+			if ( this.touch ) this.touch.update( dt, { prompt: { key: 'F', text: t( 'prompt.walk', 'Walk' ) } } );
 			return;
 
 		}
@@ -506,12 +527,17 @@ export class AppUI {
 			: p.mode === 'swim' ? ( app.camera.position.y < ( app.cameraWaterHeight ?? 0 ) - 0.3 ? t( 'hud.dive', 'Diving' ) : t( 'hud.swim', 'Swimming' ) ) : t( 'hud.walk', 'Walking' );
 		ui.setMode( `${ tx( modeLabel( app.mode ) ) } · ${ mode }` );
 		// the prompt's keys follow the bindings, its text the language and the reel mode
+		let promptText = '';
 		if ( p.prompt ) {
 
 			const pr = this.a11y.prompt( p.prompt, tx );
 			ui.setPrompt( pr.key, pr.text );
+			promptText = pr.text;
 
 		} else ui.setPrompt( null );
+
+		// the touch controls: the prompt becomes the wide button, the rest follow the game's state
+		if ( this.touch ) this.touch.update( dt, { prompt: p.prompt, promptText } );
 
 		const b = app.boatCtl;
 		if ( p.mode === 'boat' ) {

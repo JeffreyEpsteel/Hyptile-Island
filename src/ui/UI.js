@@ -1,5 +1,6 @@
 import { icon, brandMark } from './icons.js';
 import { t } from '../i18n/index.js';
+import { detectDevice } from '../core/Touch.js';
 
 // Tidewater UI: settings panel (tabs → folders → controls), HUD, help,
 // photo mode, start overlay and loader. Plain DOM, no dependencies.
@@ -1862,6 +1863,9 @@ class Tab extends Container {
 // UI
 // ════════════════════════════════════════════════════════════════════════════
 
+// where the no-WebGPU page sends people (the desktop / offline build)
+const DESKTOP_URL = 'https://github.com/JeffreyEpsteel/Hyptile-Island/releases';
+
 const NAV_KEYS = new Set( [ 'Space', 'Enter', 'NumpadEnter', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Home', 'End', 'PageUp', 'PageDown', 'Tab' ] );
 
 export class UI {
@@ -1902,7 +1906,21 @@ export class UI {
 		// index.html ships a temporary FPS counter; the HUD replaces it.
 		document.getElementById( 'fps' )?.remove();
 
+		// phones and tablets (core/Touch.js): finger-sized targets, and the touch wording until a key says otherwise
+		this.device = detectDevice();
 		this.root = h( 'div', 'tw-root', { 'data-panel': 'closed' } );
+		if ( this.device.coarse ) this.root.classList.add( 'is-coarse', 'is-touch' );
+		// no WebGPU at all: a page that says which browsers work instead of a crash (main.js still runs; its
+		// loading error lands here too)
+		if ( typeof navigator !== 'undefined' && ! navigator.gpu && typeof window !== 'undefined' ) {
+
+			queueMicrotask( () => {
+
+				try { this.showUnsupported(); } catch ( e ) { console.warn( 'no-WebGPU page failed', e ); }
+
+			} );
+
+		}
 		this._buildHUD();
 		this._buildPanel();
 		this._buildHelp();
@@ -2126,6 +2144,7 @@ export class UI {
 		const row = ( keys, text ) => `<div class="tw-help-row"><span class="tw-keys">${ keys }</span><span class="tw-help-text">${ text }</span></div>`;
 		const wasd = '<span class="tw-wasd"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></span>';
 		const mouse = `<kbd class="tw-kbd-ico" aria-label="Mouse">${ icon( 'mouse' ) }</kbd>`;
+		const trow = ( chip, text ) => `<div class="tw-help-row"><span class="tw-keys"><span class="tw-touch-chip">${ chip }</span></span><span class="tw-help-text">${ text }</span></div>`;
 
 		const el = this.helpEl = h( 'div', 'tw-help tw-interactive', { role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'tw-help-title', hidden: true } );
 		el.innerHTML = `
@@ -2133,11 +2152,42 @@ export class UI {
 				<header class="tw-help-head">
 					<div>
 						<h2 id="tw-help-title">Controls</h2>
-						<p>Click the view to capture the mouse. Esc releases it.</p>
+						<p class="tw-help-keys">Click the view to capture the mouse. Esc releases it.</p>
+						<p class="tw-help-touch">Touch controls: a keyboard or a gamepad works too (the buttons hide while you use one).</p>
 					</div>
 					<button type="button" class="tw-icon-btn tw-help-close" aria-label="Close" data-tip="Close (F1)">${ icon( 'close' ) }</button>
 				</header>
-				<div class="tw-help-grid">
+				<div class="tw-help-touch">
+					<div class="tw-help-touch-grid">
+						<section>
+							<h3>Move and look</h3>
+							${ trow( 'Left thumb', 'Move<small>The stick appears where you touch. Past the outer ring: sprint</small>' ) }
+							${ trow( 'Right side', 'Drag to look<small>Sensitivity and invert: Settings, Game, Touch</small>' ) }
+							${ trow( 'Jump', 'Jump, swim up<small>Dive appears in the water</small>' ) }
+						</section>
+						<section>
+							<h3>Act</h3>
+							${ trow( 'Wide button', 'What the game offers here<small>Board, take the helm, talk, trade, climb</small>' ) }
+							${ trow( 'Rod', 'Take out / put away the rod' ) }
+							${ trow( 'Cast', 'Hold to wind up, let go to cast<small>Strike! when the bobber goes under, hold to reel</small>' ) }
+							${ trow( 'Dodge', 'Dodge, Guard (hold) in a fight' ) }
+						</section>
+						<section>
+							<h3>At the helm</h3>
+							${ trow( 'Lever', 'Throttle: astern, stop, ahead, full' ) }
+							${ trow( 'Stick', 'Steer' ) }
+							${ trow( 'Port', 'Fire the guns, Board an enemy ship' ) }
+							${ trow( 'Seaplane', 'Lever: throttle; drag the right side: nose up / down, bank' ) }
+						</section>
+						<section>
+							<h3>Top right</h3>
+							${ trow( 'Map', 'World map<small>Or tap the minimap. Pinch to zoom, tap: waypoint</small>' ) }
+							${ trow( 'Journal', 'Journal, Cooler, Crew' ) }
+							${ trow( 'Menu', 'Close a panel, else the pause menu<small>Settings, save, load, these controls</small>' ) }
+						</section>
+					</div>
+				</div>
+				<div class="tw-help-grid tw-help-keys">
 					<section>
 						<h3>Move</h3>
 						${ row( wasd, 'Move' ) }
@@ -2200,7 +2250,7 @@ export class UI {
 			<div class="tw-start-inner">
 				${ brandMark( 'tw-start-mark' ) }
 				<div class="tw-start-title">HYPTILE ISLAND</div>
-				<button type="button" class="tw-start-cta"><span class="tw-start-pulse" aria-hidden="true"></span>${ icon( 'mouse' ) }<span>Click to explore</span></button>
+				<button type="button" class="tw-start-cta"><span class="tw-start-pulse" aria-hidden="true"></span><span class="tw-start-click">${ icon( 'mouse' ) }</span><span class="tw-start-click">Click to explore</span><span class="tw-start-tap">Tap to explore</span></button>
 				<div class="tw-start-keys">
 					<span><span class="tw-wasd"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></span>Move</span>
 					<span><kbd class="tw-kbd-ico">${ icon( 'mouse' ) }</kbd>Look</span>
@@ -3293,6 +3343,14 @@ export class UI {
 
 	setLoadingError( message ) {
 
+		// no WebGPU (the browser, or no adapter on this device): the page that says what works, not a stack
+		if ( /webgpu|adapter|navigator\.gpu/i.test( String( message ) ) || ( typeof navigator !== 'undefined' && ! navigator.gpu ) ) {
+
+			this.showUnsupported( message );
+			return;
+
+		}
+
 		const L = document.getElementById( 'loader' );
 		if ( ! L ) return;
 		const ld = this._loaderState();
@@ -3374,6 +3432,41 @@ export class UI {
 
 		}, 920 ) );
 		return this._loaderGone;
+
+	}
+
+	// The game needs WebGPU: say which browsers have it and where the desktop build is. reason: the error, if any.
+	showUnsupported( reason = '' ) {
+
+		if ( this._unsupported ) return this._unsupported;
+		const d = this.device || detectDevice();
+		const el = this._unsupported = h( 'div', 'tw-unsupported', { role: 'alert' } );
+		const here = d.ios ? t( 'nogpu.ios', 'On this iPhone or iPad, update to iOS / iPadOS 26 or later and use Safari.' )
+			: d.android ? t( 'nogpu.android', 'On this Android device, use Chrome 121 or later (or update it).' )
+				: t( 'nogpu.desktop', 'On a computer, use Chrome or Edge 113 or later, or download the desktop build.' );
+		el.innerHTML = `
+			<div class="tw-unsupported-card">
+				<h1>HYPTILE ISLAND</h1>
+				<p>${ esc( t( 'nogpu.lead', 'This browser cannot run the game: it needs WebGPU, which this browser or device does not offer.' ) ) }</p>
+				<p><b>${ esc( here ) }</b></p>
+				<ul>
+					<li>${ esc( t( 'nogpu.chrome_android', 'Android: Chrome 121 or later' ) ) }</li>
+					<li>${ esc( t( 'nogpu.safari', 'iPhone and iPad: Safari on iOS / iPadOS 26 or later' ) ) }</li>
+					<li>${ esc( t( 'nogpu.desktop_list', 'Windows, macOS, Linux: Chrome or Edge 113 or later' ) ) }</li>
+				</ul>
+				<a class="tw-unsupported-btn" href="${ DESKTOP_URL }" target="_blank" rel="noopener">${ esc( t( 'nogpu.download', 'Download the desktop build' ) ) }</a>
+				${ reason ? `<small>${ esc( reason ) }</small>` : '' }
+			</div>`;
+		document.body.append( el );
+		const L = document.getElementById( 'loader' );
+		if ( L ) {
+
+			L.classList.add( 'tw-hidden' );
+			if ( this._ld ) this._ld.stopped = true;
+
+		}
+
+		return el;
 
 	}
 

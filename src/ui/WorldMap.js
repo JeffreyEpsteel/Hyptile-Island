@@ -6,6 +6,7 @@ import { YARD } from '../game/BoatYard.js';
 import { CAMP } from '../features/melee/MeleeData.js';
 import { BOARD_SITES } from '../features/notices/Sites.js';
 import { ensureMapCSS, ICON, TerrainBake } from '../game/Minimap.js';
+import { pinchStep } from '../core/Touch.js';
 import { MapView, edgeClamp, niceScale, pickWaypoint, compass, viewAngle, yawAngle, SEA_MODES } from '../features/worldmap/MapLogic.js';
 
 // The world map: a full-screen chart drawn like the minimap (the same terrain bake, palette, coastline, round
@@ -23,6 +24,8 @@ import { MapView, edgeClamp, niceScale, pickWaypoint, compass, viewAngle, yawAng
 // (a click on it, or the right button, clears it). Keys while open: W A S D / arrows pan, + / - zoom, C back to the
 // player, M or Escape close. Gamepad: D-pad left opens / closes, left stick pans, right stick zooms, A sets / clears the
 // waypoint at the centre cross, B closes (the pad's game mapping is off while the map is open).
+// Touch (wave 6): one finger drags, two fingers pinch-zoom about their midpoint (and pan with it), a tap sets the
+// waypoint; a pinch never ends in a waypoint (core/Touch.js pinchStep).
 
 const MINOR_K = 0.9; // px per metre: the small markers of a port (chandlery, stalls, boards) show from this zoom
 const PAN_KEYS = { KeyW: [ 0, 1 ], ArrowUp: [ 0, 1 ], KeyS: [ 0, - 1 ], ArrowDown: [ 0, - 1 ], KeyA: [ 1, 0 ], ArrowLeft: [ 1, 0 ], KeyD: [ - 1, 0 ], ArrowRight: [ - 1, 0 ] };
@@ -121,6 +124,9 @@ const CSS = /* css */`
 	display: grid; place-items: center; cursor: pointer; border: 1px solid var(--tw-line-2); background: rgba(12, 18, 26, 0.55); color: var(--tw-ink);
 	font: 400 calc(18 * var(--tw-u)) / 1 var(--tw-font); padding: 0; }
 .wm-close:hover { background: rgba(40, 60, 76, 0.7); }
+.tw-root.is-coarse .wm-close { width: 44px; height: 44px; }
+.tw-root.is-coarse .wm-legend-btn { height: 40px; }
+.tw-root.is-coarse .wm-frame { inset: calc(8px + env(safe-area-inset-top, 0px)) calc(8px + env(safe-area-inset-right, 0px)) calc(8px + env(safe-area-inset-bottom, 0px)) calc(8px + env(safe-area-inset-left, 0px)); }
 .wm-compass { position: absolute; right: calc(54 * var(--tw-u)); top: calc(8 * var(--tw-u)); width: calc(42 * var(--tw-u)); height: calc(42 * var(--tw-u)); pointer-events: none;
 	filter: drop-shadow(0 1px 3px rgba(0,0,0,0.6)); }
 .wm-compass svg { width: 100%; height: 100%; }
@@ -282,14 +288,33 @@ export class WorldMap {
 	_bind() {
 
 		const v = this.viewEl;
+		this._fingers = new Map(); // pointerId -> { x, y } (touch / pen)
+		this._pinched = false; // two fingers were down: no waypoint until every finger is up
 		this._onDown = ( e ) => {
 
 			if ( e.target.closest && e.target.closest( '.wm-close, .wm-legend-btn' ) ) return;
 			if ( e.button !== 0 && e.button !== 2 ) return;
 			e.preventDefault();
 			this._pad.mode = false;
-			this._drag = { id: e.pointerId, button: e.button, x: e.clientX, y: e.clientY, moved: false };
 			try { v.setPointerCapture( e.pointerId ); } catch ( err ) { /* ignore */ }
+			if ( e.pointerType === 'touch' || e.pointerType === 'pen' ) {
+
+				this._fingers.set( e.pointerId, { x: e.clientX, y: e.clientY } );
+				if ( this._fingers.size >= 2 ) {
+
+					// a second finger: the drag becomes a pinch
+					this._pinched = true;
+					this._drag = null;
+					v.classList.remove( 'is-drag' );
+					return;
+
+				}
+
+				if ( this._pinched ) return;
+
+			}
+
+			this._drag = { id: e.pointerId, button: e.button, x: e.clientX, y: e.clientY, moved: false };
 
 		};
 
@@ -297,6 +322,35 @@ export class WorldMap {
 
 			const r = v.getBoundingClientRect();
 			this._hover = { x: e.clientX - r.left, y: e.clientY - r.top };
+			const f = this._fingers.get( e.pointerId );
+			if ( f && this._fingers.size >= 2 ) {
+
+				// the pinch: this finger and the first other one
+				let o = null;
+				for ( const [ id, p ] of this._fingers ) if ( id !== e.pointerId ) { o = p; break; }
+				const a1 = { x: e.clientX, y: e.clientY };
+				const st = pinchStep( f, o, a1, o );
+				f.x = a1.x;
+				f.y = a1.y;
+				if ( st.dx || st.dy ) this.view.panBy( st.dx, st.dy );
+				if ( st.scale !== 1 ) {
+
+					this.view.zoomAt( st.scale, st.cx - r.left, st.cy - r.top );
+					this._zoomed = true;
+
+				}
+
+				return;
+
+			}
+
+			if ( f ) {
+
+				f.x = e.clientX;
+				f.y = e.clientY;
+
+			}
+
 			const d = this._drag;
 			if ( ! d || d.id !== e.pointerId ) return;
 			const dx = e.clientX - d.x, dy = e.clientY - d.y;
@@ -311,6 +365,7 @@ export class WorldMap {
 
 		this._onUp = ( e ) => {
 
+			if ( this._fingers.delete( e.pointerId ) && this._fingers.size === 0 ) this._pinched = false;
 			const d = this._drag;
 			if ( ! d || d.id !== e.pointerId ) return;
 			this._drag = null;
@@ -563,7 +618,9 @@ export class WorldMap {
 	_labels() {
 
 		this.headEl.querySelector( 'b' ).textContent = t( 'worldmap.title', 'World map' );
-		this.coordsHint.textContent = t( 'worldmap.hint', 'Drag to pan · wheel to zoom · click: waypoint · M / Esc to close' );
+		const touch = typeof document !== 'undefined' && !! document.querySelector( '.tw-root.is-touch' );
+		this.coordsHint.textContent = touch ? t( 'worldmap.hint_touch', 'Drag to pan · pinch to zoom · tap: waypoint' )
+			: t( 'worldmap.hint', 'Drag to pan · wheel to zoom · click: waypoint · M / Esc to close' );
 		const rows = [
 			[ 'me', ICON.arrow, t( 'worldmap.you', 'You' ) ],
 			[ 'boat', ICON.boat, t( 'worldmap.boat', 'Your boat' ) ],

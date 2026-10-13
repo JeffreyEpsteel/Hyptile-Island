@@ -18,6 +18,7 @@ import { YARD } from './BoatYard.js';
 //                                        forwards its markers: the sea chest, the wreck); icon is an ICON name or an svg
 //                                        string; the distance from the player shows under it
 //   map.baked                            the island bake is finished
+//   a tap on it (touch controls on) opens the world map (src/features/worldmap)
 //
 // Shared with the world map (src/ui/WorldMap.js), so both draw the same chart:
 //   ensureMapCSS()   the marker / label styles (.gm-mk badges, .gm-map-label), injected once
@@ -336,6 +337,16 @@ export class Minimap {
 		this.canvas = this.el.querySelector( 'canvas' );
 		this.marks = this.el.querySelector( '.gm-map-marks' );
 		parent.append( this.el );
+		// touch (wave 6): the minimap takes taps while the touch controls are on (ui.css .is-touch .gm-map) and a
+		// tap opens the world map; with a mouse it stays click-through
+		this.el.addEventListener( 'click', ( e ) => {
+
+			e.stopPropagation();
+			const f = game.app && game.app.features;
+			const wm = f && f.get ? f.get( 'worldmap' ) : null;
+			if ( wm && wm.open ) wm.open();
+
+		} );
 
 		const mk = ( kind, icon ) => {
 

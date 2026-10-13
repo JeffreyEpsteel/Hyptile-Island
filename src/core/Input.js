@@ -24,6 +24,16 @@
 //   input.releases counts the moments every button was let go for the game (window blur, pointer lock lost): a latched
 //   action (the toggle guard) drops when it changes. The buttons also resync from mousemove's `buttons`, so a mouseup
 //   lost to a context menu or to the lock never leaves a button stuck down.
+//
+// Wave 6 (touch, ui/TouchControls.js): a third source beside the keyboard and the gamepad, with its own held set so
+// the three never release each other's keys:
+//   input.setTouchKeys( codes )          the logical codes the touch controls hold now (stick, sliders, held buttons);
+//                                        a newly held code is a press ( hit() sees it), a dropped one is released
+//   input.setTouchButton( 'left' | 'right', down )   cast / reel and guard
+//   input.addTouchLook( x, y )           look deltas in mouse counts (core/Touch.js lookDelta; no mouse sensitivity)
+//   input.releaseTouch()                 everything the touch controls held is let go
+//   input.touchMode                      the touch controls are in use: requestLock() does nothing (no pointer lock
+//                                        on a phone), and the mouse events a browser makes up after a tap are ignored
 export class Input {
 
 	constructor( dom ) {
@@ -59,6 +69,14 @@ export class Input {
 		this._latch = new Set();
 		this._latchMoved = false;
 		this._padMap = {}; // logical -> gamepad button index
+		this.touchMode = false;
+		this._touchHeld = new Set(); // logical codes held by the touch controls
+		this._lmbTouch = false;
+		this._rmbTouch = false;
+		this._touchT = - 1e9; // the last touch (ms): mouse events right after it are the browser's copies of the tap
+		const touched = () => { this._touchT = now(); };
+		window.addEventListener( 'touchstart', touched, { capture: true, passive: true } );
+		window.addEventListener( 'touchend', touched, { capture: true, passive: true } );
 
 		window.addEventListener( 'keydown', ( e ) => this._keydown( e ) );
 		window.addEventListener( 'keyup', ( e ) => {
@@ -76,6 +94,7 @@ export class Input {
 
 		dom.addEventListener( 'mousedown', ( e ) => {
 
+			if ( this._fromTouch( e ) ) return;
 			if ( e.button === 0 ) this._setLeft( 'mouse', true );
 			if ( e.button === 2 ) this._rmbMouse = true;
 
@@ -89,6 +108,7 @@ export class Input {
 		dom.addEventListener( 'contextmenu', ( e ) => e.preventDefault() );
 		window.addEventListener( 'mousemove', ( e ) => {
 
+			if ( this._fromTouch( e ) ) return;
 			// a mouseup the page never saw (a context menu, the lock changing hands): `buttons` says what is held
 			if ( typeof e.buttons === 'number' ) {
 
@@ -127,7 +147,70 @@ export class Input {
 
 	requestLock() {
 
+		// a finger has nothing to capture (and a phone has no pointer lock)
+		if ( this.touchMode || now() - this._touchT < 1000 ) return;
 		if ( ! this.locked ) this.dom.requestPointerLock?.()?.catch?.( () => {} );
+
+	}
+
+	// a mouse event the browser made up from a touch (Chrome says so; elsewhere: within 800 ms of a touch)
+	_fromTouch( e ) {
+
+		if ( e && e.sourceCapabilities && e.sourceCapabilities.firesTouchEvents ) return true;
+		return now() - this._touchT < 800;
+
+	}
+
+	// ---- touch (ui/TouchControls.js)
+
+	setTouchKeys( codes ) {
+
+		const want = codes instanceof Set ? codes : new Set( codes || [] );
+		for ( const code of this._touchHeld ) {
+
+			if ( want.has( code ) ) continue;
+			this.keys.delete( code );
+			this._touchHeld.delete( code );
+
+		}
+
+		for ( const code of want ) {
+
+			if ( this._touchHeld.has( code ) ) {
+
+				this.keys.add( code ); // (something cleared the keys under it: the menu, a blur)
+				continue;
+
+			}
+
+			if ( ! this.keys.has( code ) ) this.pressed.add( code );
+			this.keys.add( code );
+			this._touchHeld.add( code );
+
+		}
+
+	}
+
+	setTouchButton( which, down ) {
+
+		down = !! down;
+		if ( which === 'right' ) this._rmbTouch = down;
+		else this._setLeft( 'touch', down );
+
+	}
+
+	addTouchLook( x, y ) {
+
+		if ( Number.isFinite( x ) ) this.look.x += x;
+		if ( Number.isFinite( y ) ) this.look.y += y;
+
+	}
+
+	releaseTouch() {
+
+		this.setTouchKeys( NONE );
+		this._rmbTouch = false;
+		if ( this._lmbTouch ) this._setLeft( 'touch', false );
 
 	}
 
@@ -216,7 +299,7 @@ export class Input {
 
 	get rightDown() {
 
-		return this._rmbMouse || this._rmbExt;
+		return this._rmbMouse || this._rmbExt || this._rmbTouch;
 
 	}
 
@@ -230,8 +313,8 @@ export class Input {
 	// every button up for the game (blur, the lock lost); bumps `releases` so latched actions drop too
 	releaseButtons() {
 
-		this._rmbMouse = this._rmbExt = false;
-		this._lmbMouse = this._lmbExt = false;
+		this._rmbMouse = this._rmbExt = this._rmbTouch = false;
+		this._lmbMouse = this._lmbExt = this._lmbTouch = false;
 		this._pressLeft( false );
 		this._reelLatch = false;
 		this.releases ++;
@@ -241,8 +324,9 @@ export class Input {
 	_setLeft( src, down ) {
 
 		if ( src === 'mouse' ) this._lmbMouse = down;
+		else if ( src === 'touch' ) this._lmbTouch = down;
 		else this._lmbExt = down;
-		this._pressLeft( this._lmbMouse || this._lmbExt );
+		this._pressLeft( this._lmbMouse || this._lmbExt || this._lmbTouch );
 
 	}
 
@@ -484,6 +568,7 @@ export class Input {
 }
 
 const NONE = Object.freeze( [] );
+const now = () => ( typeof performance !== 'undefined' ? performance.now() : Date.now() );
 // keys the page would otherwise scroll or move focus with
 const PREVENT = new Set( [ 'Space', 'ArrowUp', 'ArrowDown', 'Tab' ] );
 // plain function keys the game keeps while it has the focus: help, find, reload (with care), fullscreen

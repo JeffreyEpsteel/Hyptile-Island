@@ -2,7 +2,19 @@
 <html lang="en">
 <head>
 	<meta charset="utf-8" />
-	<meta name="viewport" content="width=device-width, initial-scale=1" />
+	<!-- phones and tablets: edge to edge under the notch (ui.css keeps the HUD inside the safe area), no page zoom
+	     (the touch controls own every gesture), installable from Add to Home Screen -->
+	<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
+	<meta name="theme-color" content="#3a9a74" />
+	<meta name="mobile-web-app-capable" content="yes" />
+	<meta name="apple-mobile-web-app-capable" content="yes" />
+	<meta name="apple-mobile-web-app-title" content="Hyptile" />
+	<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+	<meta name="format-detection" content="telephone=no" />
+	<link rel="manifest" href="manifest.webmanifest" />
+	<link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png" />
+	<link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png" />
+	<link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
 	<title>Hyptile Island</title>
 	<link rel="preload" as="image" href="ui/keyart/hyptile-loader-1280.jpg" imagesrcset="ui/keyart/hyptile-loader-1280.jpg 1280w, ui/keyart/hyptile-loader-2560.jpg 2560w" imagesizes="100vw" />
 	<link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -10,7 +22,8 @@
 	<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Caveat+Brush&family=Kalam:wght@400;700&display=swap" rel="stylesheet" />
 	<link rel="stylesheet" href="/src/ui/ui.css" />
 	<style>
-		html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #000; }
+		html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #000; overscroll-behavior: none; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+		body { -webkit-touch-callout: none; touch-action: manipulation; }
 		#app, #app canvas { display: block; }
 		#fps { position: fixed; top: 10px; left: 12px; z-index: 50; font: 500 12px/1.2 'JetBrains Mono', ui-monospace, monospace;
 			color: #e8f6ff; background: rgba(8, 14, 22, 0.55); padding: 5px 9px; border-radius: 6px; pointer-events: none;
@@ -51,6 +64,13 @@
 			#loader .loader-art { object-position: 66% 50%; }
 			#loader .loader-scrim { background: linear-gradient(0deg, rgba(3, 18, 22, 0.92) 0%, rgba(3, 18, 22, 0.6) 45%, rgba(3, 18, 22, 0.08) 75%); }
 			#loader .loader-inner { top: auto; bottom: 16px; left: 16px; right: 16px; transform: none; width: auto; }
+		}
+		/* a phone in landscape (~390 px tall): the card loses the tagline and the tips, and keeps inside the notch */
+		@media (max-height: 500px) {
+			#loader .loader-inner { width: min(420px, 48vw); left: max(16px, env(safe-area-inset-left)); gap: 10px; padding: 14px 18px; }
+			#loader .loader-tagline, #loader .loader-tips, #loader .loader-note { display: none; }
+			#loader .loader-rule { margin-top: 8px; }
+			#loader .loader-title { font-size: min(56px, 12cqi); }
 		}
 	</style>
 </head>

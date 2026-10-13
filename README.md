@@ -6,7 +6,9 @@ open-source projects that we credit below. You play one of the eight Hyptile-fam
 Landing with a rod, earn a boat from Captain Roid, take PoorGoat's quests out past the reef, sail eight islands,
 fight pirates, fly a seaplane, run a trading route and meet your crew on a universe server.
 
-**Play now:** https://jeffreyepsteel.github.io/Hyptile-Island/ (Chrome or Edge with WebGPU, nothing to install).
+**Play now:** https://jeffreyepsteel.github.io/Hyptile-Island/ (nothing to install). Desktop: Chrome or Edge. Phones and
+tablets: Chrome on Android, Safari on iOS / iPadOS 26+, in landscape, with touch controls; "Add to Home Screen"
+installs it.
 
 **Host a universe or play offline:** download the alpha from [Releases](https://github.com/JeffreyEpsteel/Hyptile-Island/releases),
 install [Node.js 22](https://nodejs.org/), then run `PLAY_HYPTILE_ISLAND_3.0-alpha.cmd` or `HOST_UNIVERSE.cmd`
@@ -38,6 +40,8 @@ install [Node.js 22](https://nodejs.org/), then run `PLAY_HYPTILE_ISLAND_3.0-alp
   bioluminescent wakes, lanterns and the Gull Rock beam; a UE5-style **animation graph** with contact IK.
 - **Multiplayer** on Colyseus: crew rooms by code, or a persistent universe you host (server-side saves, wrecks,
   markets and pirates persist).
+- **Mobile**: touch controls (a stick, look by dragging, context buttons, a throttle lever), responsive HUD and panels,
+  a mobile quality tier, installable as a web app. See `docs/MOBILE.md`.
 - **Accessibility**: key remapping, UI scale, captions, colour-blind palettes, hold or toggle, a fishing assist (off by
   default), English and Romanian. Auto quality picks a tier for your GPU.
 

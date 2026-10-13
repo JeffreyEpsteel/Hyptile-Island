@@ -337,3 +337,12 @@ lock; guard is a hold with release rules (the stuck block was a looping montage)
 placeholder for the user. Black squares = NaN from VegMaterials.js / GrassField.js pow() of negatives (guarded;
 `node tools/perf/headless.mjs --nan-check --quality=low --dawn=<dir> --backend=vulkan` is the regression check). Weather chip
 now names the current kind until a change is half way. Death cut on the UI root (z 900), self-driven when the game pauses.
+
+### Wave 6: mobile (2026-10-13, docs/briefs/w6-mobile.md) - landed
+Touch.js (detection + maths), TouchControls.js (stick, look drag, context buttons, lever; created by AppUI), Input touch
+source, Quality mobile tier (phones Low at 0.75, M-series iPads Medium), textures capped at 1024 px on phones (?tex=full),
+no-WebGPU page in UI.js, manifest + icons, pinch-zoom map, docs/MOBILE.md checklist. Verified in the pane at 740x360 with
+touch emulation: layout, stick moves the player (synthetic pointer events). Follow-ups: WaterQuery count and SoundScape
+voice limits have no mobile setting; no service worker; not yet run on a real phone.
+GitHub: https://github.com/JeffreyEpsteel/Hyptile-Island (Pages deploys main via .github/workflows/pages.yml to
+https://jeffreyepsteel.github.io/Hyptile-Island/). Pushes go through the user's terminal (no token in the sandbox).

@@ -1,4 +1,5 @@
 import { GPU } from '../engine/gpu/GPU.js';
+import { detectDevice } from './Touch.js';
 
 // Graphics quality tiers and the auto quality loop (app.quality).
 //
@@ -21,6 +22,16 @@ import { GPU } from '../engine/gpu/GPU.js';
 // High and starts from the tier that fits; the result is saved (localStorage 'hyptile-island.quality').
 //
 // The state machine (QualityLoop) has no browser or GPU in it: test/perf-scenarios.mjs drives it with frame times.
+//
+// Mobile (wave 6, core/Touch.js detectDevice): phones and tablets skip the probe at High (it would stall a phone for a
+// second at full resolution) and start from their own tier: Low on a phone, Medium on an M-series iPad, Low on other
+// tablets; auto stays on, capped (ceiling Medium on a phone, High on a tablet). On top of the tier, MOBILE trims what a
+// phone GPU pays for most: the render scale (<= 0.75 on a phone, 0.85 on a tablet), the shadow map (1024, a shorter
+// reach, the far cascades re-rendered every 6th / 12th frame), particles, lamps, draw distances and the residents'
+// radii. A saved choice from before (a desktop-style probe) is not reused on a phone. The canvas is sized in CSS
+// pixels times the render scale (engine/Engine.js), so a 3x phone screen never renders at its device pixel ratio.
+// Phones also decode big textures at 1024 px at most (installTextureCap below: the roster characters' 2048 px
+// textures are ~21 MB each on the GPU with mips, ~5 MB at 1024); ?tex=full keeps them whole.
 
 export const TIER_IDS = [ 'low', 'medium', 'high', 'ultra' ];
 
@@ -42,6 +53,78 @@ export const TIERS = {
 		aa: 8, particles: 1, lights: 8, draw: 1.35, residents: { animate: 80, update: 160, hide: 320, shadow: 60 }, fx: 'high',
 	},
 };
+
+// the mobile trims, applied over the tier (mobileTier); null on a desktop or a touch laptop
+export const MOBILE = {
+	phone: { tier: 'low', ceiling: 'medium', maxScale: 0.75, shadowSize: 1024, shadowReach: 0.6, periods: [ 1, 6, 12 ], particles: 0.6, lights: 3, draw: 0.8, residents: 0.7, fx: 'low', textureMax: 1024 },
+	tablet: { tier: 'low', ceiling: 'high', maxScale: 0.85, shadowSize: 1024, shadowReach: 0.8, periods: [ 1, 4, 8 ], particles: 0.8, lights: 4, draw: 0.9, residents: 0.85, fx: null, textureMax: 2048 },
+	tabletM: { tier: 'medium', ceiling: 'high', maxScale: 0.85, shadowSize: 1024, shadowReach: 0.8, periods: [ 1, 4, 8 ], particles: 0.8, lights: 4, draw: 0.9, residents: 0.85, fx: null, textureMax: 2048 },
+};
+
+export function mobileProfile( device ) {
+
+	if ( ! device || ! device.mobile ) return null;
+	if ( device.phone ) return MOBILE.phone;
+	return device.appleSilicon ? MOBILE.tabletM : MOBILE.tablet;
+
+}
+
+// a tier's numbers with the mobile trims (the tier itself when prof is null)
+export function mobileTier( tier, prof ) {
+
+	if ( ! prof || ! tier ) return tier;
+	const r = tier.residents || {};
+	const k = prof.residents;
+	return {
+		...tier,
+		scale: [ Math.min( tier.scale[ 0 ], prof.maxScale ), Math.min( tier.scale[ 1 ], prof.maxScale ) ],
+		shadowSize: Math.min( tier.shadowSize, prof.shadowSize ),
+		shadowFar: Math.round( tier.shadowFar * prof.shadowReach ),
+		periods: prof.periods,
+		particles: tier.particles * prof.particles,
+		lights: Math.min( tier.lights, prof.lights ),
+		draw: tier.draw * prof.draw,
+		residents: { animate: Math.round( r.animate * k ), update: Math.round( r.update * k ), hide: Math.round( r.hide * k ), shadow: Math.round( r.shadow * k ) },
+		fx: prof.fx || tier.fx,
+		mobile: true,
+	};
+
+}
+
+// Phones: decode GLB / stall textures at max px on the long side (engine/loaders/GLTF.js asks globalThis.__assetImage
+// first). Only installed when nothing else (a headless test) set the hook. -> true when installed.
+export function installTextureCap( max = 1024 ) {
+
+	const g = globalThis;
+	if ( g.__assetImage || typeof g.createImageBitmap !== 'function' || typeof g.OffscreenCanvas !== 'function' ) return false;
+	g.__assetImage = async ( bytes, mimeType ) => {
+
+		const bmp = await g.createImageBitmap( new Blob( [ bytes ], { type: mimeType } ), { colorSpaceConversion: 'none', premultiplyAlpha: 'none' } );
+		const w0 = bmp.width, h0 = bmp.height;
+		const k = Math.min( 1, max / Math.max( w0, h0, 1 ) );
+		const width = Math.max( 1, Math.round( w0 * k ) ), height = Math.max( 1, Math.round( h0 * k ) );
+		const cv = new g.OffscreenCanvas( width, height );
+		const ctx = cv.getContext( '2d', { willReadFrequently: true } );
+		ctx.imageSmoothingQuality = 'high';
+		ctx.drawImage( bmp, 0, 0, width, height );
+		if ( bmp.close ) bmp.close();
+		const d = ctx.getImageData( 0, 0, width, height ).data;
+		return { data: new Uint8Array( d.buffer, d.byteOffset, d.byteLength ), width, height };
+
+	};
+
+	g.__assetImageCap = max;
+	return true;
+
+}
+
+// at import (before the first GLB loads): a phone gets the cap unless the URL says ?tex=full
+if ( typeof window !== 'undefined' && typeof location !== 'undefined' && ! /[?&]tex=full\b/.test( location.search ) ) {
+
+	const prof = mobileProfile( detectDevice() );
+	if ( prof && prof.textureMax < 2048 ) installTextureCap( prof.textureMax );
+
+}
 
 export const STORAGE_KEY = 'hyptile-island.quality';
 export const WINDOW_S = 2;
@@ -86,10 +169,11 @@ export function pickFromProbe( gpuMs, target = 60 ) {
 //   const change = loop.frame( dtMs, busyMs )   -> null | { tier, scale, target, why }
 export class QualityLoop {
 
-	constructor( { tier = 'high', scale = 1, target = 60, ceiling = 'high', auto = true, windowS = WINDOW_S } = {} ) {
+	constructor( { tier = 'high', scale = 1, target = 60, ceiling = 'high', auto = true, windowS = WINDOW_S, maxScale = 1 } = {} ) {
 
+		this.maxScale = Math.min( 1, Math.max( 0.5, maxScale ) ); // a phone's cap on the render scale
 		this.tier = isTier( tier ) ? tier : 'high';
-		this.scale = clampScale( scale );
+		this.scale = Math.min( clampScale( scale ), this.maxScale );
 		this.target = target;
 		this.baseTarget = target;
 		this.ceiling = isTier( ceiling ) ? ceiling : 'high';
@@ -110,7 +194,8 @@ export class QualityLoop {
 
 	range( tier = this.tier ) {
 
-		return TIERS[ tier ].scale;
+		const [ lo, hi ] = TIERS[ tier ].scale, m = this.maxScale;
+		return m >= hi ? [ lo, hi ] : [ Math.min( lo, m ), m ];
 
 	}
 
@@ -177,7 +262,7 @@ export class QualityLoop {
 			if ( i > 0 ) {
 
 				tier = TIER_IDS[ i - 1 ];
-				scale = clampScale( Math.min( TIERS[ tier ].scale[ 1 ], scale ) );
+				scale = clampScale( Math.min( this.range( tier )[ 1 ], scale ) );
 
 			} else if ( target > 30 ) {
 
@@ -203,7 +288,7 @@ export class QualityLoop {
 			const i = TIER_IDS.indexOf( tier );
 			if ( i >= TIER_IDS.indexOf( this.ceiling ) ) return null;
 			tier = TIER_IDS[ i + 1 ];
-			scale = clampScale( Math.max( TIERS[ tier ].scale[ 0 ], scale ) );
+			scale = clampScale( Math.max( this.range( tier )[ 0 ], scale ) );
 
 		}
 
@@ -235,9 +320,10 @@ export class QualityLoop {
 		if ( ! isTier( tier ) ) return;
 		this.tier = tier;
 		this.ceiling = tier;
-		const [ lo, hi ] = TIERS[ tier ].scale;
+		const [ lo, hi ] = this.range( tier );
 		this.scale = clampScale( scale ?? hi );
 		if ( this.scale < lo ) this.scale = lo;
+		if ( this.scale > hi ) this.scale = hi;
 		this.target = this.baseTarget;
 		this._skip = 1;
 		this._good = 0;
@@ -251,25 +337,31 @@ export class QualityLoop {
 // app.quality: the loop bound to the running app (applies tiers to the systems that exist)
 export class Quality {
 
-	constructor( app, { storage = null, query = null } = {} ) {
+	constructor( app, { storage = null, query = null, device = null, mobile } = {} ) {
 
 		this.app = app;
 		this.storage = storage ?? ( typeof localStorage !== 'undefined' ? localStorage : null );
 		const qs = query ?? app.qs;
 		const q = qs && typeof qs.get === 'function' ? ( qs.get( 'quality' ) || '' ).toLowerCase() : '';
-		const saved = this._load();
-		let tier = saved && isTier( saved.tier ) ? saved.tier : 'high';
+		// phones and tablets: their own start tier, cap and trims (MOBILE above); `mobile` overrides the detection
+		this.device = device || detectDevice();
+		this.mobile = mobile !== undefined ? mobile : mobileProfile( this.device );
+		let saved = this._load();
+		if ( saved && this.mobile && saved.profile !== 'mobile' ) saved = null; // a desktop-style choice is not reused on a phone
+		let tier = saved && isTier( saved.tier ) ? saved.tier : this.mobile ? this.mobile.tier : 'high';
 		let scale = saved && Number.isFinite( saved.scale ) ? saved.scale : null;
 		let auto = saved && typeof saved.auto === 'boolean' ? saved.auto : true;
 		const target = saved && ( saved.target === 30 || saved.target === 60 ) ? saved.target : 60;
-		this.probed = !! ( saved && saved.probed );
+		this.probed = !! ( saved && saved.probed ) || !! this.mobile; // (no probe at High on a phone)
 		if ( isTier( q ) ) { tier = q; auto = false; scale = null; this.probed = true; }
 		else if ( q === 'auto' ) auto = true;
 		else if ( q === 'off' ) { auto = false; this.probed = true; } // benchmarks: the tier as it is, no loop
 		// ?bench runs are measured at a fixed tier
 		if ( qs && typeof qs.has === 'function' && qs.has( 'bench' ) && q !== 'auto' ) { auto = false; this.probed = true; }
 		this.override = q || null;
-		this.loop = new QualityLoop( { tier, scale: scale ?? TIERS[ tier ].scale[ 1 ], target, ceiling: saved && isTier( saved.ceiling ) ? saved.ceiling : ( tier === 'ultra' ? 'ultra' : 'high' ), auto } );
+		const maxScale = this.mobile ? this.mobile.maxScale : 1;
+		const ceiling = saved && isTier( saved.ceiling ) ? saved.ceiling : this.mobile ? this.mobile.ceiling : ( tier === 'ultra' ? 'ultra' : 'high' );
+		this.loop = new QualityLoop( { tier, scale: scale ?? Math.min( maxScale, TIERS[ tier ].scale[ 1 ] ), target, ceiling, auto, maxScale } );
 		this._frame = - 1;
 		this._gpu = { pending: false, ms: 0, n: 0 };
 		this._probe = null;
@@ -282,7 +374,7 @@ export class Quality {
 	get scale() { return this.loop.scale; }
 	get auto() { return this.loop.auto; }
 	get target() { return this.loop.target; }
-	get settings() { return TIERS[ this.loop.tier ]; }
+	get settings() { return mobileTier( TIERS[ this.loop.tier ], this.mobile ); }
 	get gpuMs() { return this._gpu.ms; }
 
 	onChange( fn ) {
@@ -306,7 +398,7 @@ export class Quality {
 	setAuto( on ) {
 
 		this.loop.auto = !! on;
-		if ( on ) this.loop.ceiling = this.loop.tier === 'ultra' ? 'ultra' : 'high';
+		if ( on ) this.loop.ceiling = this.mobile ? this._mobileCeiling() : this.loop.tier === 'ultra' ? 'ultra' : 'high';
 		this._save();
 
 	}
@@ -318,10 +410,18 @@ export class Quality {
 
 	}
 
+	// on a phone auto never climbs past the profile's ceiling (or the tier picked by hand, if higher)
+	_mobileCeiling() {
+
+		const c = this.mobile.ceiling, t = this.loop.tier;
+		return TIER_IDS.indexOf( t ) > TIER_IDS.indexOf( c ) ? t : c;
+
+	}
+
 	// pushes the current tier and scale into every system that has a knob for it
 	apply() {
 
-		const app = this.app, t = TIERS[ this.loop.tier ];
+		const app = this.app, t = this.settings;
 		const tryDo = ( fn ) => { try { fn(); } catch ( e ) { console.warn( 'quality:', e && e.message ); } };
 		if ( app.setRenderScale && app.post ) tryDo( () => app.setRenderScale( this.loop.scale ) );
 		else if ( app.settings ) app.settings.renderScale = this.loop.scale;
@@ -333,7 +433,7 @@ export class Quality {
 			if ( sh.setSize ) tryDo( () => sh.setSize( t.shadowSize ) );
 			if ( sh.setReach ) tryDo( () => sh.setReach( t.shadowFar ) );
 			// the far cascades re-render less often on Low (the near one stays every frame: the player's own shadow)
-			if ( Array.isArray( sh.periods ) && sh.periods.length === 3 ) sh.periods = this.loop.tier === 'low' ? [ 1, 4, 8 ] : [ 1, 2, 4 ];
+			if ( Array.isArray( sh.periods ) && sh.periods.length === 3 ) sh.periods = t.periods ? t.periods.slice() : this.loop.tier === 'low' ? [ 1, 4, 8 ] : [ 1, 2, 4 ];
 
 		}
 		const post = app.post;
@@ -454,7 +554,7 @@ export class Quality {
 
 		const pick = gpuMs === null ? { tier: 'high', scale: 1, target: this.loop.baseTarget } : pickFromProbe( gpuMs, this.loop.baseTarget );
 		this.loop.set( pick.tier, pick.scale );
-		this.loop.ceiling = 'high';
+		this.loop.ceiling = this.mobile ? this._mobileCeiling() : 'high';
 		this.loop.target = pick.target;
 		this.probed = true;
 		this.probeMs = gpuMs;
@@ -467,8 +567,9 @@ export class Quality {
 	describe() {
 
 		const l = this.loop, t = TIERS[ l.tier ];
+		const tag = this.mobile ? ( this.device && this.device.phone ? 'Phone · ' : 'Tablet · ' ) : '';
 		const fps = l.lastMs ? ` · ${ ( 1000 / l.lastMs ).toFixed( 0 ) } fps / ${ l.target }` : ` · target ${ l.target }`;
-		return `${ l.auto ? 'Auto · ' : '' }${ t.label } ${ Math.round( l.scale * 100 ) }%${ fps }${ this._gpu.n ? ` · GPU ${ this._gpu.ms.toFixed( 1 ) } ms` : '' }`;
+		return `${ tag }${ l.auto ? 'Auto · ' : '' }${ t.label } ${ Math.round( l.scale * 100 ) }%${ fps }${ this._gpu.n ? ` · GPU ${ this._gpu.ms.toFixed( 1 ) } ms` : '' }`;
 
 	}
 
@@ -493,7 +594,7 @@ export class Quality {
 		try {
 
 			const l = this.loop;
-			if ( this.storage ) this.storage.setItem( STORAGE_KEY, JSON.stringify( { tier: l.tier, scale: l.scale, auto: l.auto, target: l.baseTarget, ceiling: l.ceiling, probed: this.probed } ) );
+			if ( this.storage ) this.storage.setItem( STORAGE_KEY, JSON.stringify( { tier: l.tier, scale: l.scale, auto: l.auto, target: l.baseTarget, ceiling: l.ceiling, probed: this.probed, profile: this.mobile ? 'mobile' : 'desktop' } ) );
 
 		} catch ( e ) { /* private mode */ }
 

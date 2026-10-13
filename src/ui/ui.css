@@ -2608,3 +2608,395 @@ body {
 	}
 
 }
+
+/* ==========================================================================
+   Mobile (wave 6): phones and tablets
+   .tw-root.is-touch    the touch controls are in use (ui/TouchControls.js): the HUD makes room for them
+   .tw-root.is-coarse   a finger is the primary pointer: 44 px targets, 16 px text fields (no zoom on focus)
+   The notch and the home bar: env(safe-area-inset-*) (index.html asks for viewport-fit=cover).
+   ========================================================================== */
+
+:root {
+	--tw-safe-t: env(safe-area-inset-top, 0px);
+	--tw-safe-r: env(safe-area-inset-right, 0px);
+	--tw-safe-b: env(safe-area-inset-bottom, 0px);
+	--tw-safe-l: env(safe-area-inset-left, 0px);
+}
+
+/* the HUD keeps clear of the notch and the rounded corners */
+.tw-tl { top: calc(var(--tw-edge) + var(--tw-safe-t)); left: calc(var(--tw-edge) + var(--tw-safe-l)); }
+.tw-toasts { top: calc(var(--tw-edge) + var(--tw-safe-t)); }
+.tw-boat { left: calc(var(--tw-edge) + var(--tw-safe-l)); bottom: calc(var(--tw-edge) + var(--tw-safe-b)); }
+.tw-panel { top: calc(var(--tw-3) + var(--tw-safe-t)); right: calc(var(--tw-3) + var(--tw-safe-r)); bottom: calc(var(--tw-3) + var(--tw-safe-b)); }
+.tw-rail { right: calc(var(--tw-3) + var(--tw-safe-r)); }
+
+/* text fields at 16 px or more: iOS zooms the page into anything smaller */
+@media (pointer: coarse) {
+
+	input:not([type="range"]):not([type="checkbox"]):not([type="radio"]):not([type="color"]),
+	select,
+	textarea {
+		font-size: max(16px, 1em) !important;
+	}
+
+}
+
+/* ---- touch-first: bigger targets in the settings panel, the menus and the shop rows */
+.tw-root.is-coarse .tw-icon-btn { width: 44px; height: 44px; }
+.tw-root.is-coarse .tw-tab { height: 44px; padding: 0 12px; }
+.tw-root.is-coarse .tw-btn,
+.tw-root.is-coarse .tw-dd,
+.tw-root.is-coarse .tw-seg-btn { height: 44px; }
+.tw-root.is-coarse .tw-slider { height: 36px; }
+.tw-root.is-coarse .tw-slider-thumb { width: 24px; height: 24px; margin: -12px 0 0 -12px; }
+.tw-root.is-coarse .tw-switch { width: 46px; height: 28px; }
+.tw-root.is-coarse .tw-folder-head { min-height: 44px; }
+.tw-root.is-coarse .tw-ctl { padding: 8px 0; }
+.tw-root.is-coarse .tw-pages,
+.tw-root.is-coarse .tw-help-card { -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
+.tw-root.is-coarse .gm-btn,
+.tw-root.is-coarse .pm button,
+.tw-root.is-coarse .mm button,
+.tw-root.is-coarse .svm button { min-height: 44px; }
+.tw-root.is-coarse .gm-tab { min-height: 40px; }
+/* hover tooltips do not exist under a finger */
+.tw-root.is-coarse .tw-tip { display: none; }
+
+/* every panel fits the screen it is on and scrolls inside (a phone in landscape is ~390 px tall) */
+.tw-root.is-coarse .gm-panel,
+.tw-root.is-coarse .hb-panel,
+.tw-root.is-coarse .tr-panel,
+.tw-root.is-coarse .sp-panel,
+.tw-root.is-coarse .nb-panel,
+.tw-root.is-coarse .ns-crew {
+	max-width: calc(100vw - 16px - var(--tw-safe-l) - var(--tw-safe-r));
+	max-height: calc(100dvh - 16px - var(--tw-safe-t) - var(--tw-safe-b)) !important;
+	overflow-y: auto;
+	overscroll-behavior: contain;
+	-webkit-overflow-scrolling: touch;
+}
+
+.tw-root.is-coarse .sd-panel {
+	max-width: calc(100vw - 16px - var(--tw-safe-l) - var(--tw-safe-r));
+	max-height: calc(100dvh - 24px - var(--tw-safe-t) - var(--tw-safe-b));
+	bottom: calc(8px + var(--tw-safe-b));
+	overflow-y: auto;
+}
+
+.tw-root.is-coarse .mm,
+.tw-root.is-coarse .pm,
+.tw-root.is-coarse .svm {
+	padding: calc(8px + var(--tw-safe-t)) calc(8px + var(--tw-safe-r)) calc(8px + var(--tw-safe-b)) calc(8px + var(--tw-safe-l));
+	-webkit-overflow-scrolling: touch;
+}
+
+.tw-root.is-coarse .mm-card { max-height: calc(100dvh - 16px - var(--tw-safe-t) - var(--tw-safe-b)); }
+
+@media (max-height: 500px) {
+
+	.tw-root .gm-panel,
+	.tw-root .hb-panel,
+	.tw-root .tr-panel,
+	.tw-root .sp-panel,
+	.tw-root .nb-panel {
+		max-height: calc(100dvh - 16px) !important;
+		overflow-y: auto;
+	}
+
+	.tw-help { padding: 8px; }
+	.tw-help-card { max-height: calc(100dvh - 16px); padding: 14px 16px 16px; }
+
+}
+
+/* ---- the HUD with the touch controls on: the stick bottom left, the buttons bottom right, the utility row top right */
+.tw-root.is-touch .tw-prompt,
+.tw-root.is-touch .tw-rail,
+.tw-root.is-touch .tw-photo-hint,
+.tw-root.is-touch .tw-start-keys,
+.tw-root.is-touch .tw-panel-foot { display: none !important; }
+
+.tw-root.is-touch .tw-stats { display: none; }
+.tw-root.is-touch .tw-boat {
+	left: 50%;
+	bottom: calc(6px + var(--tw-safe-b));
+	transform-origin: 50% 100%;
+	scale: 0.66;
+	translate: -50% 0;
+}
+
+.tw-root.is-touch .tw-depth { scale: 0.8; transform-origin: 0 50%; }
+
+/* the minimap: top left under the mode label, tap for the world map */
+.tw-root.is-touch .gm-map {
+	top: calc(var(--tw-edge) + var(--tw-safe-t) + 64px);
+	left: calc(var(--tw-edge) + var(--tw-safe-l));
+	right: auto;
+	bottom: auto;
+	width: 108px;
+	height: 108px;
+	pointer-events: auto;
+	cursor: pointer;
+}
+
+.tw-root.is-touch .gm-map em { display: none; }
+
+/* the purse stays top right; the touch utility row sits under it */
+.tw-root.is-touch .gm-purse { top: calc(var(--tw-edge) + var(--tw-safe-t)); right: calc(var(--tw-edge) + var(--tw-safe-r)); }
+.tw-root.is-touch .gm-fight { bottom: calc(110px + var(--tw-safe-b)); }
+.tw-root.is-touch .gm-coach { display: none; }
+.tw-root.is-touch .nb-tracker { top: calc(var(--tw-edge) + var(--tw-safe-t) + 100px); right: calc(var(--tw-edge) + var(--tw-safe-r)); width: min(220px, 34vw); }
+
+/* the start overlay and the controls sheet speak touch */
+.tw-start-tap,
+.tw-help-touch { display: none; }
+.tw-root.is-touch .tw-start-click,
+.tw-root.is-touch .tw-help-keys { display: none; }
+.tw-root.is-touch .tw-start-tap { display: inline; }
+.tw-root.is-touch .tw-help-touch { display: block; }
+
+.tw-help-touch-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+	gap: 8px 22px;
+}
+
+.tw-help-touch .tw-help-row { min-height: 44px; }
+.tw-touch-chip {
+	display: inline-grid;
+	place-items: center;
+	min-width: 56px;
+	height: 28px;
+	padding: 0 8px;
+	border-radius: 999px;
+	background: rgba(var(--tw-aqua-rgb), 0.16);
+	box-shadow: inset 0 0 0 1px rgba(var(--tw-aqua-rgb), 0.45);
+	font-size: var(--tw-fs-xs);
+	font-weight: 600;
+	color: var(--tw-aqua);
+}
+
+/* ---- the touch controls (ui/TouchControls.js): under the HUD (z 100), over the canvas */
+.tc-root {
+	--tc-k: 1;
+	--tc-b: calc(56px * var(--tc-k));
+	position: fixed;
+	inset: 0;
+	z-index: 60;
+	display: none;
+	font-family: var(--tw-font);
+	color: var(--tw-ink);
+	-webkit-user-select: none;
+	user-select: none;
+	-webkit-touch-callout: none;
+	-webkit-tap-highlight-color: transparent;
+	touch-action: none;
+}
+
+.tc-root.is-active:not(.is-away) { display: block; }
+.tc-root [hidden] { display: none !important; }
+
+.tc-pad { position: absolute; inset: 0; touch-action: none; }
+
+/* the stick: resting faintly bottom left, it jumps to where the thumb lands */
+.tc-stick {
+	--x: calc(var(--tw-safe-l) + 110px * var(--tc-k));
+	--y: calc(100dvh - var(--tw-safe-b) - 110px * var(--tc-k));
+	position: absolute;
+	left: var(--x);
+	top: var(--y);
+	width: 0;
+	height: 0;
+	pointer-events: none;
+	opacity: 0.4;
+	transition: opacity var(--tw-med) var(--tw-ease);
+}
+
+.tc-stick.is-on { opacity: 1; transition: none; }
+.tc-ring,
+.tc-base { position: absolute; left: 0; top: 0; border-radius: 50%; transform: translate(-50%, -50%); }
+.tc-base { width: calc(108px * var(--tc-k)); height: calc(108px * var(--tc-k)); background: rgba(8, 14, 22, 0.32); box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.35); }
+.tc-ring { width: calc(128px * var(--tc-k)); height: calc(128px * var(--tc-k)); box-shadow: inset 0 0 0 2px rgba(var(--tw-sun-rgb), 0); transition: box-shadow var(--tw-fast); }
+.tc-stick.is-sprint .tc-ring { box-shadow: inset 0 0 0 3px rgba(var(--tw-sun-rgb), 0.85); }
+/* (TouchControls writes the knob's translate; its margin centres it on the stick) */
+.tc-knob {
+	position: absolute;
+	left: 0;
+	top: 0;
+	width: calc(50px * var(--tc-k));
+	height: calc(50px * var(--tc-k));
+	margin: calc(-25px * var(--tc-k)) 0 0 calc(-25px * var(--tc-k));
+	border-radius: 50%;
+	background: radial-gradient(circle at 40% 35%, #f4fbfc, #b9d4da);
+	box-shadow: 0 3px 10px rgba(0, 0, 0, 0.4);
+}
+
+/* buttons, bottom right */
+.tc-actions {
+	position: absolute;
+	right: calc(14px + var(--tw-safe-r));
+	bottom: calc(14px + var(--tw-safe-b));
+	display: flex;
+	flex-direction: column;
+	align-items: flex-end;
+	gap: calc(10px * var(--tc-k));
+	pointer-events: none;
+}
+
+.tc-row { display: flex; flex-wrap: wrap-reverse; justify-content: flex-end; align-items: flex-end; gap: calc(10px * var(--tc-k)); max-width: min(56vw, 440px); }
+.tc-root[data-mode="boat"] .tc-actions,
+.tc-root[data-mode="plane"] .tc-actions { right: calc(84px * var(--tc-k) + var(--tw-safe-r)); }
+
+.tc-btn,
+.tc-tbtn {
+	position: relative;
+	display: grid;
+	place-items: center;
+	margin: 0;
+	padding: 0 6px;
+	border: 0;
+	min-width: var(--tc-b);
+	height: var(--tc-b);
+	border-radius: 999px;
+	background: rgba(10, 18, 26, 0.5);
+	box-shadow: inset 0 0 0 1.5px rgba(255, 255, 255, 0.4), 0 4px 14px rgba(0, 0, 0, 0.3);
+	backdrop-filter: blur(8px);
+	-webkit-backdrop-filter: blur(8px);
+	font: 600 calc(12.5px * var(--tc-k)) var(--tw-font);
+	letter-spacing: 0.01em;
+	color: #fff;
+	text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+	pointer-events: auto;
+	touch-action: none;
+	transition: transform 90ms var(--tw-ease), background 90ms;
+}
+
+.tc-btn.is-down,
+.tc-tbtn.is-down { transform: scale(0.92); background: rgba(var(--tw-aqua-rgb), 0.45); }
+.tc-big { min-width: calc(80px * var(--tc-k)); height: calc(80px * var(--tc-k)); font-size: calc(14px * var(--tc-k)); background: rgba(var(--tw-aqua-rgb), 0.28); box-shadow: inset 0 0 0 2px rgba(var(--tw-aqua-rgb), 0.85), 0 6px 18px rgba(0, 0, 0, 0.35); }
+.tc-big.is-hot { background: rgba(var(--tw-sun-rgb), 0.6); animation: tc-hot 0.6s ease-in-out infinite alternate; }
+.tc-big.is-warn { background: rgba(255, 90, 90, 0.55); box-shadow: inset 0 0 0 2px #ff9a9a, 0 6px 18px rgba(0, 0, 0, 0.35); }
+@keyframes tc-hot { to { transform: scale(1.08); } }
+.tc-interact {
+	max-width: min(52vw, 360px);
+	height: calc(48px * var(--tc-k));
+	padding: 0 calc(18px * var(--tc-k));
+	background: linear-gradient(180deg, rgba(154, 245, 234, 0.92), rgba(85, 220, 205, 0.92));
+	box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+	color: #03201c;
+	text-shadow: none;
+	font-size: calc(14px * var(--tc-k));
+}
+
+.tc-interact > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+
+/* the lever (boat throttle notches, the seaplane's throttle) on the right edge */
+.tc-lever {
+	position: absolute;
+	right: calc(12px + var(--tw-safe-r));
+	bottom: calc(20px + var(--tw-safe-b));
+	width: calc(62px * var(--tc-k));
+	height: min(56dvh, calc(250px * var(--tc-k)));
+	border-radius: 999px;
+	background: rgba(10, 18, 26, 0.5);
+	box-shadow: inset 0 0 0 1.5px rgba(255, 255, 255, 0.35);
+	backdrop-filter: blur(8px);
+	-webkit-backdrop-filter: blur(8px);
+	pointer-events: auto;
+	touch-action: none;
+}
+
+.tc-lever-track { position: absolute; left: 50%; top: 30px; bottom: 30px; width: 4px; margin-left: -2px; border-radius: 2px; background: rgba(255, 255, 255, 0.3); }
+.tc-lever-track i { position: absolute; left: -8px; width: 20px; height: 2px; background: rgba(255, 255, 255, 0.55); }
+.tc-lever-track i[data-n="1"] { bottom: 100%; }
+.tc-lever-track i[data-n="0.7"] { bottom: 81.25%; }
+.tc-lever-track i[data-n="0"] { bottom: 37.5%; background: var(--tw-sun); }
+.tc-lever-track i[data-n="-0.6"] { bottom: 0; }
+.tc-lever.is-plane .tc-lever-track i { display: none; }
+.tc-lever-thumb {
+	--f: 0.375;
+	position: absolute;
+	left: 50%;
+	bottom: calc(30px + (100% - 60px) * var(--f));
+	width: calc(46px * var(--tc-k));
+	height: calc(26px * var(--tc-k));
+	transform: translate(-50%, 50%);
+	border-radius: 8px;
+	background: linear-gradient(180deg, #f4fbfc, #b9d4da);
+	box-shadow: 0 3px 10px rgba(0, 0, 0, 0.4);
+}
+
+.tc-lever-val { position: absolute; left: 0; right: 0; top: 6px; text-align: center; font: 600 11px var(--tw-font); color: var(--tw-ink-2); }
+
+/* the utility row, top right under the purse */
+.tc-top {
+	position: absolute;
+	top: calc(var(--tw-edge) + var(--tw-safe-t) + 46px);
+	right: calc(var(--tw-edge) + var(--tw-safe-r));
+	display: flex;
+	gap: 8px;
+	pointer-events: none;
+}
+
+.tc-tbtn { --tc-b: 44px; width: 44px; min-width: 44px; height: 44px; padding: 0; }
+.tc-tbtn .tw-ico { width: 20px; height: 20px; }
+.tc-photo { position: absolute; top: calc(12px + var(--tw-safe-t)); right: calc(12px + var(--tw-safe-r)); display: none; }
+
+/* a panel or the settings are up: only Menu (closes it) stays */
+.tc-root.is-busy .tc-actions,
+.tc-root.is-busy .tc-stick,
+.tc-root.is-busy .tc-lever,
+.tc-root.is-busy .tc-tbtn:not([data-id="menu"]) { display: none; }
+.tc-root.is-busy .tc-pad { pointer-events: none; }
+.tc-root.is-photo .tc-actions,
+.tc-root.is-photo .tc-stick,
+.tc-root.is-photo .tc-top { display: none; }
+.tc-root.is-photo .tc-photo { display: grid; }
+
+/* portrait phone: a hint over the game, which keeps running underneath */
+.tc-rotate {
+	position: absolute;
+	inset: 0;
+	display: none;
+	place-items: center;
+	padding: 24px;
+	background: rgba(3, 9, 15, 0.55);
+	pointer-events: none;
+}
+
+.tc-rotate.is-on { display: grid; }
+.tc-rotate-card { display: flex; flex-direction: column; align-items: center; gap: 12px; max-width: 280px; padding: 20px 22px; border-radius: 18px; text-align: center;
+	background: rgba(10, 18, 26, 0.72); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.14); font-size: 15px; font-weight: 500; }
+.tc-rotate-card svg { width: 56px; height: 56px; color: var(--tw-aqua); animation: tc-turn 2.4s var(--tw-ease) infinite; }
+@keyframes tc-turn { 0%, 30% { transform: rotate(0); } 60%, 100% { transform: rotate(-90deg); } }
+
+@media (max-height: 420px) {
+
+	.tc-root { --tc-b: calc(50px * var(--tc-k)); }
+	.tc-big { min-width: calc(70px * var(--tc-k)); height: calc(70px * var(--tc-k)); }
+	.tc-top { top: calc(var(--tw-edge) + var(--tw-safe-t) + 40px); }
+
+}
+
+/* ---- no WebGPU: a clear page instead of a crash (ui/UI.js showUnsupported) */
+.tw-unsupported {
+	position: fixed;
+	inset: 0;
+	z-index: 2000;
+	display: grid;
+	place-items: center;
+	padding: calc(20px + var(--tw-safe-t)) calc(20px + var(--tw-safe-r)) calc(20px + var(--tw-safe-b)) calc(20px + var(--tw-safe-l));
+	overflow: auto;
+	background: linear-gradient(160deg, #0b3a36, #04161a 70%);
+	color: var(--tw-ink);
+	font-family: var(--tw-font);
+	-webkit-font-smoothing: antialiased;
+}
+
+.tw-unsupported-card { width: min(520px, 100%); padding: 26px 26px 22px; border-radius: 20px; background: rgba(6, 26, 30, 0.72);
+	box-shadow: inset 0 0 0 1px rgba(116, 201, 160, 0.3), 0 24px 70px -20px rgba(0, 0, 0, 0.6); }
+.tw-unsupported h1 { margin: 0 0 6px; font-size: 24px; letter-spacing: 0.08em; }
+.tw-unsupported p { margin: 0 0 12px; line-height: 1.5; color: rgba(232, 244, 240, 0.86); font-size: 15px; }
+.tw-unsupported ul { margin: 0 0 16px; padding-left: 20px; line-height: 1.7; font-size: 15px; }
+.tw-unsupported small { display: block; margin-top: 12px; color: rgba(232, 244, 240, 0.55); font-size: 12px; word-break: break-word; }
+.tw-unsupported a.tw-unsupported-btn { display: inline-flex; align-items: center; min-height: 44px; padding: 0 20px; border-radius: 999px; font-weight: 600; text-decoration: none;
+	color: #03201c; background: linear-gradient(180deg, #9af5ea, #55dccd); }
