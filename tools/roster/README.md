@@ -63,12 +63,44 @@ name.
 3. **Materials**: base-colour textures are scaled to 2048, other maps to 1024; metallic above 0.5 is reset to 0
    (the generations ship with metallic skin); `M_` prefixes are stripped and `Material_0` becomes `body`.
 4. **Clips**: each animation FBX is imported, its action taken (same bone names, so no retargeting), put on its own muted NLA
-   track and the imported rig deleted; clips with no action print `NO ACTION` and are skipped. Then `fishing_pose.py` replaces
+   track and the imported rig deleted; clips with no action print `NO ACTION` and are skipped. A clip passed as
+   `Name=anim.fbx|rebase` is rebased first (prints `REBASE`, see "Rebased clips" below). Then `fishing_pose.py` replaces
    Fishing_Hold / Reel / Strike / Cast (the authored ones were static arm poses) and adds Fishing_Fight / Charge. See "Fishing clips" below.
 5. **Export**: glTF binary, JPEG textures at quality 86, skins on, animations from the NLA tracks with forced
    sampling and size optimisation, morphs off, Y up, modifiers applied.
 6. **Portrait**: frame 10 of `Idle_Breathe` from the front, 512 × 640 transparent PNG, Workbench studio
    lighting with cavity and shadows.
+
+## Rebased clips (wave 11C)
+
+Helm_Idle, Steer_Left / Steer_Right, Seated_Idle and Fall_Loop exported as the bind pose (an A for their whole length;
+`ProcPose.bindLike` flagged them). Cause: the authored clip FBXs (`HyptileMotion/scripts/build_motion.py`,
+`FishingFleet/build_fleet.py`, the JadeFisher animations) were exported with the rig posed on frame 1, and Blender's FBX
+exporter writes the current pose as the skeleton's rest. The importer reads that back as the clip armature's rest, so the
+keys are deltas from the clip's first frame (every SK_*.fbx shares the true JadeFisher v03 rest; the clip rests differ by
+up to 118 deg, the seated ones also have the pelvis 0.29 m lower). Assigned directly, every authored clip starts in the bind
+pose, and a clip that holds one pose is the bind pose throughout. `rebase_action` composes every key with the clip's rest:
+`basis' = inv(rest_char_local) @ rest_clip_local @ basis` (translation kept for root / pelvis only), which reproduces the
+authored pose exactly (checked bone by bone against the source armature: 0.0 deg, 0.0 m).
+
+Only those five are rebased (`$Rebase` in `build.ps1`). Every other authored clip (Jump, Swim_*, Row_*, Paddle_*, Sit_Down,
+Stand_Up, Board / Disembark, Land_Soft, Stumble, Knockdown, GetUp_Front, Hit_Reaction, Catch_*, Sweep_Work, Inspect_Catch,
+Offer_Finger, Prank_Laugh, Airborne_Tumble, Melee_Paddle when not overridden) has the same offset rest but moves, and the
+game is tuned to how they play now (the swim pitch, the ragdoll get-up, the rowing grips): rebasing them is a separate,
+reviewed change (`REBASE_ALL=1` for an experiment). The Rocketbox / Kimodo retargets (`retarget.py`) export in the true rest
+and need nothing.
+
+The committed GLBs were built with `-Override` Kimodo clips whose files were regenerated afterwards, so a whole rebuild
+changes Idle_Breathe / Walk_InPlace. The wave 11C GLBs were therefore built into a scratch folder and only the five clips
+spliced into the committed GLBs (meshes, textures and every other clip byte-for-byte the same):
+
+```powershell
+$K = 'D:\fishing game\Assets\HyptileMotion\kimodo_bip01\retargeted'
+powershell -ExecutionPolicy Bypass -File tools/roster/build.ps1 -SkipRetarget -OutDir $env:TEMP\roster -PortraitDir $env:TEMP\roster `
+  -Override "Idle_Breathe=$K\Idle_Breathe.fbx,Walk_InPlace=$K\Walk_InPlace.fbx,Melee_Paddle=$K\Melee_Paddle.fbx"
+node tools/roster/splice-clips.mjs public/models/roster/hyptile.glb $env:TEMP\roster\hyptile.glb public/models/roster/hyptile.glb Helm_Idle Seated_Idle Steer_Left Steer_Right Fall_Loop
+node test/roster-clips.mjs   # every graph clip present and none bind-like; the seated clips drop the pelvis
+```
 
 ## Fishing clips (`fishing_pose.py`)
 

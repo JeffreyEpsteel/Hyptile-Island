@@ -1,15 +1,17 @@
 # Blender 5.x batch converter: one rigged Hyptile-family character (SK_*.fbx on the accepted 48-bone
 # JadeFisher rig) + animation-only FBXs on the same rig -> one GLB (decimated skin, downsized JPEG
 # textures, one glTF animation per clip) and a portrait PNG for the character picker.
-#   blender -b --python convert-character.py -- <character.fbx> <out.glb> <portrait.png> <maxTris> <Name=anim.fbx> ...
+#   blender -b --python convert-character.py -- <character.fbx> <out.glb> <portrait.png> <maxTris> <Name=anim.fbx[|rebase]> ...
 # Bone names match between the character and the clips, so every clip action is assigned directly
-# (NLA track per clip) and the exporter samples it. The six eye morph targets (Blink_L / Blink_R / Gaze_Left /
+# (NLA track per clip) and the exporter samples it. A clip marked `|rebase` (or every clip with env REBASE_ALL=1) is first
+# rebased onto the character's rest (see rebase_action). The six eye morph targets (Blink_L / Blink_R / Gaze_Left /
 # Gaze_Right / Gaze_Up / Gaze_Down, position deltas only) are kept on the eye and lid pieces. Vertex-coloured
 # lid / rim slots become their flat material colour.
 import bpy, sys, os, math
 argv = sys.argv[sys.argv.index('--') + 1:]
 src, out, portrait, max_tris = argv[0], argv[1], argv[2], int(argv[3])
 clips = [a.split('=', 1) for a in argv[4:]]
+REBASE_ALL = os.environ.get('REBASE_ALL', '0') == '1'
 SYMMETRY = os.environ.get('DECIMATE_SYMMETRY', '0') == '1'
 FACTOR = float(os.environ.get('DECIMATE_FACTOR', '1.0'))
 DETAIL_W = float(os.environ.get('DECIMATE_DETAIL_W', '0.9'))
@@ -387,15 +389,84 @@ for m in meshes:
         if bsdf.inputs['Metallic'].default_value > 0.5: bsdf.inputs['Metallic'].default_value = 0
         mat.name = mat.name.replace('M_', '').replace('Material_0', 'body')
 
+# ---- rebase: the authored clip FBXs (HyptileMotion build_motion.py, FishingFleet boat actions, JadeFisher animations) were
+# exported with the rig posed on their first frame, and the FBX exporter writes the current pose as the skeleton's rest. The
+# importer reads that back as the clip armature's rest, so its keys are deltas from the FIRST FRAME, not from the true rest
+# (which the characters share: every SK_*.fbx has the JadeFisher v03 rest). Assigned as-is, a clip starts in the bind pose and
+# a clip that holds one pose (Helm_Idle, Seated_Idle, Steer_Left / Right, Fall_Loop) IS the bind pose for its whole length.
+# Rebasing composes each key with the clip armature's rest:  basis' = inv(rest_char_local) @ rest_clip_local @ basis, which
+# is the authored local pose exactly. Translations off the pelvis / root keep the character's own offsets (proportions).
+from mathutils import Matrix, Quaternion
+
+def rest_local(a, n):
+    b = a.data.bones[n]
+    return (b.parent.matrix_local.inverted() @ b.matrix_local) if b.parent else b.matrix_local.copy()
+
+def action_channelbag(act, slot):
+    try:
+        from bpy_extras.anim_utils import action_get_channelbag_for_slot
+        cb = action_get_channelbag_for_slot(act, slot)
+        if cb is not None: return cb
+    except ImportError:
+        pass
+    return act.layers[0].strips[0].channelbag(slot, ensure=True)
+
+def rebase_action(act, slot, src, dst):
+    cb = action_channelbag(act, slot)
+    worst = 0.0
+    for b in src.data.bones:
+        n = b.name
+        if n not in dst.data.bones: continue
+        Lc, Lt = rest_local(src, n), rest_local(dst, n)
+        C = Lt.inverted() @ Lc
+        moves_root = n in ('root', 'pelvis')
+        if not moves_root: C.translation = (0, 0, 0)       # same rotation correction, the character's own bone offset
+        ang = math.degrees(C.to_quaternion().angle)
+        if ang < 1e-3 and C.translation.length < 1e-6: continue
+        worst = max(worst, min(ang, 360 - ang))
+        dp = 'pose.bones["%s"].' % n
+        fc = {}
+        for prop, k in (('location', 3), ('rotation_quaternion', 4), ('scale', 3)):
+            for i in range(k):
+                fc[prop, i] = cb.fcurves.find(dp + prop, index=i)
+        frames = sorted({kp.co[0] for c in fc.values() if c for kp in c.keyframe_points})
+        if not frames: frames = [act.frame_range[0], act.frame_range[1]]
+        val = lambda prop, i, f, d: fc[prop, i].evaluate(f) if fc[prop, i] else d
+        out = {key: [] for key in fc}
+        prev = None
+        for f in frames:
+            loc = Vector([val('location', i, f, 0.0) for i in range(3)])
+            q = Quaternion([val('rotation_quaternion', i, f, 1.0 if i == 0 else 0.0) for i in range(4)]).normalized()
+            s = Vector([val('scale', i, f, 1.0) for i in range(3)])
+            N = C @ Matrix.LocRotScale(loc, q, s)
+            nl, nq, ns = N.decompose()
+            if prev is not None and nq.dot(prev) < 0: nq.negate()
+            prev = nq
+            for i in range(3): out['location', i].append(nl[i]); out['scale', i].append(ns[i])
+            for i in range(4): out['rotation_quaternion', i].append(nq[i])
+        for (prop, i), c in fc.items():
+            if c is None: c = cb.fcurves.new(dp + prop, index=i, group_name=n)
+            c.keyframe_points.clear()
+            c.keyframe_points.add(len(frames))
+            co = [x for f, v in zip(frames, out[prop, i]) for x in (f, v)]
+            c.keyframe_points.foreach_set('co', co)
+            for kp in c.keyframe_points: kp.interpolation = 'LINEAR'
+            c.update()
+    return worst
+
 # ---- clips: same rig, same bone names -> assign each action directly, one NLA track per clip
 arm.animation_data_create()
 for name, path in clips:
+    path, _, opts = path.partition('|')
     new = import_fbx(path)
     a_arm = next((o for o in new if o.type == 'ARMATURE'), None)
     act = a_arm.animation_data.action if a_arm and a_arm.animation_data else None
     if act is None:
         print('NO ACTION', path)
         continue
+    if REBASE_ALL or 'rebase' in opts.split(','):
+        slot = a_arm.animation_data.action_slot or (act.slots[0] if act.slots else None)
+        print('REBASE', name, 'max rest correction deg', round(rebase_action(act, slot, a_arm, arm), 1))
     f0, f1 = int(round(act.frame_range[0])), int(round(act.frame_range[1]))
     act.name = name
     act.use_fake_user = True

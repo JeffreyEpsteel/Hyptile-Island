@@ -1,0 +1,25 @@
+--- a/test/feature-helm.mjs
++++ b/test/feature-helm.mjs
+@@ -159,8 +159,8 @@
+ const worldOf = ( n, out = new E.Vector3() ) => { m.nodeWorld( n, out ); return out.applyMatrix4( av.group.matrixWorld ); };
+ const modelOf = ( n, out = new E.Vector3() ) => { m.nodeWorld( n, out ); return out; };
+ 
+-ok( [ 'Helm_Idle', 'Steer_Left', 'Steer_Right', 'Seated_Idle' ].every( ( c ) => clipRestDeviation( m.gltf.animations.find( ( a ) => a.name === c ), m.rest ) < 8 ), 'the roster GLB\'s Helm_Idle / Steer_* / Seated_Idle are bind poses (the A at the wheel)' );
+-ok( av.helmBase === 'idle' && ! bindLike( m.clips.get( 'Helm_Idle' ), m ), `the helm clip is replaced by the standing idle on this rig (${ av.helmBase })` );
++ok( [ 'Helm_Idle', 'Steer_Left', 'Steer_Right', 'Seated_Idle', 'Fall_Loop' ].every( ( c ) => clipRestDeviation( m.gltf.animations.find( ( a ) => a.name === c ), m.rest ) > 30 ), 'the roster GLB\'s Helm_Idle / Steer_* / Seated_Idle / Fall_Loop are real poses (wave 11C rebase), not the bind A' );
++ok( av.helmBase === 'clip' && ! bindLike( m.clips.get( 'Helm_Idle' ), m ), `the helm state plays the rig's own Helm_Idle (${ av.helmBase })` );
+ ok( ! bindLike( m.clips.get( 'Idle_Breathe' ), m ) && ! bindLike( m.clips.get( 'Swim_Forward' ), m ), 'the idle and the swim stroke are real clips' );
+ 
+ const helmAt = ( model, { action = 'helm', steer = 0, frame = null, seconds = 1.2, ik = true, at = model.helmStand } = {} ) => {
+@@ -224,9 +224,9 @@
+ 	const tilt = Math.atan2( head.x - pel.x, head.y - pel.y ); // the body line against the world vertical
+ 	const deck = Math.atan2( new E.Vector3( 0, 1, 0 ).applyQuaternion( roll ).x, new E.Vector3( 0, 1, 0 ).applyQuaternion( roll ).y );
+ 	ok( Math.abs( tilt ) < Math.abs( deck ) - 0.05, `on a rolled deck (${ f2( deck ) } rad) the body stands straighter (${ f2( tilt ) } rad)` );
+-	// an idle skiff (the 'seated' action at the helm, a bind-pose clip) shows the standing base, not the A
++	// an idle skiff (the 'seated' action at the helm): the real Seated_Idle since wave 11C, knees bent, not the A
+ 	helmAt( models.skiff, { action: 'seated', seconds: 0.8, ik: false } );
+-	ok( av.state === 'helm' && m.current === 'Helm_Idle' && restDev( 'upperarm_l' ) > 15, `an idle skiff at the helm: the helm base, no bind pose (${ m.current })` );
++	ok( m.current === 'Seated_Idle' && restDev( 'thigh_l' ) > 45 && restDev( 'upperarm_l' ) > 15, `an idle skiff at the helm: seated, no bind pose (${ av.state } / ${ m.current }, thigh ${ f2( restDev( 'thigh_l' ) ) } deg)` );
+ 	// rowing keeps its real clip
+ 	helmAt( models.skiff, { action: 'rowForward', seconds: 0.8, ik: false } );
+ 	ok( av.state === 'action' && m.current === 'Row_Forward', `rowing plays the row clip (${ m.current })` );

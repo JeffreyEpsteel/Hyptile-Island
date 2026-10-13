@@ -1,4 +1,4 @@
-import { BoxGeometry, CylinderGeometry, Group, MathUtils, Mesh, Object3D, Vector3 } from '../../engine/index.js';
+import { Box3, BoxGeometry, BufferAttribute, BufferGeometry, CylinderGeometry, Group, MathUtils, Mesh, Object3D, Vector3 } from '../../engine/index.js';
 import { Material } from '../../engine/render/Material.js';
 import { BOATS, boatUrl } from '../../game/Boats.js';
 import { RHO_SEAWATER } from './HullLines.js';
@@ -25,6 +25,12 @@ import { WHEEL_TURNS, steerWheel, wheelGripPoints, helmStandFor } from '../BoatM
 // The fleet GLBs are single merged meshes with no wheel / tiller node, so every fleet hull gets the lobster boat's procedural
 // wheel (Wheelhouse.wheelGeometry) on a pedestal HELM_WHEEL.ahead in front of the helm point; it exists from the constructor
 // (setSteering turns it before the GLB is in) and moves into the hull node when the GLB arrives.
+// The tiller (wave 11C): every fleet hull also has a tiller over the stern (build_fleet.py: a teak beam from the rudder head
+// forward and up, the stern rudder below it), baked into the merged mesh. When the GLB is in, _mountTiller() takes a node named
+// like /tiller/ if the GLB has one, else lifts the baked tiller and rudder out of the hull's triangles (every connected piece
+// lying wholly inside their regions, as ShipBoatModel carves its wheel), else builds a procedural tiller; tillerPivot then
+// turns about the rudder stock with setSteering (the tiller to starboard and the blade to port for a turn to port, TILLER_MAX
+// at hard over). tillerPivot / tillerMesh / rudderPivot / tillerSource ('node' | 'carved' | 'procedural'), tillerAngle.
 //
 // Boat frame as BoatModel: +Z forward, +Y up, +X port, y = 0 the design waterline. The hull GLBs
 // are authored in this frame (keel at y ~ -0.22, deck floor ~ 0.31, gunwale ~ 0.62-0.7).
@@ -46,7 +52,115 @@ const OUTLINE = [ [ 0, 0.3, 4.1 ], [ 1.2, 0.3, 2.0 ], [ - 1.2, 0.3, 2.0 ], [ 1.4
 const WHEELHOUSE = { launch: { x: 0.63, y0: 0.31, y1: 1.68, z0: 1.2, z1: 1.8 } };
 // the pedestal wheel of the fleet hulls: centre ahead of the helm point and above the deck (m), the face tilted back (rad)
 const HELM_WHEEL = { ahead: 0.42, height: 0.92, tilt: 0.42, radius: 0.2 };
+// the tiller: its swing at hard over (rad); where the baked one lies (boat frame: on the centreline over the aft 30 % of the
+// hull, between the deck planks' top and 0.72 m; reach: the half width of the region), the rudder in the 0.6 m behind it
+export const TILLER_MAX = 0.55;
+const TILLER_REGION = { reach: 0.06, y0: 0.29, y1: 0.72, aft: 0.3, rudderY0: - 0.35, rudderY1: 0.42, rudderAft: 0.6 };
 // The GLBs already have the bow at +Z: the rudder blade hangs at -Z (checked with test/world-fleet.mjs).
+
+// Lift every connected piece of the meshes' triangles that lies wholly inside `inside( x, y, z )` (positions in the meshes'
+// own frame, welded by position: flat-shaded parts split their corners) into new geometries; the meshes keep the rest in a new
+// index (the parsed one is shared by every load of the file). -> { tris, parts: [ { geometry, material } ], box }
+export function carvePieces( meshes, inside ) {
+
+	const parts = [];
+	const box = new Box3();
+	let total = 0;
+	for ( const mesh of meshes ) {
+
+		const g = mesh.geometry, P = g.attributes.position.array, idx = g.index ? g.index.array : null;
+		if ( ! idx ) continue;
+		const nV = P.length / 3;
+		const inV = new Uint8Array( nV );
+		let any = false;
+		for ( let v = 0; v < nV; v ++ ) if ( inside( P[ v * 3 ], P[ v * 3 + 1 ], P[ v * 3 + 2 ] ) ) { inV[ v ] = 1; any = true; }
+		if ( ! any ) continue;
+		const key = new Int32Array( nV ).fill( - 1 ), byPos = new Map();
+		for ( let v = 0; v < nV; v ++ ) {
+
+			if ( ! inV[ v ] ) continue;
+			const k = Math.round( P[ v * 3 ] * 1e4 ) + ',' + Math.round( P[ v * 3 + 1 ] * 1e4 ) + ',' + Math.round( P[ v * 3 + 2 ] * 1e4 );
+			let id = byPos.get( k );
+			if ( id === undefined ) byPos.set( k, id = byPos.size );
+			key[ v ] = id;
+
+		}
+
+		const up = new Int32Array( byPos.size ).map( ( _, i ) => i ), taint = new Uint8Array( byPos.size );
+		const find = ( a ) => {
+
+			while ( up[ a ] !== a ) { up[ a ] = up[ up[ a ] ]; a = up[ a ]; }
+			return a;
+
+		};
+		const nT = idx.length / 3;
+		for ( let t = 0; t < nT; t ++ ) {
+
+			const a = idx[ t * 3 ], b = idx[ t * 3 + 1 ], c = idx[ t * 3 + 2 ];
+			const n = inV[ a ] + inV[ b ] + inV[ c ];
+			if ( n === 3 ) { up[ find( key[ b ] ) ] = find( key[ a ] ); up[ find( key[ c ] ) ] = find( key[ a ] ); } else if ( n ) {
+
+				// a piece reaching out of the region (the hull, a plank, a thwart): not ours
+				if ( inV[ a ] ) taint[ key[ a ] ] = 1;
+				if ( inV[ b ] ) taint[ key[ b ] ] = 1;
+				if ( inV[ c ] ) taint[ key[ c ] ] = 1;
+
+			}
+
+		}
+
+		for ( let k = 0; k < taint.length; k ++ ) if ( taint[ k ] ) taint[ find( k ) ] = 1;
+		const tris = [];
+		for ( let t = 0; t < nT; t ++ ) {
+
+			const a = idx[ t * 3 ];
+			if ( inV[ a ] && inV[ idx[ t * 3 + 1 ] ] && inV[ idx[ t * 3 + 2 ] ] && ! taint[ find( key[ a ] ) ] ) tris.push( t );
+
+		}
+
+		if ( ! tris.length ) continue;
+		const A = g.attributes, N = A.normal ? A.normal.array : null, U = A.uv ? A.uv.array : null;
+		const n = tris.length * 3;
+		const pos = new Float32Array( n * 3 ), nor = N ? new Float32Array( n * 3 ) : null, uv = U ? new Float32Array( n * 2 ) : null;
+		let o = 0;
+		for ( const t of tris ) for ( let j = 0; j < 3; j ++, o ++ ) {
+
+			const v = idx[ t * 3 + j ];
+			for ( let c = 0; c < 3; c ++ ) pos[ o * 3 + c ] = P[ v * 3 + c ];
+			if ( nor ) for ( let c = 0; c < 3; c ++ ) nor[ o * 3 + c ] = N[ v * 3 + c ];
+			if ( uv ) { uv[ o * 2 ] = U[ v * 2 ]; uv[ o * 2 + 1 ] = U[ v * 2 + 1 ]; }
+			box.expandByPoint( new Vector3( P[ v * 3 ], P[ v * 3 + 1 ], P[ v * 3 + 2 ] ) );
+
+		}
+
+		const geo = new BufferGeometry();
+		geo.setAttribute( 'position', new BufferAttribute( pos, 3 ) );
+		if ( nor ) geo.setAttribute( 'normal', new BufferAttribute( nor, 3 ) );
+		if ( uv ) geo.setAttribute( 'uv', new BufferAttribute( uv, 2 ) );
+		const seq = n > 65535 ? new Uint32Array( n ) : new Uint16Array( n );
+		for ( let i = 0; i < n; i ++ ) seq[ i ] = i;
+		geo.setIndex( new BufferAttribute( seq, 1 ) );
+		if ( ! nor ) geo.computeVertexNormals();
+		parts.push( { geometry: geo, material: mesh.material } );
+		const drop = new Uint8Array( nT );
+		for ( const t of tris ) drop[ t ] = 1;
+		const keep = new idx.constructor( idx.length - n );
+		let k = 0;
+		for ( let t = 0; t < nT; t ++ ) {
+
+			if ( drop[ t ] ) continue;
+			keep[ k ++ ] = idx[ t * 3 ]; keep[ k ++ ] = idx[ t * 3 + 1 ]; keep[ k ++ ] = idx[ t * 3 + 2 ];
+
+		}
+
+		g.setIndex( new BufferAttribute( keep, 1 ) );
+		total += tris.length;
+
+	}
+
+	return { tris: total, parts, box };
+
+}
 
 export class FleetBoatModel {
 
@@ -78,6 +192,11 @@ export class FleetBoatModel {
 
 		// the helm wheel (before the GLB: setSteering works from the start)
 		this._helmParts = null;
+		this.tillerPivot = null; // the tiller (and rudder) once the GLB is in: _mountTiller
+		this.tillerMesh = null;
+		this.rudderPivot = null;
+		this.tillerSource = null;
+		this._tillerParts = null;
 		this.wheelGripAngle = Math.PI / 6;
 		this.wheelTurns = WHEEL_TURNS;
 		this._buildHelm( spec, lines );
@@ -94,6 +213,7 @@ export class FleetBoatModel {
 			const hull = this._adoptGLB( glb );
 			this.group.add( hull );
 			this._mountHelm( hull );
+			this._mountTiller( glb, hull );
 			this.loaded = true;
 			return this;
 
@@ -220,6 +340,139 @@ export class FleetBoatModel {
 
 		this._steer = MathUtils.clamp( a, - 1, 1 );
 		steerWheel( this.wheelMesh, this._steer, this.wheelTurns );
+		this._steerTiller();
+
+	}
+
+	// the tiller's swing about the rudder stock (rad, + = the tiller toward port): - steer * TILLER_MAX
+	get tillerAngle() {
+
+		return this.tillerPivot ? this.tillerPivot.rotation.y : 0;
+
+	}
+
+	_steerTiller() {
+
+		// a turn to port (+steer) puts the tiller over to starboard (-X) and the blade's trailing edge to port: one rotation
+		const r = - ( this._steer || 0 ) * TILLER_MAX;
+		if ( this.tillerPivot ) this.tillerPivot.rotation.y = r;
+		if ( this.rudderPivot ) this.rudderPivot.rotation.y = r;
+
+	}
+
+	// The GLB is in (boat frame: the fleet hulls; a subclass whose GLB hangs in its own frame has hull !== glb.group and no
+	// tiller here): a node named like a tiller, else the baked tiller and rudder carved out of the hull, else a procedural one.
+	_mountTiller( glb, hull ) {
+
+		if ( hull !== glb.group ) return;
+		this._tillerParts = { geos: [], mats: [] };
+		let node = null;
+		glb.group.traverse( ( o ) => { if ( ! node && o !== glb.group && /tiller/i.test( o.name || '' ) ) node = o; } );
+		if ( node ) {
+
+			node.updateMatrixWorld( true );
+			const box = new Box3().setFromObject( node );
+			// the stock at the tiller's aft end, on the centreline
+			const pivot = this._tillerPivotAt( hull, ( box.min.x + box.max.x ) / 2, box.min.y, box.min.z );
+			pivot.attach( node );
+			this.tillerMesh = node;
+			this.tillerSource = 'node';
+
+		} else if ( this._carveTiller( glb, hull ) ) {
+
+			this.tillerSource = 'carved';
+
+		} else {
+
+			this._proceduralTiller( hull );
+			this.tillerSource = 'procedural';
+
+		}
+
+		this._steerTiller();
+
+	}
+
+	_tillerPivotAt( parent, x, y, z, name = 'boat-tiller-pivot' ) {
+
+		const p = new Object3D();
+		p.name = name;
+		p.position.set( x, y, z );
+		parent.add( p );
+		if ( name === 'boat-tiller-pivot' ) this.tillerPivot = p; else this.rudderPivot = p;
+		return p;
+
+	}
+
+	// lift the baked tiller (and the rudder blade behind it) out of the hull meshes; returns the triangles moved (0: none)
+	_carveTiller( glb, hull ) {
+
+		const T = TILLER_REGION, L = this.lines;
+		const zFwd = L.zAft * T.aft; // the tiller lies aft of this (zAft < 0)
+		const tiller = carvePieces( glb.meshes, ( x, y, z ) => Math.abs( x ) <= T.reach && y >= T.y0 && y <= T.y1 && z <= zFwd && z >= L.zAft - 0.3 );
+		if ( ! tiller.tris ) return 0;
+		const b = tiller.box;
+		// a beam rising forward from the rudder head: long, thin and on the centreline
+		if ( b.max.z - b.min.z < 0.3 || b.max.x - b.min.x > 2 * T.reach || b.max.y - b.min.y < 0.1 ) return 0;
+		const zStock = b.min.z;
+		const pivot = this._tillerPivotAt( hull, 0, b.min.y, zStock );
+		this.tillerMesh = this._partsUnder( pivot, tiller.parts, 'boat-tiller' );
+		// the rudder: wholly inside a thin slab on the centreline behind the tiller's head
+		const rudder = carvePieces( glb.meshes, ( x, y, z ) => Math.abs( x ) <= T.reach && y >= T.rudderY0 && y <= T.rudderY1 && z < zStock - 0.02 && z >= zStock - T.rudderAft );
+		if ( rudder.tris ) {
+
+			const rp = this._tillerPivotAt( hull, 0, rudder.box.min.y, rudder.box.max.z, 'boat-rudder-pivot' );
+			this._partsUnder( rp, rudder.parts, 'boat-rudder' );
+
+		}
+
+		return tiller.tris + rudder.tris;
+
+	}
+
+	// carved parts (boat-frame positions) -> meshes under pivot, positions relative to it
+	_partsUnder( pivot, parts, name ) {
+
+		const g = new Group();
+		g.name = name;
+		for ( const { geometry, material } of parts ) {
+
+			geometry.translate( - pivot.position.x, - pivot.position.y, - pivot.position.z );
+			geometry.computeBoundingBox();
+			geometry.computeBoundingSphere();
+			const m = new Mesh( geometry, material );
+			m.name = name;
+			m.castShadow = m.receiveShadow = true;
+			g.add( m );
+			this._tillerParts.geos.push( geometry );
+
+		}
+
+		pivot.add( g );
+		return g;
+
+	}
+
+	// no tiller in the GLB: a teak stick from the transom forward and up (the length of the fleet's baked ones)
+	_proceduralTiller( hull ) {
+
+		const L = this.lines, deck = L.deckY;
+		const pivot = this._tillerPivotAt( hull, 0, deck + 0.03, L.zAft + 0.25 );
+		const len = 0.8, rise = 0.31;
+		const geo = new CylinderGeometry( 0.025, 0.03, Math.hypot( len, rise ), 8 );
+		const mat = new Material( { name: 'boat-tiller-wood', color: 0x8a5a36, roughness: 0.6, underwaterLighting: 'lite' } );
+		const m = new Mesh( geo, mat );
+		m.name = 'boat-tiller';
+		m.rotation.x = Math.atan2( len, rise ); // the cylinder's +Y along the stick, forward and up
+		m.position.set( 0, rise / 2, len / 2 );
+		m.castShadow = m.receiveShadow = true;
+		const g = new Group();
+		g.name = 'boat-tiller';
+		g.add( m );
+		pivot.add( g );
+		this.tillerMesh = g;
+		this._tillerParts.geos.push( geo );
+		this._tillerParts.mats.push( mat );
 
 	}
 
@@ -307,10 +560,11 @@ export class FleetBoatModel {
 
 		if ( this._placeholder ) this._placeholder.geometry.dispose && this._placeholder.geometry.dispose();
 		if ( this._glb ) this._glb.dispose();
-		if ( this._helmParts ) {
+		for ( const parts of [ this._helmParts, this._tillerParts ] ) {
 
-			for ( const g of this._helmParts.geos ) g.dispose && g.dispose();
-			for ( const m of this._helmParts.mats ) m.dispose && m.dispose();
+			if ( ! parts ) continue;
+			for ( const g of parts.geos ) g.dispose && g.dispose();
+			for ( const m of parts.mats ) m.dispose && m.dispose();
 
 		}
 

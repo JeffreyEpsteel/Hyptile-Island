@@ -1,10 +1,14 @@
 // Skinned character smoke test: loads a GLB (skin + clips), plays a clip and renders a few
 // frames of a studio view with the engine alone.
 //   node test/character-smoke.mjs [model.glb] [out.png] [clip] [yawDeg]
-import { readFileSync, mkdtempSync, writeFileSync } from 'node:fs';
+// Default model: the roster's Hyptile (public/models/roster/hyptile.glb; the Tidewater characters/joe.glb it used to load
+// is a shop NPC now), default output test/out/character-smoke.png. Textures are decoded with macOS sips where it exists,
+// else every image is a flat grey 2x2 (Windows / Linux: no image codec in Node).
+import { readFileSync, mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { writePNG } from './headless.mjs';
 import { GPU } from '../src/engine/gpu/GPU.js';
 import { RenderTarget } from '../src/engine/gpu/Texture.js';
@@ -18,15 +22,19 @@ import { SkinnedModel } from '../src/engine/render/Skinning.js';
 import { parseGLB } from '../src/engine/loaders/GLTF.js';
 import * as E from '../src/engine/index.js';
 
-const file = process.argv[ 2 ] || new URL( '../public/models/characters/joe.glb', import.meta.url ).pathname;
-const OUT = process.argv[ 3 ] || '/tmp/character-smoke.png';
+const ROOT = fileURLToPath( new URL( '..', import.meta.url ) );
+const file = process.argv[ 2 ] || join( ROOT, 'public', 'models', 'roster', 'hyptile.glb' );
+const OUT = process.argv[ 3 ] || join( ROOT, 'test', 'out', 'character-smoke.png' );
+if ( ! process.argv[ 3 ] ) mkdirSync( join( ROOT, 'test', 'out' ), { recursive: true } );
 const CLIP = process.argv[ 4 ] || null;
 const YAW = Number( process.argv[ 5 ] || 0 ) * Math.PI / 180;
 
-// embedded images -> RGBA8 with macOS sips (no image decoding in Node)
-const tmp = mkdtempSync( join( tmpdir(), 'char-img-' ) );
+// embedded images -> RGBA8 with macOS sips (no image decoding in Node); elsewhere a flat grey texture
+const tmp = process.platform === 'darwin' ? mkdtempSync( join( tmpdir(), 'char-img-' ) ) : null;
 let nImg = 0;
-globalThis.__assetImage = async ( bytes, mime ) => {
+const GREY = new Uint8Array( 16 ).fill( 150 );
+for ( let i = 3; i < 16; i += 4 ) GREY[ i ] = 255;
+globalThis.__assetImage = ! tmp ? async () => ( { data: GREY.slice(), width: 2, height: 2 } ) : async ( bytes, mime ) => {
 
 	const src = join( tmp, 'i' + ( nImg ++ ) + ( mime === 'image/png' ? '.png' : '.jpg' ) );
 	writeFileSync( src, bytes );

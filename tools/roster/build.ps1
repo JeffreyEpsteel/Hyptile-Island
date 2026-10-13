@@ -1,9 +1,11 @@
 # Rebuild the Hyptile Island roster (8 characters) and the fleet hulls (4 boats) from the fishing
 # workspace sources with Blender 5.x. Run from the project root:
 #   powershell -ExecutionPolicy Bypass -File tools/roster/build.ps1 [-Only hyptile,pepe] [-Boats] [-SkipRetarget] [-RetargetOnly]
+#     [-OutDir <GLB dir>] [-PortraitDir <PNG dir>]   (defaults: public/models/roster, public/ui/roster)
 # Locomotion / idle / gesture clips come from Microsoft Rocketbox mocap, retargeted onto the rig first (retarget.py,
 # clip list in tools/roster/rocketbox/clips.json, files fetched by fetch-rocketbox.ps1); the rest stay authored.
-param( [int] $Budget = 100000, [string[]] $Only = @(), [switch] $Boats, [switch] $NoCharacters, [switch] $SkipRetarget, [switch] $RetargetOnly, [string[]] $Override = @() )
+param( [int] $Budget = 100000, [string[]] $Only = @(), [switch] $Boats, [switch] $NoCharacters, [switch] $SkipRetarget, [switch] $RetargetOnly, [string[]] $Override = @(),
+	[string] $OutDir = '', [string] $PortraitDir = '' )
 # -Override "Name=clip.fbx",... replaces (or adds) clips by name after the Rocketbox substitution, e.g. Kimodo clips
 # retargeted with retarget.py (D:\fishing game\Assets\HyptileMotion\kimodo_bip01\retargeted).
 $ErrorActionPreference = 'Continue'
@@ -87,6 +89,12 @@ foreach ($o in @($Override | ForEach-Object { $_ -split ',' } | Where-Object { $
 	$Clips = @($Clips | Where-Object { ($_ -split '=', 2)[0] -ne $n }) + "$n=$p"
 	Write-Host "override $n <- $p"
 }
+# clips that hold one pose and whose FBX skeleton rest is that (posed) first frame: assigned as they are they play the bind
+# pose (an A) for their whole length, so convert-character.py rebases them onto the character rest (`|rebase`, rebase_action).
+# Every authored clip has the same offset rest, but the others move and the game is tuned to how they play today (README,
+# "Rebased clips"); env REBASE_ALL=1 rebases every clip for an experiment.
+$Rebase = @('Helm_Idle', 'Seated_Idle', 'Steer_Left', 'Steer_Right', 'Fall_Loop')
+$Clips = @($Clips | ForEach-Object { if ($Rebase -contains ($_ -split '=', 2)[0]) { "$_|rebase" } else { $_ } })
 if ($RetargetOnly) { exit 0 }
 $Chars = [ordered]@{
 	hyptile = "$A\HyptileEyes\exports\SK_Hyptile_Eyes.fbx"
@@ -98,14 +106,16 @@ $Chars = [ordered]@{
 	bravile = "$A\HyptileCousins\exports\SK_Bravile.fbx"
 	heptyle = "$A\HyptileCousins\exports\SK_Heptyle.fbx"
 }
-New-Item -ItemType Directory -Force "$Root\public\models\roster", "$Root\public\ui\roster", "$Root\public\models\fleet", "$Root\tools\roster\logs" | Out-Null
+if (-not $OutDir) { $OutDir = "$Root\public\models\roster" }
+if (-not $PortraitDir) { $PortraitDir = "$Root\public\ui\roster" }
+New-Item -ItemType Directory -Force $OutDir, $PortraitDir, "$Root\public\models\fleet", "$Root\tools\roster\logs" | Out-Null
 if (-not $NoCharacters) {
 	foreach ($id in $Chars.Keys) {
 		if ($Only.Count -gt 0 -and $Only -notcontains $id) { continue }
 		$log = "$Root\tools\roster\logs\$id.log"
 		Write-Host "== $id"
-		& $Blender -b --python "$PSScriptRoot\convert-character.py" -- $Chars[$id] "$Root\public\models\roster\$id.glb" "$Root\public\ui\roster\$id.png" $Budget @Clips 2>&1 | Out-File -Encoding utf8 $log
-		Select-String -Path $log -Pattern 'EXPORTED|PORTRAIT|DECIMATED|DETAIL_SPLIT|KEPT|NO ACTION|WARNING decimation|Error|Traceback' | ForEach-Object { $_.Line }
+		& $Blender -b --python "$PSScriptRoot\convert-character.py" -- $Chars[$id] "$OutDir\$id.glb" "$PortraitDir\$id.png" $Budget @Clips 2>&1 | Out-File -Encoding utf8 $log
+		Select-String -Path $log -Pattern 'EXPORTED|PORTRAIT|DECIMATED|DETAIL_SPLIT|KEPT|NO ACTION|REBASE|WARNING decimation|Error|Traceback' | ForEach-Object { $_.Line }
 	}
 }
 if ($Boats) {
