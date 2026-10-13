@@ -478,7 +478,7 @@ export class Player {
 		const walk = this.runToggle && ! sprint;
 		// (user tuning 2026-10-13: a sprint lasts ~80 s and runs 3.5x the mocap stride; the refill stays)
 		this.stamina = THREE.MathUtils.clamp( this.stamina + ( sprint ? - dt / 80 : dt / 6 ), 0, 1 );
-		const speed = ( sprint ? 16 : walk ? 1.25 : 2.7 ) * THREE.MathUtils.lerp( 1, 0.42, wade );
+		const speed = ( sprint ? 8.5 : walk ? 1.25 : 2.7 ) * THREE.MathUtils.lerp( 1, 0.42, wade ); // (16 was uncontrollable: user 2026-10-13)
 		const accel = this.grounded ? 14 : 2.5;
 		const k = 1 - Math.exp( - accel * dt );
 		if ( this.launched > 0 ) this.launched -= dt;

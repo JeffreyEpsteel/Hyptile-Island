@@ -313,8 +313,8 @@ const env = ( { ua = '', points = 0, w = 1920, h = 1080, coarse = false, fine = 
 	ok( [ ...sp.tray ].join( ',' ) === 'camera,cockpit,navLights,landing', 'seaplane: tray = camera, cockpit, nav, landing (in order)' );
 	// on foot: Jump and Rod fold away, Cast / Reel / interact stay
 	sp = split( { mode: 'walk', rod: true, rodState: 'floating', canFish: true, prompt: { key: 'E', text: 'Talk' } } );
-	ok( sp.primary.has( 'cast' ) && sp.primary.has( 'reel' ) && sp.primary.has( 'interact' ) && ! sp.primary.has( 'jump' ), 'fishing: cast, reel, interact stay' );
-	ok( sp.tray.has( 'jump' ) && sp.tray.has( 'rod' ), 'fishing: jump and rod are in the tray' );
+	ok( sp.primary.has( 'cast' ) && sp.primary.has( 'reel' ) && sp.primary.has( 'interact' ) && sp.primary.has( 'jump' ), 'fishing: cast, reel, interact and jump stay on foot (no fold)' );
+	ok( sp.tray.size === 0 && sp.primary.has( 'rod' ), 'fishing: nothing folds on foot (the old layout stays)' );
 	// the boat
 	sp = split( { mode: 'boat', guns: true, helmAshore: true } );
 	ok( sp.primary.has( 'throttle' ) && ! sp.primary.has( 'camera' ) && sp.tray.has( 'camera' ) && sp.tray.has( 'lights' ) && sp.tray.has( 'fireL' ) && sp.tray.has( 'fireR' ) && sp.tray.has( 'deck' ), 'boat: the lever stays, view / lights / port / starboard / deck fold' );
@@ -335,7 +335,7 @@ const env = ( { ua = '', points = 0, w = 1920, h = 1080, coarse = false, fine = 
 	sp = split( { mode: 'deck', boardFight: true, boardOffer: true, melee: true, gunDrawn: true, gunOwned: true } );
 	ok( sp.primary.has( 'board' ) && sp.primary.has( 'aim' ) && sp.primary.has( 'fire' ) && sp.tray.size === 0, 'boarding fight with a gun: board, fire, aim primary, no tray' );
 	ok( T.fightOn( { boardFight: true } ) && T.fightOn( { melee: true } ) && ! T.fightOn( { fight: true } ) && ! T.fightOn( {} ), 'fightOn: melee or boarding only (a fish fight is not one)' );
-	ok( T.splitButtons( null ).tray.size === 0 && T.splitButtons( new Set( [ 'jump' ] ), 'walk' ).tray.has( 'jump' ), 'splitButtons: a null set is empty, jump folds' );
+	ok( T.splitButtons( null ).tray.size === 0 && T.splitButtons( new Set( [ 'jump' ] ), 'walk' ).primary.has( 'jump' ) && T.splitButtons( new Set( [ 'camera', 'planeThrottle' ] ), 'plane' ).tray.has( 'camera' ), 'splitButtons: a null set is empty, on foot nothing folds, in the plane the camera folds' );
 
 	// the state machine, with a fake clock (ms)
 	const F = T.FoldState;

@@ -817,6 +817,7 @@ export class TouchControls {
 		fold.setMode( s.mode, t0 );
 		fold.setHidden( fight || tray.size === 0, t0 );
 		if ( busy ) { fold.close(); rail.keep( t0 ); }
+		if ( s.mode !== 'plane' && s.mode !== 'boat' ) rail.keep( t0 ); // on foot the top row stays as it was (the toggle is for the vehicles)
 		fold.tick( t0 );
 		rail.tick( t0 );
 		this._paintFold();

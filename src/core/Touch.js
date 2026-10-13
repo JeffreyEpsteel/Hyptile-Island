@@ -285,6 +285,8 @@ export function splitButtons( set, mode = 'walk', { fight = false } = {} ) {
 
 	const primary = new Set(), tray = new Set();
 	if ( ! set ) return { primary, tray };
+	// the fold only in the vehicles (the plane, the helm): on foot the old full layout stays (user 2026-10-13)
+	if ( mode !== 'plane' && mode !== 'boat' ) { for ( const id of set ) primary.add( id ); return { primary, tray }; }
 	for ( const id of set ) {
 
 		if ( ! TRAY_SET.has( id ) ) primary.add( id );
