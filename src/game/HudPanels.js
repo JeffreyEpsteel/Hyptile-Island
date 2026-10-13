@@ -164,14 +164,14 @@ export function installHudPanels( GameHUD ) {
 			${ tabs( [ [ 'gear', 'Gear' ], [ 'crew', 'Crew' ] ], tab ) }
 			<div class="gm-list">${ body }</div>
 			<div class="gm-foot"><span class="gm-sub">${ foot }</span><button class="gm-btn is-ghost" data-close>Leave (E)</button></div>`;
-		bindTabs( this.stand, ( t ) => { this.shopTab = t; this.renderShop(); } );
+		bindTabs( this.stand, ( t ) => { this.shopTab = t; this._keepScroll( () => this.renderShop() ); } );
 		this.stand.querySelector( '[data-close]' ).onclick = () => this.closeStand();
 		for ( const b of this.stand.querySelectorAll( '[data-buy]' ) ) b.onclick = () => this.game.buy( b.dataset.buy );
 		const f = this.stand.querySelector( '[data-fuel]' );
 		if ( f ) f.onclick = () => this.game.refuel();
 		const rf = this.stand.querySelector( '[data-rodfix]' );
-		if ( rf ) rf.onclick = () => { if ( this.game.state.repairRod() ) { this.game.toast( 'Rod repaired', 1600 ); this.renderShop(); } };
-		for ( const b of this.stand.querySelectorAll( '[data-gun]' ) ) b.onclick = () => { const g = this.game.app && this.game.app.features && this.game.app.features.get( 'firearms' ); if ( g ) g.buy( b.dataset.gun ); this.renderShop(); };
+		if ( rf ) rf.onclick = () => { if ( this.game.state.repairRod() ) { this.game.toast( 'Rod repaired', 1600 ); this._keepScroll( () => this.renderShop() ); } };
+		for ( const b of this.stand.querySelectorAll( '[data-gun]' ) ) b.onclick = () => { const g = this.game.app && this.game.app.features && this.game.app.features.get( 'firearms' ); if ( g ) g.buy( b.dataset.gun ); this._keepScroll( () => this.renderShop() ); };
 		bindCrew( this, this.stand );
 
 	};
@@ -215,7 +215,7 @@ export function installHudPanels( GameHUD ) {
 		const nv = navalOf( hud ), s = hud.game.state;
 		if ( ! nv ) return;
 		const sb = hud.stand.querySelector( '[data-salvage]' );
-		if ( sb ) sb.onclick = () => { if ( nv.salvage( { free: !! s.free } ) ) { roidClicks( hud, 'buy' ); s.save(); } hud.renderYard(); };
+		if ( sb ) sb.onclick = () => { if ( nv.salvage( { free: !! s.free } ) ) { roidClicks( hud, 'buy' ); s.save(); } hud._keepScroll( () => hud.renderYard() ); };
 		const rb = hud.stand.querySelector( '[data-repair]' );
 		if ( rb ) rb.onclick = () => {
 
@@ -226,7 +226,7 @@ export function installHudPanels( GameHUD ) {
 
 			}
 
-			hud.renderYard();
+			hud._keepScroll( () => hud.renderYard() );
 
 		};
 
@@ -266,7 +266,7 @@ export function installHudPanels( GameHUD ) {
 
 			}
 
-			hud.renderYard();
+			hud._keepScroll( () => hud.renderYard() );
 
 		};
 		for ( const b of hud.stand.querySelectorAll( '[data-mod-buy]' ) ) b.onclick = () => done( nv.buyModule( b.dataset.modBuy ).ok );
@@ -310,7 +310,7 @@ export function installHudPanels( GameHUD ) {
 			${ tabs( [ [ 'yard', 'Yard' ], [ 'talk', 'Talk' ] ], tab ) }
 			<div class="gm-list">${ body }</div>
 			<div class="gm-foot"><span class="gm-sub">${ foot }</span><button class="gm-btn is-ghost" data-close>Leave (E)</button></div>`;
-		bindTabs( this.stand, ( t ) => { this.yardTab = t; this.renderYard(); } );
+		bindTabs( this.stand, ( t ) => { this.yardTab = t; this._keepScroll( () => this.renderYard() ); } );
 		this.stand.querySelector( '[data-close]' ).onclick = () => this.closeStand();
 		if ( tab === 'talk' ) {
 
@@ -388,7 +388,7 @@ export function installHudPanels( GameHUD ) {
 
 	P.renderStand = function () {
 
-		if ( this.vendor && this.vendor.kind === 'yard' ) this.renderYard();
+		if ( this.vendor && this.vendor.kind === 'yard' ) this._keepScroll( () => this.renderYard() );
 		else renderJoe.call( this );
 
 	};
@@ -512,7 +512,7 @@ function askRoid( hud, id ) {
 		if ( t ) log.push( { who: 'you', text: t.label } );
 		for ( const l of res.lines ) log.push( { who: 'roid', text: l } );
 		roidClicks( hud, 'hover' );
-		if ( res.close ) hud.closeStand(); else hud.renderYard();
+		if ( res.close ) hud.closeStand(); else hud._keepScroll( () => hud.renderYard() );
 		return;
 
 	}
@@ -525,7 +525,7 @@ function askRoid( hud, id ) {
 
 		if ( topic.closes || hud.roidLog !== log ) return; // the farewell is subtitles only; a new visit has a new log
 		log.push( { who: 'roid', text: ph.text } );
-		if ( hud.standOpen && hud.vendor && hud.vendor.kind === 'yard' && hud.yardTab === 'talk' ) hud.renderYard();
+		if ( hud.standOpen && hud.vendor && hud.vendor.kind === 'yard' && hud.yardTab === 'talk' ) hud._keepScroll( () => hud.renderYard() );
 
 	};
 
@@ -543,7 +543,7 @@ function askRoid( hud, id ) {
 	} catch ( e ) { /* audio is optional */ }
 
 	if ( topic.closes ) hud.closeStand();
-	else hud.renderYard();
+	else hud._keepScroll( () => hud.renderYard() );
 
 }
 

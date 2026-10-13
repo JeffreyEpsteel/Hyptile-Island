@@ -546,7 +546,7 @@ fn terrainWetness( xz: vec2f, h: f32 ) -> vec2f {
 			if ( this.wake ) this.wake.amplitude.value = ( this._wakeBase ?? ( this._wakeBase = this.wake.amplitude.value ) ) * Math.min( 1, this.boatCtl.sizeK * 1.2 );
 			// lights: nav lights and the cabin dome on the lobster boat only
 			for ( const l of this.boatLights || [] ) this.localLights.remove( l );
-			this.boatLights = id === 'lobster' ? addBoatLights( this.localLights, model ) : [];
+			this.boatLights = addBoatLights( this.localLights, model ); // every hull: nav lights, a stern lantern and work lights
 			if ( this.game ) this.game.onBoatChanged( model, id );
 			if ( this.wildlife && this.wildlife.birds ) this.wildlife.birds.boatModel = model;
 

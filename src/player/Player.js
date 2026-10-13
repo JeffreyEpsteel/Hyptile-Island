@@ -476,8 +476,9 @@ export class Player {
 		// (walk clip ~0.76 m/s, run ~2.17 m/s at rate 1) so the feet do not slide
 		const sprint = sprintHeld && this.stamina > 0.02 && moving;
 		const walk = this.runToggle && ! sprint;
-		this.stamina = THREE.MathUtils.clamp( this.stamina + ( sprint ? - dt / 8 : dt / 6 ), 0, 1 );
-		const speed = ( sprint ? 4.6 : walk ? 1.25 : 2.7 ) * THREE.MathUtils.lerp( 1, 0.42, wade );
+		// (user tuning 2026-10-13: a sprint lasts ~80 s and runs 3.5x the mocap stride; the refill stays)
+		this.stamina = THREE.MathUtils.clamp( this.stamina + ( sprint ? - dt / 80 : dt / 6 ), 0, 1 );
+		const speed = ( sprint ? 16 : walk ? 1.25 : 2.7 ) * THREE.MathUtils.lerp( 1, 0.42, wade );
 		const accel = this.grounded ? 14 : 2.5;
 		const k = 1 - Math.exp( - accel * dt );
 		if ( this.launched > 0 ) this.launched -= dt;

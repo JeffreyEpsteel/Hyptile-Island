@@ -395,4 +395,15 @@ Still open from the user's list: "improve fighting and combat per total" beyond 
 9A / 9B), iOS constant lag (needs a profile with the pane visible), Low-quality clouds (resolution decoupled; judge on
 the phone).
 
+### Wave 10 (2026-10-13, root + 2 workers): crew, helm, lights, pace
+User list: stamina 10x, running 3-4x, purchases must not scroll the panel, lights that light the surroundings, crew that
+works the cannons and fishes at sea, the helmsman's A-pose and the still wheel, third-person cannon aiming.
+Root: sprint 16 m/s (was 4.6) and a sprint lasts ~80 s (was 8); GameHUD._keepScroll keeps the stand list scrolled across
+re-renders (purchases, sales, tabs); LocalLights: boat lamps 2-3x brighter and twice the range, lamps come up from dusk,
+flashlight 120 / 48 m (was 55 / 30). Workers: 10A docs/briefs/w10-crew-aim.md (over-the-shoulder aim camera with the
+impact crosshair, naval.aimCamera(); src/features/crew: gunners and anglers posted from the chandlery Crew tab, berths
+per hull, crew figures on deck); 10B docs/briefs/w10-helm.md (helm pose through the IK grips on every hull, the wheel
+turns on the fleet / ship hulls, wheelGrips()).
+
+
 

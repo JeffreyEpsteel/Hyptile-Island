@@ -559,7 +559,7 @@ export class GameHUD {
 
 		this._last.money = s.money;
 		if ( this.invOpen ) this.renderInventory();
-		if ( this.standOpen ) this.vendor && this.vendor.kind === 'shop' ? this.renderShop() : this.renderStand();
+		if ( this.standOpen ) this._keepScroll( () => ( this.vendor && this.vendor.kind === 'shop' ? this.renderShop() : this.renderStand() ) );
 
 	}
 
@@ -803,8 +803,8 @@ export class GameHUD {
 		this.standOpen = true;
 		this.vendor = vendor;
 		this.toggleInventory( false );
-		if ( vendor.kind === 'shop' ) this.renderShop();
-		else this.renderStand();
+		if ( vendor.kind === 'shop' ) this._keepScroll( () => this.renderShop() );
+		else this._keepScroll( () => this.renderStand() );
 		this.stand.classList.add( 'is-open' );
 		releaseMouse();
 
@@ -814,6 +814,18 @@ export class GameHUD {
 
 		this.standOpen = false;
 		this.stand.classList.remove( 'is-open' );
+
+	}
+
+	// a re-render (a purchase, a sale) replaces the list: keep it scrolled where it was
+	_keepScroll( render ) {
+
+		const list = this.stand.querySelector( '.gm-list' );
+		const top = list ? list.scrollTop : 0, panelTop = this.stand.scrollTop;
+		render();
+		const after = this.stand.querySelector( '.gm-list' );
+		if ( after && top ) after.scrollTop = top;
+		if ( panelTop ) this.stand.scrollTop = panelTop;
 
 	}
 

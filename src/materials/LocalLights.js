@@ -127,7 +127,7 @@ export class LocalLights {
 		this.strength = 1; // UI multiplier for the lamps (not the flashlight)
 		this.limit = MAX; // lights packed per frame (Quality: 4 on Low, 6 on Medium): the shader loop runs this many
 		this.flashlight = {
-			on: false, intensity: 55, range: 30,
+			on: false, intensity: 120, range: 48, // (user 2026-10-13: a torch that reaches the next pier post, not a glow at the feet)
 			color: new THREE.Color( 1.0, 0.71, 0.49 ), // ~4500 K
 			cosInner: Math.cos( THREE.MathUtils.degToRad( 9 ) ), cosOuter: Math.cos( THREE.MathUtils.degToRad( 35 ) ),
 			position: new THREE.Vector3(), dir: new THREE.Vector3( 0, 0, - 1 ), primed: false,
@@ -199,7 +199,7 @@ export class LocalLights {
 		}
 
 		// lamps: on from dusk (same ramp as the lantern glass), nearest first
-		const on = smooth( G.night.value, 0.15, 0.75 ) * this.strength;
+		const on = smooth( G.night.value, 0.05, 0.45 ) * this.strength; // lamps come up from dusk, not only in full night
 		if ( on > 0.002 && this.enabled ) {
 
 			const cp = camera.position;
@@ -247,25 +247,51 @@ export class LocalLights {
 // green starboard, white masthead and stern). Positions follow the boat's world matrix.
 export function addBoatLights( lights, boat ) {
 
-	const L = boat.lines;
+	const L = boat.lines, D = boat.dimensions || {};
 	const obj = boat.group;
-	const sternY = L.sheerY( 0 ) + 0.1;
-	const defs = [
-		{ p: [ 0, 2.24, 0.42 ], color: [ 1.0, 0.84, 0.62 ], intensity: 0.9, range: 5.5, kind: 'boatDome' },
-		{ p: [ - 0.45, 1.5, 1.12 ], color: [ 0.45, 0.75, 1.0 ], intensity: 0.12, range: 2.2, kind: 'boatInstruments' },
-		{ p: [ 0.47, 3.45, - 0.47 ], color: [ 1.0, 0.06, 0.03 ], intensity: 1.4, range: 8, kind: 'boatNav', side: [ 1, 0, 0 ] },
-		{ p: [ - 0.47, 3.45, - 0.47 ], color: [ 0.05, 1.0, 0.3 ], intensity: 1.4, range: 8, kind: 'boatNav', side: [ - 1, 0, 0 ] },
-		{ p: [ 0, 3.97, - 0.5 ], color: [ 1.0, 0.95, 0.85 ], intensity: 1.2, range: 8, kind: 'boatNav' },
-		{ p: [ 0, sternY, L.zAft - 0.05 ], color: [ 1.0, 0.95, 0.85 ], intensity: 0.8, range: 7, kind: 'boatNav' },
-	];
+	const lobster = !! ( L && L.sheerY && L.zAft !== undefined && ! boat.kind );
+	let defs;
+	if ( lobster ) {
+
+		const sternY = L.sheerY( 0 ) + 0.1;
+		defs = [
+			{ p: [ 0, 2.24, 0.42 ], color: [ 1.0, 0.84, 0.62 ], intensity: 2.6, range: 12, kind: 'boatDome' }, // (user 2026-10-13: lights that light the deck and the water around)
+			{ p: [ - 0.45, 1.5, 1.12 ], color: [ 0.45, 0.75, 1.0 ], intensity: 0.12, range: 2.2, kind: 'boatInstruments' },
+			{ p: [ 0.47, 3.45, - 0.47 ], color: [ 1.0, 0.06, 0.03 ], intensity: 2.4, range: 16, kind: 'boatNav', side: [ 1, 0, 0 ] },
+			{ p: [ - 0.47, 3.45, - 0.47 ], color: [ 0.05, 1.0, 0.3 ], intensity: 2.4, range: 16, kind: 'boatNav', side: [ - 1, 0, 0 ] },
+			{ p: [ 0, 3.97, - 0.5 ], color: [ 1.0, 0.95, 0.85 ], intensity: 3.2, range: 18, kind: 'boatNav' },
+			{ p: [ 0, sternY, L.zAft - 0.05 ], color: [ 1.0, 0.95, 0.85 ], intensity: 2.2, range: 14, kind: 'boatNav' },
+			// work lights: a wheelhouse flood over the aft deck and the water astern, a bow lamp over the water ahead
+			{ p: [ 0, 3.6, - 0.2 ], color: [ 1.0, 0.93, 0.8 ], intensity: 34, range: 28, kind: 'boatWork', spot: [ 0, - 0.75, - 0.66 ], inner: 22, outer: 52 },
+			{ p: [ 0, 2.4, 2.6 ], color: [ 1.0, 0.93, 0.8 ], intensity: 22, range: 24, kind: 'boatWork', spot: [ 0, - 0.6, 0.8 ], inner: 20, outer: 48 },
+		];
+
+	} else {
+
+		// any other hull (the fleet GLBs, the ships): lamps placed from its dimensions
+		const len = D.length || 5, beam = D.beam || 2, top = ( D.freeboard || 0.7 ) + ( D.deckY || 0.3 );
+		const mast = top + Math.min( 3.2, 1.4 + len * 0.18 );
+		defs = [
+			{ p: [ beam * 0.45, top + 0.9, len * 0.3 ], color: [ 1.0, 0.06, 0.03 ], intensity: 2.0, range: 14, kind: 'boatNav', side: [ 1, 0, 0 ] },
+			{ p: [ - beam * 0.45, top + 0.9, len * 0.3 ], color: [ 0.05, 1.0, 0.3 ], intensity: 2.0, range: 14, kind: 'boatNav', side: [ - 1, 0, 0 ] },
+			{ p: [ 0, mast, - len * 0.1 ], color: [ 1.0, 0.95, 0.85 ], intensity: 3.0, range: 18, kind: 'boatNav' },
+			{ p: [ 0, top + 0.6, - len * 0.46 ], color: [ 1.0, 0.9, 0.7 ], intensity: 2.4, range: 14, kind: 'boatNav' },
+			{ p: [ 0, mast - 0.3, - len * 0.1 ], color: [ 1.0, 0.93, 0.8 ], intensity: 20 + len * 2.5, range: 18 + len * 1.6, kind: 'boatWork', spot: [ 0, - 0.8, - 0.6 ], inner: 24, outer: 55 },
+			{ p: [ 0, top + 1.0, len * 0.45 ], color: [ 1.0, 0.93, 0.8 ], intensity: 14 + len * 1.5, range: 16 + len * 1.4, kind: 'boatWork', spot: [ 0, - 0.55, 0.83 ], inner: 20, outer: 48 },
+		];
+
+	}
+
 	const out = [];
 	for ( const d of defs ) {
 
 		const local = new THREE.Vector3( ...d.p );
-		const localDir = d.side ? new THREE.Vector3( ...d.side ) : null;
+		const localDir = d.side ? new THREE.Vector3( ...d.side ) : d.spot ? new THREE.Vector3( ...d.spot ).normalize() : null;
 		const src = {
 			position: new THREE.Vector3(), color: new THREE.Color( ...d.color ), intensity: d.intensity, range: d.range, kind: d.kind,
-			dir: localDir ? new THREE.Vector3() : null, cosInner: localDir ? 0.25 : undefined, cosOuter: localDir ? - 0.2 : undefined,
+			dir: localDir ? new THREE.Vector3() : null,
+			cosInner: d.spot ? Math.cos( THREE.MathUtils.degToRad( d.inner ) ) : localDir ? 0.25 : undefined,
+			cosOuter: d.spot ? Math.cos( THREE.MathUtils.degToRad( d.outer ) ) : localDir ? - 0.2 : undefined,
 			update() {
 
 				obj.updateWorldMatrix( true, false );
