@@ -817,7 +817,8 @@ export class TouchControls {
 		fold.setMode( s.mode, t0 );
 		fold.setHidden( fight || tray.size === 0, t0 );
 		if ( busy ) { fold.close(); rail.keep( t0 ); }
-		if ( s.mode !== 'plane' && s.mode !== 'boat' ) rail.keep( t0 ); // on foot the top row stays as it was (the toggle is for the vehicles)
+		rail.keep( t0 ); // the top row stays open (user 2026-10-13: no toggles); the plane and the helm get compact buttons instead
+		this.root.classList.toggle( 'is-compact', s.mode === 'plane' || s.mode === 'boat' );
 		fold.tick( t0 );
 		rail.tick( t0 );
 		this._paintFold();

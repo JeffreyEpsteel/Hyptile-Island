@@ -15,12 +15,12 @@ import { SceneLighting } from './SceneLighting.js';
 // They bypass the sun-only terms of the direct light (clouds, caustics, contact shadows).
 //
 // WGSL: `localLightsModule` (prefix localLights) installs the `localLights` lighting hook and exposes
-//   uniforms localLights.{ pos[ 8 ], col[ 8 ], dir[ 8 ], count, flashOn, flashPos, flashDir, flashCol, flashCone }
+//   uniforms localLights.{ pos[ 16 ], col[ 16 ], dir[ 16 ], count, flashOn, flashPos, flashDir, flashCol, flashCone }
 //   fn localLightsSpotProfile( cd: f32, cosInner: f32, cosOuter: f32 ) -> f32
 // for effects outside the lighting model (underwater beam in-scatter, marine snow: add the module).
 // Exclusions per material define: IS_WATER, NO_LOCAL_LIGHTS (the former `material.localLights = false`);
 // LOCAL_LIGHTS_CHEAP (material.localLightsCheap) = Lambert only.
-const MAX = 8;
+const MAX = 16; // (8 could not hold one lit boat and a lantern: user 2026-10-13 'lights that light the surroundings')
 const v4 = () => Array.from( { length: MAX }, () => new THREE.Vector4() );
 const params = new UniformBlock( 'LocalLightParams', {
 	pos: [ `vec4f[${ MAX }]`, v4() ], // xyz, range^2

@@ -3100,3 +3100,9 @@ body {
 .tw-unsupported small { display: block; margin-top: 12px; color: rgba(232, 244, 240, 0.55); font-size: 12px; word-break: break-word; }
 .tw-unsupported a.tw-unsupported-btn { display: inline-flex; align-items: center; min-height: 44px; padding: 0 20px; border-radius: 999px; font-weight: 600; text-decoration: none;
 	color: #03201c; background: linear-gradient(180deg, #9af5ea, #55dccd); }
+
+/* the plane and the helm on touch: the secondary buttons shrink to a compact cluster beside the lever (no fold, no toggle) */
+.tc-root.is-compact .tc-actions .tc-btn:not(.tc-big):not([data-id='interact']) { min-width: 46px; min-height: 36px; padding: 4px 8px; font-size: 11px; opacity: 0.85; }
+.tc-root.is-compact .tc-actions { gap: 6px; }
+.tc-root.is-compact .tc-top { opacity: 0.8; }
+

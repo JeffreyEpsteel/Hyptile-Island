@@ -148,6 +148,7 @@ import { WaterPool } from './WaterPool.js';
 import { ModelSet } from './Models.js';
 import { NavalHud, hudModel, ARROW_RANGE, NO_GUN_TEXT } from './Hud.js';
 import { CollisionWorld, predictContact, yawInertia } from './Collisions.js';
+import { ShipLights } from './ShipLights.js';
 import { Planks } from './Planks.js';
 import { lookAim } from './AimAssist.js';
 import { AIM_CAM, easeAimCam, aimRig } from './AimCamera.js';
@@ -318,6 +319,8 @@ export class Naval {
 		this.sinking = null;
 		this.planks = new Planks( { scene: this.scene } );
 		this.collisions = new CollisionWorld();
+		this.shipLights = new ShipLights( this, { ships: 3 } ); // lanterns on the nearest ships (features' lights[] -> the scene's local lights)
+		this.lights = this.shipLights.sources;
 		this.contacts = []; // this frame's hull contacts (Collisions.js records)
 		this.aiming = false;
 		this.aimInfo = null; // lookAim() while aiming
@@ -3207,6 +3210,8 @@ export class Naval {
 	// ------------------------------------------------------------------ frame
 
 	update( dt ) {
+
+		if ( this.shipLights ) this.shipLights.update( this.app && this.app.camera );
 
 		if ( ! ( dt > 0 ) ) return;
 		dt = Math.min( dt, 0.1 );

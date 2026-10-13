@@ -285,8 +285,9 @@ export function splitButtons( set, mode = 'walk', { fight = false } = {} ) {
 
 	const primary = new Set(), tray = new Set();
 	if ( ! set ) return { primary, tray };
-	// the fold only in the vehicles (the plane, the helm): on foot the old full layout stays (user 2026-10-13)
-	if ( mode !== 'plane' && mode !== 'boat' ) { for ( const id of set ) primary.add( id ); return { primary, tray }; }
+	// no fold anywhere (user 2026-10-13: the toggle UI was worse than the full layout); the plane's extra buttons are a compact
+	// cluster instead (TouchControls 'is-compact'). splitButtons stays for the tests and a future opt-in.
+	if ( ! splitButtons.enabled ) { for ( const id of set ) primary.add( id ); return { primary, tray }; }
 	for ( const id of set ) {
 
 		if ( ! TRAY_SET.has( id ) ) primary.add( id );
@@ -303,6 +304,8 @@ export function splitButtons( set, mode = 'walk', { fight = false } = {} ) {
 // drag, closes it on a tap, a downward drag or after `idle` ms without a press; a held button (jump, dive) keeps it open;
 // a fight hides the handle. Remembers the open state per mode (this session only). The top-right rail uses another
 // instance: toggle() on its button, keep() while a panel is open, tick() closes it after 6 s.
+splitButtons.enabled = false;
+
 export class FoldState {
 
 	constructor( { idle = 5000, drag = 28, tap = 10 } = {} ) {

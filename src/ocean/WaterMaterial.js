@@ -788,7 +788,7 @@ fn waterLocalLights( P: vec3f, N: vec3f, V: vec3f, alpha2: f32 ) -> WaterLamps {
 	var o = WaterLamps( vec3f( 0.0 ), vec3f( 0.0 ) );
 	// uniform branch: no lamp lit and no flashlight (daytime) -> no loop at all
 	if ( localLights.count <= 0 && localLights.flashOn < 0.5 ) { return o; }
-	let n = min( localLights.count, 8 );
+	let n = min( localLights.count, 16 );
 	let NdV = max( dot( N, V ), 1e-4 );
 	let a2 = max( alpha2, WATER_LAMP_A2_MIN );
 	for ( var i = 0; i < n; i++ ) {

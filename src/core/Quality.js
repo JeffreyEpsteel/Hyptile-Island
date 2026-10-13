@@ -38,19 +38,19 @@ export const TIER_IDS = [ 'low', 'medium', 'high', 'ultra' ];
 export const TIERS = {
 	low: {
 		label: 'Low', scale: [ 0.5, 0.7 ], shadows: true, shadowSize: 1024, shadowFar: 150, ao: false, shafts: false, motionBlur: false, ssr: false,
-		aa: 4, particles: 0.45, lights: 4, draw: 0.55, residents: { animate: 30, update: 70, hide: 120, shadow: 20 }, fx: 'low',
+		aa: 4, particles: 0.45, lights: 8, draw: 0.55, residents: { animate: 30, update: 70, hide: 120, shadow: 20 }, fx: 'low',
 	},
 	medium: {
 		label: 'Medium', scale: [ 0.6, 0.85 ], shadows: true, shadowSize: 1024, shadowFar: 250, ao: true, shafts: true, motionBlur: true, ssr: true,
-		aa: 4, particles: 0.7, lights: 6, draw: 0.75, residents: { animate: 45, update: 100, hide: 180, shadow: 30 }, fx: 'high',
+		aa: 4, particles: 0.7, lights: 12, draw: 0.75, residents: { animate: 45, update: 100, hide: 180, shadow: 30 }, fx: 'high',
 	},
 	high: {
 		label: 'High', scale: [ 0.7, 1 ], shadows: true, shadowSize: 2048, shadowFar: 400, ao: true, shafts: true, motionBlur: true, ssr: true,
-		aa: 4, particles: 1, lights: 8, draw: 1, residents: { animate: 60, update: 120, hide: 260, shadow: 40 }, fx: 'high',
+		aa: 4, particles: 1, lights: 16, draw: 1, residents: { animate: 60, update: 120, hide: 260, shadow: 40 }, fx: 'high',
 	},
 	ultra: {
 		label: 'Ultra', scale: [ 0.85, 1 ], shadows: true, shadowSize: 2048, shadowFar: 400, ao: true, shafts: true, motionBlur: true, ssr: true,
-		aa: 8, particles: 1, lights: 8, draw: 1.35, residents: { animate: 80, update: 160, hide: 320, shadow: 60 }, fx: 'high',
+		aa: 8, particles: 1, lights: 16, draw: 1.35, residents: { animate: 80, update: 160, hide: 320, shadow: 60 }, fx: 'high',
 	},
 };
 
@@ -58,9 +58,9 @@ export const TIERS = {
 export const MOBILE = {
 	// textureMax 512 on phones: the roster's 56 character maps were 299 MB of GPU memory at 1024 (75 MB at 512; a
 	// character fills a few hundred pixels of a phone's internal resolution); the whole game measured ~1.07 GB at 1024
-	phone: { tier: 'low', ceiling: 'medium', maxScale: 0.75, shadowSize: 512, shadowReach: 0.6, periods: [ 1, 6, 12 ], particles: 0.6, lights: 3, draw: 0.8, residents: 0.7, fx: 'low', textureMax: 512 },
-	tablet: { tier: 'low', ceiling: 'high', maxScale: 0.85, shadowSize: 1024, shadowReach: 0.8, periods: [ 1, 4, 8 ], particles: 0.8, lights: 4, draw: 0.9, residents: 0.85, fx: null, textureMax: 2048 },
-	tabletM: { tier: 'medium', ceiling: 'high', maxScale: 0.85, shadowSize: 1024, shadowReach: 0.8, periods: [ 1, 4, 8 ], particles: 0.8, lights: 4, draw: 0.9, residents: 0.85, fx: null, textureMax: 2048 },
+	phone: { tier: 'low', ceiling: 'medium', maxScale: 0.75, shadowSize: 512, shadowReach: 0.6, periods: [ 1, 6, 12 ], particles: 0.6, lights: 6, draw: 0.8, residents: 0.7, fx: 'low', textureMax: 512 },
+	tablet: { tier: 'low', ceiling: 'high', maxScale: 0.85, shadowSize: 1024, shadowReach: 0.8, periods: [ 1, 4, 8 ], particles: 0.8, lights: 10, draw: 0.9, residents: 0.85, fx: null, textureMax: 2048 },
+	tabletM: { tier: 'medium', ceiling: 'high', maxScale: 0.85, shadowSize: 1024, shadowReach: 0.8, periods: [ 1, 4, 8 ], particles: 0.8, lights: 10, draw: 0.9, residents: 0.85, fx: null, textureMax: 2048 },
 };
 
 export function mobileProfile( device ) {
