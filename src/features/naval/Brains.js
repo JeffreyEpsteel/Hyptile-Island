@@ -27,6 +27,15 @@
 //   - merchants turn away (AVOID.turn rad for AVOID.hold s) from a hull Naval predicts they would hit within AVOID.horizon
 //     s (s.mem.avoidT / s.mem.avoidDir)
 
+//
+// Wave 11A (ammunition, sections):
+//   - a pirate's powder and shot are finite (ship.ammo); dry - or both gun sections silenced - she has nothing to shoot with:
+//     heavier than her target she rams (again after every RAM.cool), else she runs (s.mem.dry); a dry pirate that can't ram
+//     does not start a chase
+//   - a silenced side (sections.gunsOk) counts as never loaded: she wears round to the other one
+//   - where she lays her guns (s.mem.aim, read by Naval): the target's sails while he opens the range (running away: cut his
+//     canvas), the hull while he closes or holds it (AIM_PREF.opening m/s of range rate, smoothed)
+
 import { angleDiff, clamp, sideSign } from './util.js';
 import { advance, nearestIndex } from './Routes.js';
 import { inPeace, peaceExit, PEACE } from '../melee/Peace.js';
@@ -36,6 +45,7 @@ export const OUTGUNNED = { window: 20, share: 0.35, below: 0.65, sample: 2.5 };
 export const KEEP_OUT = { look: 140 };
 export const RAM = { heavier: 1.2, reload: 1.5, ready: 0.6, cool: 12, cripple: 0.25 };
 export const AVOID = { horizon: 3, hold: 1.2, turn: 0.6 };
+export const AIM_PREF = { opening: 0.4, smooth: 1.5 };
 const FIGHTING = new Set( [ 'patrol', 'chase', 'broadside' ] );
 const NO_STEER = new Set( [ 'close', 'grapple', 'boarding', 'boarded', 'adrift', 'moored', 'sinking', 'gone' ] );
 
@@ -107,6 +117,34 @@ export function keepOut( s ) {
 
 }
 
+// out of shot (her magazine dry) or both batteries silenced: nothing left to fire
+export function gunless( s ) {
+
+	if ( ! ( s.cls.guns > 0 ) ) return false;
+	const dry = !! s.ammo && s.ammo.max > 0 && s.ammo.rounds <= 0;
+	const silent = !! s.sections && ! s.sections.gunsOk( 'port' ) && ! s.sections.gunsOk( 'starboard' );
+	return dry || silent;
+
+}
+
+const sideOk = ( s, side ) => ! s.sections || s.sections.gunsOk( side );
+
+// sails while the target opens the range (running away), the hull otherwise
+function aimPref( s, d, dt ) {
+
+	const m = s.mem;
+	if ( Number.isFinite( m.lastD ) && dt > 0 && Number.isFinite( d ) ) {
+
+		const rr = ( d - m.lastD ) / dt, k = 1 - Math.exp( - dt / AIM_PREF.smooth );
+		m.rangeRate = ( m.rangeRate || 0 ) + ( rr - ( m.rangeRate || 0 ) ) * k;
+
+	}
+
+	m.lastD = d;
+	m.aim = ( m.rangeRate || 0 ) > AIM_PREF.opening ? 'sails' : 'hull';
+
+}
+
 export function thinkPirate( s, w, dt ) {
 
 	const c = s.cls, t = w.target;
@@ -126,6 +164,12 @@ export function thinkPirate( s, w, dt ) {
 	s.avoidLook = 110;
 
 	if ( s.state !== 'flee' && s.hpFraction <= ( s.fleeAt ?? c.fleeAt ) ) s.setState( 'flee' );
+	// out of shot: she rams if she outweighs him, else she runs
+	const dry = gunless( s );
+	const canRam = !! t && ( c.mass || 0 ) > ( t.mass || Infinity ) * RAM.heavier && s.hpFraction >= RAM.cripple;
+	s.mem.dry = dry;
+	if ( dry && ! canRam && FIGHTING.has( s.state ) && s.state !== 'patrol' ) s.setState( 'flee' );
+	if ( t ) aimPref( s, d, dt );
 	// outgunned: shot to pieces fast and already hurt, she runs before her nerve would normally break
 	const lost = hullLost( s, dt );
 	if ( FIGHTING.has( s.state ) && s.hpFraction < OUTGUNNED.below && lost >= s.maxHp * OUTGUNNED.share ) {
@@ -140,7 +184,7 @@ export function thinkPirate( s, w, dt ) {
 		case 'patrol': {
 
 			follow( s, 55, 0.6 );
-			if ( aggro && d < sight ) {
+			if ( aggro && d < sight && ( ! dry || canRam ) ) {
 
 				s.setState( 'chase' );
 				s.mem.lost = 0;
@@ -209,10 +253,10 @@ export function thinkPirate( s, w, dt ) {
 			if ( ! t ) break;
 			const rel = angleDiff( bearing, s.yaw ); // + : the target is on the port side
 			if ( ! s.mem.side ) s.mem.side = rel >= 0 ? 1 : - 1;
-			// the engaged battery is still reloading and the other is ready: wear round to bring it to bear
+			// the engaged battery is still reloading (or silenced) and the other is ready: wear round to bring it to bear
 			s.mem.wearT = ( s.mem.wearT || 0 ) - dt;
 			const engaged = s.mem.side > 0 ? 'port' : 'starboard', other = engaged === 'port' ? 'starboard' : 'port';
-			if ( s.mem.wearT <= 0 && s.reload[ engaged ] > BROADSIDE.reloadLead && s.reload[ other ] <= 0 ) {
+			if ( s.mem.wearT <= 0 && ( s.reload[ engaged ] > BROADSIDE.reloadLead || ! sideOk( s, engaged ) ) && s.reload[ other ] <= 0 && sideOk( s, other ) ) {
 
 				s.mem.side = - s.mem.side;
 				s.mem.wearT = BROADSIDE.wear;
@@ -223,7 +267,13 @@ export function thinkPirate( s, w, dt ) {
 			s.mem.ramCool = Math.max( 0, ( s.mem.ramCool || 0 ) - dt );
 			const eng = s.mem.side > 0 ? 'port' : 'starboard', oth = eng === 'port' ? 'starboard' : 'port';
 			const reloading = s.reload[ eng ] > RAM.reload && ( s.reload[ oth ] > 0 || s.mem.wearT > 0 );
-			if ( ! s.mem.ram && aggro && reloading && s.mem.ramCool <= 0 && ( c.mass || 0 ) > ( t.mass || Infinity ) * RAM.heavier
+			if ( dry ) {
+
+				// nothing to fire: the bow is her only weapon (between blows she keeps her distance abeam)
+				if ( ! s.mem.ram && aggro && canRam && s.mem.ramCool <= 0 && d < c.engage * 1.2 ) s.mem.ram = true;
+				else if ( s.mem.ram && ( ! aggro || d > c.engage * 1.3 ) ) s.mem.ram = false;
+
+			} else if ( ! s.mem.ram && aggro && reloading && s.mem.ramCool <= 0 && ( c.mass || 0 ) > ( t.mass || Infinity ) * RAM.heavier
 				&& d < c.engage && s.hpFraction >= RAM.cripple ) s.mem.ram = true;
 			else if ( s.mem.ram && ( ! aggro || s.reload.port <= RAM.ready || s.reload.starboard <= RAM.ready || d > c.engage * 1.2 ) ) s.mem.ram = false;
 			if ( s.mem.ram ) {
@@ -246,7 +296,7 @@ export function thinkPirate( s, w, dt ) {
 
 				for ( const side of [ 'port', 'starboard' ] ) {
 
-					if ( s.reload[ side ] > 0 || sideSign( side ) !== ( rel >= 0 ? 1 : - 1 ) ) continue;
+					if ( dry || s.reload[ side ] > 0 || ! sideOk( s, side ) || sideSign( side ) !== ( rel >= 0 ? 1 : - 1 ) ) continue;
 					w.fire( s, side );
 
 				}

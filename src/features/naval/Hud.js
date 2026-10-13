@@ -22,7 +22,15 @@
 // (model.aiming.screen from arrowFor, the readout beside it) and dims "out of arc" past the swing; first person keeps the
 // centred crosshair. The gun rows' reload bars run over naval.reloadTotal (a crew gunner's reload is longer).
 
+//
+// Wave 11A: the powder and shot aboard ("Shot 12 / 16", "Out of shot" in red after a dry click: model.ammo, model.outOfShot),
+// a damage-control line for her own hull ("FIRE 45 %", "Flooding 30 %", a shot-up rudder / sails / mast: model.dc), the gun rows
+// say "NO SHOT" / "OUT OF ACTION", the target bar carries the pirate's sections as small pips (model.target.sections: rudder,
+// sails, mast, guns; red when shot away) with a flame when she burns, and the aiming readout names the aimed part (Tab).
+
 import { rotateByQuat } from './Ballistics.js';
+import { AIM_LABELS } from './Sections.js';
+import { OUT_OF_SHOT } from './Ammo.js';
 import { AimAssist, aimPlan, AIM_CSS } from './AimAssist.js';
 
 export const ARROW_RANGE = 400;
@@ -95,7 +103,32 @@ export function targetBar( naval ) {
 	return {
 		id: best.id, name: best.bounty ? best.captain : best.name, frac, mark, crippled: frac < mark,
 		dist: Math.round( Math.hypot( best.x - b.position.x, best.z - b.position.z ) ),
+		sections: best.sections ? best.sections.pips() : [], fire: best.fire ? best.fire.level : 0, flood: best.flood ? best.flood.level : 0,
 	};
+
+}
+
+// her own hull's trouble in a few words: 'FIRE 45 % · Flooding 30 % · Rudder 20 % · Mast down' | null
+export function damageLine( naval ) {
+
+	const out = [];
+	const f = naval.fireState, w = naval.floodState, sec = naval.sections;
+	if ( f && f.burning ) out.push( `FIRE ${ Math.round( f.level * 100 ) } %` );
+	if ( w && w.level > 0.005 ) out.push( `Flooding ${ Math.round( w.level * 100 ) } %` );
+	if ( sec ) {
+
+		if ( sec.mastDown ) out.push( 'Mast down' );
+		for ( const id of [ 'rudder', 'sails', 'engine' ] ) {
+
+			if ( ! sec.has( id ) || ( id === 'sails' && sec.mastDown ) ) continue;
+			const fr = sec.frac( id );
+			if ( fr < 0.5 ) out.push( `${ id[ 0 ].toUpperCase() + id.slice( 1 ) } ${ Math.round( fr * 100 ) } %` );
+
+		}
+
+	}
+
+	return out.length ? { text: out.join( ' · ' ), urgent: !! ( f && f.burning ) || !! ( w && w.level > 0.4 ) } : null;
 
 }
 
@@ -119,9 +152,11 @@ export function hudModel( naval ) {
 		const total = ( naval.reloadTotal && naval.reloadTotal[ side ] > 0 ? naval.reloadTotal[ side ] : 0 ) || naval.reloadTime( naval.playerGun.level );
 		const left = naval.reloadLeft[ side ];
 		const p = aim && aim[ i ];
+		const dry = !! naval.ammo && naval.ammo.max > 0 && naval.ammo.rounds <= 0;
+		const silent = !! naval.sections && ! naval.sections.gunsOk( side );
 		return {
-			side, key: side === 'port' ? 'Z' : 'X', owned: naval.playerGun.owned, count: Math.max( 1, naval.playerGun.guns | 0 ), ready: left <= 0, frac: left <= 0 ? 1 : Math.max( 0, 1 - left / total ),
-			left: Math.max( 0, left ), range: p && p.inArc ? p.range : null, target: p && p.inArc && p.target ? p.target.name : null,
+			side, key: side === 'port' ? 'Z' : 'X', owned: naval.playerGun.owned, count: Math.max( 1, naval.playerGun.guns | 0 ), ready: left <= 0 && ! dry && ! silent, frac: left <= 0 ? 1 : Math.max( 0, 1 - left / total ),
+			left: Math.max( 0, left ), range: p && p.inArc ? p.range : null, target: p && p.inArc && p.target ? p.target.name : null, dry, silent,
 		};
 
 	} );
@@ -136,6 +171,7 @@ export function hudModel( naval ) {
 		const cam = app.camera;
 		aiming = {
 			side: ai.side, range: Math.round( ai.range ), inArc: !! ai.inArc, ready: ( naval.reloadLeft[ ai.side ] || 0 ) <= 0, left: Math.max( 0, naval.reloadLeft[ ai.side ] || 0 ),
+			part: naval.aimPart || 'hull',
 			third, point: point || null, screen: third && point && cam && cam.position && cam.quaternion ? arrowFor( cam, point ) : null,
 		};
 
@@ -150,6 +186,9 @@ export function hudModel( naval ) {
 		aiming,
 		target: visible ? targetBar( naval ) : null,
 		noGun: visible && Number.isFinite( naval._noGunUntil ) && naval._noGunUntil > ( naval.time || 0 ),
+		ammo: naval.ammo && naval.playerGun.owned && naval.ammo.max > 0 ? { rounds: naval.ammo.rounds, max: naval.ammo.max, out: naval.ammo.rounds <= 0 } : null,
+		outOfShot: visible && Number.isFinite( naval._outOfShotUntil ) && naval._outOfShotUntil > ( naval.time || 0 ),
+		dc: damageLine( naval ),
 		camera: app.camera || null,
 		features: naval.features || null,
 	};
@@ -222,6 +261,17 @@ const CSS = `
 .nv-xhair.is-out { border-color: rgba(255, 150, 120, 0.8); opacity: 0.45; }
 .nv-xread { position: fixed; left: 50%; top: calc(50% + 22px); transform: translateX(-50%); z-index: 21; pointer-events: none; display: none; font: 600 12px var(--tw-mono, ui-monospace, monospace); color: #fff; text-shadow: 0 1px 3px rgba(0, 0, 0, 0.85); white-space: nowrap; }
 .nv-xread.is-on { display: block; }
+.nv-ammo { font: 600 11px var(--tw-mono, ui-monospace, monospace); color: var(--tw-ink-3, #9fb0bd); }
+.nv-ammo.is-low { color: #ffd9a8; }
+.nv-ammo.is-out { color: #ff8a73; }
+.nv-dc { display: none; font: 600 11px var(--tw-mono, ui-monospace, monospace); color: #ffd9a8; }
+.nv-dc.is-on { display: block; }
+.nv-dc.is-urgent { color: #ff8a73; }
+.nv-pips { display: flex; gap: 3px; margin-left: 4px; }
+.nv-pips > i { width: 6px; height: 6px; border-radius: 2px; background: #8fd18c; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.45); }
+.nv-pips > i.is-hurt { background: #f0b44a; }
+.nv-pips > i.is-gone { background: #d9553f; }
+.nv-pips > i.is-fire { background: #ff7a2a; border-radius: 50%; }
 @media (prefers-reduced-motion: reduce) { .nv-bar > span { transition: none; } }
 ${ AIM_CSS }`;
 
@@ -285,7 +335,11 @@ export class NavalHud {
 		this.tgtFill = make( 'span', '', tbar );
 		this.tgtMark = make( 'i', '', tbar );
 		this.tgtNum = make( 'b', 'nv-num', this.tgtRow, '' );
+		this.tgtPips = make( 'span', 'nv-pips', this.tgtRow );
+		this._pipKey = '';
 		this.noGunEl = make( 'div', 'nv-nogun', this.root, NO_GUN_TEXT );
+		this.ammoEl = make( 'div', 'nv-ammo', this.root, '' );
+		this.dcEl = make( 'div', 'nv-dc', this.root, '' );
 		this.xhair = make( 'div', 'nv-xhair' );
 		this.xread = make( 'div', 'nv-xread' );
 		this.arrowLayer = make( 'div', 'nv-arrows' );
@@ -334,7 +388,8 @@ export class NavalHud {
 				e.root.classList.toggle( 'is-target', g.ready && g.range !== null && g.range !== undefined );
 				e.fill.style.width = ( g.frac * 100 ).toFixed( 0 ) + '%';
 				// READY / seconds left, and the range to what this side would hit
-				const st = ( g.ready ? 'READY' : `${ ( g.left || 0 ).toFixed( 1 ) } s` ) + ( g.range !== null && g.range !== undefined ? ` · ${ g.range } m` : '' );
+				const st = g.silent ? 'OUT OF ACTION' : g.dry ? 'NO SHOT'
+					: ( g.ready ? 'READY' : `${ ( g.left || 0 ).toFixed( 1 ) } s` ) + ( g.range !== null && g.range !== undefined ? ` · ${ g.range } m` : '' );
 				if ( e.status && e.status.textContent !== st ) e.status.textContent = st;
 
 			}
@@ -350,10 +405,46 @@ export class NavalHud {
 				this.tgtRow.classList.toggle( 'is-crippled', tg.crippled );
 				const num = tg.crippled ? 'BOARD' : `${ Math.round( tg.frac * 100 ) }%`;
 				if ( this.tgtNum.textContent !== num ) this.tgtNum.textContent = num;
+				// her sections as pips (a flame first while she burns)
+				const pips = tg.sections || [];
+				const key = ( tg.fire > 0 ? 'f' : '' ) + pips.map( ( p ) => p.id + ( p.frac <= 0 ? 0 : p.frac < 0.5 ? 1 : 2 ) ).join( ',' );
+				if ( key !== this._pipKey ) {
+
+					this._pipKey = key;
+					this.tgtPips.textContent = '';
+					if ( tg.fire > 0 ) {
+
+						const e = this._make( 'i', 'is-fire', this.tgtPips );
+						e.title = 'On fire';
+
+					}
+
+					for ( const p of pips ) {
+
+						const e = this._make( 'i', p.frac <= 0 ? 'is-gone' : p.frac < 0.5 ? 'is-hurt' : '', this.tgtPips );
+						e.title = `${ p.label } ${ Math.round( p.frac * 100 ) } %`;
+
+					}
+
+				}
 
 			}
 
 			this.noGunEl.classList.toggle( 'is-on', !! model.noGun );
+			// powder and shot aboard; "Out of shot" after a dry click
+			const sh = model.ammo;
+			const at = ! sh ? '' : model.outOfShot || sh.out ? OUT_OF_SHOT : `Shot ${ sh.rounds } / ${ sh.max }`;
+			if ( this.ammoEl.textContent !== at ) this.ammoEl.textContent = at;
+			this.ammoEl.classList.toggle( 'is-out', !! sh && ( sh.out || !! model.outOfShot ) );
+			this.ammoEl.classList.toggle( 'is-low', !! sh && ! sh.out && sh.rounds <= Math.max( 2, sh.max * 0.2 ) );
+			const dc = model.dc;
+			this.dcEl.classList.toggle( 'is-on', !! dc );
+			if ( dc ) {
+
+				if ( this.dcEl.textContent !== dc.text ) this.dcEl.textContent = dc.text;
+				this.dcEl.classList.toggle( 'is-urgent', !! dc.urgent );
+
+			}
 
 			const seen = new Set();
 			for ( const a of model.arrows ) {
@@ -410,7 +501,7 @@ export class NavalHud {
 
 			}
 
-			const t = `${ am.side === 'port' ? 'PORT' : 'STBD' } · ${ am.inArc ? am.range + ' m' : 'out of arc' }${ am.ready ? '' : ` · ${ am.left.toFixed( 1 ) } s` }`;
+			const t = `${ am.side === 'port' ? 'PORT' : 'STBD' } · ${ am.inArc ? am.range + ' m' : 'out of arc' }${ am.part && am.part !== 'hull' ? ` · ${ AIM_LABELS[ am.part ] || am.part }` : '' }${ am.ready ? '' : ` · ${ am.left.toFixed( 1 ) } s` }`;
 			if ( this.xread.textContent !== t ) this.xread.textContent = t;
 
 		}

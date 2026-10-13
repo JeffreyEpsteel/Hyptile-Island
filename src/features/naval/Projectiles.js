@@ -2,7 +2,7 @@
 // player's boat, the sea and the land. A fixed pool; the mesh pool is only built when a scene is given.
 //
 //   const balls = new Projectiles( { scene, max: 64 } );
-//   balls.spawn( { x, y, z, vx, vy, vz, damage, owner: 'player' | shipId, faction: 'player' | 'pirate' | 'merchant' } )
+//   balls.spawn( { x, y, z, vx, vy, vz, damage, owner: 'player' | shipId, faction: 'player' | 'pirate' | 'merchant', big } )  (big: a brigantine's gun)
 //   balls.update( dt, ctx )  with ctx = {
 //       ships,                         Ship[] (alive ones are hit; a ball never hits its own ship or its own faction)
 //       playerBox() -> box | null,     the player's boat as an oriented box ( Ballistics.quatBox ), hit by balls not owned by 'player'
@@ -50,7 +50,7 @@ export class Projectiles {
 		if ( this.active.length >= this.max ) this._release( this.active.shift() );
 		const ball = {
 			x: b.x, y: b.y, z: b.z, vx: b.vx, vy: b.vy, vz: b.vz,
-			damage: b.damage ?? 20, owner: b.owner ?? 'player', faction: b.faction ?? 'player', level: b.level ?? 1,
+			damage: b.damage ?? 20, owner: b.owner ?? 'player', faction: b.faction ?? 'player', level: b.level ?? 1, big: !! b.big,
 			travelled: 0, age: 0, mesh: null, x0: b.x, z0: b.z,
 		};
 		if ( this.scene ) {

@@ -8,6 +8,7 @@
 //   v.setNear( bool )                              // shadows only for close ships; v.group.visible hides far ones
 //   models.setNight( 0..1 )                        // the stern lantern glows
 //   models.ready( kind ) -> Promise                // resolves when that class has loaded
+//   v.wheel / v.steerWheel( ship )                 // the helm wheel turns with the ship's turn (apply() calls it)
 //
 // Orientation: the GLBs are +X forward (the fork's Blender export; the stern lantern is at -X, the bowsprit at
 // +X); the Group inside the ship's group is turned by -PI/2 about Y so the bow points along +Z, the boat frame.
@@ -29,6 +30,33 @@ function defaultBase() {
 	} catch ( e ) {
 
 		return '/';
+
+	}
+
+}
+
+// The template's baked spoked wheel lifted out of the hull's triangles (once per class; every visual shares the parts) with
+// the player's ship's own carve (world/boat/ShipBoatModel _buildHelm / _carveWheel, run on a stand-in: the wheel's place
+// comes from the Boats.js entry of the same class). -> { position (boat frame), parts: [ { geometry, material } ], turns,
+// radius, triangles } or null (no wheel found, e.g. inside a wheelhouse: nothing turns).
+export async function carveShipWheel( kind, glb ) {
+
+	try {
+
+		const [ { ShipBoatModel }, { BOATS } ] = await Promise.all( [ import( '../../world/boat/ShipBoatModel.js' ), import( '../../game/Boats.js' ) ] );
+		const spec = Object.values( BOATS ).find( ( b ) => b.kind === 'ship' && ( b.shipClass || '' ) === kind );
+		if ( ! spec || ! glb.meshes || ! glb.meshes.length ) return null;
+		const ctx = { group: new Group(), spec, helmStand: null };
+		ShipBoatModel.prototype._buildHelm.call( ctx, spec );
+		const triangles = ShipBoatModel.prototype._carveWheel.call( ctx, glb );
+		if ( ! triangles ) return null;
+		const parts = ctx.wheelMesh.children.map( ( m ) => ( { geometry: m.geometry, material: m.material } ) );
+		return { position: ctx.wheelPivot.position.clone(), parts, turns: ctx.wheelTurns, radius: ctx.wheelRadius, triangles };
+
+	} catch ( e ) {
+
+		console.warn( `naval: no turning wheel for ${ kind }`, e );
+		return null;
 
 	}
 
@@ -72,6 +100,46 @@ export class ShipVisual {
 
 		}
 
+		this._fillWheel( glb.wheel );
+
+	}
+
+	// ---- the helm wheel (wave 11C): copies of the template's carved wheel (carveShipWheel) under a pivot in the boat frame
+	_fillWheel( w ) {
+
+		if ( ! w || this.wheel ) return;
+		const pivot = new Group();
+		pivot.name = 'ship-wheel-pivot';
+		pivot.position.copy( w.position ); // the axle along +Z (forward), as ShipBoatModel's wheelPivot
+		const spin = new Group();
+		spin.name = 'ship-wheel';
+		for ( const p of w.parts ) {
+
+			const m = new Mesh( p.geometry, p.material );
+			m.name = 'ship-wheel';
+			m.receiveShadow = true;
+			spin.add( m );
+
+		}
+
+		pivot.add( spin );
+		this.group.add( pivot );
+		this.wheel = spin;
+		this.wheelTurns = w.turns;
+
+	}
+
+	// the wheel's spin from the ship's turn: a brain's steer (-1..1, + = port) when it sets one, else Ship.yawRate over the
+	// class's turn rate (+ yaw rate = turning to port); counter-clockwise from the helm for port, as BoatModel.steerWheel
+	steerWheel( ship ) {
+
+		if ( ! this.wheel || ! ship ) return 0;
+		const brain = Number.isFinite( ship.steer ) ? ship.steer : ship.brain && Number.isFinite( ship.brain.steer ) ? ship.brain.steer : null;
+		const turn = ship.cls && ship.cls.turn > 0 ? ship.cls.turn : 0.3;
+		const s = Math.max( - 1, Math.min( 1, brain !== null ? brain : ( ship.yawRate || 0 ) / turn ) );
+		this.wheel.rotation.z = - s * ( this.wheelTurns || 1 ) * Math.PI * 2;
+		return s;
+
 	}
 
 	apply( ship, pose ) {
@@ -79,6 +147,7 @@ export class ShipVisual {
 		const g = this.group;
 		g.position.set( ship.x, pose.y, ship.z );
 		g.rotation.set( - pose.pitch, ship.yaw, pose.roll );
+		this.steerWheel( ship );
 
 	}
 
@@ -138,6 +207,7 @@ export class ModelSet {
 			}
 
 			centreOnHull( glb );
+			glb.wheel = await carveShipWheel( kind, glb );
 			t.glb = glb;
 			for ( const m of glb.materials ) m.underwaterLighting = 'lite';
 			this._lantern( glb );

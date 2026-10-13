@@ -188,21 +188,26 @@ export function installHudPanels( GameHUD ) {
 	function yardExtras( hud ) {
 
 		const nv = navalOf( hud ), s = hud.game.state;
+		const boatId = ( hud.game.app && hud.game.app.boatId ) || s.boat; // (the sandbox hands out boats without writing the save)
 		// the seaplane wreck (src/features/seaplane Crash.js): recovered here before anything else
 		const sp = hud.game.app && hud.game.app.features ? hud.game.app.features.get( 'seaplane' ) : null;
 		const spv = sp && sp.view ? sp.view() : null;
 		const wreckRow = spv && spv.lost ? `<div class="gm-shop-row"><span>Recover the seaplane wreck<small>She broke up out there · towed to the ramp, then repair her at the hangar</small></span><span class="gm-shop-act"><span class="gm-price">${ s.free ? 'Free in sandbox' : '$' + ( sp.recoveryCost ? sp.recoveryCost() : 600 ).toLocaleString() }</span><button class="gm-btn" data-recover-plane ${ ! s.free && sp.recoveryCost && sp.recoveryCost() > s.money ? 'disabled' : '' }>Recover</button></span></div>` : '';
-		if ( ! nv || ! s.boat ) return wreckRow;
+		if ( ! nv || ! boatId ) return wreckRow;
 		// she lies on the sea floor: salvage first (naval.wreck / salvage)
-		if ( nv.wreck && nv.salvageCost ) { const cost = nv.salvageCost(); return wreckRow + `<div class="gm-shop-row"><span>Salvage ${ BOATS[ s.boat ].name }<small>She lies on the sea floor · raised and moored at her berth with her hold</small></span><span class="gm-shop-act"><span class="gm-price">${ s.free ? 'Free in sandbox' : '$' + cost.toLocaleString() }</span><button class="gm-btn" data-salvage ${ ! s.free && cost > s.money ? 'disabled' : '' }>Salvage</button></span></div>`; }
+		if ( nv.wreck && nv.salvageCost ) { const cost = nv.salvageCost(); return wreckRow + `<div class="gm-shop-row"><span>Salvage ${ BOATS[ boatId ].name }<small>She lies on the sea floor · raised and moored at her berth with her hold</small></span><span class="gm-shop-act"><span class="gm-price">${ s.free ? 'Free in sandbox' : '$' + cost.toLocaleString() }</span><button class="gm-btn" data-salvage ${ ! s.free && cost > s.money ? 'disabled' : '' }>Salvage</button></span></div>`; }
 		const g = nv.playerGun;
+		// wave 11: powder and shot, rigging / rudder / sail repairs (naval Ammo.js / Sections.js)
+		const q = nv.shotQuote ? nv.shotQuote() : null, sc = nv.sectionRepairCost ? nv.sectionRepairCost() : 0;
+		const extra = ( q && nv.ammo && nv.ammo.max > 0 ? `<div class="gm-shop-row"><span>Powder and shot x12<small>${ nv.ammo.rounds } / ${ nv.ammo.max } rounds aboard</small></span><span class="gm-shop-act">${ q.rounds > 0 ? `<span class="gm-price">${ s.free ? 'Free in sandbox' : '$' + q.price }</span><button class="gm-btn" data-shot ${ ! s.free && q.price > s.money ? 'disabled' : '' }>Buy</button>` : '<span class="gm-have">Magazine full</span>' }</span></div>` : '' )
+			+ ( nv.sections && nv.sections.damaged ? `<div class="gm-shop-row"><span>Rigging and rudder repairs<small>${ nv.sections.pips().map( ( p ) => `${ p.label } ${ Math.round( p.frac * 100 ) }%` ).join( ' · ' ) }</small></span><span class="gm-shop-act"><span class="gm-price">${ s.free ? 'Free in sandbox' : '$' + sc }</span><button class="gm-btn" data-rig ${ ! s.free && sc > s.money ? 'disabled' : '' }>Repair</button></span></div>` : '' );
 		if ( g.builtIn ) {
 
 			const h = nv.playerHull, cost = nv.repairCost();
 			const hullRow = h.hp >= h.max - 0.5 ? '<span class="gm-have">Hull sound</span>'
 				: `<span class="gm-price">${ s.free ? 'Free in sandbox' : '$' + cost.toLocaleString() }</span><button class="gm-btn" data-repair ${ ! s.free && cost > s.money ? 'disabled' : '' }>Repair</button>`;
 			return `<div class="gm-shop-row"><span>Broadside battery<small>${ g.guns } guns a side · Z fires to port, X to starboard</small></span><span class="gm-shop-act"><span class="gm-have">Built in</span></span></div>`
-				+ `<div class="gm-shop-row"><span>Hull repairs<small>${ Math.round( h.hp ) } / ${ h.max } hull points</small></span><span class="gm-shop-act">${ hullRow }</span></div>`;
+				+ `<div class="gm-shop-row"><span>Hull repairs<small>${ Math.round( h.hp ) } / ${ h.max } hull points</small></span><span class="gm-shop-act">${ hullRow }</span></div>` + extra;
 
 		}
 
@@ -210,7 +215,7 @@ export function installHudPanels( GameHUD ) {
 		const h = nv.playerHull, cost = nv.repairCost();
 		const hullRow = h.hp >= h.max - 0.5 ? '<span class="gm-have">Hull sound</span>'
 			: `<span class="gm-price">${ s.free ? 'Free in sandbox' : '$' + cost.toLocaleString() }</span><button class="gm-btn" data-repair ${ ! s.free && cost > s.money ? 'disabled' : '' }>Repair</button>`;
-		return `<div class="gm-shop-row"><span>Hull repairs<small>${ Math.round( h.hp ) } / ${ h.max } hull points</small></span><span class="gm-shop-act">${ hullRow }</span></div>`;
+		return `<div class="gm-shop-row"><span>Hull repairs<small>${ Math.round( h.hp ) } / ${ h.max } hull points</small></span><span class="gm-shop-act">${ hullRow }</span></div>` + extra;
 
 	}
 
@@ -222,6 +227,10 @@ export function installHudPanels( GameHUD ) {
 		if ( rp ) rp.onclick = () => { const sp = hud.game.app && hud.game.app.features ? hud.game.app.features.get( 'seaplane' ) : null; const r = sp && sp.recall ? sp.recall() : null; if ( r && r.ok ) { roidClicks( hud, 'buy' ); s.save(); } if ( r && r.text ) hud.game.toast( r.text, 3000 ); hud._keepScroll( () => hud.renderYard() ); };
 		const sb = hud.stand.querySelector( '[data-salvage]' );
 		if ( sb ) sb.onclick = () => { if ( nv.salvage( { free: !! s.free } ) ) { roidClicks( hud, 'buy' ); s.save(); } hud._keepScroll( () => hud.renderYard() ); };
+		const shot = hud.stand.querySelector( '[data-shot]' );
+		if ( shot ) shot.onclick = () => { const r = nv.buyShot ? nv.buyShot( { free: !! s.free } ) : null; if ( r && r.ok ) { roidClicks( hud, 'buy' ); s.save(); } hud._keepScroll( () => hud.renderYard() ); };
+		const rig = hud.stand.querySelector( '[data-rig]' );
+		if ( rig ) rig.onclick = () => { if ( nv.repairSections && nv.repairSections( { free: !! s.free } ) ) { roidClicks( hud, 'buy' ); s.save(); } hud._keepScroll( () => hud.renderYard() ); };
 		const rb = hud.stand.querySelector( '[data-repair]' );
 		if ( rb ) rb.onclick = () => {
 

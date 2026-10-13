@@ -414,6 +414,19 @@ torch lights the pier. Known: the roster's Helm_Idle / Steer / Seated_Idle / Fal
 (re-export in tools/roster some day); AI ships' wheels and fleet tillers are still; other players do not see wrecks;
 remote boats do not collide.
 
+### Wave 11 (2026-10-13, root + 4 workers): parity gaps
+11A ship damage (docs/briefs/w11-ship-damage.md): finite ammunition per hull (every hull at least 8 rounds; bought at the
+yard, a hold powder keg refills, AI ships carry their own and ram / flee when dry), sections (hull, rudder, sails, mast,
+guns a side) with steering / speed / silence effects, a falling mast, fire that grows, spreads, reaches the magazine and is
+doused at the rail, flooding with a pump and sinking at full flood; yard rows "Powder and shot", "Rigging and rudder
+repairs"; Tab cycles the aim section while aiming. 11B netsync (w11-netsync.md): host-authoritative hull collisions for
+every player boat, wreck entries on the schema (boats, seaplane) drawn by all, crew replicated, fire rate limits on the
+server, reconnect-safe. 11C roster (w11-roster-clips.md): the near-bind clips were deltas from a posed frame 1; rebased
+and spliced into the 8 GLBs, fleet tillers / rudders and AI ship wheels move, test/roster-clips.mjs. 11D life + emotes
+(w11-life-emotes.md): gull reactions to casting, cast / strike / catch / miss effects, emotes on 5.
+Headless Dawn harness: the stock webgpu build has no Vulkan adapter and the D3D12 path needs dxil.dll beside Chrome's
+dxcompiler.dll (not shipped with Chrome 155); parked until a Dawn build with Vulkan is found again.
+
 
 
 

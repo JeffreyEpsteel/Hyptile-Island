@@ -1,6 +1,7 @@
 import { leadAim, solveElevation, rotateByQuat, MUZZLE_SPEED, arcPoints, impactTime } from './Ballistics.js';
 import { clamp, normaliseSide } from './util.js';
 import { pitchToRange } from './AimCamera.js';
+import { aimPoint } from './Sections.js';
 
 // Naval aim assist (wave 4): at the helm, each loaded battery shows where its broadside would go - a faint line of dots
 // along the ball's arc to where it meets the target (or the water), a small lead marker where the target will be, and a
@@ -120,9 +121,12 @@ export function aimPlan( naval, side ) {
 	let dir = null, t = null, lead = null, floor = 0;
 	if ( target ) {
 
-		const ty = ( target.pose ? target.pose.y : 0 ) + ( target.cls ? target.cls.sheer * 0.4 : 1 );
+		// laid on the part the skipper picked (wave 11A: naval.aimPart, Tab while aiming), as Naval._fireMount does
+		const tp = target.cls && typeof target.toWorld === 'function' ? aimPoint( target, naval.aimPart || 'hull', {} )
+			: { x: target.x, y: ( target.pose ? target.pose.y : 0 ) + 1, z: target.z };
+		const ty = tp.y;
 		const tv = target.velocity ? target.velocity( {} ) : { x: 0, y: 0, z: 0 };
-		const aim = leadAim( m, bvel, { x: target.x, y: ty, z: target.z }, tv, MUZZLE_SPEED );
+		const aim = leadAim( m, bvel, tp, tv, MUZZLE_SPEED );
 		if ( aim ) {
 
 			const hz = Math.hypot( aim.dir.x, aim.dir.z ) || 1;
@@ -132,7 +136,7 @@ export function aimPlan( naval, side ) {
 				dir = aim.dir;
 				t = aim.t;
 				floor = ty;
-				lead = { x: target.x + tv.x * aim.t, z: target.z + tv.z * aim.t };
+				lead = { x: tp.x + tv.x * aim.t, z: tp.z + tv.z * aim.t };
 
 			}
 

@@ -64,6 +64,36 @@
 //                               the spread x spreadMul; never the side the skipper is aiming by hand. cannonFired carries crew
 //   naval.reloadTotal { port, starboard }    the reload last started per side (the HUD's bar: a gunner's is longer)
 //
+// Wave 11A (ammunition, per-section damage, fire, flooding; Ammo.js, Sections.js, Fire.js, Flood.js, MastFall.js):
+//   naval.ammo                  Magazine { rounds, max } of this hull (AMMO_MAX: skiff / canoe 8 .. brigantine 60; a new hull
+//                               comes full). Every gun fired spends a round, the crew's gunners too; dry, the guns click, the
+//                               HUD says "Out of shot" and crewFire returns null. A 'powder' keg in the trade hold is broken
+//                               out when she runs dry at sea (+24); the sandbox refills her free while she lies moored.
+//   naval.shotQuote() -> { rounds, price } / naval.buyShot( { free } ) -> { ok, added, price, reason }   the yard's
+//                               "Powder and shot x12, $60" (features.state pays; free in the sandbox); emits shotBought
+//   naval.usePowderKeg() -> rounds added (0 without a keg in the hold or room in the magazine)
+//   naval.sections              Sections of this hull (rudder, sails or engine, mast, guns a side): a ball picks the section
+//                               where it strikes (pickSection). Rudder < 40 % halves the helm (BoatController.rudderLift),
+//                               0 = no steering; sails / engine < 50 % halve the top speed (speedFactor), 0 = adrift; the mast
+//                               at 0 falls over the side (MastFall) and the sails go with it; a gun section at 0 silences
+//                               that broadside. AI ships: Ship.sections, same rules (Ship.integrate).
+//   naval.sectionRepairCost() / naval.repairSections( { free } )   "Rigging and rudder repairs" at the yard; repair() and
+//                               repairCost() cover the hull, the sections and pumping her out together
+//   naval.aimPart               'hull' | 'sails' | 'rudder': Tab while aiming cycles it (claimKey 'Tab'); the auto-aim lays
+//                               on that part (Sections.aimPoint) and a hand-aimed shot's elevation is for its height
+//   naval.fireState             Fire of this hull: a brigantine's big gun hit (10 %) or a ram faster than 7 m/s may start it;
+//                               it grows, burns the hull, spreads to the sails and, with powder aboard above 0.8 for 10 s,
+//                               fires the magazine (explosion; FIRE.blast of the hull; the shot is gone). E "Douse the fire"
+//                               at the rail on deck (3 s bucket channel, repeatable: naval.douse()); heading into the wind
+//                               at speed slows it. AI crews put their own out after 20-40 s (crew count).
+//   naval.flood / floodState    0..1: below 35 % hull the water rises 0.01 / s per 10 % under the line; speed x
+//                               ( 1 - 0.5 flood ), she settles lower (her model, after the controller placed it); full, she
+//                               sinks through the sinking flow. E "Man the pump" on deck (-0.04 / s while held:
+//                               naval.pump( true / false )); posted crew pump when no enemy is in range; repairs drain her.
+//   Events: shotBought { rounds, price }, outOfShot { by: 'player' | shipId }, sectionBroken { id: 'player' | shipId, section },
+//   mastFell { id, x, z }, fireStarted { id, x, z, cause }, fireOut { id, doused }, magazineExploded { id, x, z },
+//   shipFlooded { id } (she filled and sank)
+//
 // Ship modules (Modules.js; slots per hull in Boats.js `slots`):
 //   naval.fitting               the Fitting (tiers owned, the fit of every hull); naval.mods = fitting.stats() of this hull
 //   naval.moduleRows( state? ) -> [ { id, label, desc, price, owned, fitted, canBuy, canFit, tier, maxTier, next, slot, kind,
@@ -125,6 +155,12 @@ import { RULES as BOARDING_RULES } from '../boarding/BoardingData.js';
 import { Fitting, SLOT_LABELS, moduleLabel } from './Modules.js';
 import { ModuleMeshes } from './ModuleModels.js';
 import { clamp, makeRng, normaliseSide, sideSign, angleDiff, DEG } from './util.js';
+import { Magazine, ammoMaxFor, buyShot, shotQuote, POWDER_KEG, OUT_OF_SHOT } from './Ammo.js';
+import { sectionsFor, pickSection, aimPoint, aimHeight, HULL_SHARE, SECTION_LABELS, MAST_STATIONS, AIM_PARTS } from './Sections.js';
+import { Fire, FIRE, headwindOver, aiDouseTime } from './Fire.js';
+import { Flood, FLOOD } from './Flood.js';
+import { MastFall, MastVisual, hideMast } from './MastFall.js';
+import { G } from '../../core/Globals.js';
 
 // swivel gun by level: damage per ball, reload (s), one-sigma spread (rad), traverse half arc (rad)
 export const GUN_LEVELS = [
@@ -135,6 +171,8 @@ export const GUN_LEVELS = [
 ];
 
 export const REPAIR_PER_HP = 2; // coins
+export const SECTION_REPAIR_PER_HP = 1.5; // coins per section point (rigging, rudder, guns)
+export const MAST_COST = 150; // coins to step a new mast
 export const GUN_RANGE = 320; // m, auto-aim reach of the player's gun
 export const BALL_MASS = 2.5; // kg (cannonballImpact energy = 0.5 m v^2)
 const LANTERN_REACH = 12; // m: fishing this close to the boat counts as fishing under its lantern
@@ -247,7 +285,7 @@ export class Naval {
 		this.stats = { shipsSunk: 0, piratesSunk: 0, shots: 0, hits: 0, looted: 0 };
 		this.target = { x: 0, y: 0, z: 0, vx: 0, vz: 0, ok: false, safe: false };
 		this.world = { time: 0, night: false, storm: false, target: this.target, rng: this.rng, terrain: null, fire: ( s, side ) => this._shipFire( s, side ), escape: ( s ) => this._escape( s ) };
-		this.keys = { port: false, starboard: false };
+		this.keys = { port: false, starboard: false, aimPart: false };
 		this._nextId = 1;
 		this._spawnT = 0.5;
 		this._pirateAt = 6;
@@ -295,12 +333,31 @@ export class Naval {
 		this._aimFovBase = null;
 		this.reloadTotal = { port: 0, starboard: 0 };
 		this.crewShots = 0;
+		// wave 11A: the player's powder and shot, sections, fire and flooding (set per hull class in _syncBoat)
+		this.ammo = new Magazine( 0 );
+		this.sections = sectionsFor( 'lobster', 100 );
+		this.fireState = new Fire();
+		this.floodState = new Flood();
+		this.aimPart = 'hull';
+		this.falls = []; // falling masts: { fall, vis, ship | null, foot }
+		this._outOfShotUntil = - 1;
+		this._dryHintT = - 1;
+		this._silentHintT = - 1;
+		this._channel = null; // the deck job in hand: { kind: 'douse' | 'pump', t }
+		this._burnAcc = 0;
+		this._smokeT = 0;
+		this._floodWarned = false;
+		this._rudderBase = new WeakMap(); // controller -> its own rudderLift
+		this._settle = 0;
+		this._settleY = 0;
+		this._mastHidden = null; // the player's mast meshes hidden (fallen), restored by the yard
 		if ( this.hud && ! this.hud.root ) this.hud = null;
 
 		if ( this.features && this.features.claimKey ) {
 
 			this.keys.port = this.features.claimKey( 'KeyZ', 'naval' );
 			this.keys.starboard = this.features.claimKey( 'KeyX', 'naval' );
+			this.keys.aimPart = this.features.claimKey( 'Tab', 'naval' ); // (while aiming: hull / sails / rudder)
 
 		}
 
@@ -311,6 +368,20 @@ export class Naval {
 
 			this._offs.push( this.features.on( 'bountyAccepted', ( e ) => this._onBounty( e ) ) );
 			this._offs.push( this.features.on( 'bountyCancelled', ( e ) => this._onBountyCancelled( e ) ) );
+
+		}
+
+		// the deck jobs (E on deck): a bucket at the rail for a fire, the pump while she is making water
+		if ( this.features && typeof this.features.interactable === 'function' ) {
+
+			this._offs.push( this.features.interactable( {
+				id: 'naval-douse', radius: 3.6, position: () => this._railPoint(), prompt: () => 'Douse the fire',
+				when: () => this._onDeck() && this.fireState.burning && ! this._channel, onInteract: () => this.douse(),
+			} ) );
+			this._offs.push( this.features.interactable( {
+				id: 'naval-pump', radius: 14, position: () => this._deckPoint(), prompt: () => `Man the pump · ${ Math.round( this.floodState.level * 100 ) } % water`,
+				when: () => this._onDeck() && this.floodState.level > 0.005 && ! this._channel, onInteract: () => this.pump( true ),
+			} ) );
 
 		}
 
@@ -342,7 +413,22 @@ export class Naval {
 		if ( h.sunk ) return 0;
 		const f = h.max > 0 ? h.hp / h.max : 1;
 		const sp = this.mods.speed;
-		return ( f >= 0.5 ? 1 : 0.35 + 0.65 * ( f / 0.5 ) ) * sp * sp;
+		// torn sails / a wrecked engine and the water in her cut the top speed (thrust ~ speed^2)
+		const dc = this.sections.speedMul * this.floodState.speedMul;
+		return ( f >= 0.5 ? 1 : 0.35 + 0.65 * ( f / 0.5 ) ) * sp * sp * dc * dc;
+
+	}
+
+	// the helm: 1, 0.5 with the rudder below 40 %, 0 with it shot away (BoatController.rudderLift x this)
+	get turnFactor() {
+
+		return this.playerHull.sunk ? 0 : this.sections.turnMul;
+
+	}
+
+	get flood() {
+
+		return this.floodState.level;
 
 	}
 
@@ -437,6 +523,7 @@ export class Naval {
 		const d = max - h.max;
 		h.max = max;
 		h.hp = h.sunk ? Math.min( h.hp, max ) : clamp( h.hp + Math.max( 0, d ), 0.1, max );
+		this.sections.rescale( max );
 
 	}
 
@@ -471,6 +558,21 @@ export class Naval {
 			h.sunk = false;
 
 		}
+
+		this._newHullSystems( id );
+
+	}
+
+	// a new hull: her own sections, a full magazine (her first load comes with her), no fire, dry bilges
+	_newHullSystems( id ) {
+
+		this.sections = sectionsFor( id, this.playerHull.max );
+		this.ammo.setMax( ammoMaxFor( id ), { fill: true } );
+		if ( this.fireState.burning ) this._fireOut( null, false, true );
+		this.fireState.extinguish();
+		this.floodState.drain();
+		this._channel = null;
+		this._restoreMast();
 
 	}
 
@@ -878,6 +980,16 @@ export class Naval {
 	_removeShip( i ) {
 
 		const s = this.ships[ i ];
+		if ( s.fire.burning || s._fireVfx ) this._fireOut( s, false, true );
+		for ( let k = this.falls.length - 1; k >= 0; k -- ) {
+
+			const f = this.falls[ k ];
+			if ( f.ship !== s ) continue;
+			if ( f.vis ) f.vis.dispose();
+			this.falls.splice( k, 1 );
+
+		}
+
 		this.pool.release( s );
 		if ( s.visual ) {
 
@@ -970,6 +1082,7 @@ export class Naval {
 
 		const t = ship.tgt || this.target, c = ship.cls;
 		if ( ! t.ok || ! c.guns || ship.reload[ side ] > 0 || ! ship.alive || isCrippled( ship ) ) return false; // (crippled: her guns are silent)
+		if ( ship.ammo.rounds <= 0 || ! ship.sections.gunsOk( side ) ) return false; // dry, or that battery shot to pieces
 		const range = Math.hypot( t.x - ship.x, t.z - ship.z );
 		if ( range > c.engage * 1.35 || range < 20 ) return false;
 		// the target must lie within the traverse of this side's guns
@@ -1006,9 +1119,14 @@ export class Naval {
 	_fireShipGun( s, st ) {
 
 		const t = s.tgt || this.target;
-		if ( ! s.alive || ! t.ok || isCrippled( s ) ) return;
+		if ( ! s.alive || ! t.ok || isCrippled( s ) || ! s.sections.gunsOk( st.side ) ) return;
+		// every gun fired spends a round of her own stock
+		if ( s.ammo.spend( 1 ) < 1 ) return;
+		if ( s.ammo.rounds <= 0 ) this._emit( 'outOfShot', { by: s.id } );
 		const m = s.toWorld( st.x, st.y, st.z, { x: 0, y: 0, z: 0 } );
-		const aim = leadAim( m, s.velocity( {} ), { x: t.x, y: t.y + 0.9, z: t.z }, { x: t.vx, y: 0, z: t.vz }, MUZZLE_SPEED );
+		// the brains' choice (Brains AIM_PREF): his sails while he runs, else the hull
+		const ty = s.mem && s.mem.aim === 'sails' ? this._sailHeightOf( t ) : 0.9;
+		const aim = leadAim( m, s.velocity( {} ), { x: t.x, y: t.y + ty, z: t.z }, { x: t.vx, y: 0, z: t.vz }, MUZZLE_SPEED );
 		if ( ! aim ) return;
 		// the traverse limit of the carriage
 		const sg = sideSign( st.side ), nx = Math.cos( s.yaw ) * sg, nz = - Math.sin( s.yaw ) * sg;
@@ -1018,6 +1136,14 @@ export class Naval {
 		const range = Math.hypot( t.x - m.x, t.z - m.z );
 		const sigma = s.cls.shot * ( 0.7 + range / 120 ) * ( 1 + Math.abs( s.yawRate ) * 3 );
 		this._launch( m, aim.dir, sigma, { damage: s.cls.damage * ( s.dmgMul || 1 ), owner: s.id, faction: s.faction, vel: s.velocity( {} ), big: s.kind === 'brigantine', side: st.side } );
+
+	}
+
+	// how high a pirate lays his guns to cut a boat's canvas: our own boat's rig (its hit box), another player's a guess
+	_sailHeightOf( t ) {
+
+		if ( t === this.target ) return Math.max( 1.2, this._dims().top * 0.8 );
+		return 2.5;
 
 	}
 
@@ -1045,7 +1171,7 @@ export class Naval {
 		return this.balls.spawn( {
 			x: m.x, y: m.y, z: m.z,
 			vx: dx * speed + ( vel ? vel.x : 0 ), vy: dy * speed + ( vel ? vel.y : 0 ), vz: dz * speed + ( vel ? vel.z : 0 ),
-			damage, owner, faction, level,
+			damage, owner, faction, level, big, // (big: a brigantine's gun - its hits can start a fire)
 		} );
 
 	}
@@ -1111,6 +1237,21 @@ export class Naval {
 		}
 
 		if ( this.playerHull.sunk || this.reloadLeft[ sd ] > 0 ) return false;
+		// that battery shot to pieces, or no powder and shot left (a keg in the hold is broken out first)
+		if ( ! this.sections.gunsOk( sd ) ) {
+
+			this._silenced( sd );
+			return false;
+
+		}
+
+		if ( this.ammo.rounds <= 0 && ! this.usePowderKeg() ) {
+
+			this._outOfShot();
+			return false;
+
+		}
+
 		const plan = this._gunPlan( sd );
 		const L = plan.L;
 		// aimed by hand: every gun of the side along the look (no auto target)
@@ -1206,6 +1347,14 @@ export class Naval {
 
 		const b = this.app.boatCtl;
 		if ( ! b || ! b.position || ! b.quaternion ) return;
+		// one round a gun: a ripple that runs the magazine dry ends in a click
+		if ( this.ammo.spend( 1 ) < 1 ) {
+
+			this._outOfShot( true );
+			return;
+
+		}
+
 		const m = this._muzzleWorld( plan.mounts[ index ], b, { x: 0, y: 0, z: 0 } );
 		const normal = rotateByQuat( b.quaternion, { x: plan.sg, y: 0, z: 0 } );
 		const bvel = b.velocity ? { x: b.velocity.x, y: b.velocity.y, z: b.velocity.z } : { x: 0, y: 0, z: 0 };
@@ -1214,7 +1363,8 @@ export class Naval {
 		let dir = aimDir;
 		if ( ! dir && target && target.alive ) {
 
-			const aim = leadAim( m, bvel, { x: target.x, y: target.pose.y + target.cls.sheer * 0.4, z: target.z }, target.velocity( {} ), MUZZLE_SPEED );
+			// laid on the part the skipper picked (Tab while aiming); a crew gunner always goes for the hull
+			const aim = leadAim( m, bvel, aimPoint( target, opt && opt.crew ? 'hull' : this.aimPart, {} ), target.velocity( {} ), MUZZLE_SPEED );
 			if ( aim ) {
 
 				const hz = Math.hypot( aim.dir.x, aim.dir.z ) || 1;
@@ -1269,6 +1419,67 @@ export class Naval {
 		if ( ! inp || ! inp.hit || ! p || p.mode !== 'boat' ) return;
 		if ( this.keys.port && inp.hit( 'KeyZ' ) ) this.fire( 'port' );
 		if ( this.keys.starboard && inp.hit( 'KeyX' ) ) this.fire( 'starboard' );
+
+	}
+
+	// the guns click: no powder and shot. "Out of shot" in the naval HUD for a few seconds, a toast at most every 8 s
+	_outOfShot( quiet = false ) {
+
+		this._outOfShotUntil = this.time + 4;
+		const b = this.app.boatCtl;
+		if ( b && b.position ) this.audio.click( b.position.x, b.position.y + 1, b.position.z );
+		if ( quiet || this.time < this._dryHintT ) return;
+		this._dryHintT = this.time + 8;
+		this._say( `${ OUT_OF_SHOT } · Captain Roid sells powder and shot` );
+		this._emit( 'outOfShot', { by: 'player' } );
+
+	}
+
+	_silenced( sd ) {
+
+		if ( this.time < this._silentHintT ) return;
+		this._silentHintT = this.time + 6;
+		this._say( `The ${ sd === 'port' ? 'port' : 'starboard' } guns are out of action · the yard can repair them` );
+
+	}
+
+	// a 'powder' keg out of the trade hold: +POWDER_KEG rounds (only when there is room and a keg). Returns the rounds added.
+	usePowderKeg() {
+
+		const tr = this.features && this.features.get ? this.features.get( 'trade' ) : null;
+		if ( ! tr || typeof tr.takeCargo !== 'function' || this.ammo.room <= 0 ) return 0;
+		const c = tr.cargo && tr.cargo.powder;
+		if ( ! c || ! ( c.qty > 0 ) ) return 0;
+		const r = tr.takeCargo( 'powder', 1 );
+		if ( ! r || ! ( r.qty >= 1 ) ) return 0;
+		const added = this.ammo.add( POWDER_KEG );
+		this._say( `Broke out a keg of powder: +${ added } rounds` );
+		return added;
+
+	}
+
+	shotQuote() {
+
+		return shotQuote( this.ammo );
+
+	}
+
+	// the yard's "Powder and shot x12" (free in the sandbox)
+	buyShot( { free = false } = {} ) {
+
+		const st = this.features ? this.features.state : null;
+		const r = buyShot( this.ammo, { state: st, free: free || !! ( this.features && this.features.sandbox ) } );
+		if ( r.ok ) this._emit( 'shotBought', { rounds: r.added, price: r.price } );
+		return r;
+
+	}
+
+	// Tab while aiming: hull -> sails -> rudder
+	cycleAimPart() {
+
+		const i = AIM_PARTS.indexOf( this.aimPart );
+		this.aimPart = AIM_PARTS[ ( i + 1 ) % AIM_PARTS.length ];
+		return this.aimPart;
 
 	}
 
@@ -1332,7 +1543,22 @@ export class Naval {
 			return { m, n: { x: n.x / nl, z: n.z / nl } };
 
 		}, { traverse: L.traverse, maxRange: GUN_RANGE * this.mods.range, minRange: 20, speed: MUZZLE_SPEED, pitchMap: this._thirdPerson() } );
+		if ( this.keys.aimPart && inp.hit && inp.hit( 'Tab' ) ) this.cycleAimPart();
+		this._aimForPart( this.aimInfo );
 		if ( edgeL ) this.fire( this.aimInfo.side, { aimed: true } );
+
+	}
+
+	// the elevation for the aimed part's height at the look's range (lookAim lays for the waterline: the hull)
+	_aimForPart( ai ) {
+
+		ai.part = this.aimPart;
+		if ( this.aimPart === 'hull' ) return;
+		const el = solveElevation( MUZZLE_SPEED, ai.range, aimHeight( this.aimPart, { sheer: 3.3, top: 12 } ) - ai.from.y );
+		if ( el === null || el === undefined || ! Number.isFinite( el ) ) return;
+		const hl = Math.hypot( ai.dir.x, ai.dir.z ) || 1, ce = Math.cos( el );
+		ai.dir = { x: ai.dir.x / hl * ce, y: Math.sin( el ), z: ai.dir.z / hl * ce };
+		ai.el = el;
 
 	}
 
@@ -1429,6 +1655,8 @@ export class Naval {
 		if ( ! sd || ! this.active || ! b || ! b.position || ! b.quaternion ) return null;
 		if ( ! this.playerGun.owned || this.playerHull.sunk || this.sinking || this.reloadLeft[ sd ] > 0 ) return null;
 		if ( this.aiming && this.aimInfo && this.aimInfo.side === sd ) return null;
+		// the gunners work the same stock: dry (no keg to break out), or the side shot away, they stand by
+		if ( ! this.sections.gunsOk( sd ) || ( this.ammo.rounds <= 0 && ! this.usePowderKeg() ) ) return null;
 		const target = this.crewTarget( sd );
 		if ( ! target ) return null;
 		const plan = this._gunPlan( sd );
@@ -1540,7 +1768,20 @@ export class Naval {
 
 		const byPlayer = ball.owner === 'player';
 		const dmg = ball.damage * this._falloff( ball );
-		const sunk = ship.damage( dmg, { part, by: byPlayer ? 'player' : ball.owner } );
+		// the section the ball struck (Sections.pickSection: above the sheer guns / mast / sails, below the hull or the rudder)
+		const local = this._shipLocal( ship, pt );
+		const sec = pickSection( local, this._shipGeo( ship ), this.rng );
+		const sunk = ship.damage( dmg, { part: sec, by: byPlayer ? 'player' : ball.owner } );
+		const lh = ship.lastHit;
+		if ( ! sunk && lh ) {
+
+			if ( lh.broke ) this._emit( 'sectionBroken', { id: ship.id, section: lh.part } );
+			if ( lh.mastFell ) this._shipMastFell( ship, local );
+
+		}
+
+		// a brigantine's big guns can set her alight
+		if ( ball.big && ship.alive && this.rng() < FIRE.bigChance ) this._igniteShip( ship, local, 'cannon' );
 		if ( ! this._vfx() ) this.fx.hit( pt.x, pt.y, pt.z );
 		this.audio.impact( pt.x, pt.y, pt.z, 0.9 );
 		if ( byPlayer ) {
@@ -1552,6 +1793,38 @@ export class Naval {
 		}
 
 		if ( sunk ) this._onSunk( ship, byPlayer );
+
+	}
+
+	// a world point in ship s's frame (the inverse of Ship.toWorld)
+	_shipLocal( s, p ) {
+
+		const dx = p.x - s.x, dz = p.z - s.z, sn = Math.sin( s.yaw ), cs = Math.cos( s.yaw );
+		return { x: dx * cs - dz * sn, y: p.y - s.pose.y, z: dx * sn + dz * cs };
+
+	}
+
+	_shipGeo( s ) {
+
+		const c = s.cls, sec = s.sections;
+		return { length: c.length, beam: c.beam, sheer: c.sheer, guns: sec.has( 'gunsPort' ), mast: sec.has( 'mast' ) && ! sec.mastDown, masts: MAST_STATIONS[ s.kind ], propulsion: sec.layout.propulsion };
+
+	}
+
+	// a world point in the player's boat frame (null without a boat)
+	_playerLocal( p ) {
+
+		const b = this.app.boatCtl;
+		if ( ! b || ! b.position || ! b.quaternion ) return null;
+		const q = b.quaternion;
+		return rotateByQuat( { x: - q.x, y: - q.y, z: - q.z, w: q.w }, { x: p.x - b.position.x, y: p.y - b.position.y, z: p.z - b.position.z } );
+
+	}
+
+	_playerGeo() {
+
+		const d = this._dims(), sec = this.sections;
+		return { length: d.length, beam: d.beam, sheer: d.free, guns: sec.has( 'gunsPort' ), mast: sec.has( 'mast' ) && ! sec.mastDown, masts: MAST_STATIONS[ this.playerHull.boat ], propulsion: sec.layout.propulsion };
 
 	}
 
@@ -1595,7 +1868,37 @@ export class Naval {
 		const owner = this.ships.find( ( s ) => s.id === ball.owner );
 		if ( ! this._vfx() ) this.fx.hit( pt.x, pt.y, pt.z );
 		this.audio.impact( pt.x, pt.y, pt.z, 1 );
-		this.damagePlayer( ball.damage * this._falloff( ball ), owner ? `cannon:${ owner.name }` : 'cannon', owner ? { x: owner.x, z: owner.z } : { x: ball.x0, z: ball.z0 } );
+		const local = this._playerLocal( pt );
+		const sec = local ? pickSection( local, this._playerGeo(), this.rng ) : 'hull';
+		this.hitPlayerSection( sec, ball.damage * this._falloff( ball ), owner ? `cannon:${ owner.name }` : 'cannon', owner ? { x: owner.x, z: owner.z } : { x: ball.x0, z: ball.z0 }, local );
+		if ( ball.big && local && ! this.playerHull.sunk && this.rng() < FIRE.bigChance ) this._ignitePlayer( local, 'cannon' );
+
+	}
+
+	// a blow to one section of the player's boat: the section takes it (armour applies), the hull its HULL_SHARE
+	hitPlayerSection( sec, amount, cause = 'cannon', from = null, local = null ) {
+
+		const h = this.playerHull;
+		if ( h.sunk || ! ( amount > 0 ) ) return;
+		if ( sec === 'hull' || ! this.sections.has( sec ) ) {
+
+			this.damagePlayer( amount, cause, from );
+			return;
+
+		}
+
+		const r = this.sections.hit( sec, amount * this.mods.taken );
+		this.damagePlayer( amount * ( HULL_SHARE[ sec ] ?? 1 ), cause, from );
+		if ( ! r || h.sunk ) return;
+		if ( r.broke ) {
+
+			this._emit( 'sectionBroken', { id: 'player', section: sec } );
+			const say = { rudder: 'The rudder is shot away: she will not answer the helm', sails: 'The sails are in rags: she is adrift', engine: 'The engine is wrecked: she is adrift', gunsPort: 'The port guns are out of action', gunsStarboard: 'The starboard guns are out of action' };
+			if ( say[ sec ] ) this._say( say[ sec ], 3200 );
+
+		}
+
+		if ( r.mastFell ) this._playerMastFell( local );
 
 	}
 
@@ -1613,8 +1916,9 @@ export class Naval {
 
 	}
 
-	// hull damage to the player's boat; from = { x, z } of the attacker for the HUD wedge
-	damagePlayer( amount, cause = 'cannon', from = null ) {
+	// hull damage to the player's boat; from = { x, z } of the attacker for the HUD wedge; { quiet }: no camera kick (a fire
+	// burning, not a blow)
+	damagePlayer( amount, cause = 'cannon', from = null, { quiet = false } = {} ) {
 
 		const h = this.playerHull;
 		if ( h.sunk || ! ( amount > 0 ) ) return;
@@ -1623,26 +1927,34 @@ export class Naval {
 		const f = this.features;
 		if ( f && f.emit ) f.emit( 'playerBoatDamaged', { hp: Math.round( h.hp * 10 ) / 10, maxHp: h.max, cause } );
 		const cf = this.app.cameraFeel;
-		if ( cf && cf.kick ) cf.kick( 'snap' );
+		if ( cf && cf.kick && ! quiet ) cf.kick( 'snap' );
 		if ( from && this.hud ) this.hud.damageFrom( this._screenAngle( from.x, from.z ) );
-		if ( h.hp <= 0 ) {
+		if ( h.hp <= 0 ) this._sinkPlayer( cause );
 
-			h.sunk = true;
-			const b = this.app.boatCtl;
-			const v = this._vfx( 'splash' ); // (no event covers our own hull going down)
-			if ( b && b.position ) {
+	}
 
-				if ( v ) v.splash( b.position.x, 0, b.position.z, 2.5 );
-				else this.fx.splash( b.position.x, 0, b.position.z, 2.5 );
-				const d = this._dims();
-				this._wreckage( b.position.x, b.position.y + d.free, b.position.z, d.length, d.beam, typeof b.getYaw === 'function' ? b.getYaw() : 0 );
+	// she goes down (the hull gave out, or she filled with water): splash, wreckage, the sinking sequence, playerBoatSunk
+	_sinkPlayer( cause ) {
 
-			}
-			const info = this._beginSinking( cause );
-			if ( f && f.emit ) f.emit( 'playerBoatSunk', { cause, ...info } );
-			this._say( 'Your boat is sinking!', 3600 );
+		const h = this.playerHull, f = this.features;
+		if ( h.sunk && this.sinking ) return;
+		h.sunk = true;
+		this._channel = null;
+		if ( this.fireState.burning ) this._fireOut( null, false, true );
+		const b = this.app.boatCtl;
+		const v = this._vfx( 'splash' ); // (no event covers our own hull going down)
+		if ( b && b.position ) {
+
+			if ( v ) v.splash( b.position.x, 0, b.position.z, 2.5 );
+			else this.fx.splash( b.position.x, 0, b.position.z, 2.5 );
+			const d = this._dims();
+			this._wreckage( b.position.x, b.position.y + d.free, b.position.z, d.length, d.beam, typeof b.getYaw === 'function' ? b.getYaw() : 0 );
 
 		}
+
+		const info = this._beginSinking( cause );
+		if ( f && f.emit ) f.emit( 'playerBoatSunk', { cause, ...info } );
+		this._say( cause === 'flooding' ? 'She is full of water and going down!' : 'Your boat is sinking!', 3600 );
 
 	}
 
@@ -1660,7 +1972,7 @@ export class Naval {
 	repairCost() {
 
 		const h = this.playerHull;
-		return Math.ceil( ( h.max - h.hp ) * REPAIR_PER_HP );
+		return Math.ceil( ( h.max - h.hp ) * REPAIR_PER_HP ) + this.sectionRepairCost();
 
 	}
 
@@ -1675,6 +1987,38 @@ export class Naval {
 		if ( ! free && cost > 0 && st && st.spend && ! st.spend( cost ) ) return false;
 		h.hp = h.max;
 		h.sunk = false;
+		this._repairSystems();
+		return true;
+
+	}
+
+	// the yard's work besides the hull: re-rig her (sections, a new mast), pump her out, the fire (if any) put out
+	_repairSystems() {
+
+		this.sections.repair();
+		this._restoreMast();
+		this.floodState.drain();
+		this._floodWarned = false;
+		if ( this.fireState.burning ) this._fireOut( null, true );
+
+	}
+
+	// "Rigging and rudder repairs": the section points at SECTION_REPAIR_PER_HP, a new mast MAST_COST
+	sectionRepairCost() {
+
+		const sec = this.sections;
+		return Math.ceil( sec.missing() * SECTION_REPAIR_PER_HP ) + ( sec.mastDown ? MAST_COST : 0 );
+
+	}
+
+	repairSections( { free = false } = {} ) {
+
+		if ( this.sinking || this.wreck || ! this.sections.damaged ) return false;
+		const cost = this.sectionRepairCost();
+		const st = this.features ? this.features.state : null;
+		if ( ! free && cost > 0 && st && st.spend && ! st.spend( cost ) ) return false;
+		this.sections.repair();
+		this._restoreMast();
 		return true;
 
 	}
@@ -1686,6 +2030,7 @@ export class Naval {
 		const h = this.playerHull;
 		h.hp = Math.max( h.hp, Math.ceil( h.max * 0.25 ) );
 		h.sunk = false;
+		this.floodState.drain(); // (pumped out on the tow)
 		return true;
 
 	}
@@ -1721,6 +2066,7 @@ export class Naval {
 		const h = this.playerHull;
 		h.hp = h.max;
 		h.sunk = false;
+		this._repairSystems();
 		const app = this.app, b = app.boatCtl;
 		if ( typeof app.setBoat === 'function' ) app.setBoat( w.boat ); // (same id: visible, controller on, boardable again)
 		else {
@@ -2069,6 +2415,23 @@ export class Naval {
 
 		}
 
+		// a hard crash can set either hull alight at the contact
+		if ( v > FIRE.ramSpeed ) {
+
+			for ( const r of [ a, b ] ) {
+
+				if ( this.rng() >= FIRE.ramChance ) continue;
+				if ( r.player ) {
+
+					const l = this._playerLocal( { x: c.x, y: ( this.app.boatCtl.position.y || 0 ) + this._dims().deck, z: c.z } );
+					if ( l && ! this.playerHull.sunk ) this._ignitePlayer( l, 'ramming' );
+
+				} else if ( r.ship && r.ship.alive ) this._igniteShip( r.ship, this._shipLocal( r.ship, { x: c.x, y: r.ship.pose.y + r.ship.cls.deck, z: c.z } ), 'ramming' );
+
+			}
+
+		}
+
 		this._emit( 'hullsCollided', {
 			a: a.id, b: b.id, x: c.x, z: c.z, speed: Math.round( v * 10 ) / 10,
 			damage: { a: Math.round( c.damage.a * 10 ) / 10, b: Math.round( c.damage.b * 10 ) / 10 }, byPlayer: player,
@@ -2144,6 +2507,566 @@ export class Naval {
 			if ( bo ) continue;
 			this._emit( 'shipCrippled', { id: s.id, name: s.name, by: s.lastHitBy, x: s.x, z: s.z } );
 			if ( s.lastHitBy === 'player' ) this._say( `The ${ s.name } is crippled: her guns are silent` );
+
+		}
+
+	}
+
+	// ------------------------------------------------------------------ damage control (wave 11A: fire, flooding, masts)
+
+	// the wind (m/s, the way it blows): app.wind { x, z } when given (tests), else the sky's globals
+	_wind() {
+
+		const o = this._windV || ( this._windV = { x: 0, z: 0 } );
+		const w = this.app.wind;
+		if ( w && Number.isFinite( w.x ) && Number.isFinite( w.z ) ) {
+
+			o.x = w.x;
+			o.z = w.z;
+			return o;
+
+		}
+
+		try {
+
+			const sp = G.windSpeed && Number.isFinite( G.windSpeed.value ) ? G.windSpeed.value : 0, d = G.windDir && G.windDir.value;
+			o.x = d ? d.x * sp : 0;
+			o.z = d ? d.y * sp : 0;
+
+		} catch ( e ) { o.x = o.z = 0; }
+
+		return o;
+
+	}
+
+	_boatYaw( b ) {
+
+		if ( typeof b.getYaw === 'function' ) return b.getYaw();
+		const f = rotateByQuat( b.quaternion, { x: 0, y: 0, z: 1 } );
+		return Math.atan2( f.x, f.z );
+
+	}
+
+	// a point of the player's boat frame in the world
+	_boatWorld( l, out = {} ) {
+
+		const b = this.app.boatCtl;
+		const o = rotateByQuat( b.quaternion, l );
+		out.x = b.position.x + o.x;
+		out.y = b.position.y + o.y;
+		out.z = b.position.z + o.z;
+		return out;
+
+	}
+
+	_onDeck() {
+
+		const p = this.app.player, b = this.app.boatCtl, h = this.playerHull;
+		return !! p && p.mode === 'deck' && ! h.sunk && ! this.sinking && !! b && !! b.position && !! b.quaternion && ( ! p.boat || p.boat === b );
+
+	}
+
+	// the rail nearest the player (the bucket goes over the side there)
+	_railPoint() {
+
+		const p = this.app.player;
+		if ( ! this._onDeck() || ! p.position ) return null;
+		const l = this._playerLocal( p.position ), d = this._dims();
+		const pt = this._boatWorld( { x: ( l.x >= 0 ? 1 : - 1 ) * d.beam / 2, y: l.y, z: clamp( l.z, - d.length / 2 + 0.4, d.length / 2 - 0.4 ) } );
+		pt.y = p.position.y;
+		return pt;
+
+	}
+
+	// the pump stands amidships
+	_deckPoint() {
+
+		const p = this.app.player;
+		if ( ! this._onDeck() || ! p.position ) return null;
+		const pt = this._boatWorld( { x: 0, y: this._dims().deck, z: 0 } );
+		pt.y = p.position.y;
+		return pt;
+
+	}
+
+	// E "Douse the fire" at the rail: a 3 s bucket channel (repeatable) knocks it down FIRE.douseAmount
+	douse() {
+
+		if ( ! this.fireState.burning || ! this._onDeck() ) return false;
+		this._channel = { kind: 'douse', t: 0 };
+		this._say( 'Buckets over the side…', 1800 );
+		return true;
+
+	}
+
+	// E "Man the pump": pumps while E is held (a tap pumps a moment); pump( false ) stops
+	pump( on = true ) {
+
+		if ( ! on ) {
+
+			if ( this._channel && this._channel.kind === 'pump' ) this._channel = null;
+			return false;
+
+		}
+
+		if ( ! ( this.floodState.level > 0 ) || ! this._onDeck() ) return false;
+		this._channel = { kind: 'pump', t: 0 };
+		return true;
+
+	}
+
+	get channel() {
+
+		const c = this._channel;
+		return c ? { kind: c.kind, t: c.t, frac: c.kind === 'douse' ? clamp( c.t / FIRE.douseTime, 0, 1 ) : null } : null;
+
+	}
+
+	_updateChannel( dt ) {
+
+		const ch = this._channel;
+		if ( ! ch ) return;
+		if ( ! this._onDeck() ) {
+
+			this._channel = null;
+			return;
+
+		}
+
+		ch.t += dt;
+		if ( ch.kind === 'douse' ) {
+
+			if ( ! this.fireState.burning ) {
+
+				this._channel = null;
+				return;
+
+			}
+
+			if ( ch.t < FIRE.douseTime ) return;
+			this._channel = null;
+			const left = this.fireState.douse();
+			if ( left <= 0 ) this._fireOut( null, true );
+			else this._say( `The fire is knocked down · ${ Math.round( left * 100 ) } %`, 1800 );
+
+		} else {
+
+			const inp = this.app.input;
+			const held = !! ( inp && typeof inp.down === 'function' && inp.down( 'KeyE' ) );
+			if ( ( ! held && ch.t > 0.6 ) || ! ( this.floodState.level > 0 ) ) this._channel = null;
+
+		}
+
+	}
+
+	_ignitePlayer( local, cause ) {
+
+		if ( ! this.fireState.ignite( local ) ) return false;
+		this._smokeT = 0;
+		const b = this.app.boatCtl, p = b && b.position ? b.position : { x: 0, z: 0 };
+		this._emit( 'fireStarted', { id: 'player', x: p.x, z: p.z, cause } );
+		this._say( 'Fire aboard! Douse it at the rail (E on deck)', 3200 );
+		return true;
+
+	}
+
+	_igniteShip( s, local, cause ) {
+
+		if ( ! s.fire.ignite( local ) ) return false;
+		s._douseAt = aiDouseTime( s.hands );
+		this._emit( 'fireStarted', { id: s.id, x: s.x, z: s.z, cause } );
+		return true;
+
+	}
+
+	// the fire is out (ship null: the player's); doused or burnt out
+	_fireOut( ship, doused = false, silent = false ) {
+
+		const v = this._vfx( 'stopFire' );
+		if ( ship ) {
+
+			ship.fire.extinguish();
+			if ( ship._fireVfx && v ) v.stopFire( ship._fireVfx );
+			ship._fireVfx = null;
+			if ( ! silent ) this._emit( 'fireOut', { id: ship.id, doused } );
+			return;
+
+		}
+
+		this.fireState.extinguish();
+		this._channel = this._channel && this._channel.kind === 'douse' ? null : this._channel;
+		if ( v ) v.stopFire( 'naval-fire-player' );
+		if ( silent ) return;
+		this._emit( 'fireOut', { id: 'player', doused } );
+		this._say( doused ? 'The fire is out' : 'The fire has burnt itself out', 2200 );
+
+	}
+
+	// the fire reached the powder: an explosion, splinters, a great hole in her, and the shot is gone
+	_magazine( ship ) {
+
+		const p = ship ? ship.toWorld( ship.fire.at.x, ship.fire.at.y, ship.fire.at.z, {} ) : this._boatWorld( this.fireState.at );
+		const v = this._vfx();
+		if ( v ) {
+
+			if ( v.flash ) v.flash( p.x, p.y + 0.5, p.z, 3 );
+			if ( v.explosion ) v.explosion( p.x, p.y, p.z, 2.5, 'wood' );
+			if ( v.splinters ) v.splinters( p.x, p.y + 0.5, p.z, 3 );
+			if ( v.debris ) v.debris( p.x, p.y, p.z, 2.5, 'wood' );
+
+		} else {
+
+			this.fx.hit( p.x, p.y, p.z );
+			this.fx.smoke( p.x, p.y + 1, p.z, 2 );
+
+		}
+
+		this.audio.cannon( p.x, p.y, p.z, 1 );
+		this.audio.crunch( p.x, p.y, p.z, 1 );
+		this._emit( 'explosion', { x: p.x, y: p.y, z: p.z, radius: 8, energy: 2e6 } );
+		this._emit( 'magazineExploded', { id: ship ? ship.id : 'player', x: p.x, z: p.z } );
+		if ( ship ) {
+
+			ship.ammo.rounds = 0;
+			if ( ship.burn( ship.maxHp * FIRE.blast ) ) this._onSunk( ship, ship.lastHitBy === 'player' );
+			return;
+
+		}
+
+		this.ammo.rounds = 0;
+		const cf = this.app.cameraFeel;
+		if ( cf && cf.kick ) cf.kick( 'broadside', { scale: 1.6 } );
+		this._say( 'The magazine went up!', 3200 );
+		this.damagePlayer( this.playerHull.max * FIRE.blast, 'magazine' );
+
+	}
+
+	// a hostile pirate (afloat, not crippled, not alongside on purpose) within r of the boat: the crew stay at their posts
+	_enemyNear( r = GUN_RANGE ) {
+
+		const b = this.app.boatCtl;
+		if ( ! b || ! b.position ) return false;
+		return this.ships.some( ( s ) => s.alive && s.faction === 'pirate' && ! isCrippled( s ) && ! GENTLE.has( s.state ) && Math.hypot( s.x - b.position.x, s.z - b.position.z ) < r );
+
+	}
+
+	// the posted crew pump while no enemy is in range
+	_crewPump() {
+
+		const c = this.features && this.features.get ? this.features.get( 'crew' ) : null;
+		let n = 0;
+		try { n = c && c.posts ? Object.keys( c.posts ).length : 0; } catch ( e ) { n = 0; }
+		if ( ! n || this._enemyNear() ) return 0;
+		return n * FLOOD.crewPump;
+
+	}
+
+	// the player's hull, every frame: the helm, the fire, the water, the deck job, the sandbox ramp's free powder
+	_playerSystems( dt ) {
+
+		const h = this.playerHull, b = this.app.boatCtl;
+		this._applyRudder();
+		if ( h.sunk || this.sinking || ! b || ! b.position || ! b.quaternion ) {
+
+			this._channel = null;
+			return;
+
+		}
+
+		// sandbox: free but finite - she is topped up while she lies moored at the ramp
+		if ( this.features && this.features.sandbox && b.moored && this.ammo.room > 0 ) {
+
+			const n = this.ammo.fill();
+			if ( n >= 4 ) this._say( `Powder and shot topped up at the ramp (+${ n })`, 2200 );
+
+		}
+
+		this._updateChannel( dt );
+
+		const fs = this.fireState;
+		if ( fs.burning ) {
+
+			const w = this._wind(), vel = b.velocity || { x: 0, z: 0 };
+			const head = headwindOver( vel.x || 0, vel.z || 0, this._boatYaw( b ), w.x, w.z );
+			const sails = this.sections.has( 'sails' ) && this.sections.frac( 'sails' ) > 0;
+			const r = fs.update( dt, { headwind: head, ammo: this.ammo.rounds, sails } );
+			this._burnAcc += r.hull;
+			if ( r.sails > 0 ) {
+
+				const hs = this.sections.hit( 'sails', r.sails );
+				if ( hs && hs.broke ) this._say( 'The sails have burnt away', 2600 );
+
+			}
+
+			// the hull burns in whole points (one quiet damage event a point, not one a frame)
+			if ( this._burnAcc >= 1 ) {
+
+				const n = Math.floor( this._burnAcc );
+				this._burnAcc -= n;
+				this.damagePlayer( n, 'fire', null, { quiet: true } );
+
+			}
+
+			if ( r.magazine && ! h.sunk ) this._magazine( null );
+			if ( r.out ) this._fireOut( null, false );
+			else if ( fs.burning && ! h.sunk ) {
+
+				const p = this._boatWorld( { x: fs.at.x, y: Math.max( fs.at.y, this._dims().deck ), z: fs.at.z } );
+				const v = this._vfx( 'fire' );
+				if ( v ) v.fire( 'naval-fire-player', p.x, p.y, p.z, 0.4 + 1.4 * fs.level, vel.x || 0, vel.z || 0 );
+				this._smokeT -= dt;
+				if ( this._smokeT <= 0 ) {
+
+					this._smokeT = 0.6;
+					const vs = this._vfx( 'smoke' );
+					if ( vs ) vs.smoke( p.x, p.y + 1, p.z, 0.5 + fs.level );
+					else this.fx.smoke( p.x, p.y + 1, p.z, 0.5 + fs.level );
+
+				}
+
+			}
+
+		} else this._burnAcc = 0;
+
+		if ( h.sunk || this.sinking ) return;
+		// the water: in below the line, out by the pump (the skipper's channel, the posted crew)
+		const fl = this.floodState;
+		const pump = ( this._channel && this._channel.kind === 'pump' ? FLOOD.pump : 0 ) + ( fl.level > 0 ? this._crewPump() : 0 );
+		const r = fl.update( dt, { hpFrac: h.max > 0 ? h.hp / h.max : 1, pump } );
+		if ( fl.level > 0.05 && ! this._floodWarned ) {
+
+			this._floodWarned = true;
+			this._say( 'She is taking on water · man the pump (E on deck)', 3200 );
+
+		} else if ( fl.level <= 0 ) this._floodWarned = false;
+
+		if ( r.sunk ) {
+
+			this._emit( 'shipFlooded', { id: 'player' } );
+			this._sinkPlayer( 'flooding' );
+
+		}
+
+	}
+
+	// the rudder section on the boat controller (its rudderLift, scaled from its own value; restored at full)
+	_applyRudder() {
+
+		const b = this.app.boatCtl;
+		if ( ! b || typeof b !== 'object' || ! Number.isFinite( b.rudderLift ) ) return;
+		let base = this._rudderBase.get( b );
+		if ( base === undefined ) {
+
+			base = b.rudderLift;
+			this._rudderBase.set( b, base );
+
+		}
+
+		const want = base * this.turnFactor;
+		if ( b.rudderLift !== want ) b.rudderLift = want;
+
+	}
+
+	// water in her: her model sits lower (after the controller placed it this frame; undone if nobody placed it again)
+	_settleModel() {
+
+		const g = this.app.boat && this.app.boat.group;
+		if ( ! g || ! g.position || this.sinking ) {
+
+			this._settle = 0;
+			return;
+
+		}
+
+		if ( this._settle && g.position.y === this._settleY ) g.position.y += this._settle;
+		const want = this.playerHull.sunk ? 0 : this.floodState.settle( this._dims().draft );
+		if ( want > 0 ) {
+
+			g.position.y -= want;
+			if ( g.updateMatrixWorld ) g.updateMatrixWorld( true );
+
+		}
+
+		this._settle = want;
+		this._settleY = g.position.y;
+
+	}
+
+	// the AI ships: their fires (doused by their crews after 20-40 s), the water in them (their crews pump), the masts
+	_shipSystems( dt ) {
+
+		const v = this._vfx( 'fire' );
+		for ( const s of this.ships ) {
+
+			if ( ! s.alive || s.puppet ) {
+
+				if ( s.fire.burning || s._fireVfx ) this._fireOut( s, false, true );
+				continue;
+
+			}
+
+			const f = s.fire;
+			if ( f.burning ) {
+
+				const w = this._wind(), vel = s.velocity( this._sv3 || ( this._sv3 = {} ) );
+				const r = f.update( dt, { headwind: headwindOver( vel.x, vel.z, s.yaw, w.x, w.z ), ammo: s.ammo.rounds, sails: s.sections.frac( 'sails' ) > 0 } );
+				if ( r.sails > 0 ) s.sections.hit( 'sails', r.sails );
+				if ( s.burn( r.hull ) ) {
+
+					this._fireOut( s, false, true );
+					this._onSunk( s, s.lastHitBy === 'player' );
+					continue;
+
+				}
+
+				if ( r.magazine ) {
+
+					this._magazine( s );
+					if ( ! s.alive ) {
+
+						this._fireOut( s, false, true );
+						continue;
+
+					}
+
+				}
+
+				if ( r.out || ( f.burning && f.t >= ( s._douseAt ?? aiDouseTime( s.hands ) ) ) ) this._fireOut( s, ! r.out );
+				else if ( v && s.dist < this.settings.drawRange ) {
+
+					const p = s.toWorld( f.at.x, Math.max( f.at.y, s.cls.deck ), f.at.z, this._m );
+					s._fireVfx = `naval-fire-${ s.id }`;
+					v.fire( s._fireVfx, p.x, p.y, p.z, 0.5 + 1.5 * f.level, vel.x, vel.z );
+
+				}
+
+			}
+
+			// water: not while she lies alongside on purpose (a grapple, a boarding: the prize is kept afloat)
+			if ( ! GENTLE.has( s.state ) ) {
+
+				const fr = s.flood.update( dt, { hpFrac: s.hpFraction, pump: s.hands * FLOOD.crewPump } );
+				if ( fr.sunk ) {
+
+					s.startSinking();
+					this._emit( 'shipFlooded', { id: s.id } );
+					this._onSunk( s, s.lastHitBy === 'player' );
+					continue;
+
+				}
+
+			}
+
+			// a mast that fell while she was out of sight: her model shows her dismasted when it comes back
+			if ( s.sections.mastDown && s.visual && s.visual.loaded && ! s._mastGone ) s._mastGone = hideMast( s.visual.group );
+
+		}
+
+	}
+
+	// ---- masts
+
+	_mastHeight( kind ) {
+
+		const c = SHIP_CLASSES[ kind ];
+		return c ? c.mast - c.deck : 6;
+
+	}
+
+	// an AI ship's mast came down: it topples away from the blow (the clones fall; her own spars are hidden)
+	_shipMastFell( s, local ) {
+
+		const c = s.cls, side = local && local.x >= 0 ? - 1 : 1;
+		const foot = { x: 0, y: c.deck, z: ( ( MAST_STATIONS[ s.kind ] || [ 0.1 ] )[ 0 ] ) * c.length };
+		const fall = new MastFall( { height: c.mast - c.deck, side } );
+		const vis = s.visual && s.visual.loaded ? MastVisual.from( s.visual.group, this.scene, { foot } ) : null;
+		if ( vis ) s._mastGone = true;
+		this.falls.push( { fall, vis, ship: s, foot } );
+		this._emit( 'mastFell', { id: s.id, x: s.x, z: s.z } );
+		if ( s.lastHitBy === 'player' ) this._say( `The ${ s.name }'s mast is down!` );
+
+	}
+
+	_playerMastFell( local ) {
+
+		const d = this._dims(), id = this.playerHull.boat, spec = BOATS[ id ] || {};
+		const side = local && local.x >= 0 ? - 1 : 1;
+		const foot = { x: 0, y: d.deck, z: ( ( MAST_STATIONS[ id ] || [ 0.1 ] )[ 0 ] ) * d.length };
+		const height = spec.shipClass && SHIP_CLASSES[ spec.shipClass ] ? this._mastHeight( spec.shipClass ) : Math.max( 3, d.length * 0.8 );
+		const fall = new MastFall( { height, side } );
+		const g = this.app.boat && this.app.boat.group;
+		const vis = g ? MastVisual.from( g, this.scene, { foot } ) : null;
+		if ( vis ) this._mastHidden = vis.originals;
+		this.falls.push( { fall, vis, ship: null, foot } );
+		const b = this.app.boatCtl, p = b && b.position ? b.position : { x: 0, z: 0 };
+		this._emit( 'mastFell', { id: 'player', x: p.x, z: p.z } );
+		this._say( 'The mast is down! Her canvas went with it', 3200 );
+
+	}
+
+	_updateFalls( dt ) {
+
+		for ( let i = this.falls.length - 1; i >= 0; i -- ) {
+
+			const f = this.falls[ i ];
+			for ( const e of f.fall.update( dt ) ) this._fallEvent( f, e );
+			if ( f.vis ) f.vis.update( f.fall, dt );
+			if ( f.fall.phase === 'gone' ) this.falls.splice( i, 1 );
+
+		}
+
+		// the player's mast down from a save: hide her spars once her model is there
+		if ( this.sections.mastDown && ! this._mastHidden && ( this._frame % 30 ) === 0 ) {
+
+			const g = this.app.boat && this.app.boat.group;
+			const list = g ? hideMast( g ) : null;
+			if ( list && list.length ) this._mastHidden = list;
+
+		}
+
+	}
+
+	_fallEvent( f, e ) {
+
+		const s = f.ship;
+		if ( s ? ! s.alive && e.type !== 'gone' : ! this.app.boatCtl || ! this.app.boatCtl.position ) return;
+		const tip = f.fall.tip(), l = { x: f.foot.x + tip.x, y: f.foot.y + tip.y, z: f.foot.z + tip.z };
+		const at = e.type === 'crack' ? f.foot : l;
+		const p = s ? s.toWorld( at.x, at.y, at.z, {} ) : this._boatWorld( at );
+		const v = this._vfx();
+		if ( e.type === 'crack' ) {
+
+			if ( v && v.splinters ) v.splinters( p.x, p.y + 0.5, p.z, 2 );
+			if ( v && v.debris ) v.debris( p.x, p.y, p.z, 1.4, 'wood' );
+			if ( ! v ) this.fx.hit( p.x, p.y, p.z );
+			this.audio.crunch( p.x, p.y, p.z, 0.9 );
+
+		} else if ( e.type === 'splash' ) {
+
+			if ( v && v.splash ) v.splash( p.x, 0, p.z, 2.4 );
+			else if ( ! v ) this.fx.splash( p.x, 0, p.z, 2.4 );
+			if ( v && v.splinters ) v.splinters( p.x, 0.5, p.z, 1.5 );
+
+		}
+
+	}
+
+	// the yard steps a new mast: the player's spars back (the fallen one, if still in the water, is left to sink)
+	_restoreMast() {
+
+		if ( this._mastHidden ) for ( const m of this._mastHidden ) m.visible = true;
+		this._mastHidden = null;
+		for ( let i = this.falls.length - 1; i >= 0; i -- ) {
+
+			const f = this.falls[ i ];
+			if ( f.ship ) continue;
+			// (her own spars are visible again; a mast still toppling with her goes)
+			if ( f.vis && ! f.vis.free ) {
+
+				f.vis.dispose();
+				this.falls.splice( i, 1 );
+
+			}
 
 		}
 
@@ -2312,11 +3235,16 @@ export class Naval {
 			this._updateShots( dt );
 			this._updatePlayerShots( dt );
 			this._updateBalls( dt );
+			this._shipSystems( dt );
 			this._updateLoot();
 
 		}
 
 		this._updateAimCam( dt );
+		// her own fire and water run for every role (the hits on our boat land on our machine)
+		if ( this.enabled ) this._playerSystems( dt );
+		this._updateFalls( dt );
+		this._settleModel();
 
 		// her own hull: sinking, then a wreck (runs for every role: the hits on our boat land on our machine)
 		if ( this.sinking ) this._updateSinking( dt );
@@ -2351,6 +3279,15 @@ export class Naval {
 		this.aimInfo = null;
 		this.aimCam.blend = 0;
 		this._aimFov( 0 );
+		// (the ships' fires and fallen masts went with them; the player's own mast stays down)
+		for ( let i = this.falls.length - 1; i >= 0; i -- ) {
+
+			const f = this.falls[ i ];
+			if ( ! f.ship ) continue;
+			if ( f.vis ) f.vis.dispose();
+			this.falls.splice( i, 1 );
+
+		}
 
 	}
 
@@ -2366,6 +3303,8 @@ export class Naval {
 			modules: this.fitting.toJSON(),
 			stats: { ...this.stats },
 			wreck: this.wrecks.toJSON() || this._sinkingRecord(), // (saved mid-sinking: she is on the bottom when loaded)
+			// wave 11A: the magazine, the sections, the water in her and a fire still burning; the aimed part
+			ammo: this.ammo.rounds, sections: this.sections.toJSON(), flood: this.floodState.toJSON(), fire: this.fireState.toJSON(), aimPart: this.aimPart,
 		};
 
 	}
@@ -2397,6 +3336,17 @@ export class Naval {
 		h.hp = Number.isFinite( d.hp ) ? clamp( d.hp, 0, h.max ) : h.max;
 		h.sunk = h.hp <= 0;
 		this.sinking = null;
+		// wave 11A (a save from before it: a full magazine, a sound rig, dry)
+		this._restoreMast();
+		this.sections = sectionsFor( id, h.max );
+		this.sections.fromJSON( d.sections );
+		this.ammo.setMax( ammoMaxFor( id ), { fill: true } );
+		if ( Number.isFinite( d.ammo ) ) this.ammo.rounds = clamp( Math.round( d.ammo ), 0, this.ammo.max );
+		this.floodState.fromJSON( d.flood );
+		if ( this.fireState.burning ) this._fireOut( null, false, true );
+		this.fireState.fromJSON( h.sunk ? null : d.fire );
+		this.aimPart = AIM_PARTS.includes( d.aimPart ) ? d.aimPart : 'hull';
+		this._channel = null;
 		this.wrecks.fromJSON( d.wreck );
 		if ( this.wrecks.own && ! this.wrecks.own.abandoned && this.wrecks.own.boat === id ) {
 
@@ -2433,6 +3383,9 @@ export class Naval {
 		this.playerHull.boat = null;
 		this.playerHull.sunk = false;
 		this.playerHull.hp = 0;
+		this.aimPart = 'hull';
+		for ( const f of this.falls ) if ( f.vis ) f.vis.dispose();
+		this.falls.length = 0;
 		this._syncBoat( true );
 
 	}
@@ -2453,6 +3406,13 @@ export class Naval {
 		if ( this.hud ) this.hud.dispose();
 		const pl = this.app.player;
 		if ( this._aimHook && pl && pl.aimCamera === this._aimHook ) pl.aimCamera = null;
+		// the controller's own rudder back; the fire's vfx off; the masts
+		const b = this.app.boatCtl, base = b && typeof b === 'object' ? this._rudderBase.get( b ) : undefined;
+		if ( base !== undefined ) b.rudderLift = base;
+		if ( this.fireState.burning ) this._fireOut( null, false, true );
+		this._restoreMast();
+		for ( const f of this.falls ) if ( f.vis ) f.vis.dispose();
+		this.falls.length = 0;
 
 	}
 

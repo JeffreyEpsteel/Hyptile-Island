@@ -436,7 +436,8 @@ export class Game {
 
 		}
 
-		if ( this.hud && ( inp.hit( 'KeyI' ) || inp.hit( 'Tab' ) ) ) this.hud.toggleInventory();
+		const navalAiming = !! ( app.features && app.features.get( 'naval' ) && app.features.get( 'naval' ).aiming ); // (Tab cycles the aim section then)
+		if ( this.hud && ( inp.hit( 'KeyI' ) || ( inp.hit( 'Tab' ) && ! navalAiming ) ) ) this.hud.toggleInventory();
 		if ( this.hud && inp.hit( 'KeyK' ) && this.hud.toggleRoster ) this.hud.toggleRoster();
 		if ( this.hud && inp.hit( 'Escape' ) ) {
 

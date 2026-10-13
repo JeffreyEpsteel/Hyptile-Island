@@ -12,6 +12,16 @@
 //                                     heading changes her way, the rest is a sideways drift (ship.push, decays in the water),
 //                                     the lever arm kicks her yaw rate
 //
+// Wave 11A (ammunition, sections, fire, flooding):
+//   ship.ammo                         Magazine (Ammo.js) of her class (SHIP_AMMO): every gun fired spends a round; dry,
+//                                     the brains ram or run
+//   ship.sections                     Sections (Sections.js): rudder, sails (a trawler: engine), mast, guns a side. damage()
+//                                     takes a section id as `part` ('rigging' is the sails, as before); the turn rate x
+//                                     sections.turnMul, the way x sections.speedMul; ship.lastHit { part, mastFell, broke }
+//   ship.fire / ship.flood            Fire.js / Flood.js (Naval.js runs them); the way x flood.speedMul and she settles
+//                                     flood.settle( draft ) lower; ship.burn( amount ) hull points from the fire (no attacker)
+//   ship.hands                        hands aboard (boarding RULES.crew; a merchant 2): how fast they douse and pump
+//
 // Frame: the boat frame (+Z forward, +X port, yaw about +Y: positive yaw turns to port).
 // States: merchants 'sail' | 'dock' | 'flee'; pirates 'patrol' | 'chase' | 'broadside' | 'flee';
 // all: 'sinking' (SINK_TIME seconds) then 'gone' (the manager despawns her).
@@ -19,6 +29,11 @@
 import { SHIP_CLASSES } from './ShipClasses.js';
 import { clamp, wrap, angleDiff, smooth, DEG } from './util.js';
 import { yawBox } from './Ballistics.js';
+import { shipSections, HULL_SHARE } from './Sections.js';
+import { Magazine, SHIP_AMMO } from './Ammo.js';
+import { Fire } from './Fire.js';
+import { Flood } from './Flood.js';
+import { RULES as BOARDING_RULES } from '../boarding/BoardingData.js';
 
 export const SINK_TIME = 8;
 
@@ -60,6 +75,12 @@ export class Ship {
 		this.maxHp = cls.hp;
 		this.hp = o.hp ?? cls.hp;
 		this.rigging = 1; // 1 intact .. 0.2 shot to rags (speed)
+		this.sections = shipSections( cls );
+		this.ammo = new Magazine( SHIP_AMMO[ kind ] ?? ( cls.guns > 0 ? 24 : 0 ) );
+		this.fire = new Fire();
+		this.flood = new Flood();
+		this.hands = ( BOARDING_RULES.crew && BOARDING_RULES.crew[ kind ] ) || 2;
+		this.lastHit = null;
 		this.state = o.state || ( this.faction === 'pirate' ? 'patrol' : 'sail' );
 		this.stateTime = 0;
 		this.sinkT = 0;
@@ -209,21 +230,43 @@ export class Ship {
 
 	}
 
-	// Apply damage. part 'rigging' mostly cuts her speed. Returns true when this hit sank her.
+	// Apply damage. part 'hull', or a section ('rudder' | 'sails' | 'engine' | 'mast' | 'gunsPort' | 'gunsStarboard'; 'rigging'
+	// is the sails): the section takes the blow, the hull its HULL_SHARE of it; torn canvas cuts her speed. Returns true
+	// when this hit sank her.
 	damage( amount, { part = 'hull', by = null } = {} ) {
 
 		if ( ! this.alive || ! ( amount > 0 ) ) return false;
-		if ( part === 'rigging' ) {
+		if ( part === 'rigging' ) part = 'sails';
+		let sec = null;
+		if ( part !== 'hull' ) {
 
-			this.rigging = Math.max( 0.2, this.rigging - 0.12 );
-			amount *= 0.3;
+			if ( part === 'sails' ) this.rigging = Math.max( 0.2, this.rigging - 0.12 );
+			sec = this.sections.hit( part, amount );
+			amount *= HULL_SHARE[ part ] ?? 1;
 
 		}
 
+		this.lastHit = { part, mastFell: !! ( sec && sec.mastFell ), broke: !! ( sec && sec.broke ) };
 		this.hp = Math.max( 0, this.hp - amount );
 		this.lastHitBy = by;
 		this.hitT = 0;
 		if ( by === 'player' ) this.alertT = 45;
+		if ( this.hp <= 0 ) {
+
+			this.startSinking();
+			return true;
+
+		}
+
+		return false;
+
+	}
+
+	// hull points the fire burns (no attacker: the last one keeps the credit). true when it sank her
+	burn( amount ) {
+
+		if ( ! this.alive || ! ( amount > 0 ) ) return false;
+		this.hp = Math.max( 0, this.hp - amount );
 		if ( this.hp <= 0 ) {
 
 			this.startSinking();
@@ -273,7 +316,8 @@ export class Ship {
 		const want = this.steerClear( dt, terrain, this.want );
 		const err = angleDiff( want, this.yaw );
 		const way = clamp( this.speed / c.speed, 0, 1 );
-		const maxRate = c.turn * ( 0.4 + 0.6 * way );
+		// a damaged rudder turns her slower; shot away, she holds whatever heading she has (cmd 0: the yaw rate dies away)
+		const maxRate = c.turn * ( 0.4 + 0.6 * way ) * this.sections.turnMul;
 		const cmd = clamp( err * 1.2, - maxRate, maxRate );
 		this.yawRate += ( cmd - this.yawRate ) * ( 1 - Math.exp( - dt * 1.8 ) );
 		this.yaw = wrap( this.yaw + this.yawRate * dt );
@@ -282,7 +326,8 @@ export class Ship {
 		const turnLoss = 1 - 0.3 * clamp( Math.abs( this.yawRate ) / c.turn, 0, 1 );
 		const rig = 0.45 + 0.55 * this.rigging;
 		const hull = 0.8 + 0.2 * smooth( 0, 0.4, this.hpFraction );
-		const target = clamp( this.wantSpeed, 0, 1 ) * c.speed * turnLoss * rig * hull;
+		// torn canvas (or a wrecked engine) halves her top speed, none leaves her adrift; water in her slows her too
+		const target = clamp( this.wantSpeed, 0, 1 ) * c.speed * turnLoss * rig * hull * this.sections.speedMul * this.flood.speedMul;
 		const a = target > this.speed ? c.accel : c.decel;
 		this.speed += clamp( target - this.speed, - a * dt, a * dt );
 
@@ -377,6 +422,8 @@ export class Ship {
 		// a shot-up hull lists: from half her points down (the smoke comes from Naval)
 		const f = this.hpFraction;
 		if ( this.alive && f < 0.5 ) out.roll += this.listSign * 0.12 * ( 1 - f / 0.5 );
+		// water in her: lower in the water
+		if ( this.flood.level > 0 ) out.y -= this.flood.settle( c.draft );
 		if ( this.state === 'sinking' || this.state === 'gone' ) {
 
 			const k = sinkPose( this.sinkT / SINK_TIME, this.listSign, c.draft + c.sheer + 2.5, this._sink || ( this._sink = {} ) );

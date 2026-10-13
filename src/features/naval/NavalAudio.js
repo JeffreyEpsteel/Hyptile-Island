@@ -277,6 +277,26 @@ export class NavalAudio {
 
 	}
 
+	// a dry gun: the hammer falls on an empty pan (out of powder and shot)
+	click( x, y, z, gain = 0.6 ) {
+
+		this._synth( 'click', x, y, z, gain, ( ctx, out, t0, g0 ) => {
+
+			const n = this._noise( ctx ), hp = ctx.createBiquadFilter(), g = ctx.createGain();
+			hp.type = 'highpass';
+			hp.frequency.value = 2400;
+			g.gain.setValueAtTime( 0.0001, t0 );
+			g.gain.exponentialRampToValueAtTime( g0, t0 + 0.003 );
+			g.gain.exponentialRampToValueAtTime( 0.0001, t0 + 0.06 );
+			n.connect( hp ).connect( g ).connect( out );
+			n.start( t0 );
+			n.stop( t0 + 0.08 );
+			return 0.1;
+
+		} );
+
+	}
+
 	dispose() {
 
 		for ( const v of this.voices ) {
