@@ -4,6 +4,22 @@ A **universe** is one island world that keeps running on your PC: destroyed dock
 stay where their captains left them, the market and the pirates carry on, and every captain's game is kept by your PC
 instead of in their browser. Friends join from their own browser (Chrome or Edge, for WebGPU).
 
+## The quick way: HOST_UNIVERSE_TUNNEL.cmd (no port forwarding, no account)
+
+The game itself is served from GitHub Pages (https://jeffreyepsteel.github.io/Hyptile-Island/), which can host no
+server. A universe is a Node server you run. The simplest public setup:
+
+1. Download and unzip the release (or clone the repository and run `npm install`), install Node 22.
+2. Double-click **HOST_UNIVERSE_TUNNEL.cmd**. The first run downloads `cloudflared` (Cloudflare's tunnel client, from
+   its GitHub release) into `tools/host/bin`. It then starts the universe on port 8765 and a quick tunnel to it.
+3. The window prints `https://<random>.trycloudflare.com`. Players open the Pages site, pick Multiplayer > Universe,
+   paste that address as the server and join with a captain name. The address changes each time the tunnel starts.
+4. Keep the window open while people play; `stop` in it saves and quits. Saves live in `server-data\hyptile\`.
+
+Always-on without your PC: a free Oracle Cloud "Always Free" VM (or a small Fly.io / Hetzner box) running
+`node tools/host/serve-universe.mjs --no-game` behind the same tunnel (a named tunnel keeps a fixed address) or a
+Caddy reverse proxy with a domain; see the sections below. Render's free tier sleeps when idle, which stops the clock.
+
 ## 1. Start it
 
 You need [Node.js 22 LTS](https://nodejs.org) (install it with the defaults).

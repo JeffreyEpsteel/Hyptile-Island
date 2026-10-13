@@ -536,7 +536,7 @@ export class MainMenu {
 						</div>
 					</section>
 					<section class="mm-side">
-						<label class="mm-field"><span>Server address</span><input type="text" class="is-mono" autocomplete="off" spellcheck="false" data-server value="${ esc( address ) }" placeholder="192.168.1.20 or myisland.example.com"></label>
+						<label class="mm-field"><span>Server address</span><input type="text" class="is-mono" autocomplete="off" spellcheck="false" data-server value="${ esc( address ) }" placeholder="https://....trycloudflare.com or 192.168.1.20"></label>
 						<label class="mm-field"><span>Captain name</span><input type="text" maxlength="24" autocomplete="off" spellcheck="false" data-name value="${ esc( name ) }" placeholder="Captain"></label>
 						<div class="mm-actions">
 							<button type="button" class="tw-btn tw-btn-primary" data-join>${ icon( 'play' ) }<span>Join the universe</span></button>

@@ -390,7 +390,10 @@ export class Game {
 	get canFish() {
 
 		const app = this.app, p = app.player;
-		return ! app.freeCam && ( p.mode === 'walk' || p.mode === 'deck' || p.mode === 'seat' ) && ! ( app.ui && app.ui.ui && app.ui.ui._photo );
+		if ( this.state && this.state.rodBroken ) return false;
+		// at the helm of a boat that is (nearly) stopped the rod comes out too: fishing from inside the boat
+		const helmStill = p.mode === 'boat' && app.boatCtl && app.boatCtl.speed < 0.8;
+		return ! app.freeCam && ( p.mode === 'walk' || p.mode === 'deck' || p.mode === 'seat' || helmStill ) && ! ( app.ui && app.ui.ui && app.ui.ui._photo );
 
 	}
 
@@ -412,6 +415,7 @@ export class Game {
 
 		const can = this.canFish;
 		this._dt = dt;
+		if ( inp.hit( 'KeyR' ) && this.state.rodBroken && ! this.fight ) this.toast( 'Your rod is broken: Ethena Prosper repairs rods at the chandlery', 2600 );
 		if ( inp.hit( 'KeyR' ) && can && ! this.fight ) {
 
 			this._rodUsed = true;
@@ -929,9 +933,21 @@ export class Game {
 		} else if ( st === 'snapped' ) {
 
 			this.app.cameraFeel && this.app.cameraFeel.kick( 'snap' );
-			this.toast( 'Snap! The line broke', 2400 );
+			this.toast( 'Snap! The line broke. Ease off when it runs: the crank held down piles on strain', 3200 );
 			if ( au && au.lineSnap ) au.lineSnap();
 			this.rod.setState( 'idle' );
+
+		} else if ( st === 'broken' ) {
+
+			// hauled far past the line's strength: the rod is broken until Ethena Prosper repairs it (free in sandbox)
+			this.app.cameraFeel && this.app.cameraFeel.kick( 'snap' );
+			if ( au && au.lineSnap ) au.lineSnap();
+			this.rod.setState( 'idle' );
+			this.state.rodBroken = ! this.state.free;
+			this.rod.equip( false );
+			this.cancelLine();
+			this.toast( this.state.free ? 'Crack! You broke the rod (sandbox: it mends itself). Pump the rod: reel, ease off, reel' : 'Crack! You broke the rod. Ethena Prosper repairs rods at the chandlery', 4200 );
+			this.state.save();
 
 		} else {
 

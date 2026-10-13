@@ -100,7 +100,7 @@ export function crewCodeFromLocation( loc = typeof location !== 'undefined' ? lo
 // accepts "host", "host:port", "host:port/room", "ws://...", "wss://..."
 export function normalizeServerUrl( s, loc = null ) {
 
-	s = String( s || '' ).trim();
+	s = String( s || '' ).trim().replace( /^https:\/\//i, 'wss://' ).replace( /^http:\/\//i, 'ws://' ); // a tunnel's https address
 	if ( ! s ) return defaultServerUrl();
 	if ( ! /^wss?:\/\//i.test( s ) ) {
 

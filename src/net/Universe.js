@@ -118,11 +118,19 @@ export function defaultUniverseAddress( loc = typeof location !== 'undefined' ? 
 	const r = recall( SERVER_KEY, '' );
 	if ( r ) return r;
 	const h = loc && loc.hostname ? loc.hostname : 'localhost';
+	if ( isStaticHost( h ) ) return ''; // GitHub Pages serves the game only: a universe is a server somebody hosts
 	return loc && loc.protocol === 'https:' ? h : `${ h }:${ DEFAULT_UNIVERSE_PORT }`;
 
 }
 
 // host:port of a server URL (the token's key and the readable "where")
+// hosts that only serve files (no game server lives there)
+export function isStaticHost( h ) {
+
+	return /(^|\.)(github\.io|pages\.dev|netlify\.app|vercel\.app)$/i.test( String( h || '' ) );
+
+}
+
 export function serverKey( url ) {
 
 	try {
@@ -179,9 +187,10 @@ export function universeError( code, text = '', url = '' ) {
 	const where = url ? serverKey( url ) : 'that address';
 	switch ( code ) {
 
-		case 'down': return `No universe server answers at ${ where }. Is it running, and is its port open? (docs/HOSTING.md)`;
+		case 'down': return isStaticHost( where ) ? `${ where } only serves the game: a universe is a server someone hosts. Run HOST_UNIVERSE_TUNNEL.cmd from the download (it prints an https address) or ask the host for theirs.`
+			: `No universe server answers at ${ where }. Is it running, and is its port open? (HOSTING.md)`;
 		case 'timeout': return `${ where } did not answer in time. Check the address and the firewall.`;
-		case 'address': return 'Type the server address, e.g. 192.168.1.20 or myisland.example.com';
+		case 'address': return 'Type the server address: the https://....trycloudflare.com line HOST_UNIVERSE_TUNNEL.cmd prints, or 192.168.1.20 on your network';
 		case 'badname': return text || 'Pick a captain name of 2 to 24 letters or numbers.';
 		case 'name': return text || 'That captain name belongs to someone else on this server. Pick another one.';
 		case 'banned': return text || 'This captain is banned from that universe.';

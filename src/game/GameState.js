@@ -396,6 +396,25 @@ export class GameState {
 
 	}
 
+	// a broken rod (the fight hauled far past the line): Ethena repairs it for a share of the rod's value
+	rodRepairCost() {
+
+		const lvl = ( this.upgrades && this.upgrades.rod ) | 0;
+		return 90 + lvl * 70;
+
+	}
+
+	repairRod() {
+
+		if ( ! this.rodBroken ) return false;
+		const cost = this.free ? 0 : this.rodRepairCost();
+		if ( cost && ! this.spend( cost ) ) return false;
+		this.rodBroken = false;
+		this.save();
+		return true;
+
+	}
+
 	refuelCost() {
 
 		if ( this.free ) return 0;
@@ -447,7 +466,7 @@ export class GameState {
 			v: 2, money: this.money, inventory: this.inventory, log: this.log, upgrades: this.upgrades, fuel: this.fuel, nextId: this._nextId,
 			character: this.character, unlocked: this.unlocked, boat: this.boat, quests: this.quests, career: this.career, name: this.name,
 			xp: this.xp, rep: this.rep, discovered: this.discovered, savedAt: Date.now(),
-			mode: this.mode, world: this.world,
+			mode: this.mode, world: this.world, rodBroken: !! this.rodBroken,
 			features: this._featuresJSON(),
 		};
 
@@ -481,6 +500,7 @@ export class GameState {
 		this.log = d.log && typeof d.log === 'object' ? d.log : {};
 		for ( const [ k, v ] of Object.entries( this.log ) ) if ( FISH[ k ] && v && v.bestKg > 0 && ! Number.isFinite( v.bestCm ) ) v.bestCm = Math.round( fishLengthCm( k, v.bestKg ) );
 		this.upgrades = { ...defaultUpgrades(), ...( d.upgrades || {} ) };
+		this.rodBroken = !! d.rodBroken;
 		this.fuel = Number.isFinite( d.fuel ) ? d.fuel : null;
 		this._nextId = Math.max( d.nextId | 0, ...this.inventory.map( ( f ) => f.id + 1 ), 1 );
 		// (the mode is the save's key space, set before loading: the `mode` stored in the file is informational)

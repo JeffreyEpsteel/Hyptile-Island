@@ -45,6 +45,8 @@ export class CatchMinigame {
 		this.hookHold = 1; // the hook pulls free at 0
 		this.surgeWarn = 0; // 0..1 over the ~0.4 s before a surge starts
 		this.overload = 0; // seconds above the breaking point: the line snaps only if it's held there
+		this.strain = 0; // the crank held down builds strain (0..0.42): the fight is pumped, not held (a tip says so)
+		this.rodStress = 0; // seconds well past the line's strength: the rod itself breaks (state 'broken')
 		this._nextSurge = 1.5 + rng() * 2;
 		this._surgeT = 0;
 		this._surgeMul = 1;
@@ -75,7 +77,9 @@ export class CatchMinigame {
 
 		// the fish's pull (0..~1.6) and the tension it and the reel make
 		const pull = this.power * ( 0.35 + 0.65 * this.surge * this._surgeMul ) * ( 1 - 0.65 * tired );
-		const target = reeling ? 0.25 + pull * 0.95 + 0.3 : pull * 0.62;
+		// reeling without a pause piles strain on top of the fish's pull: ease off between pulls or the line goes
+		this.strain = reeling ? Math.min( 0.26, this.strain + dt * 0.2 ) : Math.max( 0, this.strain - dt * 1.2 );
+		const target = reeling ? 0.25 + pull * 0.95 + 0.3 + this.strain : pull * 0.62;
 		const rate = ( reeling ? 3.4 : 3.0 ) * this.rateMul;
 		this.tension += ( target - this.tension ) * ( 1 - Math.exp( - dt * rate ) );
 
@@ -97,7 +101,9 @@ export class CatchMinigame {
 
 		// outcomes
 		this.overload = this.tension > 1 ? this.overload + dt : Math.max( 0, this.overload - dt * 2 );
-		if ( this.overload > 0.22 ) this.state = 'snapped';
+		this.rodStress = this.tension > 1.14 ? this.rodStress + dt : Math.max( 0, this.rodStress - dt * 2 );
+		if ( this.rodStress > 0.16 ) this.state = 'broken'; // hauled far past the line's strength: the rod cracks (Ethena fixes it)
+		else if ( this.overload > 0.22 ) this.state = 'snapped';
 		else {
 
 			this.slack = this.tension < 0.12 ? this.slack + dt : Math.max( 0, this.slack - dt * 2 );

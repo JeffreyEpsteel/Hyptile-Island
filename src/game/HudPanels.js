@@ -151,7 +151,8 @@ export function installHudPanels( GameHUD ) {
 			} ).join( '' );
 			const missing = s.stats.fuelL - s.fuelL;
 			const fuelRow = `<div class="gm-shop-row"><span>Diesel · $${ FUEL_PRICE.toFixed( 2 ) } / L<small>Tank: ${ s.fuelL.toFixed( 0 ) } of ${ s.stats.fuelL } L</small></span>${ missing > 0.5 ? `<button class="gm-btn" data-fuel ${ s.money < FUEL_PRICE && ! s.free ? 'disabled' : '' }>Fill · ${ s.free ? 'free' : `$${ s.refuelCost() }` }</button>` : '<span class="gm-have">Full</span>' }</div>`;
-			body = fuelRow + rows;
+			const rodRow = s.rodBroken ? `<div class="gm-shop-row"><span>Rod repair<small>Your rod broke in a fight: hauled too hard past the line's strength</small></span><button class="gm-btn" data-rodfix ${ ! s.free && s.rodRepairCost() > s.money ? 'disabled' : '' }>${ s.free ? 'Fix · free' : `Fix · $${ s.rodRepairCost() }` }</button></div>` : '';
+			body = rodRow + fuelRow + rows;
 			foot = s.free ? 'Free in sandbox · upgrades take effect at once' : 'Upgrades take effect at once';
 
 		}
@@ -167,6 +168,8 @@ export function installHudPanels( GameHUD ) {
 		for ( const b of this.stand.querySelectorAll( '[data-buy]' ) ) b.onclick = () => this.game.buy( b.dataset.buy );
 		const f = this.stand.querySelector( '[data-fuel]' );
 		if ( f ) f.onclick = () => this.game.refuel();
+		const rf = this.stand.querySelector( '[data-rodfix]' );
+		if ( rf ) rf.onclick = () => { if ( this.game.state.repairRod() ) { this.game.toast( 'Rod repaired', 1600 ); this.renderShop(); } };
 		bindCrew( this, this.stand );
 
 	};

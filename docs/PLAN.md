@@ -346,3 +346,12 @@ touch emulation: layout, stick moves the player (synthetic pointer events). Foll
 voice limits have no mobile setting; no service worker; not yet run on a real phone.
 GitHub: https://github.com/JeffreyEpsteel/Hyptile-Island (Pages deploys main via .github/workflows/pages.yml to
 https://jeffreyepsteel.github.io/Hyptile-Island/). Pushes go through the user's terminal (no token in the sandbox).
+
+### Alpha feedback round 2 (2026-10-13, root)
+iOS: WebKit limits + serial compiles + stripped WGSL + the phone memory budget (GPU 694 -> 387 MB; shared packed/index
+buffers in MeshRenderer, one height texture, phone caps) - the iPhone 17 Pro now plays; a kill at frame 3534 / 472 MB GPU
+is still open (no GPU growth headlessly over 3600 frames). Mobile: fullscreen button (iOS: Add to Home Screen tip), guide
+card fits, iOS media unlock for sound. Melee swings anywhere the rod is stowed. Fishing: strain while the crank is held
+(pump the rod), rod breaks past 1.14 tension (state.rodBroken, Ethena repairs), fishing from a still boat's helm.
+Multiplayer on Pages: no page-host default (isStaticHost), https tunnel addresses, tools/host/HOST_UNIVERSE_TUNNEL.cmd
+(cloudflared quick tunnel) + HOSTING.md. Cockpit rework: docs/briefs/w8-cockpit.md (worker).
