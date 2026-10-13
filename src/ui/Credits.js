@@ -26,7 +26,7 @@ export const CREDIT_SECTIONS = [
 	[ 'Made with', [
 		[ 'Claude Code (Anthropic: Fable, Opus and Sonnet agents)', 'root integration and most of the browser code', 'tooling' ],
 		[ 'OpenAI Codex / ChatGPT, OpenCode free models, JEV via OpenRouter', 'the Unreal and naval-fork phases', 'tooling' ],
-		[ 'Unreal Engine 5.8, Blender 5.2, ComfyUI (TRELLIS.2), ElevenLabs', 'the original game, models and rigs, art, sounds', 'tooling; generations under the owner's accounts' ],
+		[ 'Unreal Engine 5.8, Blender 5.2, ComfyUI (TRELLIS.2), ElevenLabs', 'the original game, models and rigs, art, sounds', 'tooling; generated on the owner accounts' ],
 	] ],
 	[ 'Open source we built with', [
 		[ 'Tidewater: engine, island, ocean, sky, fishing', 'DRG Software Solutions LLC (github.com/dgreenheck/tidewater)', 'MIT' ],
