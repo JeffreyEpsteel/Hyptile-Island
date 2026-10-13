@@ -69,14 +69,14 @@ export const SPEC = {
 	deflection: { elevator: 22 * DEG, aileron: 16 * DEG, rudder: 25 * DEG },
 	controlRate: 4.5, // 1/s: the surfaces follow the stick
 	// fuselage + floats + struts: drag area (m^2, includes CD) at a point, and side area for sideslip
-	dragArea: 0.95, dragPoint: [ 0, 1.3, 0.3 ],
+	dragArea: 1.45, dragPoint: [ 0, 1.3, 0.3 ], // (floats, struts, wires: a floatplane glides like a brick)
 	sideArea: 5.5, sidePoint: [ 0, 1.6, - 1.2 ],
 	// water
 	buoyK: 0.85, // V-bottom fullness
 	heaveDamp: 1800, heaveDamp2: 900, // per m^2 of section
 	sideK: 700, sideK2: 260, // keel-like side resistance per m^2
 	planing: 0.011, // planing lift coefficient on the forebody near the step
-	waterRudder: { area: 0.07, slope: 3.0, max: 30 * DEG, z: - 3.8 },
+	waterRudder: { area: 0.16, slope: 3.0, max: 30 * DEG, z: - 3.8 }, // (bigger blades: the idle taxi is slower now and must still turn)
 	// contact
 	groundK: 260000, groundC: 26000, groundMu: 0.45,
 	// wave 8: flaps (per full deflection, two notches: 1 = takeoff, 2 = landing), pitch trim, fuel
@@ -390,7 +390,9 @@ export class Flight {
 
 		// propeller: thrust from the rpm, falling off with forward speed; its slipstream over the tail
 		const u = Math.max( vb.z, 0 );
-		const thrust = sp.maxThrust * this.rpm * Math.max( 0.04, 1 - u / sp.pitchSpeed );
+		// (rpm ^ 1.5: a propeller's thrust grows faster than its speed; at idle it barely pulls, so a closed
+		// throttle lets the plane settle on the water and bleeds speed in the air)
+		const thrust = sp.maxThrust * Math.pow( this.rpm, 1.5 ) * Math.max( 0.04, 1 - u / sp.pitchSpeed );
 		this.thrust = thrust;
 		this.slip = Math.sqrt( u * u + 2 * thrust / ( RHO_AIR * sp.discArea ) ) - u;
 		_f.set( 0, 0, thrust ).applyQuaternion( q );

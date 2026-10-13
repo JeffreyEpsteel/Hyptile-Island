@@ -728,7 +728,9 @@ export class Cockpit {
 
 			}
 
-			this.tex = new Texture( { label: 'seaplane.panel', width: TEX.w, height: TEX.h, format: 'rgba8unorm-srgb', mips: true, usage: [ 'sample', 'copyDst' ], data: blank } );
+			// phones: no mip chain (the face is viewed near 1:1 from the seat; a 10-level rebuild after every redraw cost frames)
+			this._phone = !! globalThis.__phoneBudget;
+			this.tex = new Texture( { label: 'seaplane.panel', width: TEX.w, height: TEX.h, format: 'rgba8unorm-srgb', mips: ! this._phone, usage: [ 'sample', 'copyDst', 'render' ], data: blank } ); // ('render': copyExternalImageToTexture needs RenderAttachment on its destination)
 			this.material = standard( {
 				name: 'seaplanePanel',
 				side: 'double',
@@ -767,7 +769,7 @@ export class Cockpit {
 
 		if ( ! GPU.device || ! this.tex ) return;
 		this.tex.getGPU();
-		generateMipmaps( this.tex );
+		if ( ! this._phone ) generateMipmaps( this.tex );
 
 	}
 
@@ -812,7 +814,7 @@ export class Cockpit {
 
 		// redraw: ~10 Hz in first person, a few times a second from outside while piloted, once after leaving
 		this._acc += dt;
-		const rate = fp ? 10 : sp.piloted ? 3 : 0;
+		const rate = this._phone ? ( fp ? 5 : sp.piloted ? 1 : 0 ) : ( fp ? 10 : sp.piloted ? 3 : 0 );
 		if ( this._dirty || ( rate && this._acc >= 1 / rate ) ) this.draw();
 		if ( this.material ) this.material.uniforms.glow.value = sp.systems.master ? 1 : 0;
 		this._dom( fp, hover, open );
@@ -867,7 +869,7 @@ export class Cockpit {
 			try {
 
 				GPU.queue.copyExternalImageToTexture( { source: this.canvas }, { texture: this.tex.gpu }, { width: TEX.w, height: TEX.h } );
-				generateMipmaps( this.tex );
+				if ( ! this._phone ) generateMipmaps( this.tex );
 				return;
 
 			} catch ( e ) {
@@ -884,7 +886,7 @@ export class Cockpit {
 		if ( GPU.device && this.tex.gpu ) {
 
 			this.tex.upload( data );
-			generateMipmaps( this.tex );
+			if ( ! this._phone ) generateMipmaps( this.tex );
 
 		} else {
 

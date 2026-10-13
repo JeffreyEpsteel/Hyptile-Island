@@ -1183,7 +1183,9 @@ fn terrainWetness( xz: vec2f, h: f32 ) -> vec2f {
 		const scale = MathUtils.clamp( Math.round( v * 20 ) / 20, 0.5, 1 );
 		this.settings.renderScale = scale;
 		this.post.setScale( scale );
-		if ( this.clouds ) this.clouds.resolutionScale = scale;
+		// the cloud history keeps the canvas' own resolution: following the render scale made Low's clouds a blocky,
+		// smeared lattice (the march is 1 of 16 history pixels a frame: full size costs little)
+		if ( this.clouds ) this.clouds.resolutionScale = 1;
 
 	}
 
