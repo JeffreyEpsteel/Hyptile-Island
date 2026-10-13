@@ -403,7 +403,17 @@ re-renders (purchases, sales, tabs); LocalLights: boat lamps 2-3x brighter and t
 flashlight 120 / 48 m (was 55 / 30). Workers: 10A docs/briefs/w10-crew-aim.md (over-the-shoulder aim camera with the
 impact crosshair, naval.aimCamera(); src/features/crew: gunners and anglers posted from the chandlery Crew tab, berths
 per hull, crew figures on deck); 10B docs/briefs/w10-helm.md (helm pose through the IK grips on every hull, the wheel
-turns on the fleet / ship hulls, wheelGrips()).
+turns on the fleet / ship hulls, wheelGrips()); 10C w10-water-lights.md (the sea takes the local lights); 10D
+w10-plane-crash.md (crash severity, wrecks that break up, the pilot thrown clear, recovery at the yard); 10E
+w10-plane-ui.md (touch fold tray + top-row toggle).
+Landed (2026-10-13, all five): see the commits 9998432..0e9615c. Played in the browser: the cutter's procedural wheel
+turns with the steering and the helmsman stands with his hands on it; treading water upright, a prone crawl when
+moving; the aim camera swings over the aimed shoulder with the impact crosshair and "out of arc"; the stand list
+keeps its scroll across a purchase; sprint 16 m/s; lamps light the lobster boat's deck, every hull has lamps, the
+torch lights the pier. Known: the roster's Helm_Idle / Steer / Seated_Idle / Fall_Loop clips are near-bind retargets
+(re-export in tools/roster some day); AI ships' wheels and fleet tillers are still; other players do not see wrecks;
+remote boats do not collide.
+
 
 
 

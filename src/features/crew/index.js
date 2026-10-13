@@ -112,7 +112,9 @@ export class CrewFeature {
 	ctx() {
 
 		const st = this.state;
-		return { boat: st ? st.boat || null : null, unlocked: st && Array.isArray( st.unlocked ) ? st.unlocked : [], character: st ? st.character : null };
+		// the hull in play: App.boatId (the sandbox hands out boats without writing state.boat), else the save's
+		const boat = ( this.app && this.app.boatId ) || ( st ? st.boat || null : null );
+		return { boat, unlocked: st && Array.isArray( st.unlocked ) ? st.unlocked : [], character: st ? st.character : null };
 
 	}
 
