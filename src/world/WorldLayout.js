@@ -1,5 +1,6 @@
 import * as THREE from '../engine/index.js';
 import { ISLETS_BY_ID, isletWorld } from './terrain/IslandShape.js';
+import { TIDEMARK, tidemarkWorld } from './terrain/IslandShape.js'; // Tidemark (wave 12A)
 
 // Shared world layout. Coordinates in meters, y up, sea level y = 0.
 // The open ocean lies to the south (+z); the island to the north (-z).
@@ -177,5 +178,81 @@ for ( const [ id, radius, standUV, roadsUV, approach ] of [
 	const I = ISLETS_BY_ID.inverted;
 	WORLD.inverted.lagoon = { x: I.x, z: I.z, radius: 70 };
 	WORLD.ports.find( ( p ) => p.id === 'inverted' ).lagoon = WORLD.inverted.lagoon;
+
+}
+
+// Blackwater (wave 12B): the pirates' island among their patrol lanes, south of the home island (terrain/IslandShape.js
+// BLACKWATER: a volcanic ring round a flooded caldera; src/world/islands/Blackwater.js builds the town and the fort,
+// src/features/pirates/Stronghold.js runs them). Not a port: no harbourmaster, no customs, no market cell; the black market
+// is the stronghold's own. cove: the caldera water; entrance: the gap's seaward mouth (the cliff channel runs from there
+// to `inner`); dock: the main pirate dock on the crescent beach. The island entry carries den: false (the stronghold
+// replaces a den camp) and pirate: true.
+{
+
+	const I = ISLETS_BY_ID.blackwater;
+	const at = ( u, v ) => {
+
+		const [ x, z ] = isletWorld( I, u, v );
+		return new THREE.Vector3( Math.round( x * 10 ) / 10, 0, Math.round( z * 10 ) / 10 );
+
+	};
+	const center = new THREE.Vector3( I.x, 0, I.z ), radius = 235;
+	const D = I.dock, s = at( D.u0, D.v ), e = at( D.u1, D.v );
+	WORLD.blackwater = {
+		center, radius,
+		cove: { ...at( - 10, 0 ), radius: 85 },
+		entrance: at( 255, 0 ), inner: at( 90, 0 ),
+		dock: { position: at( D.u1 + 3, D.v + D.width / 2 + 3.5 ), heading: Math.atan2( e.x - s.x, e.z - s.z ), start: s, end: e, deckHeight: D.deck, width: D.width },
+	};
+	WORLD.islands.push( { id: 'blackwater', name: I.name, center, radius, den: false, pirate: true } );
+
+}
+
+// Tidemark (wave 12A): the big town island beyond the heightmap's east edge (terrain/IslandShape.js TIDEMARK, its own
+// terrain tile src/world/islands/town/TidemarkTerrain.js; src/world/islands/Tidemark.js builds the town, src/game/ports
+// runs the port). The bay faces east-south-east (the lee of the prevailing wind); the stone pier runs out from the quay.
+//   dock        the pier (start on the quay, end over the water) and the berth alongside its head
+//   bay         the sheltered water in front of the town { x, z, radius } (a seaplane lands here)
+//   airstrip    the graded runway behind the town: centre { x, z }, ground y, heading = the take-off direction (radians,
+//               the boatDock convention: dir = ( sin, cos )) into the prevailing wind, length / width (m), pad: the
+//               parking apron by the hangar { x, z }, hangar: the shed's centre and yaw
+//   town / market / lookout   the market square, the trade cell's stall front, the hilltop lookout tower
+// The port entry carries size 2 (a town: the harbour feature's population, ~9 residents) and market (the trade stall).
+{
+
+	const I = TIDEMARK;
+	const at = ( u, v ) => {
+
+		const [ x, z ] = tidemarkWorld( u, v );
+		return new THREE.Vector3( Math.round( x * 10 ) / 10, 0, Math.round( z * 10 ) / 10 );
+
+	};
+	const center = new THREE.Vector3( I.x, 0, I.z ), radius = I.radius;
+	const P = I.pier, A = I.airstrip, s = at( P.u0, P.v ), e = at( P.u1, P.v );
+	const heading = Math.atan2( e.x - s.x, e.z - s.z );
+	const strip = at( A.u, A.v ), pad = at( A.park[ 0 ], A.park[ 1 ] ), bay = at( - 300, 10 ), hangar = at( A.hangar[ 0 ], A.hangar[ 1 ] );
+	const r2 = ( v ) => Math.round( v * 1e4 ) / 1e4;
+	WORLD.tidemark = {
+		center, radius,
+		dock: { position: at( P.u1 + 3, P.v + P.width / 2 + 2.6 ), heading: r2( heading ), start: s, end: e, deckHeight: P.deck, width: P.width },
+		bay: { x: bay.x, z: bay.z, radius: 150 },
+		airstrip: {
+			x: strip.x, z: strip.z, y: A.height, heading: r2( Math.atan2( I.ax, I.az ) ), length: A.length, width: A.width,
+			pad: { x: pad.x, z: pad.z }, hangar: { x: hangar.x, z: hangar.z, yaw: r2( Math.atan2( I.az, - I.ax ) ) }, // yaw: its doors face the runway
+		},
+		town: at( - 122, 6 ), market: at( - 124, 18 ), lookout: at( 130, 110 ),
+	};
+	WORLD.islands.push( { id: 'tidemark', name: I.name, center, radius, tile: true } );
+	const stand = at( - 126, - 6 );
+	const roads = [ bay.x, bay.z ];
+	WORLD.ports.push( {
+		id: 'tidemark', name: I.name,
+		dock: { ...WORLD.tidemark.dock },
+		stand: { x: stand.x, z: stand.z, yaw: r2( Math.atan2( - I.ax, - I.az ) ) },
+		market: { x: WORLD.tidemark.market.x, z: WORLD.tidemark.market.z },
+		center, radius, size: 2,
+		roads, approach: [ [ 100, 230 ], [ 260, 350 ], [ 420, 330 ], [ 600, 290 ], [ 900, 330 ], [ 1150, 460 ], [ 1500, 560 ], [ 1950, 520 ], [ 2160, 330 ], [ 2150, 160 ], roads ],
+		lagoon: { ...WORLD.tidemark.bay },
+	} );
 
 }

@@ -36,7 +36,7 @@ export { ROLES, ROLE_IDS, SCHEDULES, MENU, activityAt };
 const SAVE_V = 1;
 const MAX_MEMORY = 96;
 const CLOSE_M = 7; // walking this far from the tavern closes its window
-const TAVERN_NAMES = { pons: 'The Driftwood Rest' };
+const TAVERN_NAMES = { pons: 'The Driftwood Rest', tidemark: 'The Tide & Tankard' };
 
 function seeded( seed ) {
 
@@ -191,7 +191,9 @@ export class Harbour {
 		for ( const d of PORT_FOLK ) {
 
 			if ( d.port !== port.id ) continue;
-			const s = spot( d.near[ 0 ], d.near[ 1 ] );
+			// a named resident with its own spot in a town (Tidemark) stands there; the rest by rings round the stand
+			const s = d.at ? { x: d.at.x, z: d.at.z } : spot( d.near[ 0 ], d.near[ 1 ] );
+			if ( d.at ) taken.push( s );
 			if ( s ) folk.push( { ...d, spot: { ...s, yaw: yawToward( s.x, s.z, c.x, c.z ) } } );
 
 		}

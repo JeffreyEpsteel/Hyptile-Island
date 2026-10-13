@@ -2,10 +2,11 @@ import { Matrix4, Vector3 } from '../../engine/index.js';
 import { inPeace } from '../melee/Peace.js';
 import { mulberry32 } from '../../util/Noise.js';
 import { G } from '../../core/Globals.js';
-import { WEAPONS, ORDER, POUCH, HEADSHOT, damageAt, spreadRad, spreadDir, forwardOf, maxRange, clamp } from './FirearmsData.js';
+import { WEAPONS, ORDER, POUCH, HEADSHOT, MAGNET, DEG, damageAt, spreadRad, spreadDir, forwardOf, maxRange, clamp, angleBetween } from './FirearmsData.js';
 import { resolveShot } from './Hitscan.js';
 import { GunAudio } from './GunAudio.js';
 import { WeaponMesh } from './WeaponMesh.js';
+import { GunHud, coneToPx } from './GunHud.js';
 
 // Firearms (wave 9B): a flintlock pistol and a musket bought from Ethena Prosper at the chandlery, fired at raiders, boarding
 // crews, pirate decks and breakable props. One ball a load; powder and ball come in cartridge pouches (consumable).
@@ -33,6 +34,14 @@ import { WeaponMesh } from './WeaponMesh.js';
 // Events: gunFired { weapon, x, y, z, dir, by: 'player' }, gunHit { weapon, kind, x, y, z, target, damage, head, killed },
 //   crewShot { id, name, left }, gunBought { id, price }; world event 'gunshot' to the other players (they see and hear it).
 // Headless: install( app, features, { audio, mesh: false, rand, seed } ).
+//
+// Wave 12E (shooting you can feel): GunHud.js draws a crosshair while a gun is drawn (its gap is the cone right now: wider on
+// the move and just after a shot, tight while aiming), a hit marker (another on a head shot), a kill confirmation, the
+// reload ring and "R to reload" while empty. Aim magnetism: a shot whose aim finds nobody but passes within MAGNET.deg of
+// a raider's chest at MAGNET.range m or less snaps onto it. The pistol fires on the move with a small spread penalty
+// (moveSpread), the musket slows the walk to x0.7. A kill freezes the fight for a beat (melee.hitstop) with a heavy kick;
+// a ball into a thrower's wind-up stops it like a parry; a musket ball knocks an unarmoured raider down (Raider.takeHit).
+// The practice raiders at the training post are wooden swords only (no shooting them).
 
 export const AIM = { ease: 10 }; // 1/s: the zoom eases in and out
 const RELOAD_CUES = [ [ 0.06, 'half' ], [ 0.24, 'pour' ], [ 0.5, 'ram' ], [ 0.62, 'ram' ], [ 0.9, 'cock' ] ];
@@ -70,6 +79,10 @@ export class Firearms {
 		this._offs = [];
 		this.keyOk = features && features.claimKey ? features.claimKey( 'KeyG', 'firearms' ) : true;
 		if ( features && features.on ) this._offs.push( features.on( 'remoteWorldEvent', ( e ) => this._remote( e ) ) );
+		this.speed = 0; // m/s over the ground (the walking spread)
+		this.marker = null; // the last hit marker: 'hit' | 'head' | 'kill'
+		const hudEl = this.app.ui && this.app.ui.ui ? ( this.app.ui.ui.hud || this.app.ui.ui.root ) : ( options.hudElement || null );
+		this.hud = options.hud === false ? null : new GunHud( { hud: hudEl, doc: options.doc } );
 
 	}
 
@@ -398,24 +411,40 @@ export class Firearms {
 		const tMax = tMin + maxRange( w );
 		const ctx = this._ctx();
 		const p = this.app.player.position;
-		if ( inPeace( p.x, p.z ) ) {
+		const peace = inPeace( p.x, p.z );
+		const aimed = resolveShot( ctx, o, d, tMin, tMax );
+		// the practice raiders fight with wooden swords: no shooting them, anywhere
+		if ( aimed && aimed.kind === 'raider' && aimed.target && aimed.target.practiceFight ) {
 
-			// the peaceful home island: a shot at a person who is not a raider or the training post is refused; shots at the
-			// water, the sand, props and the post go off as anywhere (user 2026-10-13: "shooting does not work" was this gate)
-			const h = resolveShot( ctx, o, d, tMin, tMax );
-			if ( h && h.kind === 'raider' && h.target && h.target.kind !== 'dummy' ) {
-
-				this.stats.refused ++;
-				this.toast( this._tips.peace ? 'Not here' : 'Not here · the home island is peaceful (the training post is fair game)', 2200 );
-				this._tips.peace = true;
-				this.after = 0.3;
-				return { refused: 'peace' };
-
-			}
+			this.stats.refused ++;
+			this.toast( 'Wooden swords only · it is a practice fight', 1800 );
+			this.after = 0.3;
+			return { refused: 'practice' };
 
 		}
 
-		const dir = spreadDir( d, spreadRad( w, this.aiming ), this.rand(), this.rand() );
+		if ( peace && aimed && aimed.kind === 'raider' && aimed.target && aimed.target.kind !== 'dummy' ) {
+
+			// the peaceful home island: a shot at a person who is not a raider or the training post is refused; shots at the
+			// water, the sand, props and the post go off as anywhere (user 2026-10-13: "shooting does not work" was this gate)
+			this.stats.refused ++;
+			this.toast( this._tips.peace ? 'Not here' : 'Not here · the home island is peaceful (the training post is fair game)', 2200 );
+			this._tips.peace = true;
+			this.after = 0.3;
+			return { refused: 'peace' };
+
+		}
+
+		// aim magnetism: the aim finds nobody, but a raider's chest is within MAGNET.deg: the ball goes for him
+		let base = d;
+		if ( ! ( aimed && aimed.kind === 'raider' ) && ! peace ) {
+
+			const snap = this._magnet( ctx, o, d, tMin );
+			if ( snap ) base = snap;
+
+		}
+
+		const dir = spreadDir( base, this.spreadNow(), this.rand(), this.rand() );
 		const hit = resolveShot( ctx, o, dir, tMin, tMax );
 		this.loaded[ this.sel ] = false;
 		this.after = RECOIL_T;
@@ -430,9 +459,66 @@ export class Firearms {
 
 		}
 
+		this.magnet = base !== d;
+		res.magnet = this.magnet;
 		this._shotFx( w, dir, hit );
 		this.last = res;
+		if ( res.hit === 'raider' && res.damage > 0 ) {
+
+			this.marker = res.killed ? 'kill' : res.head ? 'head' : 'hit';
+			if ( this.hud ) this.hud.mark( this.marker );
+			if ( res.killed ) {
+
+				// a kill: the fight stops for a beat and the camera takes the weight
+				const m = this._get( 'melee' );
+				try { if ( m && m.hitstop ) m.hitstop( 0.09 ); } catch ( e ) { /* optional */ }
+				const cf = this.app.cameraFeel;
+				try { if ( cf && cf.kick ) cf.kick( 'meleeHeavy', { scale: 0.7 } ); } catch ( e ) { /* optional */ }
+
+			}
+
+		}
+
 		return res;
+
+	}
+
+	// the cone right now (rad): the weapon's, wider on the move and right after a shot, tighter while aiming
+	spreadNow() {
+
+		const w = this.sel ? WEAPONS[ this.sel ] : null;
+		if ( ! w ) return 0;
+		const p = this.app.player;
+		const move = p && p.mode === 'walk' ? clamp( this.speed / 2.7, 0, 1 ) : 0;
+		return spreadRad( w, this.aiming, move, this.recoil );
+
+	}
+
+	// the raider whose chest the aim passes closest to, within MAGNET.deg and MAGNET.range (and a clear line): the unit
+	// direction to his chest, else null
+	_magnet( ctx, o, d, tMin ) {
+
+		let best = null, ba = MAGNET.deg * DEG;
+		const to = { x: 0, y: 0, z: 0 };
+		for ( const r of ctx.targets || [] ) {
+
+			if ( ! r || ! r.targetable || r.kind === 'dummy' || r.practiceFight ) continue;
+			const cx = r.x, cy = r.y + MAGNET.chest * ( r.scale || 1 ), cz = r.z;
+			to.x = cx - o.x; to.y = cy - o.y; to.z = cz - o.z;
+			const len = Math.hypot( to.x, to.y, to.z );
+			if ( len < 1e-3 || len - tMin > MAGNET.range ) continue;
+			to.x /= len; to.y /= len; to.z /= len;
+			const a = angleBetween( d, to );
+			if ( a > ba ) continue;
+			// nothing between: the ball along the snapped line must find him first
+			const h = resolveShot( ctx, o, to, tMin, len + 1 );
+			if ( ! h || h.target !== r ) continue;
+			ba = a;
+			best = { x: to.x, y: to.y, z: to.z };
+
+		}
+
+		return best;
 
 	}
 
@@ -449,7 +535,7 @@ export class Firearms {
 				const r = hit.target;
 				const dmg = Math.round( w.damage * k * ( hit.head ? HEADSHOT : 1 ) );
 				if ( dmg <= 0 ) break;
-				const windup = r.state === 'windup';
+				const windup = r.state === 'windup' || r.state === 'throw';
 				let rr = null;
 				try { rr = r.takeHit( dmg ); } catch ( e ) { rr = null; }
 				if ( ! rr ) break;
@@ -724,9 +810,24 @@ export class Firearms {
 
 		}
 
-		this._pace( w );
+		this._pace( w, dt );
 		this._zoom( dt, w );
 		this._placeMesh();
+		this._hud( dt, w );
+
+	}
+
+	// the crosshair, the markers, the reload ring and the empty cue (GunHud)
+	_hud( dt, w ) {
+
+		if ( ! this.hud ) return;
+		const cam = this.app.camera, h = this.hud.root && this.hud.root.clientHeight ? this.hud.root.clientHeight : ( typeof window !== 'undefined' ? window.innerHeight : 720 );
+		const drawn = this.drawn && !! w && this._canAct();
+		this.hud.update( dt, {
+			drawn, aiming: this.aiming, gap: drawn ? 3 + coneToPx( this.spreadNow(), cam && cam.fov, h ) : 0,
+			reload: this.phase === 'reloading' && w ? this.t / w.reload : - 1,
+			empty: drawn && this.phase === 'ready' && ! this.loaded[ this.sel ], noShots: this.shots <= 0 && ! this.sandbox,
+		} );
 
 	}
 
@@ -757,12 +858,19 @@ export class Firearms {
 	}
 
 	// the musket shouldered: the walk is a little slower (the part of this frame's step past the factor is taken back)
-	_pace( w ) {
+	_pace( w, dt = 0 ) {
 
 		const p = this.app.player;
 		if ( ! p || ! p.position ) return;
 		const q = p.position;
 		const prev = this._prev;
+		// the pace over the ground (the walking spread), smoothed a little
+		if ( prev && dt > 0 ) {
+
+			const v = Math.hypot( q.x - prev.x, q.z - prev.z ) / dt;
+			this.speed += ( ( v < 30 ? v : 0 ) - this.speed ) * Math.min( 1, dt * 12 );
+
+		}
 		if ( prev && this.drawn && w && w.walk < 1 && p.mode === 'walk' && p.grounded !== false && ! ( p.launched > 0 ) ) {
 
 			const dx = q.x - prev.x, dz = q.z - prev.z;
@@ -869,6 +977,7 @@ export class Firearms {
 		this.holster( true );
 		this.aimK = 0;
 		this._zoom( 1, null );
+		if ( this.hud ) this.hud.dispose();
 		if ( this.mesh ) this.mesh.dispose();
 		this.mesh = null;
 		for ( const off of this._offs ) if ( typeof off === 'function' ) off();

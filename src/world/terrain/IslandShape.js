@@ -368,3 +368,123 @@ for ( const [ id, w, pts ] of [
 	} ) } );
 
 }
+
+// ------------------------------------------------------------------------------------- Blackwater (wave 12B)
+// The pirates' island, far south of the home island among their patrol lanes: a jagged volcanic ring round a
+// flooded caldera. The way in is a cliff-walled gap on the east-south-east side (the `channel`); inside, the calm
+// cove (`lagoon`, 7 m: deep enough for a brigantine), a black-sand crescent on its far (west) shore where the pirate
+// town stands, and the fort on the north headland above the entrance (src/world/islands/Blackwater.js builds it,
+// src/features/pirates/Stronghold.js runs it). The same recipe as the Inverted Isles' atoll; the beach sector also
+// gives the outer west shore a narrow strip of black sand under the summit. Everything is zero beyond `far`.
+const BW_AX = axis( 0.97, 0.24 );
+export const BLACKWATER = {
+	id: 'blackwater', name: 'Blackwater',
+	x: - 55, z: 688, ax: BW_AX[ 0 ], az: BW_AX[ 1 ],
+	ru: 228, rv: 175, far: 160, shelf: [ 70, 4 ],
+	atoll: [ 105, 85 ], channel: [ 0, 26, 85, 310 ], lagoon: 7, box: true,
+	outline: [ 70, 14, 22, 4, 5.3, 2.9, - 6.1, 8.4 ],
+	beach: { sector: [ 0.55, 0.85 ], out: [ 6, 26 ], inland: [ - 40, - 20 ] },
+	// the summit behind the town, the north and south rims, the shoulders either side of the entrance
+	hills: [ [ - 172, - 10, 30, 45, 62 ], [ 10, - 128, 50, 22, 44 ], [ 0, 128, 50, 22, 38 ], [ 120, - 100, 30, 20, 24 ], [ 125, 100, 30, 20, 22 ] ],
+	hillIn: [ 18, 60 ], ridge: 4, heightScale: 1.5, cliffScale: 1.3,
+	pocket: [ - 70, 0, 20, 30, 1.5 ],
+	// the town on the crescent (tavern, black market, market, huts), then the fort yard and its two gun platforms
+	pads: [ [ - 128, 0, 6.5, 5, 2.4 ], [ - 117, 38, 5.5, 4, 2.3 ], [ - 117, - 38, 5.5, 4, 2.3 ], [ - 97, 66, 4, 4, 2.3 ], [ - 97, - 66, 4, 4, 2.3 ],
+		[ - 72, 84, 4, 4, 2.2 ], [ - 72, - 84, 4, 4, 2.2 ],
+		[ 185, - 64, 20, 10, 27 ], [ 218, - 46, 7, 6, 26.5 ], [ 158, - 36, 7, 6, 27 ], [ 146, - 50, 3.5, 4, 27 ] ],
+	stacks: [ [ 262, 62, 6, 20 ], [ 255, - 95, 5, 15 ], [ - 262, 60, 5, 13 ], [ 40, - 196, 6, 17 ], [ - 110, - 178, 4, 10 ], [ 120, 176, 5, 14 ] ],
+	dock: { u0: - 112, u1: - 82, v: 0, width: 2.4, deck: 1.05 },
+};
+
+ISLETS.push( BLACKWATER );
+ISLETS_BY_ID.blackwater = BLACKWATER;
+refreshIsletStacks();
+
+// footpaths: along the crescent behind the docks, and from the town over the north rim to the fort gate
+for ( const [ w, pts ] of [
+	[ 0.9, [ [ - 72, - 84 ], [ - 97, - 66 ], [ - 113, - 44 ], [ - 121, - 20 ], [ - 122, 0 ], [ - 121, 20 ], [ - 113, 44 ], [ - 97, 66 ], [ - 72, 84 ] ] ],
+	[ 0.7, [ [ - 97, - 66 ], [ - 70, - 100 ], [ - 30, - 116 ], [ 20, - 122 ], [ 70, - 116 ], [ 120, - 98 ], [ 160, - 80 ], [ 172, - 72 ] ] ],
+] ) {
+
+	PATHS.push( { w, pts: pts.map( ( [ u, v ] ) => {
+
+		const [ x, z ] = isletWorld( BLACKWATER, u, v );
+		return [ Math.round( x * 10 ) / 10, Math.round( z * 10 ) / 10 ];
+
+	} ) } );
+
+}
+
+// ------------------------------------------------------------------------------------- Tidemark (wave 12A)
+// The big town island east of the archipelago: ~420 m across its long axis, 400 m+ of open water from every other
+// island and the pirate lanes. The 2048 m heightmap has no room left for an island this size (the domain is full:
+// with 400 m of water nothing over ~0 m radius fits, and even with 150 m nothing over ~265 m), so Tidemark lies
+// beyond its east edge on its own 2 m terrain tile (src/world/islands/town/TidemarkTerrain.js builds and answers it,
+// and attaches it to TerrainData's queries outside the domain). It is NOT one of ISLETS: the heightmap and every
+// older island stay bit-identical and pay nothing for it.
+// Frame: u runs from the bay (east-south-east, the lee of the prevailing wind G.windDir / the wave field's 25 deg) inland
+// to the far shore (west-north-west), v across (+v: north-north-east). Lengths in metres, (0, 0) the island centre.
+//   ru, rv        the main ellipse; lobes [ u, v, ru, rv ] are unioned in (the north headland), bay [ u, v, r ] cut out
+//   hills         [ u, v, sigma u, sigma v, height ] gaussian humps on the beach profile (the lookout hill, the ridge
+//                 to the headland, the headland crown, the far-shore downs)
+//   rocky         [ u, v, radius ] rock / sea-cliff zones (the headland, the north-west shore)
+//   river         polyline [ u, v ] from the spring to the mouth in the bay; bed: [ source depth below ground, mouth bed ]
+//   pads          [ u0, u1, v0, v1, height, falloff ] level rectangles (the quay and town terrace, the boatyard slip,
+//                 the lookout top); airstrip: the graded runway (centre, length along +u = take-off into the wind, width,
+//                 height, shoulder falloff) with its parking pad and taxiway
+//   pier          the stone pier along u at v (from the quay edge u0 out to u1); quay: the timber wharf in front of the
+//                 seawall (u0..u1 over the water, v0..v1); pocket: a deeper berth off the pier head
+const TM_AX = axis( - 0.906, - 0.423 );
+export const TIDEMARK = {
+	id: 'tidemark', name: 'Tidemark',
+	x: 1720, z: - 60, ax: TM_AX[ 0 ], az: TM_AX[ 1 ],
+	ru: 330, rv: 420, radius: 440,
+	lobes: [ [ - 245, 262, 115, 78 ] ],
+	bay: [ - 360, 10, 200 ],
+	outline: [ 90, 16, 26, 4, 3.3, - 7.1, 11.9, 2.6 ],
+	hills: [ [ 130, 110, 105, 115, 72 ], [ 40, 235, 75, 55, 34 ], [ - 225, 262, 55, 45, 26 ], [ 225, 250, 60, 70, 22 ], [ 120, 330, 60, 40, 18 ] ],
+	rocky: [ [ - 250, 275, 140 ], [ 150, 360, 150 ], [ 270, 200, 110 ] ],
+	river: { pts: [ [ 95, 175 ], [ 45, 182 ], [ - 5, 170 ], [ - 55, 158 ], [ - 105, 148 ], [ - 150, 140 ], [ - 190, 136 ], [ - 225, 134 ] ], width: 5, bed: [ 2.2, - 1.6 ] },
+	pads: [
+		[ - 158, - 78, - 82, 70, 2.4, 8 ], // the quay and the town terrace
+		[ - 152, - 128, - 116, - 88, 1.1, 6 ], // the boatyard slip
+		[ 122, 138, 102, 118, 79, 10 ], // the lookout on the hilltop
+	],
+	airstrip: { u: 95, v: - 172, length: 320, width: 28, height: 9.0, falloff: 34, pad: [ 30, - 128, 30, 16 ], taxi: 9, taxiU: 14, park: [ 14, - 130 ], hangar: [ 46, - 124 ] },
+	pier: { u0: - 158, u1: - 222, v: 8, width: 4.2, deck: 2.6 },
+	quay: { u0: - 158, u1: - 166, v0: - 74, v1: - 30, deck: 2.3 },
+	pocket: [ - 226, 16, 20, 12, 2.0 ],
+};
+
+export function tidemarkLocal( x, z ) {
+
+	return isletLocal( TIDEMARK, x, z );
+
+}
+
+export function tidemarkWorld( u, v ) {
+
+	return isletWorld( TIDEMARK, u, v );
+
+}
+
+// Tidemark's roads and footpaths in island coordinates (the terrain tile wears them in; tidemarkPaths() gives world
+// polylines): the quay street along the waterfront, the market street from the pier foot inland, the dirt road out
+// to the airstrip pad, and the footpath up to the lookout
+export const TIDEMARK_PATHS = [
+	{ id: 'quay', w: 2.4, pts: [ [ - 140, - 80 ], [ - 140, - 40 ], [ - 140, 0 ], [ - 140, 40 ], [ - 140, 68 ] ] },
+	{ id: 'market', w: 2.2, pts: [ [ - 156, 8 ], [ - 140, 8 ], [ - 112, 8 ], [ - 84, 8 ] ] },
+	{ id: 'road', w: 2.0, pts: [ [ - 84, 8 ], [ - 64, - 22 ], [ - 40, - 62 ], [ - 18, - 96 ], [ 4, - 118 ], [ 14, - 124 ] ] },
+	{ id: 'lookout', w: 0.9, pts: [ [ - 84, 30 ], [ - 48, 52 ], [ - 6, 72 ], [ 38, 86 ], [ 78, 96 ], [ 110, 106 ], [ 124, 110 ] ] },
+];
+
+export function tidemarkPaths() {
+
+	return TIDEMARK_PATHS.map( ( p ) => ( { id: p.id, w: p.w, pts: p.pts.map( ( [ u, v ] ) => {
+
+		const [ x, z ] = tidemarkWorld( u, v );
+		return [ Math.round( x * 10 ) / 10, Math.round( z * 10 ) / 10 ];
+
+	} ) } ) );
+
+}

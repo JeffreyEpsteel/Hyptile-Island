@@ -3,11 +3,13 @@ import { Avatar } from '../../player/Avatar.js';
 import { WORLD } from '../../world/WorldLayout.js';
 import { mulberry32 } from '../../util/Noise.js';
 import {
-	PLAYER, RAIDER, CLOCK, SLOTS, RAIDER_NAMES, CAPTAIN_NAMES, TOKENS, TRAINING_POST,
+	PLAYER, RAIDER, CLOCK, SLOTS, RAIDER_NAMES, CAPTAIN_NAMES, TOKENS, TRAINING_POST, THROW, FEEL, PRACTICE,
 	clamp, facingDot, yawToward, crossed, hoursForward, isNight,
 } from './MeleeData.js';
 import { Raider } from './Raider.js';
 import { Dummy } from './Dummy.js';
+import { Rocks } from './Rocks.js';
+import { Practice } from './Practice.js';
 import { pickLock, assistYaw, LOCK } from './LockOn.js';
 import { inPeace } from './Peace.js';
 import { PlayerCombat } from './PlayerCombat.js';
@@ -60,16 +62,28 @@ import { Telegraph } from './Telegraph.js';
 //      with the rod stowed, or mid-fight).
 //   4. Optional: melee.guarding (bool) for a guard pose, melee.stateInfo() for debugging.
 //
-// Events (features.emit): enemyDefeated { id, name, kind: 'raider', captain, x, z }, playerKnockedDown { by, byId, kind, cashLost }.
+// Events (features.emit): enemyDefeated { id, name, kind: 'raider', captain, x, z }, playerKnockedDown { by, byId, kind, cashLost },
+// (wave 12E) practiceStarted { count }, practiceEnded { result: 'won' | 'lost' | 'left' }, rockThrown { by, x, z }.
 // Headless: install( app, features, { avatarFactory, audio, hud: false, fx: false, rand, seed } ) takes stubs.
+//
+// Wave 12E, combat you can feel (the regression gate is test/feature-combat-play.mjs, a scripted fight at 60 Hz):
+//   m.hitstop( s )     a blow that lands freezes both fighters (the melee sim: the player's combat, every raider, the rocks)
+//                      for 70-90 ms; m.timeScale is 0 then (App may scale the avatar / world with it: see the report)
+//   m.slowmo( s, k )   a parry: 0.3 s at 0.4 speed (m.timeScale 0.4)
+//   the guard          RMB held with the rod away always raises the stance (no enemy needed); it drains stamina only in a fight
+//   the thrower        with 3+ raiders on the player one hangs back and throws rocks (Raider 'hang' / 'throw', Rocks.js)
+//   the practice fight E at the weapon rack beside the training post (Practice.js): two practice raiders, no death
+//   HUD                the lock-on reticle carries the locked raider's health and his wind-up as a ring filling to the blow;
+//                      a shield / parry flash on a blocked blow; the screen edge flashes when hit and pulses at low health
 
 const _o = new Vector3(), _d = new Vector3(), _h = new Vector3();
 const CREATE_D2 = 150 * 150; // m^2: raiders are created (their GLB loads) once the player is this close to a camp
 const UPDATE_D2 = 170 * 170;
 const FAR_D2 = 80 * 80; // beyond this a raider out of combat holds its pose
 const FIXED = 1 / 30;
-// the guard's reach (wave 5): a target this close (m), or a raider closing in this close, lets RMB raise it; it drops
-// after `idle` s with neither
+// the guard's reach (wave 5): a target this close (m), or a raider closing in this close, counts as "in a fight" for the
+// guard (wave 12E: the stance itself comes up whenever RMB is held with the rod away); a toggled guard drops after `idle` s
+// with neither
 export const GUARD = { reach: 8, aggroReach: 12, idle: 3 };
 const PIERS = () => {
 
@@ -135,6 +149,12 @@ export class Melee {
 		this.combat = new PlayerCombat( this );
 		this._offs = [];
 		this._rb = false;
+		this.stopT = 0; // s of hitstop left (real time)
+		this.slowT = 0; // s of the parry's slow motion left (real time)
+		this.slowK = 1;
+		this.stops = 0; // hitstops so far (tests)
+		this.simTime = 0; // the melee sim's own clock (hitstop / slow motion applied)
+		this.rocks = new Rocks( { scene: options.fx === false ? null : app.scene } );
 
 		// the captain may already be camped when the game starts
 		if ( options.captain !== undefined ) this.captain.active = !! options.captain;
@@ -159,6 +179,20 @@ export class Melee {
 				when: () => this.enabled && this.player && this.player.mode === 'walk',
 				prompt: () => ( d.sparring ? 'Stop sparring' : 'Spar at the training post' ),
 				onInteract: () => this.spar( ! d.sparring ),
+			} ) );
+
+		}
+
+		// the practice fight: E at the weapon rack beside the post
+		this.practice = options.practice === false ? null : new Practice( this, { scene: options.fx === false ? null : app.scene, terrain: this.terrain, mesh: options.fx !== false } );
+		if ( this.practice && features && features.interactable ) {
+
+			const pf = this.practice;
+			this._offs.push( features.interactable( {
+				id: 'melee:practice-fight', position: () => pf.rack, radius: PRACTICE.rackRadius,
+				when: () => this.enabled && this.player && this.player.mode === 'walk' && this.combat.state !== 'down',
+				prompt: () => ( pf.active ? 'Stop the practice fight' : 'Practice fight (wooden swords)' ),
+				onInteract: () => ( pf.active ? pf.stop( 'left' ) : pf.start() ),
 			} ) );
 
 		}
@@ -426,8 +460,16 @@ export class Melee {
 
 		if ( this.tokens.has( r ) ) return true;
 		// a raider that is no longer fighting gives his token back (a host forgot, he was put away)
-		for ( const q of this.tokens ) if ( ! q.active || ! ( q.inCombat || q.state === 'windup' || q.state === 'strike' ) ) this.tokens.delete( q );
-		return this.tokens.size < TOKENS.max && this.tokenGap <= 0;
+		let cap = Math.min( TOKENS.max, r.cfg && r.cfg.tokens ? r.cfg.tokens : TOKENS.max );
+		for ( const q of this.tokens ) {
+
+			if ( ! q.active || ! ( q.inCombat || q.state === 'windup' || q.state === 'strike' || q.state === 'throw' ) ) { this.tokens.delete( q ); continue; }
+			// wave 12E: a holder of a lower cap keeps it for everyone (a tier 1 crowd takes strict turns)
+			if ( q.cfg && q.cfg.tokens ) cap = Math.min( cap, q.cfg.tokens );
+
+		}
+
+		return this.tokens.size < cap && this.tokenGap <= 0;
 
 	}
 
@@ -496,6 +538,146 @@ export class Melee {
 	hasDeath() {
 
 		return !! ( this.features && this.features.get && this.features.get( 'death' ) );
+
+	}
+
+	// ---- the feel (wave 12E)
+
+	// freeze both fighters for s (real) seconds: the player's combat, every raider and the rocks stand still
+	hitstop( s = FEEL.hitstop ) {
+
+		if ( ! ( s > 0 ) ) return;
+		this.stopT = Math.max( this.stopT, Math.min( 0.2, s ) );
+		this.stops ++;
+
+	}
+
+	// the parry's slow motion: s real seconds at k speed
+	slowmo( s = FEEL.slowT, k = FEEL.slowK ) {
+
+		if ( this.app.settings && this.app.settings.reduceMotion ) k = Math.max( k, 0.7 ); // milder, never off: it is the timing cue
+		this.slowT = Math.max( this.slowT, s );
+		this.slowK = clamp( k, 0.05, 1 );
+
+	}
+
+	// how fast the fight runs right now: 0 in a hitstop, 0.4 in the parry's slow motion, else 1 (App / Avatar may follow it)
+	get timeScale() {
+
+		return this.stopT > 0 ? 0 : this.slowT > 0 ? this.slowK : 1;
+
+	}
+
+	// the HUD's flash: 'block' (the shield), 'parry' (gold), 'hurt' (the screen edge)
+	flash( kind ) {
+
+		if ( this.hud && this.hud.flash ) this.hud.flash( kind );
+
+	}
+
+	// dust / sparks at a contact: 'hit' (dust off the body), 'block' (sparks off the guard), 'parry' (a bright spark burst)
+	puff( kind, at ) {
+
+		const vfx = this.features && this.features.get ? this.features.get( 'vfx' ) : null;
+		if ( ! vfx || ! at ) return;
+		try {
+
+			if ( kind === 'hit' ) { if ( vfx.dust ) vfx.dust( at.x, at.y, at.z, 0.07 ); }
+			else if ( kind === 'rock' ) { if ( vfx.debris ) vfx.debris( at.x, at.y, at.z, 0.08, 'stone' ); else if ( vfx.dust ) vfx.dust( at.x, at.y, at.z, 0.06 ); }
+			else {
+
+				if ( vfx.debris ) vfx.debris( at.x, at.y, at.z, kind === 'parry' ? 0.12 : 0.07, 'metal' );
+				if ( kind === 'parry' && vfx.flash ) vfx.flash( at.x, at.y, at.z, 0.12, 0, 1, 0 );
+
+			}
+
+		} catch ( e ) { /* the vfx are optional */ }
+
+	}
+
+	// a thrower's rock leaves his hand toward `at` (Raider 'throw' calls this on its owner of the role)
+	throwRock( r, at ) {
+
+		const s = r.scale || 1;
+		const from = { x: r.x + r.fx * 0.35, y: r.y + 1.75 * s, z: r.z + r.fz * 0.35 };
+		const src = {
+			ranged: true, kind: 'rock', name: r.name, spawnId: r.spawnId, practiceFight: !! r.practiceFight, practice: !! r.practice,
+			cfg: { damage: Math.max( 1, Math.round( r.cfg.damage * THROW.damage ) ) }, x: from.x, z: from.z, thrower: r,
+		};
+		const rock = this.rocks.launch( from, at, src );
+		this.sfx( 'hookSwing', { at: from, rate: 1.2, gain: 0.6 } );
+		this.emit( 'rockThrown', { by: r.spawnId, x: at.x, z: at.z } );
+		return rock;
+
+	}
+
+	// a rock reached the player's body
+	_rockHit( rock ) {
+
+		if ( rock.passed ) return false;
+		const c = this.combat, src = rock.src;
+		if ( ! this._target.valid || c.state === 'down' ) { rock.passed = true; return false; }
+		// it came from where it flew in
+		const v = Math.hypot( rock.vx, rock.vz ) || 1;
+		src.x = rock.x - rock.vx / v * 2;
+		src.z = rock.z - rock.vz / v * 2;
+		const out = c.takeStrike( src );
+		rock.outcome = out;
+		if ( src.thrower ) src.thrower.outcome = out;
+		if ( out === 'dodged' || out === 'ignored' || out === 'missed' ) { rock.passed = true; return false; } // it flies on past
+		this.puff( 'rock', rock );
+		return true;
+
+	}
+
+	// a practice raider yields / the player yields (the practice fight)
+	onYield( r ) {
+
+		if ( this.practice ) this.practice.onYield( r );
+
+	}
+
+	practiceLost( r ) {
+
+		if ( this.practice ) this.practice.lost( r );
+
+	}
+
+	// the thrower: with THROW.crowd raiders on the player one of them (the farthest, not mid-swing) hangs back and throws;
+	// fewer than that and he rejoins the melee. Boarding crews and den guards share melee.raiders, so they do it too.
+	_roles() {
+
+		const p = this.player.position;
+		let n = 0, thrower = null, far = null, fd = - 1;
+		for ( const r of this.list ) {
+
+			if ( ! r.active || ! r.visible || ! r.aggro || r.hp <= 0 || r.yielded || r.state === 'down' || r.state === 'getup' || r.state === 'flee' || r.state === 'gone' || r.state === 'return' ) {
+
+				if ( r.role ) r.role = null;
+				continue;
+
+			}
+
+			if ( ! r.inCombat ) continue;
+			const d2 = ( r.x - p.x ) ** 2 + ( r.z - p.z ) ** 2;
+			if ( d2 > 25 * 25 ) continue;
+			n ++;
+			if ( r.role === 'thrower' ) thrower = r;
+			else if ( d2 > fd && r.state !== 'windup' && r.state !== 'strike' && ! this.tokens.has( r ) ) { fd = d2; far = r; }
+
+		}
+
+		if ( n >= THROW.crowd && this._target.valid ) {
+
+			if ( ! thrower && far ) {
+
+				far.role = 'thrower';
+				far.roleBy = this;
+				far.sinceAttack = Math.min( far.sinceAttack, THROW.every * 0.5 ); // a beat before the first rock
+
+			}
+
+		} else if ( thrower ) thrower.role = null;
 
 	}
 
@@ -872,24 +1054,32 @@ export class Melee {
 		this._wasEngaged = engaged;
 		const reach = can && this.enabled && this._guardReach();
 		this._guardFar = reach ? 0 : this._guardFar + dt;
-		const forced = lost || ended || ! can || ! this.enabled || ! this.rodStowed() || c.state === 'down' || ( this._guardUp && this._guardFar > GUARD.idle );
+		const toggle = this._guardToggle();
+		// wave 12E: held, the stance is always up (no enemy needed: "the guard stance is always visible while RMB is held");
+		// the forced drops stay (focus / pointer lock lost, the rod out, knocked down), and a toggled guard still drops after
+		// GUARD.idle s with nobody near (it would otherwise stay up forever)
+		const forced = lost || ! can || ! this.enabled || ! this.rodStowed() || c.state === 'down' || ( toggle && ( ended || ( this._guardUp && this._guardFar > GUARD.idle ) ) );
 		if ( forced ) {
 
-			if ( this._guardUp || lost || ended ) this._guardBlock = rmb;
+			if ( this._guardUp || lost ) this._guardBlock = rmb;
 			this._guardUp = false;
 
 		}
 
-		if ( this._guardToggle() ) {
+		if ( toggle ) {
 
-			// a press raises it (only in reach), the next lowers it
-			if ( rDown && ! forced ) this._guardUp = ! this._guardUp && reach;
+			// a press raises it, the next lowers it
+			if ( rDown && ! forced ) {
+
+				this._guardUp = ! this._guardUp;
+				if ( this._guardUp ) this._guardFar = 0; // the idle drop counts from the click
+
+			}
 
 		} else {
 
 			if ( ! rmb ) this._guardBlock = false;
-			// once up it stays while the button is held (the idle rule drops it); it only comes up in reach
-			this._guardUp = ! forced && rmb && ! this._guardBlock && ( this._guardUp || reach );
+			this._guardUp = ! forced && rmb && ! this._guardBlock;
 
 		}
 
@@ -975,10 +1165,36 @@ export class Melee {
 		if ( this.enabled ) this._syncSlots();
 		this._input( dt );
 		this._updateLock( dt );
-		if ( this.tokenGap > 0 ) this.tokenGap -= dt;
+		if ( this.enabled ) this._roles();
 
-		const n = Math.max( 1, Math.ceil( dt / FIXED ) ), h = dt / n;
+		// the fight's own time: a hitstop freezes it, the parry's slow motion runs it at slowK (both counted in real time)
+		let sim = dt;
+		if ( this.stopT > 0 ) {
+
+			const f = Math.min( this.stopT, sim );
+			this.stopT -= f;
+			sim -= f;
+
+		}
+
+		if ( this.slowT > 0 ) {
+
+			const f = Math.min( this.slowT, sim );
+			this.slowT -= f;
+			sim = sim - f + f * this.slowK;
+
+		}
+
+		this.simTime += sim;
+		if ( this.tokenGap > 0 ) this.tokenGap -= sim;
+		if ( this.practice ) this.practice.update( dt );
+
+		const n = sim > 0 ? Math.max( 1, Math.ceil( sim / FIXED ) ) : 0, h = n ? sim / n : 0;
 		const p = this.player.position;
+		const env = this._rockEnv || ( this._rockEnv = {
+			player: null, ground: ( x, z ) => ( this.terrain ? this.terrain.heightAt( x, z ) : 0 ), hit: ( rk ) => this._rockHit( rk ), land: ( rk ) => this.puff( 'rock', rk ),
+		} );
+		env.player = this._target.valid ? p : null;
 		for ( let i = 0; i < n; i ++ ) {
 
 			if ( this.enabled ) this.combat.update( h );
@@ -990,6 +1206,7 @@ export class Melee {
 
 			}
 
+			if ( this.rocks.list.length ) this.rocks.update( h, env );
 			if ( this.dummy && this.enabled ) this.dummy.update( h );
 
 			for ( let k = this.sched.length - 1; k >= 0; k -- ) {
@@ -1023,11 +1240,15 @@ export class Melee {
 		if ( this.hud ) {
 
 			const p = this.player.position;
+			const calm = this.app.settings && this.app.settings.reduceMotion;
+			// the low-health edge pulses (a steady glow with reduce motion)
+			const low = c.hp > 0 && c.hp < c.maxHp * PLAYER.lowHp ? ( calm ? 0.2 : 0.16 + 0.16 * Math.sin( this.time * Math.PI * 2 * FEEL.lowPulse ) ) : 0;
 			// the health bar only in a fight: engaged, down, or a few seconds after the last blow traded
 			this.hud.update( dt, {
 				raiders: shown, player: { x: p.x, z: p.z }, hp: c.hp, maxHp: c.maxHp, guarding: c.guarding, hint, lock: this.lock,
 				showPlayer: this.engaged() || c.state === 'down' || ( c.sinceCombat < PLAYER.combatLinger && ! ( d && d.sparring && ! this.engaged() && c.hp >= c.maxHp ) ),
-				fade: c.fade, hurt: c.hurtFlash * ( this.app.settings && this.app.settings.reduceMotion ? 0.4 : 0.85 ) + ( c.hp > 0 && c.hp < 30 ? 0.12 : 0 ),
+				fade: c.fade, hurt: c.hurtFlash * ( calm ? 0.4 : 0.85 ) + low, low: low > 0,
+				guardFlash: c.guardFlash, guardKind: c.guardFlashKind, slow: this.slowT > 0,
 			} );
 
 		}
@@ -1110,6 +1331,15 @@ export class Melee {
 		this._lmb = this._rmb = false;
 		this._guardUp = this._guardBlock = false;
 		this._guardFar = 0;
+		this.stopT = this.slowT = 0;
+		this.rocks.clear();
+		if ( this.practice ) {
+
+			this.practice.stop( 'left' );
+			for ( const r of this.practice.partners ) r.deactivate();
+			this.practice.leaveT = 0;
+
+		}
 
 	}
 
@@ -1120,6 +1350,8 @@ export class Melee {
 		if ( this.hud ) this.hud.dispose();
 		if ( this.fx ) this.fx.dispose();
 		if ( this.dummy ) this.dummy.dispose();
+		this.rocks.dispose();
+		if ( this.practice ) this.practice.dispose();
 		for ( const off of this._offs ) if ( typeof off === 'function' ) off();
 		this._offs.length = 0;
 		this.sched.length = 0;
@@ -1137,4 +1369,4 @@ export function install( app, features, options = {} ) {
 
 }
 
-export { PLAYER, RAIDER, CLOCK, SLOTS, TOKENS, TRAINING_POST };
+export { PLAYER, RAIDER, CLOCK, SLOTS, TOKENS, TRAINING_POST, THROW, FEEL, PRACTICE };

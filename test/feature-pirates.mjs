@@ -20,6 +20,7 @@ import { TerrainData } from '../src/world/TerrainData.js';
 import { Colliders } from '../src/world/Colliders.js';
 import { WORLD } from '../src/world/WorldLayout.js';
 import { inSafeZone } from '../src/features/naval/Routes.js';
+import { BOARD_SITES } from '../src/features/notices/Sites.js';
 
 let fails = 0, passes = 0;
 const ok = ( c, msg ) => {
@@ -199,7 +200,7 @@ section( 'install and the roster at sea' );
 	const w = makeWorld();
 	const p = w.pirates;
 	ok( p && w.features.get( 'pirates' ) === p, 'installed on the registry' );
-	ok( p.dens.list.length === WORLD.islands.length - 1, `a den on every island but home (${ p.dens.list.length })` );
+	ok( p.dens.list.length === WORLD.islands.filter( ( i ) => i.id !== 'home' && i.den !== false ).length && ! p.dens.list.some( ( d ) => d.island === 'blackwater' ), `a den on every island but home and the stronghold (${ p.dens.list.length })` );
 	// spawn by hand
 	const s = p.roster.spawn( 'Brinehook', { x: 0, z: 600, yaw: 0 } );
 	ok( s && w.naval.ships.includes( s ) && s.name === 'Salt and Splinters' && s.captain === 'Brinehook Bill' && s.kind === 'brigantine', 'naval.spawn puts the named ship to sea' );
@@ -387,7 +388,7 @@ section( 'tier 4-5 bounties with search zones' );
 	p.advance( 1.01 );
 	run( w, 0.1 );
 	const posted = p.zones.contracts.filter( ( c ) => c.state === 'posted' );
-	ok( posted.length === 2 && posted.every( ( c ) => c.tier >= 4 && CAPTAIN_BY_ID[ c.captain ].hostile ), 'one tier 4-5 contract posted at each board' );
+	ok( posted.length === Object.keys( BOARD_SITES ).length && posted.every( ( c ) => c.tier >= 4 && CAPTAIN_BY_ID[ c.captain ].hostile ), 'one tier 4-5 contract posted at each board (' + posted.length + ')' );
 	const k = posted[ 0 ];
 	ok( p.zones.accept( k.id ) === null && /named captain/.test( p.zones.lastError ), 'a newcomer cannot take one' );
 	p.ledger.kill( 'Redwake', { by: 'player' } );
@@ -527,6 +528,33 @@ section( 'save, reset, multiplayer mode' );
 	ok( w3.pirates.ledger.status( 'Barnacle' ) === 'dead', 'multiplayer: captain deaths arrive' );
 	w.features.dispose();
 	ok( true, 'disposed' );
+
+}
+
+section( 'the Blackwater stronghold with the pirates feature (wave 12B)' );
+{
+
+	const { install: installStronghold } = await import( '../src/features/pirates/Stronghold.js' );
+	const w = makeWorld( { melee: true } );
+	const p = w.pirates;
+	const s = w.features.add( 'stronghold', { install: ( a, f ) => installStronghold( a, f, { build: false, seed: 5, avatarFactory } ) } );
+	const bw = WORLD.islands.find( ( i ) => i.id === 'blackwater' );
+	ok( bw && bw.den === false, 'Blackwater is on WORLD.islands with den: false (the stronghold replaces a den camp)' );
+	const den = p.dens.list.find( ( d ) => d.island === 'blackwater' );
+	console.log( den ? 'note: Dens.sync still gives Blackwater a den camp (the report carries the one-line Dens.js patch)' : 'note: Dens honours den: false' );
+	ok( ! s.friendly(), 'a stranger is not let in' );
+	p._heat( 0, 30 );
+	ok( s.friendly() && p.standing() >= 25, 'corsair standing from the pirates feature opens the stronghold (standing ' + p.standing() + ')' );
+	const raids = p.ledger.counts.raids, st = p.standing();
+	for ( const b of s.batteries.list ) s.batteries.silence( b.id );
+	for ( const sl of s.ships ) sl.down = true;
+	while ( s.claimable().guards > 0 ) s.defeatGuard();
+	const r = s.claim();
+	ok( r && p.ledger.counts.raids === raids + 1 && p.standing() < st, 'claiming it is a raid in the ledger and costs corsair standing' );
+	p.advance( 80 );
+	run( w, 0.2 );
+	ok( s.holder === 'pirates' && p.retaliation.pending.some( ( q ) => q.reason === 'stronghold' ), 'the pirates clock retakes it and the retaliation queue gets a raid' );
+	w.features.dispose();
 
 }
 

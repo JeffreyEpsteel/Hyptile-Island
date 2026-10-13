@@ -5,7 +5,10 @@
 //                          walk (speed factor while drawn), zoom (FOV divisor while aiming), report (the sound)
 //   POUCH                  the chandlery's cartridge pouch: `count` cartridges for `price`
 //   damageAt( w, d )       damage of weapon w at d m (full to falloff, half at range, nothing past maxRange)
-//   spreadRad( w, aiming ) the cone half-angle in radians
+//   spreadRad( w, aiming, move = 0, bloom = 0 )   the cone half-angle in radians (move 0..1: the walking penalty, bloom
+//                          0..1: just fired)
+//   MAGNET                 the aim magnetism (wave 12E): a shot within MAGNET.deg of a raider's chest at MAGNET.range m or
+//                          less snaps onto it (only when the aim itself finds no one: a head shot stays a head shot)
 //   spreadDir( dir, half, u, v, out )   a direction inside the cone round dir (u, v uniform 0..1: uniform over the disc)
 //   angleBetween( a, b )   radians between two unit vectors
 
@@ -14,15 +17,19 @@ export const DEG = Math.PI / 180;
 export const WEAPONS = {
 	pistol: {
 		id: 'pistol', name: 'Flintlock pistol', price: 180, reload: 1.4, draw: 0.35, holster: 0.25,
-		range: 22, falloff: 15, damage: 35, spread: 2.5, aimSpread: 1.0, energy: 420,
+		// wave 12E (the play harness): 52 a ball, so at 10 m two body shots or one head shot (x1.6 = 83) put a tier 1 raider
+		// (80 hp) down; usable on the move (moveSpread: a small walking penalty)
+		range: 22, falloff: 15, damage: 52, spread: 2.2, aimSpread: 0.8, moveSpread: 1.0, energy: 420,
 		walk: 1, zoom: 1.3, report: 'pistol', flash: 0.35, smoke: 0.35, kick: 0.8,
 		desc: 'One shot, quick to load. Deadly inside 15 m, weak past 22 m',
 	},
 	musket: {
 		id: 'musket', name: 'Musket', price: 420, reload: 3.2, draw: 0.8, holster: 0.45,
-		range: 70, falloff: 45, damage: 70, spread: 1.2, aimSpread: 0.4, energy: 1500,
-		walk: 0.85, zoom: 1.3, report: 'musket', flash: 0.6, smoke: 0.7, kick: 1.4,
-		desc: 'One shot, a slow reload. Reaches 70 m; you walk a little slower with it shouldered',
+		// wave 12E: 90, one body shot drops a tier 1 raider (and knocks a tougher unarmoured one off his feet); shouldered it
+		// slows the walk to x0.7 and walking throws the aim off more
+		range: 70, falloff: 45, damage: 90, spread: 1.2, aimSpread: 0.4, moveSpread: 2.4, energy: 1500,
+		walk: 0.7, zoom: 1.3, report: 'musket', flash: 0.6, smoke: 0.7, kick: 1.4,
+		desc: 'One shot, a slow reload. Reaches 70 m; you walk slower with it shouldered',
 	},
 };
 
@@ -31,6 +38,8 @@ export const POUCH = { id: 'pouch', name: 'Cartridge pouch', count: 12, price: 3
 // a ball keeps flying past the effective range at half power, fading to nothing at range * MAX_RANGE
 export const MAX_RANGE = 1.5;
 export const HEADSHOT = 1.6;
+export const MAGNET = { deg: 2.5, range: 25, chest: 1.2 }; // chest: m above the feet (x the raider's scale)
+export const BLOOM = 1.2; // deg added to the cone right after a shot (fades with the recoil)
 
 export const clamp = ( v, a, b ) => ( v < a ? a : v > b ? b : v );
 
@@ -52,9 +61,9 @@ export function damageAt( w, d ) {
 
 }
 
-export function spreadRad( w, aiming ) {
+export function spreadRad( w, aiming, move = 0, bloom = 0 ) {
 
-	return ( aiming ? w.aimSpread : w.spread ) * DEG;
+	return ( ( aiming ? w.aimSpread : w.spread ) + ( w.moveSpread || 0 ) * clamp( move, 0, 1 ) + BLOOM * clamp( bloom, 0, 1 ) ) * DEG;
 
 }
 

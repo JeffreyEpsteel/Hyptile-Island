@@ -1,6 +1,6 @@
 import { Vector3 } from '../../engine/index.js';
 import { CLIPS, CLIP_SPEED } from '../../game/Characters.js';
-import { PLAYER, RAIDER, CAPTAIN, wrapAngle, clamp, yawToward, forwardX, forwardZ, tierCfg } from './MeleeData.js';
+import { PLAYER, RAIDER, CAPTAIN, THROW, wrapAngle, clamp, yawToward, forwardX, forwardZ, tierCfg } from './MeleeData.js';
 
 // One shore raider: a roster character (lite Avatar) driven by a small state machine. The avatar's own
 // update() is never called: the raider picks its clips and plays them straight on avatar.model
@@ -25,8 +25,20 @@ import { PLAYER, RAIDER, CAPTAIN, wrapAngle, clamp, yawToward, forwardX, forward
 // spread from the others, pulled round behind the player by cfg.flank) until a token is free. He commits with the token
 // (keeps it while closing in, cfg.commit s at most), winds up with an amber flash on the body (the tell) and the ring on
 // the ground, and a parried blow (parried()) leaves him staggered and open for cfg.parryStagger s.
+//
+// Wave 12E:
+//   interrupts  a blow during his wind-up staggers a tier 1-2 raider; tier 3+ (cfg.armored) keeps winding up through a plain
+//               blow and is stopped only by a parry or a ball (firearms calls parried()).
+//   knockdown   a single blow of cfg.knockdownDamage or more (a musket ball) knocks an unarmoured raider down; he stays down
+//               cfg.downTime (2.5 s), gets up (GetUp_Front) and fights on. A beaten one stays down 2.5 s before he gets up
+//               and runs (cfg.flees), else he lies there cfg.outTime longer and is dragged off.
+//   thrower     with THROW.crowd raiders on the player the owner (melee) gives one the role 'thrower' (r.role, r.roleBy):
+//               he hangs back THROW.hang m off ('hang'), takes an attack token, winds up a throw ('throw': alert, the ring
+//               marks where it lands, THROW.windup s) and roleBy.throwRock( r, at ) lets it fly; the guard blocks it.
+//   practice    r.practiceFight (the practice fight at the training post): he fights inside the peaceful zone, and yields
+//               at 1 health instead of going down for good (r.yielded; owner.onYield( r ); no loot, no enemyDefeated).
 
-export const STATES = [ 'idle', 'patrol', 'notice', 'approach', 'circle', 'windup', 'strike', 'recover', 'stagger', 'down', 'getup', 'flee', 'gone', 'return', 'taunt' ];
+export const STATES = [ 'idle', 'patrol', 'notice', 'approach', 'circle', 'windup', 'strike', 'recover', 'stagger', 'down', 'getup', 'flee', 'gone', 'return', 'taunt', 'hang', 'throw' ];
 const _yAxis = new Vector3( 0, 1, 0 );
 const _p = new Vector3();
 const MIN_GROUND = 0.15; // m above the sea: raiders keep their feet dry
@@ -89,6 +101,12 @@ export class Raider {
 		this._flashing = false;
 		this._ready = false;
 		this.hitClipT = 0;
+		this.role = null; // 'thrower' (wave 12E)
+		this.roleBy = null; // the Melee that gave the role (it owns the rocks)
+		this.throwAt = { x: 0, y: 0, z: 0 }; // where the rock is going (the telegraph ring)
+		this.knocked = false; // down but not beaten (a heavy blow): gets up and fights on
+		this.yielded = false; // a practice raider who gave up
+		this.practiceFight = !! slot.practiceFight;
 		this.attach( avatar );
 
 	}
@@ -150,6 +168,10 @@ export class Raider {
 		this.parriedT = 0;
 		this.circleDir = this.owner.rand() < 0.5 ? - 1 : 1;
 		this.ringJitter = ( this.owner.rand() - 0.5 ) * 1.2;
+		this.role = null;
+		this.roleBy = null;
+		this.knocked = false;
+		this.yielded = false;
 		this.spawnCount = ( this.spawnCount || 0 ) + 1;
 		this.spawnId = this.id + '#' + this.spawnCount;
 		this.scale = scale || this.cfg.scale;
@@ -166,6 +188,7 @@ export class Raider {
 		this.active = false;
 		this.visible = false;
 		this.alert = false;
+		this.role = null;
 		this.owner.releaseToken( this );
 		this._place();
 
@@ -186,7 +209,17 @@ export class Raider {
 
 	get inCombat() {
 
-		return this.active && this.visible && ( this.state === 'notice' || this.state === 'approach' || this.state === 'circle' || this.state === 'windup' || this.state === 'strike' || this.state === 'recover' || this.state === 'stagger' );
+		const s = this.state;
+		return this.active && this.visible && ( s === 'notice' || s === 'approach' || s === 'circle' || s === 'windup' || s === 'strike' || s === 'recover' || s === 'stagger' || s === 'hang' || s === 'throw' || ( s === 'down' && this.knocked ) || ( s === 'getup' && this.hp > 0 ) );
+
+	}
+
+	// how far into his wind-up he is (0..1; the lock-on ring fills with it), 0 when he is not winding up
+	get windupK() {
+
+		if ( this.state === 'windup' ) return Math.min( 1, this.t / this.cfg.windup );
+		if ( this.state === 'throw' ) return Math.min( 1, this.t / THROW.windup );
+		return 0;
 
 	}
 
@@ -205,11 +238,11 @@ export class Raider {
 
 		this.state = state;
 		this.t = 0;
-		this.alert = state === 'windup';
+		this.alert = state === 'windup' || state === 'throw';
 		this.punish = state === 'recover';
 		if ( state !== 'stagger' ) this.parriedT = 0;
-		// the swing (windup + strike) and the committed run-in hold the attack token: any other state gives it back
-		if ( state !== 'windup' && state !== 'strike' && ! ( state === 'approach' && this.committed ) ) {
+		// the swing (windup + strike), the throw and the committed run-in hold the attack token: any other state gives it back
+		if ( state !== 'windup' && state !== 'strike' && state !== 'throw' && ! ( state === 'approach' && this.committed ) ) {
 
 			this.committed = false;
 			this.owner.releaseToken( this );
@@ -232,7 +265,14 @@ export class Raider {
 				this._play( CLIPS.hit, { loop: false, fade: 0.06, restart: true } );
 				this.hitClipT = 0.6;
 				break;
+			case 'throw':
+				this.committed = false;
+				this.tell = 1;
+				this.owner.onWindup && this.owner.onWindup( this );
+				this._swing = this._play( CLIPS.swing, { loop: false, fade: 0.12, speed: Math.min( 1, PLAYER.attackContact / THROW.windup ), restart: true } );
+				break;
 			case 'circle':
+			case 'hang':
 				this._swing = null;
 				break;
 			case 'down':
@@ -275,7 +315,8 @@ export class Raider {
 		const tg = o.target();
 		const dx = tg.x - this.x, dz = tg.z - this.z;
 		const dist = Math.hypot( dx, dz );
-		const hostile = tg.valid && ! o.peaceful;
+		// (a practice raider fights inside the peaceful home waters: that is the point of him)
+		const hostile = tg.valid && ! this.yielded && ( ! o.peaceful || this.practiceFight );
 
 		switch ( this.state ) {
 
@@ -344,6 +385,7 @@ export class Raider {
 				const home = Math.hypot( this.x - this.homeX, this.z - this.homeZ );
 				this.loseT = dist > cfg.lose ? this.loseT + dt : 0;
 				if ( home > cfg.leash || this.loseT > cfg.loseTime ) { this._enter( 'return' ); break; }
+				if ( this.role === 'thrower' && ! this.committed ) { this._enter( 'hang' ); break; }
 				this._turnToward( dx, dz, dt, 10 );
 				// the token: taken when he is close enough to mean it, kept while he closes in (commit s at most)
 				const ready = this.sinceAttack >= cfg.gap;
@@ -387,6 +429,7 @@ export class Raider {
 				if ( ! hostile ) { this._enter( 'return' ); break; }
 				const home = Math.hypot( this.x - this.homeX, this.z - this.homeZ );
 				if ( home > cfg.leash + 4 ) { this._enter( 'return' ); break; }
+				if ( this.role === 'thrower' ) { this._enter( 'hang' ); break; }
 				if ( dist > this._ring() + 2.5 ) { this._enter( 'approach' ); break; } // he got away: run after him
 				if ( this.sinceAttack >= cfg.gap && o.tokenFree( this ) ) {
 
@@ -419,6 +462,46 @@ export class Raider {
 
 				break;
 
+			case 'hang': {
+
+				// the thrower: keep THROW.hang m off the player, sidestep a little, throw when the beat and a token allow
+				if ( ! hostile ) { this._enter( 'return' ); break; }
+				if ( this.role !== 'thrower' ) { this._enter( 'approach' ); break; }
+				const home = Math.hypot( this.x - this.homeX, this.z - this.homeZ );
+				if ( home > cfg.leash + 4 || dist > cfg.lose ) { this.role = null; this._enter( 'return' ); break; }
+				const ang = Math.atan2( this.x - tg.x, this.z - tg.z ) + this.circleDir * 0.25 * dt;
+				const want = this._ring() > 3 ? THROW.hang : Math.max( 3.2, this._ring() + 1.5 ); // a deck: as far as it allows
+				this._step( tg.x + Math.sin( ang ) * want, tg.z + Math.cos( ang ) * want, cfg.walkSpeed * 2, dt, 0.25, false );
+				this._turnToward( dx, dz, dt, 8 );
+				if ( this.sinceAttack >= THROW.every && Math.abs( dist - want ) < 2.5 && o.tokenFree( this ) ) {
+
+					o.takeToken( this );
+					this._aim( tg );
+					this._enter( 'throw' );
+
+				}
+
+				break;
+
+			}
+
+			case 'throw':
+				if ( ! hostile ) { this.alert = false; this._enter( 'return' ); break; }
+				this._turnToward( dx, dz, dt, cfg.turnRate );
+				if ( this.t < THROW.windup - 0.3 ) this._aim( tg ); // the ring follows him until the last 0.3 s
+				if ( this.t >= THROW.windup ) {
+
+					const by = this.roleBy;
+					this.strikeCount ++;
+					if ( by && by.throwRock ) by.throwRock( this, this.throwAt );
+					this.sinceAttack = 0;
+					if ( this._swing && typeof this._swing === 'object' ) this._swing.speed = 1;
+					this._enter( this.role === 'thrower' ? 'hang' : 'approach' );
+
+				}
+
+				break;
+
 			case 'strike':
 				if ( this.t >= cfg.strike ) this._enter( 'recover' );
 				break;
@@ -437,17 +520,28 @@ export class Raider {
 				break;
 
 			case 'down':
-				if ( this.t >= cfg.downTime ) {
+				// knocked off his feet (hp left) or beaten and running: up after downTime; beaten for good: dragged off later;
+				// a practice raider who yielded sits it out (the practice fight puts him away)
+				if ( this.yielded ) break;
+				if ( this.knocked || this.flees ) {
 
-					if ( this.flees ) this._enter( 'getup' );
-					else this._enter( 'gone' );
+					if ( this.t >= cfg.downTime ) this._enter( 'getup' );
 
-				}
-
+				} else if ( this.t >= cfg.downTime + ( cfg.outTime || 0 ) ) this._enter( 'gone' );
 				break;
 
 			case 'getup':
-				if ( this.t >= cfg.getUpTime ) this._enter( 'flee' );
+				if ( this.t >= cfg.getUpTime ) {
+
+					if ( this.knocked && this.hp > 0 ) {
+
+						this.knocked = false;
+						this._enter( hostile ? 'approach' : 'return' );
+
+					} else this._enter( 'flee' );
+
+				}
+
 				break;
 
 			case 'flee': {
@@ -498,7 +592,8 @@ export class Raider {
 	// the owner tells a nearby raider the player is down: laugh, then walk home
 	taunt() {
 
-		if ( this.active && ( this.state === 'approach' || this.state === 'circle' || this.state === 'recover' || this.state === 'notice' || this.state === 'windup' ) ) {
+		const s = this.state;
+		if ( this.active && ( s === 'approach' || s === 'circle' || s === 'recover' || s === 'notice' || s === 'windup' || s === 'hang' || s === 'throw' ) ) {
 
 			this.alert = false;
 			this._enter( 'taunt' );
@@ -524,6 +619,27 @@ export class Raider {
 
 	}
 
+	// where a rock thrown now would land: the player's feet (no lead: stepping aside beats it, the guard holds it)
+	_aim( tg ) {
+
+		this.throwAt.x = tg.x;
+		this.throwAt.y = tg.y;
+		this.throwAt.z = tg.z;
+
+	}
+
+	// knocked off his feet by a heavy blow (not beaten): down cfg.downTime, then up and back in
+	knockDown() {
+
+		if ( ! this.targetable || this.hp <= 0 ) return false;
+		this.knocked = true;
+		this.alert = false;
+		this.punish = false;
+		this._enter( 'down' );
+		return true;
+
+	}
+
 	// the waiting ring's radius: the owner may shrink it (a ship's deck is narrow)
 	_ring() {
 
@@ -540,8 +656,9 @@ export class Raider {
 		const ring = this._ring();
 		let want = ang + this.circleDir * ( cfg.circleSpeed / Math.max( 1, ring ) ) * dt;
 		const list = o.raiders || [];
-		for ( const r of list ) {
+		for ( let i = 0; i < list.length; i ++ ) {
 
+			const r = list[ i ];
 			if ( r === this || ! r.active || ! r.visible || ! r.inCombat ) continue;
 			const d = wrapAngle( Math.atan2( r.x - tg.x, r.z - tg.z ) - ang );
 			if ( Math.abs( d ) < cfg.spread ) want -= Math.sign( d || this.circleDir ) * ( cfg.spread - Math.abs( d ) ) * 2.2 * dt;
@@ -576,16 +693,35 @@ export class Raider {
 		this._setFlash( 1 );
 		this.aggro = true;
 		let staggered = false;
+		if ( this.practiceFight && this.hp < 1 ) {
+
+			// a practice raider yields at 1 health: he goes down and stays down, nothing is looted
+			this.hp = 1;
+			this.yielded = true;
+			this.alert = false;
+			this.punish = false;
+			this.role = null;
+			this._enter( 'down' );
+			this.owner.onYield && this.owner.onYield( this );
+			return { dealt, killed: true, punish, staggered: false, yielded: true };
+
+		}
+
 		if ( this.hp <= 0 ) {
 
 			this.flees = this.owner.rand() < cfg.flees;
 			this.alert = false;
 			this.punish = false;
+			this.role = null;
+			this.knocked = false;
 			this._enter( 'down' );
 			this.owner.onDefeated && this.owner.onDefeated( this );
 			return { dealt, killed: true, punish, staggered: false };
 
 		}
+
+		// a heavy single blow (a musket ball) takes an unarmoured raider off his feet: down 2.5 s, then back up
+		if ( dealt >= ( this.cfg.knockdownDamage || Infinity ) && ! this.cfg.armored && this.knockDown() ) return { dealt, killed: false, punish, staggered: true, knocked: true };
 
 		switch ( this.state ) {
 
@@ -597,6 +733,8 @@ export class Raider {
 				staggered = true;
 				break;
 			case 'windup':
+			case 'throw':
+				// interrupted (tier 1-2); an armoured wind-up goes on (a parry or a ball stops it: parried())
 				if ( ! cfg.armored ) {
 
 					this._enter( 'stagger' );
@@ -606,6 +744,10 @@ export class Raider {
 
 				break;
 			case 'strike':
+				break;
+			case 'hang':
+				this._enter( 'stagger' );
+				staggered = true;
 				break;
 			case 'stagger':
 				this.t = Math.min( this.t, cfg.stagger * 0.5 );
@@ -657,10 +799,15 @@ export class Raider {
 	_move( ux, uz, speed, dt ) {
 
 		let nx = this.x + ux * speed * dt, nz = this.z + uz * speed * dt;
-		for ( const r of this.owner.raiders ) {
+		const list = this.owner.raiders;
+		for ( let i = 0; i < list.length; i ++ ) {
 
+			const r = list[ i ];
 			if ( r === this || ! r.active || ! r.visible || r.state === 'gone' ) continue;
-			const sx = nx - r.x, sz = nz - r.z, d = Math.hypot( sx, sz ), min = this.cfg.radius + r.cfg.radius + 0.1;
+			const sx = nx - r.x, sz = nz - r.z, min = this.cfg.radius + r.cfg.radius + 0.1;
+			// a cheap square reject first (loose: the exact test below decides), no Math.hypot for the far ones
+			if ( sx * sx + sz * sz > min * min * 1.001 ) continue;
+			const d = Math.hypot( sx, sz );
 			if ( d < min && d > 1e-4 ) { nx = r.x + sx / d * min; nz = r.z + sz / d * min; }
 
 		}
@@ -796,35 +943,46 @@ export class Raider {
 
 		const cfg = this.cfg;
 		const cur = m.current;
-		const want = ( name, o ) => { if ( cur !== this._clip( name ) ) this._play( name, o ); };
+		// the clip's options are built only when it changes (wave 12D: not an object per raider per frame)
+		const want = ( name ) => cur !== this._clip( name );
 		switch ( this.state ) {
 
 			case 'idle':
-				if ( this.gesture ) want( this.gesture, { loop: LOOPING.has( this.gesture ), fade: 0.25 } );
-				else want( CLIPS.swagger, { fade: 0.35 } );
+				if ( this.gesture ) {
+
+					if ( want( this.gesture ) ) this._play( this.gesture, { loop: LOOPING.has( this.gesture ), fade: 0.25 } );
+
+				} else if ( want( CLIPS.swagger ) ) this._play( CLIPS.swagger, { fade: 0.35 } );
 				break;
 			case 'patrol':
-				want( CLIPS.walk, { fade: 0.25, speed: Math.max( 0.6, Math.min( 2, cfg.walkSpeed / CLIP_SPEED.walk ) ) } );
+				if ( want( CLIPS.walk ) ) this._play( CLIPS.walk, { fade: 0.25, speed: Math.max( 0.6, Math.min( 2, cfg.walkSpeed / CLIP_SPEED.walk ) ) } );
 				break;
 			case 'notice':
-				want( CLIPS.swagger, { fade: 0.15 } );
+				if ( want( CLIPS.swagger ) ) this._play( CLIPS.swagger, { fade: 0.15 } );
 				break;
 			case 'circle':
-				want( CLIPS.walk, { fade: 0.25, speed: Math.max( 0.7, Math.min( 2, cfg.walkSpeed * 1.8 / CLIP_SPEED.walk ) ) } );
+				if ( want( CLIPS.walk ) ) this._play( CLIPS.walk, { fade: 0.25, speed: Math.max( 0.7, Math.min( 2, cfg.walkSpeed * 1.8 / CLIP_SPEED.walk ) ) } );
 				break;
 			case 'approach':
 				{
 
 					const tg = this.owner.target();
 					const near = Math.hypot( tg.x - this.x, tg.z - this.z ) <= cfg.startRange + 0.2;
-					if ( near ) want( CLIPS.swagger, { fade: 0.2 } );
-					else want( CLIPS.run, { fade: 0.2, speed: Math.max( 0.8, Math.min( 2.2, cfg.speed / CLIP_SPEED.run ) ) } );
+					if ( near ) {
+
+						if ( want( CLIPS.swagger ) ) this._play( CLIPS.swagger, { fade: 0.2 } );
+
+					} else if ( want( CLIPS.run ) ) this._play( CLIPS.run, { fade: 0.2, speed: Math.max( 0.8, Math.min( 2.2, cfg.speed / CLIP_SPEED.run ) ) } );
 
 				}
 
 				break;
+			case 'hang':
+				if ( want( CLIPS.walk ) ) this._play( CLIPS.walk, { fade: 0.25, speed: Math.max( 0.7, Math.min( 2, cfg.walkSpeed * 2 / CLIP_SPEED.walk ) ) } );
+				break;
 			case 'windup':
 			case 'strike':
+			case 'throw':
 				break; // the swing clip was started in _enter and runs by itself
 			case 'recover':
 				// the follow-through (or the flinch of a punish hit) plays out, then he stands panting
@@ -835,13 +993,13 @@ export class Raider {
 			case 'getup':
 				break;
 			case 'flee':
-				want( CLIPS.run, { fade: 0.2, speed: Math.max( 0.8, Math.min( 2.2, cfg.fleeSpeed / CLIP_SPEED.run ) ) } );
+				if ( want( CLIPS.run ) ) this._play( CLIPS.run, { fade: 0.2, speed: Math.max( 0.8, Math.min( 2.2, cfg.fleeSpeed / CLIP_SPEED.run ) ) } );
 				break;
 			case 'return':
-				want( CLIPS.run, { fade: 0.2, speed: Math.max( 0.6, Math.min( 2, cfg.returnSpeed / CLIP_SPEED.run ) ) } );
+				if ( want( CLIPS.run ) ) this._play( CLIPS.run, { fade: 0.2, speed: Math.max( 0.6, Math.min( 2, cfg.returnSpeed / CLIP_SPEED.run ) ) } );
 				break;
 			case 'taunt':
-				want( CLIPS.laugh, { fade: 0.2 } );
+				if ( want( CLIPS.laugh ) ) this._play( CLIPS.laugh, { fade: 0.2 } );
 				break;
 			default:
 				break;

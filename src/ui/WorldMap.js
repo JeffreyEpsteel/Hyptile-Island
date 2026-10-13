@@ -1012,7 +1012,8 @@ export class WorldMap {
 		add( 'yard', 'yard', ICON.helm, YARD.x, YARD.z );
 		if ( F.discovered( 'pons' ) ) add( 'pons', 'pons', ICON.fish, PONS_STAND.x, PONS_STAND.z );
 		const pm = ( app.ports && app.ports.markers ) || [];
-		for ( const m of pm ) if ( F.discovered( m.id ) ) add( 'port:' + m.id, 'pons', m.icon === 'anchor' ? ICON.anchor : ICON.fish, m.x, m.z );
+		// a port's sub-markers (Tidemark's 'tidemark:airstrip') show once their port (m.port) is discovered
+		for ( const m of pm ) if ( F.discovered( m.port || m.id ) ) add( 'port:' + m.id, 'pons', m.icon === 'anchor' || m.icon === 'plane' ? ICON[ m.icon ] : ICON.fish, m.x, m.z );
 		for ( const p of WORLD.ports || [] ) {
 
 			// ports without a marker of their own (islands added later): an anchor at the stand

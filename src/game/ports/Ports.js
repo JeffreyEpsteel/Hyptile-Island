@@ -9,6 +9,10 @@ import { QuietShoal } from '../../world/islands/QuietShoal.js';
 import { InvertedIsles } from '../../world/islands/InvertedIsles.js';
 import { HavenPort, HAVEN_STAND, HAVEN_PREMIUM } from './HavenPort.js';
 import { ShrinePort, SHRINE_STAND, SHRINE_PREMIUM } from './ShrinePort.js';
+import { Tidemark } from '../../world/islands/Tidemark.js';
+import { TidemarkPort, TIDEMARK_STAND, TIDEMARK_PREMIUM, TIDEMARK_BOARD, TIDEMARK_TAVERN } from './TidemarkPort.js';
+import { registerTidemarkFolk } from '../../world/islands/town/Folk.js';
+import { PORT_FOLK } from '../../world/residents/ResidentData.js';
 
 // The extra ports of the archipelago beyond the harbour and Pons Cove: Gull Rock (a lighthouse and a
 // jetty on a rocky islet to the west-south-west) and Saltmarsh Key (a low sandy key to the east
@@ -35,14 +39,19 @@ import { ShrinePort, SHRINE_STAND, SHRINE_PREMIUM } from './ShrinePort.js';
 //   ports.haven / ports.shrine / ports.shoal / ports.inverted / ports.havenPort / ports.shrinePort   islands 5-8
 //   ports.lagoon                        { x, z, radius } the Inverted Isles' lagoon (seaplane water)
 //   ports.info( id )                    the WORLD.ports entry
+//
+// Tidemark (wave 12A; WORLD.ports tidemark): the big town island east of the archipelago on its own terrain tile (built
+// here, attached to the terrain's queries), its fish hall (a reef-fish premium) and chandler, the airstrip (map marker
+// 'tidemark:airstrip'), its named residents added to the harbour feature's PORT_FOLK.
+//   ports.tidemark / ports.tidemarkPort   the island (Tidemark: damage, airstrip, tile) and its traders
 
-export { KEY_STAND, KEY_PREMIUM, HAVEN_STAND, HAVEN_PREMIUM, SHRINE_STAND, SHRINE_PREMIUM };
-export const PORT_IDS = [ 'gull', 'key', 'haven', 'shrine', 'shoal', 'inverted' ];
+export { KEY_STAND, KEY_PREMIUM, HAVEN_STAND, HAVEN_PREMIUM, SHRINE_STAND, SHRINE_PREMIUM, TIDEMARK_STAND, TIDEMARK_PREMIUM, TIDEMARK_BOARD, TIDEMARK_TAVERN };
+export const PORT_IDS = [ 'gull', 'key', 'haven', 'shrine', 'shoal', 'inverted', 'tidemark' ];
 const NEAR = 25;
 
 export class Ports {
 
-	constructor( { scene, terrain, colliders = null, birds = true } ) {
+	constructor( { scene, terrain, colliders = null, birds = true, village = null } ) {
 
 		this.terrain = terrain;
 		this.gull = new GullRock( { scene, terrain, colliders, birds } );
@@ -55,9 +64,13 @@ export class Ports {
 		this.shoal = new QuietShoal( { scene, terrain, colliders } );
 		this.inverted = new InvertedIsles( { scene, terrain, colliders } );
 		this.lagoon = this.inverted.lagoon;
-		this.vendors = [ this.keyPort.vendor, ...this.havenPort.vendors, this.shrinePort.vendor ];
+		// Tidemark first builds its terrain tile and attaches it to `terrain`, so its traders stand on the town's ground
+		this.tidemark = new Tidemark( { scene, terrain, colliders, village } );
+		this.tidemarkPort = new TidemarkPort( { scene, terrain, colliders } );
+		registerTidemarkFolk( PORT_FOLK );
+		this.vendors = [ this.keyPort.vendor, ...this.havenPort.vendors, this.shrinePort.vendor, ...this.tidemarkPort.vendors ];
 		this.lights = [ ...this.gull.lights, ...this.key.lights, ...this.keyPort.lights, ...this.haven.lights, ...this.havenPort.lights,
-			...this.shrine.lights, ...this.shrinePort.lights, ...this.shoal.lights, ...this.inverted.lights ];
+			...this.shrine.lights, ...this.shrinePort.lights, ...this.shoal.lights, ...this.inverted.lights, ...this.tidemark.lights, ...this.tidemarkPort.lights ];
 		this.list = WORLD.ports.filter( ( p ) => PORT_IDS.includes( p.id ) );
 
 		const gd = WORLD.gull.dock, G = this.gull.lighthouse;
@@ -68,7 +81,7 @@ export class Ports {
 		const kd = WORLD.key.dock;
 		this._spots.key = [ kd.start, new Vector3().lerpVectors( kd.start, kd.end, 0.5 ), kd.end, new Vector3( KEY_STAND.x, 0, KEY_STAND.z ) ];
 		// islands 5-8: the jetty (foot, middle, head) and the stand / point of interest
-		for ( const id of [ 'haven', 'shrine', 'shoal', 'inverted' ] ) {
+		for ( const id of [ 'haven', 'shrine', 'shoal', 'inverted', 'tidemark' ] ) {
 
 			const p = this.info( id ), d = p.dock;
 			this._spots[ id ] = [ d.start, new Vector3().lerpVectors( d.start, d.end, 0.5 ), d.end, new Vector3( p.stand.x, 0, p.stand.z ) ];
@@ -83,7 +96,12 @@ export class Ports {
 			{ id: 'shrine', name: 'The Shrine', x: SHRINE_STAND.x, z: SHRINE_STAND.z, icon: 'fish' },
 			{ id: 'shoal', name: 'Quiet Shoal', x: this.shoal.fig.x, z: this.shoal.fig.z, icon: 'anchor' },
 			{ id: 'inverted', name: 'The Inverted Isles', x: this.info( 'inverted' ).stand.x, z: this.info( 'inverted' ).stand.z, icon: 'anchor' },
+			{ id: 'tidemark', name: 'Tidemark', x: TIDEMARK_STAND.x, z: TIDEMARK_STAND.z, icon: 'anchor' },
+			{ id: 'tidemark:airstrip', name: 'Airstrip', x: this.tidemark.airstrip.x, z: this.tidemark.airstrip.z, icon: 'plane', port: 'tidemark' },
 		];
+		// Tidemark's other landing spots: the airstrip's apron (a pilot who lands there has landed on Tidemark)
+		const ap = this.tidemark.airstrip.pad;
+		this._spots.tidemark.push( new Vector3( ap.x, 0, ap.z ), new Vector3( this.tidemark.airstrip.x, 0, this.tidemark.airstrip.z ) );
 
 	}
 
@@ -114,6 +132,8 @@ export class Ports {
 		this.shrinePort.update( dt, this.shrine.distance );
 		this.shoal.update( dt );
 		this.inverted.update( dt );
+		this.tidemark.update( dt );
+		this.tidemarkPort.update( dt, this.tidemark.distance );
 
 	}
 

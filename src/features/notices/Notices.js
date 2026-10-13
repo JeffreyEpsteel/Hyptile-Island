@@ -84,12 +84,12 @@ export class Notices {
 		const tod = this.app && this.app.settings && Number.isFinite( this.app.settings.timeOfDay ) ? this.app.settings.timeOfDay : 9.5;
 		this.hours = tod;
 		this._lastTod = null;
-		this.rep = { home: 0, pons: 0 };
+		this.rep = Object.fromEntries( PORT_IDS.map( ( p ) => [ p, 0 ] ) ); // every board's port (NoticeData PORT_IDS)
 		this._active = [];
 		this.taken = new Set();
-		this.memory = { home: {}, pons: {} };
+		this.memory = Object.fromEntries( PORT_IDS.map( ( p ) => [ p, {} ] ) );
 		this.awarded = [];
-		this.snap = { home: {}, pons: {} };
+		this.snap = Object.fromEntries( PORT_IDS.map( ( p ) => [ p, {} ] ) );
 		this.stats = { completed: 0, failed: 0, bounties: 0 };
 		this.notes = []; // recent outcomes: { port, type, title, outcome, at }
 		this._resume = false;
@@ -556,7 +556,7 @@ export class Notices {
 			storyHTML, talk,
 			port, info: PORT_INFO[ port ], day: this.day, hours: now, max: MAX_ACTIVE,
 			greeting: this.greeting( port ),
-			standing: { home: this.standing( 'home' ), pons: this.standing( 'pons' ) },
+			standing: Object.fromEntries( PORT_IDS.map( ( p ) => [ p, this.standing( p ) ] ) ),
 			postings: this.board( port ), active: this.active, free: this.features.sandbox === true,
 		};
 

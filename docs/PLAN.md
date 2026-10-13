@@ -414,6 +414,22 @@ torch lights the pier. Known: the roster's Helm_Idle / Steer / Seated_Idle / Fal
 (re-export in tools/roster some day); AI ships' wheels and fleet tillers are still; other players do not see wrecks;
 remote boats do not collide.
 
+### Wave 12 (2026-10-13 evening, root + 6 workers): two islands, planes, perf, combat feel
+12A Tidemark (docs/briefs/w12-town-island.md): a 440 m town island on its own terrain tile at (1720, -60) outside the
+2048 m heightmap (no room inside with 400 m of water), a town of 10-14 buildings with a pier, quay, market, chandler,
+tavern "The Tide & Tankard", warehouse, destructible stalls / carts / lamps / fences through destruction Sites / Kinds,
+a port with vendors, market cell, residents' schedules, discovery, and the airstrip WORLD.tidemark.airstrip (320 x 28 m
+at (1561, 56), heading -2.01) with a hangar and pad. Ocean shore shading / vegetation cover only the heightmap domain.
+12B Blackwater (w12-pirate-island.md): a volcanic ring at (-55, 688) with a caldera cove, a fort with two destructible
+shore batteries (naval.launchFrom), powder stores, a watchtower alarm, a pirate town with a tavern and black market
+(black flag $800), three moored ships, 7-9 raider guards, claim / restock / retaliation, discovery. Patrol lanes moved
+(Routes BLACKWATER_PATROLS). 12C seaplane (w12-plane-upgrades.md): 4 airframes, upgrades, cargo, parachute (Quote twice),
+Kestrel land plane from the airstrip. 12D perf (w12-perf.md): headless CPU runner, allocation and HUD DOM-write cuts,
+Material.dispose frees its uniform buffer (the boat-swap leak), Vulkan harness back. 12E combat feel (w12-combat-feel.md):
+in progress. 12F integration (w12-integrate-islands.md) applied both islands' root patches.
+Root: sprint 8.5 m/s; no touch fold / toggle, compact vehicle cluster; 16 local light slots and ship lanterns; shooting
+allowed on the home island except at people; lost-at-sea range 300 m.
+
 ### Wave 11 (2026-10-13, root + 4 workers): parity gaps
 11A ship damage (docs/briefs/w11-ship-damage.md): finite ammunition per hull (every hull at least 8 rounds; bought at the
 yard, a hold powder keg refills, AI ships carry their own and ram / flee when dry), sections (hull, rudder, sails, mast,

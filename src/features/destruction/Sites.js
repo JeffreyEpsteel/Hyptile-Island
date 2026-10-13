@@ -5,6 +5,7 @@
 //
 //   planProps( { terrain, colliders, keep: [ { x, z, r } ], ports } ) -> [ { id, kind, site, port, x, y, z, yaw, opts } ]
 //
+// Tidemark's town props (wave 12A) stand at their authored spots (world/islands/town/Layout.js), not scattered.
 // Land props keep clear of docks, the pier, mooring berths, footpaths, the start point, every existing collider (village
 // buildings, stalls, the dressing props) and the keep-out circles (interactables, vendors). Railings go on the landward half
 // of a dock, on the side away from the boat's berth.
@@ -12,6 +13,8 @@
 import { WORLD } from '../../world/WorldLayout.js';
 import { CAMP, SLOTS } from '../melee/MeleeData.js';
 import { buildKind, layoutBounds, rngFor } from './Kinds.js';
+import { townProps } from '../../world/islands/town/Layout.js';
+import { ensureTidemark } from '../../world/islands/town/TidemarkTerrain.js';
 
 // what each kind of site gets
 export const SITE_KINDS = {
@@ -135,6 +138,23 @@ export function planProps( { terrain, colliders = null, keep = [], ports = WORLD
 
 	const counts = {};
 	const nextN = ( site, kind ) => { const k = site + '.' + kind; counts[ k ] = ( counts[ k ] || 0 ) + 1; return counts[ k ] - 1; };
+
+	// ---- Tidemark's town (wave 12A): every prop that is not a building shell, at its authored spot (world/islands/town/
+	// Layout.js: the market stalls, the well roof, lamp posts, carts, crates, barrels, fences, the pier railings and the
+	// boatyard's doors); first, so the port's scattered props keep clear of them. Only when the island is in the ports
+	// (the island lies on its own terrain tile: ensureTidemark attaches it to this terrain if nothing has yet)
+	const tm = ports.find( ( p ) => p.id === 'tidemark' );
+	if ( tm && T && typeof T.heightAt === 'function' && T.coastDistance ) ensureTidemark( T );
+	if ( tm && tm.market && T.heightAt( tm.market.x, tm.market.z ) > 0.5 ) {
+
+		for ( const p of townProps( T ) ) {
+
+			const bb = layoutBounds( buildKind( p.kind, rngFor( p.site + p.kind + p.id ), p.opts ).pieces );
+			out.push( { ...p, r: Math.hypot( bb.half.x, bb.half.z ) } );
+
+		}
+
+	}
 
 	// ---- ports
 	for ( const port of ports ) {

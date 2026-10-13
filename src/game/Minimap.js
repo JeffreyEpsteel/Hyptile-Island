@@ -361,7 +361,7 @@ export class Minimap {
 			{ id: 'marta', ...mk( 'marta', ICON.anchor ), pos: () => ( { x: CHANDLERY.x, z: CHANDLERY.z } ) },
 			{ id: 'pons', ...mk( 'pons', ICON.fish ), pos: () => ( { x: PONS_STAND.x, z: PONS_STAND.z } ) },
 			// the other ports (src/game/ports: Gull Rock's lighthouse, Saltmarsh Key's buyer)
-			...( ( game.app.ports && game.app.ports.markers ) || [] ).map( ( m ) => ( { id: m.id, ...mk( 'pons', m.icon === 'anchor' ? ICON.anchor : ICON.fish ), pos: () => ( { x: m.x, z: m.z } ) } ) ),
+			...( ( game.app.ports && game.app.ports.markers ) || [] ).map( ( m ) => ( { id: m.id, ...mk( 'pons', m.icon === 'anchor' || m.icon === 'plane' ? ICON[ m.icon ] : ICON.fish ), pos: () => ( { x: m.x, z: m.z } ) } ) ), // anchor, plane (Tidemark's airstrip) or fish
 			{ id: 'boat', ...mk( 'boat', ICON.boat ), pos: () => {
 
 				const b = game.app.boatCtl;

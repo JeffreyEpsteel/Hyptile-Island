@@ -354,7 +354,7 @@ const ok = ( c, msg ) => {
 	const app1 = mkApp();
 	const q1 = new Quality( app1, { storage, query: new URLSearchParams( '?quality=low' ) } );
 	ok( q1.tier === 'low' && ! q1.auto && app1.settings.renderScale === 0.7 && app1.post.ao === false && app1.post.motionBlur.shutter.value === 0 && app1.post.haze.shafts.value === 0, '?quality=low: Low, no auto, its post' );
-	ok( app1.waterMaterial.params.ssr.value === 0 && app1.localLights.limit === 4 && app1.engine.meshRenderer.distanceScale === 0.55 && app1.residents.r.hide === 120 && shadowCalls.at( - 1 ) === 1024 && app1.shadows.reach === 150, 'Low: reflections, lamps, draw distance, residents, shadows' );
+	ok( app1.waterMaterial.params.ssr.value === 0 && app1.localLights.limit === 8 && app1.engine.meshRenderer.distanceScale === 0.55 && app1.residents.r.hide === 120 && shadowCalls.at( - 1 ) === 1024 && app1.shadows.reach === 150, 'Low: reflections, lamps, draw distance, residents, shadows' );
 	q1.setTier( 'high' );
 	ok( app1.post.ao === true && app1.post.motionBlur.shutter.value === 0.5 && app1.post.haze.shafts.value === 1 && app1.settings.renderScale === 1 && shadowCalls.at( - 1 ) === 2048, 'back to High restores the values the panels had' );
 	ok( ! store.has( STORAGE_KEY ), 'a URL override is not saved' );

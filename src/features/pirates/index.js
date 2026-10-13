@@ -587,6 +587,7 @@ export class Pirates {
 
 		const out = [ ...this.zones.zones(), ...this.dens.zones() ];
 		for ( const s of this.retaliation.active ) if ( s.alive ) out.push( { id: s.id, kind: 'raid', x: Math.round( s.x ), z: Math.round( s.z ), r: 120, label: `${ s.captain } (raid)`, captain: s.captain } );
+		out.push( ...( this.features?.get?.( 'stronghold' )?.zones?.() || [] ) ); // Blackwater's fort (and its batteries' reach)
 		return out;
 
 	}

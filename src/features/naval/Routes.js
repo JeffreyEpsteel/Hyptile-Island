@@ -6,8 +6,8 @@
 // Pons roads 75 m off the cove's dock (the dock pocket itself is 1-2 m deep). The lane bends through (100, 230)
 // and (150, 500): the straight line would run through the east sea stacks (298, 252) and the shoals around them.
 //
-// PATROLS: closed loops in the deep water south of the island (z > 380, 5+ m deep over the whole leg and
-// 20 m to either side), clear of both ports. SAFE_ZONES: pirates will not fight inside them.
+// PATROLS: closed loops in the deep water south of the island around Blackwater (5+ m deep over the whole leg
+// and 20 m to either side), clear of both ports. SAFE_ZONES: pirates will not fight inside them.
 
 import { WORLD } from '../../world/WorldLayout.js';
 import { dist2 } from './util.js';
@@ -17,12 +17,16 @@ export const PONS_ROADS = [ 452, 452 ];
 
 export const MERCHANT_ROUTE = [ HARBOUR_ANCHORAGE, [ 100, 230 ], [ 150, 500 ], PONS_ROADS ];
 
-export const PATROLS = [
-	[ [ - 260, 380 ], [ - 60, 560 ], [ 160, 650 ], [ 60, 430 ] ],
-	[ [ 240, 430 ], [ 330, 620 ], [ 120, 700 ], [ - 120, 640 ], [ - 300, 520 ], [ 0, 420 ] ],
-	[ [ - 380, 560 ], [ - 200, 720 ], [ 100, 560 ], [ 300, 500 ], [ 200, 380 ], [ - 100, 380 ] ],
-	[ [ 350, 700 ], [ 150, 600 ], [ - 50, 700 ], [ - 300, 650 ], [ - 150, 480 ], [ 60, 520 ] ],
+// Blackwater (wave 12) stands where the old loops ran: these lanes circle its deep water instead (5+ m over every
+// leg and 20 m to either side, south of z 150, outside the ports, 100 m clear of the other islands).
+export const BLACKWATER_PATROLS = [
+	[ [ - 260, 380 ], [ 200, 440 ], [ 60, 395 ], [ - 60, 425 ] ],
+	[ [ 240, 430 ], [ 330, 560 ], [ 320, 760 ], [ 160, 950 ], [ 300, 900 ], [ 380, 640 ], [ 340, 470 ] ],
+	[ [ - 330, 930 ], [ - 60, 990 ], [ 240, 950 ], [ - 40, 950 ] ],
+	[ [ 360, 700 ], [ 260, 930 ], [ - 100, 975 ], [ 130, 925 ], [ 330, 860 ] ],
 ];
+
+export const PATROLS = BLACKWATER_PATROLS;
 
 // pirates break off and merchants are safe inside these (the harbour and the cove)
 export const SAFE_ZONES = [

@@ -311,7 +311,7 @@ const env = ( { ua = '', points = 0, w = 1920, h = 1080, coarse = false, fine = 
 	// the seaplane: only the interact button and the lever stay; camera, cockpit, nav, landing fold away
 	let sp = split( { mode: 'plane', prompt: { key: 'E', text: 'Leave plane' } } );
 	ok( names( sp.primary ) === 'interact,planeThrottle', 'seaplane: primary = interact + lever' );
-	ok( [ ...sp.tray ].join( ',' ) === 'camera,cockpit,navLights,landing', 'seaplane: tray = camera, cockpit, nav, landing (in order)' );
+	ok( [ ...sp.tray ].join( ',' ) === 'camera,cockpit,navLights,landing,bail', 'seaplane: tray = camera, cockpit, nav, landing, bail (in order)' );
 	// on foot: Jump and Rod fold away, Cast / Reel / interact stay
 	sp = split( { mode: 'walk', rod: true, rodState: 'floating', canFish: true, prompt: { key: 'E', text: 'Talk' } } );
 	ok( sp.primary.has( 'cast' ) && sp.primary.has( 'reel' ) && sp.primary.has( 'interact' ) && ! sp.primary.has( 'jump' ), 'fishing: cast, reel, interact stay (fold enabled for these checks)' );

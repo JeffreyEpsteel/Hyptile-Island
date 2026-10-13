@@ -1,12 +1,14 @@
 import { Mesh, Group, TorusGeometry, CircleGeometry } from '../../engine/index.js';
 import { Material } from '../../engine/render/Material.js';
 import { LAYERS } from '../../core/SceneRenderer.js';
+import { THROW } from './MeleeData.js';
 
 // The wind-up telegraph on the ground: while a raider winds up, a red ring marks the reach of his blow
 // and flashes, and a red disc fills from the middle to the ring as the strike gets closer. Both are flat
 // unlit transparent meshes (the built-in material fields only: no custom shader code), on the transparent
 // layer like the contact shadows. One pair per raider slot, created on first use and hidden otherwise.
 // Wave 4: in the parry window (r.parryCue > 0, the last 0.26 s) the ring turns gold and stops flashing: raise the guard now.
+// Wave 12E: a thrower's wind-up ('throw') puts a smaller ring where the rock will land (r.throwAt), filling to the release.
 //
 //   const fx = new Telegraph( { scene } );
 //   fx.update( raiders, time )     // raider: { id, x, y, z, alert, state, t, cfg: { windup, hitRange } }
@@ -69,7 +71,8 @@ export class Telegraph {
 
 		for ( const r of raiders ) {
 
-			const on = r.active && r.visible && r.alert && r.state === 'windup';
+			const thr = r.state === 'throw';
+			const on = r.active && r.visible && r.alert && ( r.state === 'windup' || thr );
 			let it = this.items.get( r.id );
 			if ( ! on && ( ! it || ! it.ring.visible ) ) continue;
 			it = this._item( r.id );
@@ -81,18 +84,19 @@ export class Telegraph {
 
 			}
 
-			const k = Math.min( 1, r.t / r.cfg.windup ); // 0 -> 1 over the telegraph
+			const k = Math.min( 1, r.t / ( thr ? THROW.windup : r.cfg.windup ) ); // 0 -> 1 over the telegraph
 			const flash = 0.5 + 0.5 * Math.sin( time * Math.PI * 2 * ( FLASH_HZ + 4 * k ) );
 			// the parry window (wave 4): the ring turns gold and holds steady, the cue to raise the guard
 			const cue = r.parryCue || 0;
 			const col = cue > 0 ? [ 1.0, 0.72, 0.05 ] : [ 0.9, 0.015, 0.01 ];
 			if ( it.ringMat.color && it.ringMat.color.setRGB ) it.ringMat.color.setRGB( col[ 0 ], col[ 1 ], col[ 2 ] );
 			else it.ringMat.color = col;
-			const s = r.cfg.hitRange / this.radius;
-			const y = r.y + 0.1;
+			const s = ( thr ? THROW.ring : r.cfg.hitRange ) / this.radius;
+			const at = thr && r.throwAt ? r.throwAt : r;
+			const y = ( Number.isFinite( at.y ) ? at.y : r.y ) + 0.1;
 			it.ring.visible = it.fill.visible = true;
-			it.ring.position.set( r.x, y, r.z );
-			it.fill.position.set( r.x, y - 0.02, r.z );
+			it.ring.position.set( at.x, y, at.z );
+			it.fill.position.set( at.x, y - 0.02, at.z );
 			it.ring.scale.set( s, 1, s );
 			const f = Math.max( 0.05, k * s );
 			it.fill.scale.set( f, 1, f );

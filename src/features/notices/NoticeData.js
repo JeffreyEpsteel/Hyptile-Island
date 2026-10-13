@@ -22,10 +22,12 @@ import { WORLD } from '../../world/WorldLayout.js';
 //              reward { money, rep, unlock }, issued, expires, roll, tier?, target?, captain?, epithet?, ship?,
 //              craft?, region? { x, z, compass, distance } }
 
-export const PORT_IDS = [ 'home', 'pons' ];
+export const PORT_IDS = [ 'home', 'pons', 'tidemark' ];
 export const PORT_INFO = {
 	home: { id: 'home', name: 'Hyptile Harbour', short: 'Hyptile', keeper: 'Harbourmaster Orla', other: 'pons', anchor: { x: WORLD.boatDock.position.x, z: WORLD.boatDock.position.z } },
 	pons: { id: 'pons', name: 'Pons Cove', short: 'Pons', keeper: 'Dockhand Tiber', other: 'home', anchor: { x: WORLD.pons.dock.position.x, z: WORLD.pons.dock.position.z } },
+	// the town island (wave 12): its board sends errands and cargo back to the home harbour
+	tidemark: { id: 'tidemark', name: 'Tidemark', short: 'Tidemark', keeper: 'Harbourmaster Osric', other: 'home', anchor: { x: WORLD.tidemark.dock.position.x, z: WORLD.tidemark.dock.position.z } },
 };
 
 export const MAX_ACTIVE = 3; // notices accepted at once
@@ -170,6 +172,7 @@ export function openWater( x, z ) {
 	if ( Math.abs( x ) > 2300 || Math.abs( z ) > 2300 ) return false;
 	if ( z < - 20 && Math.abs( x ) < 760 ) return false; // the main island
 	if ( Math.hypot( x - 620, z - 560 ) < 220 ) return false; // Pons Cove and its reef
+	if ( Math.hypot( x - WORLD.tidemark.center.x, z - WORLD.tidemark.center.z ) < WORLD.tidemark.radius + 40 ) return false; // Tidemark
 	return true;
 
 }
@@ -210,52 +213,60 @@ export const SCRIPTS = {
 		{ port: 'pons', client: 'Maribel, cove stall', text: 'The cove wants {n} {species} for the evening grill. Cash on the table.' },
 		{ port: 'pons', client: 'Granddad Rho', text: 'My knees say rain and my belly says fish. {n} {species}, and I will pay.' },
 		{ port: null, client: 'A schoolmaster\'s note', text: 'The class is drawing fish from life. Please bring {n} {species}, whole.' },
+		{ port: 'tidemark', client: 'Brine, the Tide & Tankard', text: 'The kitchen wants {n} {species} for the fish supper. Land them and the first round is mine.' },
 	],
 	catchWeight: [
 		{ port: 'home', client: 'Harbourmaster Orla', text: 'The board wants a trophy. Land a {fish} over {kg} kg and your name goes up beside it.' },
 		{ port: 'home', client: 'Gaffer Dunn', text: 'I have a round of drinks riding on it: a {fish} over {kg} kg. Prove me right.' },
 		{ port: 'pons', client: 'Maribel, cove stall', text: 'Boasting night at the cove. Bring in a {fish} over {kg} kg and drink free.' },
 		{ port: 'pons', client: 'Dockhand Tiber', text: 'The lads say the water is empty. Show them a {fish} over {kg} kg.' },
+		{ port: 'tidemark', client: 'Wenna, net-mender', text: 'The boatyard swears nothing big swims in the bay. Bring a {fish} over {kg} kg to the quay.' },
 	],
 	catchHabitat: [
 		{ port: 'home', client: 'Cook Barlow, the Salty Plate', text: 'Lunch rush. {n} fish {habitat}, any kind, and I will cover your fuel.' },
 		{ port: 'home', client: 'Auntie Venn, net shed', text: 'Bring me {n} fish {habitat}. I am not fussy, only hungry.' },
 		{ port: 'pons', client: 'Granddad Rho', text: 'Something for the pot, {habitat}: {n} fish of any kind.' },
 		{ port: 'pons', client: 'Maribel, cove stall', text: 'The stall is empty. Bring {n} fish {habitat} and we have a deal.' },
+		{ port: 'tidemark', client: 'Brine, the Tide & Tankard', text: 'Supper for the whole tavern: {n} fish {habitat}, any kind.' },
 	],
 	deliverCargo: [
 		{ port: 'home', client: 'Merchant Corwin Tell', text: '{port} is short of everything. Sell {n} units of cargo there and I top up your takings.' },
 		{ port: 'home', client: 'Chandler Okoro', text: 'Crates for {port}, as many as the hold carries: {n} units sold over there.' },
 		{ port: 'pons', client: 'Dockhand Tiber', text: '{port} pays well for what we grow. Sell {n} units of cargo there and come back richer.' },
 		{ port: 'pons', client: 'Maribel, cove stall', text: 'Take {n} units across to {port} and sell them. The cove remembers who helps.' },
+		{ port: 'tidemark', client: 'Harbourmaster Osric', text: 'Timber goes out, rope comes in. Sell {n} units of cargo at {port} and the wharf pays a bonus.' },
 	],
 	sellFish: [
 		{ port: 'home', client: 'PoorGoat, fish buyer', text: 'Quiet week. Sell ${total} of fish over at my stand and I add a bonus.' },
 		{ port: 'home', client: 'Harbourmaster Orla', text: 'The harbour fund is thin. Bring ${total} of fish to market and we all eat.' },
 		{ port: 'pons', client: 'Pons, fish market', text: 'Sell me ${total} of fish and I will throw something in on top.' },
 		{ port: 'pons', client: 'Maribel, cove stall', text: 'The cove needs trade. Put ${total} of fish through the market.' },
+		{ port: 'tidemark', client: 'Harbourmaster Osric', text: 'The fish hall is quiet. Put ${total} of fish through it and the town adds a bonus.' },
 	],
 	visitPort: [
 		{ port: 'home', client: 'Harbourmaster Orla', text: 'A word for the {port} dockhand. No reply needed; just show your face there. Watch the horizon on the way.' },
 		{ port: 'home', client: 'Auntie Venn, net shed', text: 'My sister keeps the stall at {port}. Look in on her, and tell me if the sea is quiet.' },
 		{ port: 'pons', client: 'Granddad Rho', text: 'Tell the {port} lot we are still here. Sail over and be seen.' },
 		{ port: 'pons', client: 'Dockhand Tiber', text: 'Fetch news from {port}: reach the quay and you are done. They say there is trouble on the water.' },
+		{ port: 'tidemark', client: 'Tobiah, boatwright', text: 'A letter for {port}. Sail it across and show your face on the quay.' },
 	],
 	sinkPirate: [
 		{ port: 'home', client: 'Harbourmaster Orla', text: 'Raiders keep running down the merchantmen. Sink {n} pirate ship{s} and the board pays.' },
 		{ port: 'home', client: 'Merchant Corwin Tell', text: 'My sloop was boarded last week. Put {n} of those corsairs on the bottom.' },
 		{ port: 'pons', client: 'Dockhand Tiber', text: 'A black sail off the cove again. Sink {n} pirate ship{s}.' },
 		{ port: 'pons', client: 'Maribel, cove stall', text: 'The fishing fleet will not leave harbour. Sink {n} raiding ship{s}, please.' },
+		{ port: 'tidemark', client: 'Harbourmaster Osric', text: 'Raiders work the outer bay when the moon is dark. Sink {n} pirate ship{s}.' },
 	],
 	shoreRaider: [
 		{ port: 'home', client: 'PoorGoat, fish buyer', text: 'Somebody is pinching my ice at night. Drive off {n} shore raider{s}.' },
 		{ port: 'home', client: 'Cook Barlow, the Salty Plate', text: 'Raiders came up the beach again. Defeat {n} of them before they find the stores.' },
 		{ port: 'pons', client: 'Maribel, cove stall', text: 'Cutthroats on the sand at dusk. Defeat {n} shore raider{s}.' },
 		{ port: 'pons', client: 'Granddad Rho', text: 'They took my nets. Settle it with {n} of them, would you?' },
+		{ port: 'tidemark', client: 'Tobiah, boatwright', text: 'Cutthroats broke into the boatyard shed. Defeat {n} shore raider{s}.' },
 	],
 };
 
-const BOUNTY_CLIENTS = { home: [ 'Harbourmaster Orla', 'Constable Fenwick' ], pons: [ 'Dockhand Tiber', 'Maribel, cove stall' ] };
+const BOUNTY_CLIENTS = { home: [ 'Harbourmaster Orla', 'Constable Fenwick' ], pons: [ 'Dockhand Tiber', 'Maribel, cove stall' ], tidemark: [ 'Harbourmaster Osric', 'Brine, the Tide & Tankard' ] };
 const BOUNTY_TEXT = [
 	null,
 	[

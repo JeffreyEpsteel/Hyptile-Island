@@ -213,7 +213,7 @@ export class App {
 		this.ponsCove = new PonsCove( { scene, terrain: this.terrainData, colliders: this.colliders } );
 		this.pons = new PonsPort( { scene, terrain: this.terrainData, colliders: this.colliders } );
 		// Gull Rock (lighthouse) and Saltmarsh Key (a fish buyer paying a premium): more islands with ports
-		this.ports = new Ports( { scene, terrain: this.terrainData, colliders: this.colliders } );
+		this.ports = new Ports( { scene, terrain: this.terrainData, colliders: this.colliders, village: this.village } );
 
 		// ---------------------------------------------------------------- ocean
 		await progress( 0.3, 'Simulating the ocean…' );
@@ -403,6 +403,8 @@ fn terrainWetness( xz: vec2f, h: f32 ) -> vec2f {
 		// the destructible props' physics (Rapier WASM) initialises before the features place them
 		try { const { initPhysics } = await import( './physics/World.js' ); await initPhysics(); } catch ( e ) { console.warn( 'physics unavailable', e ); }
 		this.features = installFeatures( this );
+		// Tidemark's buildings crack / smoke under cannonballs, explosions and plane crashes
+		this.ports?.tidemark?.connect( this.features );
 		this.game.state.featuresProvider = () => this.features.toJSON();
 		this.features.fromJSON( this.game.state.featuresData );
 		// the owned boat (or none) and the character from the save
@@ -1123,7 +1125,7 @@ fn terrainWetness( xz: vec2f, h: f32 ) -> vec2f {
 		const pose = p.pose( this._pose || ( this._pose = {} ) );
 		// hands on the helm / rod, feet on the ground: contact IK targets for this frame
 		this.avatar.setIKTargets( contactTargets( this._ikTargets || ( this._ikTargets = {} ), { player: p, rod: this.game && this.game.rod, boat: this.boatCtl, action: pose.action } ) );
-		this.avatar.update( dt, pose );
+		this.avatar.update( dt * ( this.features && this.features.get && this.features.get( 'melee' ) && this.features.get( 'melee' ).timeScale != null ? this.features.get( 'melee' ).timeScale : 1 ), pose ); // (hitstop and the parry's slow-motion reach the player's own avatar)
 		if ( this.remotePlayers ) this.remotePlayers.update( dt );
 		if ( this.net ) this.net.send( this.netState() );
 		this.boatYard.update( dt, this.camera );

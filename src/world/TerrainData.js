@@ -2,6 +2,7 @@ import { Noise2D, smoothstep, clamp, lerp } from '../util/Noise.js';
 import { WORLD } from './WorldLayout.js';
 import { softRamp, erosionNoise, sampleGrid, upsample2, boxBlur } from './terrain/TerrainNoise.js';
 import { ridgeEnvelope, SEA_STACKS, PATHS, polylineDistance, PONS, PONS_STACKS, ISLETS, ISLET_STACKS, isletWorld } from './terrain/IslandShape.js';
+import { ensureTidemark } from './islands/town/TidemarkTerrain.js';
 
 const smin = ( a, b, k ) => {
 
@@ -86,6 +87,7 @@ export class TerrainData {
 		this._out = { h: 0, rock: 0, d: 0, bz: 0, carve: 0 };
 		this.generate();
 		this.buildMinMax();
+		ensureTidemark( this ); // Tidemark's own tile, outside the heightmap's domain (queries inside it are untouched)
 
 	}
 

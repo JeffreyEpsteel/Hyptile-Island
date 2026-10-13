@@ -117,6 +117,9 @@
 //   player's (app.remotePlayers peers with a driven boat outside the harbour / cove). Their balls are broadcast by
 //   NavalLink and hurt the boat they land on, on its owner's machine.
 //   naval.remoteShot( from [ x, y, z ], dir [ x, y, z ], speed, info { owner, damage, faction, big } )   a ball from another machine
+//   naval.launchFrom( x, y, z, dir { x, y, z }, opts { owner, damage, faction, big, sigma } ) -> ball | null   a ball fired here
+//                               from a world point (Blackwater's shore batteries): the normal flow (_launch: cannonFired by
+//                               'pirate', broadcast by NavalLink, impacts and damage like a ship's gun)
 //
 // Events emitted on the Features registry: shipSunk { id, name, faction, x, z, byPlayer, kind, loot },
 // enemyDefeated { id, name, kind: 'pirate' } (pirate sunk by the player), playerBoatDamaged { hp, maxHp, cause },
@@ -1204,6 +1207,21 @@ export class Naval {
 	_muzzle( x, y, z, dx, dy, dz, big ) {
 
 		if ( ! this._vfx() ) this.fx.muzzle( x, y, z, dx, dy, dz, big ); // (vfx: from the cannonFired event)
+
+	}
+
+	// A ball fired on this machine from a world point, not a ship (a shore battery): the same flow as a ship's gun, so every
+	// client sees it (NavalLink hooks _launch) and it is not tagged by: 'remote'. The caller has already aimed and spread
+	// it (opts.sigma adds more, default none).
+	launchFrom( x, y, z, dir, opts = {} ) {
+
+		if ( ! dir || ! [ x, y, z, dir.x, dir.y, dir.z ].every( Number.isFinite ) ) return null;
+		const l = Math.hypot( dir.x, dir.y, dir.z );
+		if ( ! ( l > 1e-6 ) ) return null;
+		const owner = typeof opts.owner === 'string' && opts.owner !== 'player' ? opts.owner : 'battery';
+		return this._launch( { x, y, z }, { x: dir.x / l, y: dir.y / l, z: dir.z / l }, Math.max( 0, + opts.sigma || 0 ), {
+			damage: Math.max( 0, Math.min( 60, + opts.damage || 0 ) ), owner, faction: opts.faction || 'pirate', big: !! opts.big,
+		} );
 
 	}
 

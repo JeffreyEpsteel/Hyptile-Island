@@ -10,6 +10,8 @@
 // unit icosahedron), pos: { x, y, z }, quat: { x, y, z, w }, color: [ r, g, b ] (linear), density, jf (its joints' break
 // force, N), anchor (break force of its joint to the world, 0: none), float (buoyancy scale) }
 
+import { STRONGHOLD_KINDS } from '../../world/islands/stronghold/Kinds.js';
+
 const ID = { x: 0, y: 0, z: 0, w: 1 };
 
 // quaternion from Euler angles applied in Y, X, Z order (yaw, then pitch, then roll)
@@ -98,6 +100,12 @@ export const KINDS = {
 	rockStack: { toughness: 9000, jointForce: 0, mat: 'stone', shatterAt: 2, label: 'rock stack' },
 	piling: { toughness: 2500, jointForce: 3000, mat: 'wood', shatterAt: 4, label: 'rotten pilings' },
 	wreck: { toughness: 1800, jointForce: 1400, mat: 'wood', shatterAt: 4, label: 'wreckage' },
+	// Tidemark's town (wave 12A; world/islands/town/Layout.js places them)
+	stall: { toughness: 900, jointForce: 800, mat: 'wood', shatterAt: 4, label: 'market stall' },
+	cart: { toughness: 1100, jointForce: 1000, mat: 'wood', shatterAt: 4, label: 'cart' },
+	lampPost: { toughness: 750, jointForce: 900, mat: 'wood', shatterAt: 4, label: 'lamp post' },
+	wellRoof: { toughness: 800, jointForce: 800, mat: 'wood', shatterAt: 4, label: 'well roof' },
+	shedDoor: { toughness: 1000, jointForce: 900, mat: 'wood', shatterAt: 4, label: 'shed doors' },
 };
 
 const BUILD = {
@@ -262,7 +270,99 @@ const BUILD = {
 
 	},
 
+	// ---- Tidemark's town (wave 12A)
+
+	// a market stall: four posts (anchored), a counter with a front board, a sloped canvas awning, goods on the counter
+	stall( rng ) {
+
+		const c = tint( WOOD[ 1 ], rng ), P = [];
+		const AWN = [ [ 0.62, 0.16, 0.12 ], [ 0.14, 0.32, 0.52 ], [ 0.66, 0.5, 0.12 ], [ 0.2, 0.42, 0.22 ] ][ Math.floor( rng() * 4 ) ];
+		const hf = 2.2, hb = 1.9;
+		for ( const x of [ - 1.1, 1.1 ] ) {
+
+			P.push( box( 0.09, hf, 0.09, x, hf / 2, 0.7, tint( c, rng, 0.08 ), { anchor: 2200 } ) );
+			P.push( box( 0.09, hb, 0.09, x, hb / 2, - 0.7, tint( c, rng, 0.08 ), { anchor: 2200 } ) );
+
+		}
+
+		P.push( box( 2.3, 0.06, 0.7, 0, 0.9, 0.35, tint( WOOD[ 3 ], rng, 0.1 ) ) ); // counter top
+		P.push( box( 2.3, 0.82, 0.04, 0, 0.45, 0.72, tint( c, rng, 0.1 ) ) ); // front board
+		for ( const sx of [ - 1, 1 ] ) P.push( box( 0.04, 0.82, 0.62, sx * 1.07, 0.45, 0.35, tint( c, rng, 0.1 ) ) );
+		const a = Math.atan2( hf - hb, 1.4 ), len = Math.hypot( hf - hb, 1.4 ) + 0.5;
+		P.push( box( 2.5, 0.03, len, 0, ( hf + hb ) / 2 + 0.06, 0, tint( AWN, rng, 0.06 ), { quat: quatYXZ( 0, - a, 0 ), density: 300 } ) );
+		for ( let k = 0; k < 3; k ++ ) P.push( box( 0.36, 0.22, 0.28, - 0.7 + k * 0.7, 1.04, 0.3, tint( [ [ 0.6, 0.42, 0.18 ], [ 0.5, 0.55, 0.3 ], [ 0.7, 0.3, 0.2 ] ][ k ], rng, 0.1 ), { density: 400 } ) );
+		return P;
+
+	},
+
+	// a hand cart: a plank bed on an axle, two spoked wheels (cylinders turned on their side), two shafts and low sides
+	cart( rng ) {
+
+		const c = tint( WOOD[ 0 ], rng ), P = [];
+		const wq = quatYXZ( 0, 0, Math.PI / 2 );
+		for ( const x of [ - 0.78, 0.78 ] ) P.push( { type: 'barrel', size: [ 1.0, 0.09, 1.0 ], pos: { x, y: 0.5, z: 0 }, quat: wq, color: tint( WOOD[ 2 ], rng, 0.08 ), density: 500, jf: 0, anchor: 0, float: 1 } );
+		P.push( box( 1.46, 0.08, 0.08, 0, 0.5, 0, tint( c, rng, 0.08 ) ) ); // axle
+		P.push( box( 1.3, 0.07, 1.9, 0, 0.58, - 0.2, tint( c, rng, 0.08 ) ) ); // bed
+		for ( const sx of [ - 1, 1 ] ) P.push( box( 0.05, 0.3, 1.9, sx * 0.63, 0.765, - 0.2, tint( c, rng, 0.1 ) ) );
+		P.push( box( 1.3, 0.3, 0.05, 0, 0.765, - 1.13, tint( c, rng, 0.1 ) ) );
+		for ( const sx of [ - 1, 1 ] ) P.push( box( 0.07, 0.07, 1.5, sx * 0.42, 0.42, 1.48, tint( c, rng, 0.08 ), { quat: quatYXZ( 0, 0.12, 0 ) } ) );
+		P.push( box( 0.6, 0.45, 0.5, 0.1, 0.84, - 0.5, tint( WOOD[ 1 ], rng, 0.1 ), { density: 400 } ) ); // a crate riding in the bed
+		return P;
+
+	},
+
+	// a lamp post: an anchored post on a foot block, an arm and the lantern (glass box) hanging from it
+	lampPost( rng ) {
+
+		const c = tint( [ 0.16, 0.15, 0.14 ], rng, 0.08 ), P = [];
+		P.push( box( 0.32, 0.25, 0.32, 0, 0.125, 0, tint( STONE[ 1 ], rng, 0.06 ), { anchor: 3000, density: 2200 } ) );
+		P.push( box( 0.12, 3.0, 0.12, 0, 1.75, 0, c, { anchor: 0 } ) );
+		P.push( box( 0.06, 0.06, 0.62, 0, 3.12, 0.28, c ) );
+		P.push( box( 0.24, 0.32, 0.24, 0, 2.86, 0.5, [ 0.95, 0.72, 0.38 ], { density: 300 } ) );
+		P.push( box( 0.3, 0.05, 0.3, 0, 3.045, 0.5, c ) );
+		return P;
+
+	},
+
+	// the well's roof: two posts standing on the stone rim (anchored), a ridge beam, two roof boards and the windlass
+	wellRoof( rng ) {
+
+		const c = tint( WOOD[ 0 ], rng ), P = [];
+		for ( const x of [ - 0.9, 0.9 ] ) P.push( box( 0.12, 1.7, 0.12, x, 0.8 + 0.85, 0, tint( c, rng, 0.08 ), { anchor: 2000 } ) );
+		P.push( box( 2.2, 0.12, 0.14, 0, 2.56, 0, tint( c, rng, 0.08 ) ) );
+		const a = 0.62, len = 1.25;
+		for ( const sz of [ - 1, 1 ] ) P.push( box( 2.3, 0.04, len, 0, 2.56 - Math.sin( a ) * len / 2 + 0.08, sz * Math.cos( a ) * len / 2, tint( WOOD[ 3 ], rng, 0.1 ), { quat: quatYXZ( 0, sz * a, 0 ) } ) );
+		P.push( { type: 'barrel', size: [ 0.22, 1.6, 0.22 ], pos: { x: 0, y: 1.9, z: 0 }, quat: quatYXZ( 0, 0, Math.PI / 2 ), color: tint( WOOD[ 1 ], rng, 0.08 ), density: 500, jf: 0, anchor: 0, float: 1 } );
+		return P;
+
+	},
+
+	// two shed door leaves across a 4.8 m doorway (x), hung on posts at the jambs (anchored)
+	shedDoor( rng ) {
+
+		const c = tint( [ 0.32, 0.36, 0.33 ], rng, 0.1 ), P = [];
+		for ( const sx of [ - 1, 1 ] ) {
+
+			P.push( box( 0.16, 3.2, 0.16, sx * 2.48, 1.6, 0, tint( WOOD[ 2 ], rng, 0.08 ), { anchor: 4000 } ) );
+			P.push( box( 2.36, 2.9, 0.07, sx * 1.22, 1.5, 0.1, tint( c, rng, 0.06 ) ) );
+			P.push( box( 2.2, 0.12, 0.05, sx * 1.22, 0.6, 0.16, tint( c, rng, 0.06 ) ) );
+			P.push( box( 2.2, 0.12, 0.05, sx * 1.22, 2.4, 0.16, tint( c, rng, 0.06 ) ) );
+
+		}
+
+		return P;
+
+	},
+
 };
+
+// Blackwater's fort (wave 12B; world/islands/stronghold/Kinds.js): palisade, gunPlatform, powder (def.explosive)
+for ( const [ kind, K ] of Object.entries( STRONGHOLD_KINDS ) ) {
+
+	KINDS[ kind ] = K.def;
+	BUILD[ kind ] = K.build;
+
+}
 
 // ---- touching pieces become jointed
 

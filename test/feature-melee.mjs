@@ -268,9 +268,10 @@ function faceOff( w, r, d ) {
 	ok( near( facingDot( 0, 0, 0, 0, - 3 ), 1 ) && near( facingDot( 0, 0, 0, 0, 3 ), - 1 ) && near( facingDot( 0, 0, 0, 3, 0 ), 0 ), 'facingDot: ahead 1, behind -1, beside 0' );
 	ok( isNight( 22 ) && isNight( 3 ) && ! isNight( 12 ) && ! isNight( 5.6 ) && isNight( 19 ), 'isNight: 19:00 - 05:30' );
 	ok( near( hoursForward( 23, 1 ), 2 ) && near( hoursForward( 5, 5 ), 0 ) && crossed( 5.99, 6.01, 6 ) && ! crossed( 6, 6.01, 6 ) && crossed( 23.5, 0.5, 0 ) && ! crossed( 6.1, 6.2, 6 ), 'clock helpers: hoursForward / crossed (exactly once)' );
-	ok( RAIDER.windup === 0.6 && RAIDER.recover === 0.8 && RAIDER.notice === 12 && PLAYER.attackContact === 0.3 && PLAYER.evadeInvuln === 0.25 && PLAYER.downTime === 3 && PLAYER.engageRange === 6, 'tuning matches the brief (0.6 s telegraph, 0.8 s punish, 12 m notice, 0.3 s contact, 0.25 s i-frames, 3 s down, 6 m)' );
+	// (wave 12E retuned these against the play harness, test/feature-combat-play.mjs)
+	ok( RAIDER.windup === 0.68 && RAIDER.recover === 0.8 && RAIDER.notice === 12 && PLAYER.attackContact === 0.3 && PLAYER.evadeInvuln === 0.3 && PLAYER.downTime === 3 && PLAYER.engageRange === 6, 'tuning matches wave 12E (0.68 s telegraph, 0.8 s punish, 12 m notice, 0.3 s contact, 0.3 s i-frames, 3 s down, 6 m)' );
 	ok( CAPTAIN.hp > RAIDER.hp && CAPTAIN.damage > RAIDER.damage && CAPTAIN.armored && ! RAIDER.armored, 'the captain is tougher and armoured' );
-	ok( PLAYER.attackDamage * 3 >= RAIDER.hp && PLAYER.attackDamage * 2 < RAIDER.hp, 'three plain blows kill a raider, two do not' );
+	ok( PLAYER.attackDamage * 5 >= RAIDER.hp && PLAYER.attackDamage * 4 < RAIDER.hp, 'five plain blows put a tier 2 raider down, four do not' );
 
 }
 
@@ -366,7 +367,7 @@ function faceOff( w, r, d ) {
 
 	} );
 	ok( alertSeen && ringOnlyInWindup, 'the telegraph (alert) is on exactly during the wind-up' );
-	ok( tStrike - tWind > 0.58 && tStrike - tWind < 0.64, `wind-up lasts ${ ( tStrike - tWind ).toFixed( 3 ) } s (0.6)` );
+	ok( tStrike - tWind > RAIDER.windup - 0.02 && tStrike - tWind < RAIDER.windup + 0.04, `wind-up lasts ${ ( tStrike - tWind ).toFixed( 3 ) } s (${ RAIDER.windup })` );
 	ok( tRecover - tStrike > 0.1 && tRecover - tStrike < 0.15, `strike lasts ${ ( tRecover - tStrike ).toFixed( 3 ) } s (0.12)` );
 	ok( tApproach - tRecover > 0.78 && tApproach - tRecover < 0.86, `recovery (punish window) lasts ${ ( tApproach - tRecover ).toFixed( 3 ) } s (0.8)` );
 	ok( seen.join( ' ' ).startsWith( 'approach windup strike recover approach' ) || seen.join( ' ' ).startsWith( 'windup strike recover approach' ), `state order: ${ seen.slice( 0, 6 ).join( ' > ' ) }` );
@@ -374,7 +375,7 @@ function faceOff( w, r, d ) {
 
 	// the swing clip contact (0.3 s into Melee_Paddle) lands when the wind-up ends: speed 0.5, then 1
 	const calls = r.model.calls.filter( ( c ) => c.name === 'Melee_Paddle' );
-	ok( calls.length >= 1 && near( calls[ 0 ].speed, 0.5, 0.01 ) && calls[ 0 ].loop === false, 'Melee_Paddle plays one-shot at half speed through the wind-up (contact at 0.3 s = end of the 0.6 s telegraph)' );
+	ok( calls.length >= 1 && near( calls[ 0 ].speed, 0.3 / RAIDER.windup, 0.01 ) && calls[ 0 ].loop === false, `Melee_Paddle plays one-shot slowed through the wind-up (contact at 0.3 s = end of the ${ RAIDER.windup } s telegraph)` );
 	ok( r.model.calls.some( ( c ) => c.name === 'Run_InPlace' ) && r.model.calls.some( ( c ) => c.name === 'Idle_Breathe' ), 'he ran in and idled' );
 
 	// leash: the player runs far off; he walks home
@@ -436,6 +437,7 @@ function faceOff( w, r, d ) {
 	w.player.stamina = 0.1;
 	c.update( DT );
 	ok( c.guarding, 'guard is up with 0.1 stamina' );
+	c.guardStart -= 1; // held for a while (a raise one frame before the blow is a parry since wave 12E)
 	ok( m.raiderStrike( r ) === 'guardBroken' && c.hp === 100 - Math.ceil( RAIDER.damage / 2 ), `with less than ${ PLAYER.blockChip } stamina the guard breaks: half damage (hp ${ c.hp })` );
 	ok( w.player.stamina === 0, 'and stamina is spent' );
 	// the guard needs the rod away
@@ -524,7 +526,8 @@ function faceOff( w, r, d ) {
 	runFor( w, 0.4 );
 	ok( c.state === 'free' && c.action === null, 'the swing ends at 0.7 s' );
 
-	// cone and range: a raider behind the player is not hit
+	// cone and range: a raider behind the player is not hit (he stands still: no walking home to heal while we measure)
+	r._enter( 'idle' );
 	const hpB = r.hp;
 	w.player.yaw = Math.PI; // faces +Z, the raider is at -Z
 	w.player.stamina = 1;
@@ -582,8 +585,9 @@ function faceOff( w, r, d ) {
 	r2.spawn( { name: 'Test' } );
 	placePlayer( w, r2.x, r2.z + 2, 0 );
 	let down = null;
-	for ( let i = 0; i < 3; i ++ ) down = r2.takeHit( PLAYER.attackDamage );
-	ok( down.killed && r2.hp === 0 && r2.state === 'down', 'three blows knock a raider down (hp 0)' );
+	const blows = Math.ceil( r2.maxHp / PLAYER.attackDamage );
+	for ( let i = 0; i < blows; i ++ ) down = r2.takeHit( PLAYER.attackDamage );
+	ok( down.killed && r2.hp === 0 && r2.state === 'down', `${ blows } blows knock a raider down (hp 0)` );
 	const ev = w.log.events.find( ( e ) => e[ 0 ] === 'enemyDefeated' );
 	ok( ev && ev[ 1 ].kind === 'raider' && ev[ 1 ].name === 'Test' && ev[ 1 ].id.startsWith( 'r2#' ), `enemyDefeated { id, name, kind: "raider" } emitted: ${ JSON.stringify( ev && ev[ 1 ] ) }` );
 	ok( m.slots[ 1 ].respawnLeft === CLOCK.respawnHours && m.kills === 1, 'the slot is on a 24 in-game-hour respawn timer' );
@@ -609,7 +613,9 @@ function faceOff( w, r, d ) {
 	r2.takeHit( 10 );
 	r2.flees = false;
 	runFor( w, RAIDER.downTime + 0.2 );
-	ok( r2.state === 'gone', 'a raider who stays down is dragged off after the down time' );
+	ok( r2.state === 'down', `a beaten raider who does not run stays down past ${ RAIDER.downTime } s` );
+	runFor( w, RAIDER.outTime );
+	ok( r2.state === 'gone', 'and is dragged off after the down time' );
 	m.dispose();
 
 }
@@ -1067,7 +1073,7 @@ class FakeEl {
 	ok( ! tag.classList.contains( 'is-hidden' ), 'a raider 9 m away has a tag' );
 	ok( hud.tags.get( r.id ).name.textContent === r.name, 'the tag shows his name' );
 	ok( hud.tags.get( r.id ).fill.style.width === '100.0%', 'and a full health bar' );
-	r.hp = 40;
+	r.hp = r.maxHp * 0.4;
 	run( w2, 2 );
 	ok( hud.tags.get( r.id ).fill.style.width === '40.0%', 'the bar follows his health (40 %)' );
 	ok( /translate\(/.test( tag.style.transform ), 'the tag is projected onto the screen' );
@@ -1260,7 +1266,8 @@ class FakeEl {
 
 }
 
-// ---------------------------------------------------------------- 18. wave 5: the guard is a hold, only in a fight, and its pose ends
+// ---------------------------------------------------------------- 18. wave 5: the guard is a hold and its pose ends
+// (wave 12E: held with the rod away the stance is always up, enemy or not; the idle drop is the toggle mode's)
 
 {
 
@@ -1279,11 +1286,14 @@ class FakeEl {
 	m.peaceful = true; // he stands where he is put
 	const rmb = ( on, frames = 2 ) => { w.input.rightDown = on; run( w, frames ); };
 
-	// nobody near: RMB does nothing (no guard, no pose)
+	// nobody near: wave 12E, the stance still comes up while RMB is held (and costs no stamina out of a fight)
 	faceOff( w, r, 30 );
+	w.player.stamina = 1;
 	rmb( true, 10 );
-	ok( ! m.guarding && ! poseUp(), 'outside a fight RMB raises no guard and plays no guard pose' );
+	ok( m.guarding && poseUp(), 'outside a fight RMB held still raises the guard stance (always visible while held)' );
+	ok( w.player.stamina === 1, 'and it costs no stamina out of a fight' );
 	rmb( false );
+	ok( ! m.guarding && ! poseUp(), 'let go: it drops' );
 
 	// near him: a hold. The looping 'block' pose starts with the guard and is STOPPED when RMB is let go
 	faceOff( w, r, 4 );
@@ -1316,27 +1326,21 @@ class FakeEl {
 	w.rod.equipped = false;
 	rmb( false );
 
-	// 3 s with no enemy in reach: down, even with the button held
+	// held, it stays up however long and wherever (wave 12E: no idle drop in hold mode, no drop when the fight ends)
 	rmb( true );
 	faceOff( w, r, 30 );
-	runFor( w, GUARD.idle - 0.5 );
-	ok( m.guarding, `walking off with the guard up keeps it a moment (${ GUARD.idle } s rule)` );
-	runFor( w, 1 );
-	ok( ! m.guarding && ! poseUp(), `no enemy in reach for ${ GUARD.idle } s: the guard drops` );
-	faceOff( w, r, 4 );
-	run( w, 2 );
-	ok( ! m.guarding, 'still holding the button from before: it stays down until pressed again' );
+	runFor( w, GUARD.idle + 1 );
+	ok( m.guarding && poseUp(), `held: the guard stays up past ${ GUARD.idle } s with nobody near` );
 	rmb( false );
-
-	// the fight ends: down
 	let fighting = true;
 	m.engaged = () => fighting;
 	rmb( true );
 	ok( m.guarding, 'guard up in a fight' );
 	fighting = false;
 	run( w, 2 );
-	ok( ! m.guarding && ! poseUp(), 'the fight ends: the guard drops' );
+	ok( m.guarding, 'the fight ends: a held guard stays up until let go' );
 	rmb( false );
+	ok( ! m.guarding && ! poseUp(), 'and drops on release' );
 	delete m.engaged;
 
 	// toggle mode (the Access option: input.guardToggle): a press raises it, the next lowers it
@@ -1350,7 +1354,9 @@ class FakeEl {
 	faceOff( w, r, 30 );
 	rmb( true );
 	rmb( false );
-	ok( ! m.guarding, 'toggle: a click outside a fight does nothing' );
+	ok( m.guarding, 'toggle: a click outside a fight raises it too (wave 12E)' );
+	runFor( w, GUARD.idle + 0.3 );
+	ok( ! m.guarding && ! poseUp(), `toggle: latched with nobody near, it drops after ${ GUARD.idle } s` );
 	faceOff( w, r, 4 );
 	rmb( true );
 	rmb( false );

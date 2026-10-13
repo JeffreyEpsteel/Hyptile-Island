@@ -73,6 +73,7 @@ export function factorSite( port ) {
 
 	if ( STALL_SITES[ port ] ) return stallFront( STALL_SITES[ port ] );
 	const wp = worldPort( port );
+	if ( wp && wp.market ) return { x: wp.market.x, z: wp.market.z }; // a town's market square (Tidemark)
 	const d = wp && wp.dock;
 	if ( d && d.start && d.end ) {
 

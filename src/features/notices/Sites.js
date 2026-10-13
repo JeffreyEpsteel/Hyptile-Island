@@ -1,5 +1,6 @@
 import { STAND } from '../../game/FishStand.js';
 import { PONS_STAND } from '../../game/PonsPort.js';
+import { TIDEMARK_BOARD } from '../../game/ports/TidemarkPort.js';
 
 // Where the two notice boards stand, relative to the fish buyers' stalls so they follow them if the stalls move.
 //   Hyptile: on the sand beside PoorGoat's stand towards the pier foot, facing the boardwalk like the stall (stall frame:
@@ -22,6 +23,7 @@ function site( stand, o ) {
 export const BOARD_SITES = {
 	home: site( STAND, OFFSET.home ),
 	pons: site( PONS_STAND, OFFSET.pons ),
+	tidemark: TIDEMARK_BOARD, // on Tidemark's market square (the town's layout places it: test/feature-town.mjs checks it)
 };
 
 // the stalls the boards stand beside (the test checks the clearance)

@@ -3,6 +3,7 @@
 // multiplayer events, raycastSegment / impulse). No GPU: the feature runs without a scene (nothing is drawn).
 //   node test/feature-destruction.mjs
 import { initPhysics, PhysicsWorld } from '../src/physics/World.js';
+import { strongholdPlan } from '../src/world/islands/stronghold/Kinds.js';
 
 let fails = 0, passes = 0;
 const ok = ( c, msg ) => {
@@ -223,7 +224,8 @@ section( 'the feature' );
 	await initPhysics();
 	await new Promise( ( r ) => setTimeout( r, 0 ) );
 	for ( let i = 0; i < 3; i ++ ) features.update( 1 / 60 );
-	ok( d.built && d.props.length === plan.length && d.physicsState === 'ready', `built ${ d.props.length } props, physics ${ d.physicsState }` );
+	const fort = strongholdPlan( T );
+	ok( d.built && d.props.length === plan.length + fort.length && fort.every( ( q ) => d.byId.has( q.id ) && d.byId.get( q.id ).K === KINDS[ q.kind ] ) && d.physicsState === 'ready', `built ${ d.props.length } props (Blackwater's fort: ${ fort.length }), physics ${ d.physicsState }` );
 	ok( colliders.boxes.filter( ( b ) => b.tag === 'destructible' ).length === d.props.length, 'every prop registered a collider' );
 	ok( d.world.bodies.size >= d.props.length && d.world.count === 0, 'whole props are fixed boxes in the physics world (no dynamic bodies yet)' );
 

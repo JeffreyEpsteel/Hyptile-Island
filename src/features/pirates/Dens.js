@@ -226,6 +226,7 @@ export class Dens {
 		for ( const isl of islands ) {
 
 			if ( ! isl || ! isl.id || isl.id === 'home' || ! isl.center ) continue;
+			if ( isl.den === false ) continue; // an island with its own stronghold (Blackwater) has no den camp
 			const id = 'den-' + isl.id;
 			if ( old.has( id ) ) { out.push( old.get( id ) ); k ++; continue; }
 			const port = ( WORLD.ports || [] ).find( ( p ) => p.id === isl.id ) || null;

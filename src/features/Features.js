@@ -45,6 +45,7 @@
 //   gunshot { ... }                                          (firearms: a pistol / musket shot, synced as a world event)
 //   gullSquawk { x, y, z }   emote { id }                    (life cues; emotes, synced as a world event)
 //   seaplaneUpgraded { airframe, upgrade }   planeBailedOut   chuteLanded { x, y, z, water }   planeEngineFailed { engine }   (seaplane)
+//   practiceStarted { count }   practiceEnded { result }   rockThrown { by, x, z }   (melee: the practice fight, the rock thrower)
 //
 // Mode rules (Sandbox / Campaign / Multiplayer): features.mode is app.mode or 'campaign'; features.sandbox.
 // Money and the save stay in GameState: features.state is app.game.state (money, earn, spend, career...).

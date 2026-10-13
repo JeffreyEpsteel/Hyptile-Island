@@ -250,7 +250,7 @@ const ARENA = [
 	// the timing itself
 	c.reset();
 	c.guardStart = 10;
-	ok( c.guardTiming( 10 + 0.03 ) === 'late' && c.guardTiming( 10 + PLAYER.lateWindow + 0.01 ) === 'parry' && c.guardTiming( 10 + PLAYER.lateWindow + PLAYER.parryWindow - 0.01 ) === 'parry' && c.guardTiming( 10 + 0.4 ) === 'block',
+	ok( c.guardTiming( 10 + PLAYER.lateWindow * 0.5 ) === 'late' && c.guardTiming( 10 + PLAYER.lateWindow + 0.01 ) === 'parry' && c.guardTiming( 10 + PLAYER.lateWindow + PLAYER.parryWindow - 0.01 ) === 'parry' && c.guardTiming( 10 + 0.4 ) === 'block',
 		`guard timing: < ${ PLAYER.lateWindow } s late, then a ${ PLAYER.parryWindow } s parry window, then a plain block` );
 
 	// a parry: guard raised 0.15 s before the blow
@@ -276,7 +276,7 @@ const ARENA = [
 	c.reset();
 	w.player.stamina = 1;
 	c.guardHeld = true;
-	c.update( 0.02 );
+	c.update( PLAYER.lateWindow * 0.5 ); // up inside the blow's own step
 	const o2 = m.raiderStrike( r );
 	ok( o2 === 'chipped' && c.hp === 100 - Math.ceil( RAIDER.damage * PLAYER.chip ), `a late guard holds but lets ${ PLAYER.chip * 100 } % through (hp ${ c.hp })` );
 	ok( near( 1 - w.player.stamina, PLAYER.blockChip, 0.005 ) && c.state === 'free', 'it chips stamina and does not stagger the player' );

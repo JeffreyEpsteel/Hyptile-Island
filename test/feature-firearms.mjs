@@ -118,15 +118,16 @@ ok( ! inPeace( FAR.x, FAR.z ), 'the test arena is outside the peace zone' );
 {
 
 	const P = WEAPONS.pistol, M = WEAPONS.musket;
-	ok( P.price === 180 && P.reload === 1.4 && P.range === 22 && P.damage === 35 && P.falloff === 15 && P.spread === 2.5 && P.aimSpread === 1.0, 'pistol stats as designed' );
-	ok( M.price === 420 && M.reload === 3.2 && M.range === 70 && M.damage === 70 && M.spread === 1.2 && M.aimSpread === 0.4 && M.walk < 1 && M.draw > P.draw, 'musket stats as designed (slower draw, slower walk)' );
+	// (wave 12E retuned the damage against the play harness, test/feature-combat-play.mjs: pistol 52, musket 90, musket walk x0.7)
+	ok( P.price === 180 && P.reload === 1.4 && P.range === 22 && P.damage === 52 && P.falloff === 15 && P.spread === 2.2 && P.aimSpread === 0.8 && P.walk === 1, 'pistol stats as designed' );
+	ok( M.price === 420 && M.reload === 3.2 && M.range === 70 && M.damage === 90 && M.spread === 1.2 && M.aimSpread === 0.4 && M.walk === 0.7 && M.draw > P.draw, 'musket stats as designed (slower draw, walk x0.7)' );
 	ok( POUCH.count === 12 && POUCH.price === 30, 'a pouch: 12 cartridges for $30' );
-	ok( damageAt( P, 0 ) === 35 && damageAt( P, 15 ) === 35, 'pistol: full damage to 15 m' );
-	ok( near( damageAt( P, 22 ), 17.5 ) && damageAt( P, 18 ) < 35 && damageAt( P, 18 ) > 17.5, 'pistol: falls off past 15 m to half at 22 m' );
+	ok( damageAt( P, 0 ) === P.damage && damageAt( P, 15 ) === P.damage, 'pistol: full damage to 15 m' );
+	ok( near( damageAt( P, 22 ), P.damage / 2 ) && damageAt( P, 18 ) < P.damage && damageAt( P, 18 ) > P.damage / 2, 'pistol: falls off past 15 m to half at 22 m' );
 	ok( damageAt( P, maxRange( P ) ) === 0 && damageAt( P, 40 ) === 0, 'pistol: nothing left past its max range' );
 	let mono = true;
 	for ( let d = 0; d < 120; d += 0.5 ) if ( damageAt( M, d + 0.5 ) > damageAt( M, d ) + 1e-9 ) mono = false;
-	ok( mono && damageAt( M, 45 ) === 70 && near( damageAt( M, 70 ), 35 ), 'musket: never rises with distance, 70 to 45 m, half at 70 m' );
+	ok( mono && damageAt( M, 45 ) === M.damage && near( damageAt( M, 70 ), M.damage / 2 ), 'musket: never rises with distance, full to 45 m, half at 70 m' );
 
 }
 
@@ -297,12 +298,13 @@ ok( ! inPeace( FAR.x, FAR.z ), 'the test arena is outside the peace zone' );
 	fa.aiming = true;
 	fa.rand = () => 0; // dead centre
 	const r1 = fa.fire();
-	ok( r1.hit === 'raider' && raider.hits[ 0 ] === 35 && ! r1.head, 'a body shot at 10 m: 35 damage through takeHit' );
-	ok( melee.pops.includes( '35' ), 'the hit number goes through melee.pop' );
+	const PD = WEAPONS.pistol.damage;
+	ok( r1.hit === 'raider' && raider.hits[ 0 ] === PD && ! r1.head, `a body shot at 10 m: ${ PD } damage through takeHit` );
+	ok( melee.pops.includes( String( PD ) ), 'the hit number goes through melee.pop' );
 	fa.loaded.pistol = true; fa.after = 0;
 	aim( w, { x: 0, y: 1.7 - 1.6, z: - 10 } );
 	const r2 = fa.fire();
-	ok( r2.head && raider.hits[ 1 ] === Math.round( 35 * HEADSHOT ), `a head shot: x${ HEADSHOT }` );
+	ok( r2.head && raider.hits[ 1 ] === Math.round( PD * HEADSHOT ), `a head shot: x${ HEADSHOT }` );
 	// a wind-up is interrupted like a parry
 	const r3 = new StubRaider( FAR.x, FAR.z - 10, { state: 'windup', hp: 200 } );
 	melee.targets = () => [ r3 ];
@@ -316,14 +318,15 @@ ok( ! inPeace( FAR.x, FAR.z ), 'the test arena is outside the peace zone' );
 	fa.loaded.pistol = true; fa.after = 0;
 	aim( w, { x: 0, y: 1.1 - 1.6, z: - 20 } );
 	fa.fire();
-	ok( r4.hits[ 0 ] < 35 && r4.hits[ 0 ] > 17 && near( r4.hits[ 0 ], damageAt( WEAPONS.pistol, 19.7 ), 1.5 ), `a raider at 20 m takes the fallen-off damage (${ r4.hits[ 0 ] })` );
+	ok( r4.hits[ 0 ] < PD && r4.hits[ 0 ] > PD / 2 && near( r4.hits[ 0 ], damageAt( WEAPONS.pistol, 19.7 ), 1.5 ), `a raider at 20 m takes the fallen-off damage (${ r4.hits[ 0 ] })` );
 	// a kill counts
 	const r5 = new StubRaider( FAR.x, FAR.z - 5, { hp: 10 } );
 	melee.targets = () => [ r5 ];
 	fa.loaded.pistol = true; fa.after = 0;
 	aim( w, { x: 0, y: 1.1 - 1.6, z: - 5 } );
+	const k0 = fa.stats.kills;
 	const r5r = fa.fire();
-	ok( r5r.killed && r5.state === 'down' && fa.stats.kills === 1, 'a killing shot: the raider goes down (his own takeHit)' );
+	ok( r5r.killed && r5.state === 'down' && fa.stats.kills === k0 + 1, 'a killing shot: the raider goes down (his own takeHit)' );
 	// spread misses at the edge: the hip cone with a far target sometimes misses
 	ok( hitHumanoid( new StubRaider( 0, - 10 ), { x: 0, y: 1.6, z: 0 }, new Vector3( 0.2, - 0.05, - 1 ).normalize(), 0, 30 ) === null, 'a ray 11 deg off misses him' );
 

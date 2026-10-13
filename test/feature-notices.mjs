@@ -766,7 +766,7 @@ const give = ( r, ...list ) => r.n.fromJSON( { ...r.n.toJSON(), active: list.map
 	ok( lazy.n.world === null, 'no scene: no boards' );
 	lazy.app.scene = sc2; lazy.app.terrainData = terrain; lazy.app.colliders = colliders;
 	lazy.n.update( 0.016 );
-	ok( lazy.n.world && lazy.n.world.home && lazy.n.world.pons && sc2.children.length === 2, 'with a scene and terrain, both boards are built on the first update' );
+	ok( lazy.n.world && lazy.n.world.home && lazy.n.world.pons && lazy.n.world.tidemark && sc2.children.length === PORT_IDS.length, 'with a scene and terrain, every board (Hyptile, Pons, Tidemark) is built on the first update' );
 	const sig = lazy.n.world.home.sig;
 	lazy.n.accept( lazy.n.board( 'home' )[ 0 ].id );
 	lazy.n.update( 2 );
@@ -779,7 +779,8 @@ const give = ( r, ...list ) => r.n.fromJSON( { ...r.n.toJSON(), active: list.map
 
 	const terrain = new TerrainData();
 	const sites = BOARD_SITES;
-	for ( const port of PORT_IDS ) {
+	// the stall-side boards (Tidemark's stands on its market square: test/feature-town.mjs checks it)
+	for ( const port of [ 'home', 'pons' ] ) {
 
 		const s = sites[ port ], stall = STALLS[ port ];
 		const hs = [ [ 0, 0 ], [ 1.5, 0 ], [ - 1.5, 0 ], [ 0, 0.3 ], [ 0, - 0.3 ] ].map( ( [ dx, dz ] ) => terrain.heightAt( s.x + dx, s.z + dz ) );
@@ -817,7 +818,7 @@ const give = ( r, ...list ) => r.n.fromJSON( { ...r.n.toJSON(), active: list.map
 // ---------------------------------------------------------------- misc
 ok( hash32( 'a', 1 ) === hash32( 'a', 1 ) && hash32( 'a', 1 ) !== hash32( 'a', 2 ) && rng( 5 )() === rng( 5 )(), 'seeded helpers are stable' );
 ok( eventDelta( { type: 'nothing', params: {} }, 'fishCaught', {} ) === 0, 'unknown types never progress' );
-ok( TIER_NAMES.length === 4 && PORT_IDS.length === 2, 'tiers and ports' );
+ok( TIER_NAMES.length === 4 && PORT_IDS.length === 3 && PORT_IDS.every( ( p ) => BOARD_SITES[ p ] && PORT_INFO[ p ] ), 'tiers and ports (home, Pons, Tidemark), each with a board site' );
 
 console.log( fails ? `\n${ fails } FAILED` : '\nall ok' );
 process.exit( fails ? 1 : 0 );

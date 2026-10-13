@@ -277,6 +277,8 @@ const beach = ( x, z ) => ( z >= - 10 ? - 2 : - 2 + ( - 10 - z ) * 0.3 );
 
 	class StubHUD {
 
+	_keepScroll( fn ) { fn(); } // (GameHUD keeps the stand list scrolled across re-renders; the stub just renders)
+
 		constructor() {
 
 			this.stand = { innerHTML: '', classList: { add() {}, remove() {} }, querySelector: () => ( {} ), querySelectorAll: ( sel ) => rows( this.stand.innerHTML, sel ) };

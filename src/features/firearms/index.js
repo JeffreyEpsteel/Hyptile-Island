@@ -16,7 +16,8 @@ export function install( app, features, options = {} ) {
 }
 
 export { Firearms, AIM } from './Firearms.js';
-export { WEAPONS, ORDER, POUCH, HEADSHOT, MAX_RANGE, damageAt, spreadRad, spreadDir, angleBetween, forwardOf, maxRange } from './FirearmsData.js';
+export { WEAPONS, ORDER, POUCH, HEADSHOT, MAX_RANGE, MAGNET, BLOOM, damageAt, spreadRad, spreadDir, angleBetween, forwardOf, maxRange } from './FirearmsData.js';
+export { GunHud, coneToPx } from './GunHud.js';
 export { resolveShot, hitHumanoid, hitShip, hitGround, deckBox, BODY, POST, DECK } from './Hitscan.js';
 export { GunAudio, REPORTS, CLICKS } from './GunAudio.js';
 export { WeaponMesh, buildWeaponGeometry, weaponTriangles, HOLD, FP, MUZZLE } from './WeaponMesh.js';

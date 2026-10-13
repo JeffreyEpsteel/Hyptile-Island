@@ -11,6 +11,7 @@ import { WORLD } from '../../world/WorldLayout.js';
 import { Vector3 } from '../../engine/index.js';
 import { KINDS, buildKind, shatterLayout, layoutBounds, pieceHalf, rockHull, quatYXZ, quatMul, rotate, rngFor } from './Kinds.js';
 import { planProps, keepOutFrom } from './Sites.js';
+import { strongholdPlan } from '../../world/islands/stronghold/Kinds.js';
 import { initPhysics, physicsReady, PhysicsWorld } from '../../physics/World.js';
 
 export const RESPAWN_HOURS = 6; // in-game hours (campaign)
@@ -97,7 +98,8 @@ export class Destruction {
 		this.built = true;
 		const app = this.app, T = app.terrainData;
 		if ( ! T ) return this;
-		const plan = this.opts.plan || planProps( { terrain: T, colliders: app.colliders || null, keep: keepOutFrom( app, this.features ), ports: WORLD.ports } );
+		// the scattered / authored props, then Blackwater's fort (palisade, gun platforms, powder: the stronghold feature reads them)
+		const plan = this.opts.plan || [ ...planProps( { terrain: T, colliders: app.colliders || null, keep: keepOutFrom( app, this.features ), ports: WORLD.ports } ), ...strongholdPlan( T ) ];
 		for ( const p of plan ) this._addProp( p );
 		if ( app.scene && this.opts.render !== false ) {
 

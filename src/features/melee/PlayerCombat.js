@@ -1,5 +1,5 @@
 import { Vector3 } from '../../engine/index.js';
-import { PLAYER, facingDot, forwardX, forwardZ } from './MeleeData.js';
+import { PLAYER, FEEL, THROW, facingDot, forwardX, forwardZ } from './MeleeData.js';
 import { magnetTurn } from './LockOn.js';
 
 // The player's side of the fight: health, the swing, the guard, the evade, being hit and the knockdown.
@@ -13,10 +13,14 @@ import { magnetTurn } from './LockOn.js';
 //   optional (wave 5): host.stopMontage( slot, blendOut ) when host.montage gave no handle to stop
 //   optional (wave 4): host.targets() (raiders + the training post), host.lock (the soft lock-on target), host.montage( name,
 //   opts ) (Avatar.playMontage), host.hasDeath() (the death feature respawns the player: no pier wake-up, no cash taken here)
+//   optional (wave 12E, the feel): host.hitstop( s ) (both fighters freeze), host.slowmo( s, k ) (the parry), host.flash( kind )
+//   (the HUD's shield / parry / hurt flash), host.puff( kind, { x, y, z } ) (dust / sparks at the contact), host.practiceLost()
 //
 // States: free | swing | evade | hurt | down.  Stamina belongs to Player.js: this only checks and spends it.
-//   swing   LMB: 0.3 s to the contact (Melee_Paddle), the hit test runs then, ready again at 0.7 s; a press in the
-//           last 0.3 s queues the next swing. Costs 0.08 stamina.
+//   swing   LMB: 0.3 s to the contact (Melee_Paddle), the hit test runs then, ready again at 0.62 s (a whiff: 0.78 s); a
+//           press in the last 0.3 s queues the next swing. Costs 0.08 stamina. A hit freezes both fighters (hitstop), kicks
+//           the camera, pops the number and puffs dust at the contact; a whiff swishes. Q after the contact cancels the
+//           recovery into the dodge (before the contact it is queued for the contact).
 //   guard   RMB held in `free` with the rod stowed (Melee decides when the button counts: an enemy in reach, hold or
 //           toggle, the forced drops): frontal hits are blocked (each chips 0.15 stamina; with less than
 //           that the guard breaks and the hit lands at half damage); holding it costs 0.1 stamina / s.
@@ -24,7 +28,11 @@ import { magnetTurn } from './LockOn.js';
 //           staggered and open); raised in the last 0.06 s it is a late block that lets 30 % through (chip).
 //           The guard pose is a LOOPING upper-body montage ('block'): it is stopped the moment `guarding` drops (wave 5:
 //           it used to stay up forever, "locked into the block animation"), and raised again after a parry's one-shot.
-//   evade   Q: a 2 m dash in 0.2 s, i-frames 0.25 s from the start, 0.5 s cooldown, 0.2 stamina.
+//   evade   Q: a 2 m dash in 0.2 s, i-frames 0.3 s from the start, 0.45 s cooldown, 0.18 stamina.
+//   rocks   (wave 12E) a thrown rock arrives as a strike from a `ranged` source: the guard blocks it whatever the timing
+//           (THROW.chip stamina; nobody near to stagger), a dodge's i-frames let it pass.
+//   practice (r.practiceFight, the practice fight at the training post): blows land, but the player yields at 10 % instead
+//           of going down (host.practiceLost()).
 //   hurt    0.6 s after a hit (Hit_Reaction), 0.5 s of i-frames, cancels a swing in progress.
 //   down    hp 0: Knockdown (1.2 s), cut to black, the player wakes at the nearest pier and gets up (GetUp_Front)
 //           until 3 s; 10 % of the cash carried is lost at the moment of the blow. With the death feature installed
@@ -55,6 +63,7 @@ export class PlayerCombat {
 		this.evadeCd = 0;
 		this.hurtInv = 0;
 		this.evadeDir = { x: 0, z: 1 };
+		this.dodgeQueued = null; // { x, z, yaw }: Q pressed before the swing's contact
 		this.guardHeld = false;
 		this.guarding = false;
 		if ( this._guardMt ) this._stopGuardPose();
@@ -72,7 +81,9 @@ export class PlayerCombat {
 		this.guardStart = - 99; // clock when the guard last came up
 		this.sinceCombat = 99; // s since a blow was traded (the health bar shows inside PLAYER.combatLinger)
 		this.deathMode = false;
-		this.stats = { swings: 0, hits: 0, blocks: 0, dodges: 0, hurt: 0, knockdowns: 0, parries: 0, chips: 0 };
+		this.stats = { swings: 0, hits: 0, whiffs: 0, blocks: 0, dodges: 0, hurt: 0, knockdowns: 0, parries: 0, chips: 0, cancels: 0, yields: 0 };
+		this.guardFlash = 0; // 1 -> 0: the shield flash of a blocked blow (HUD)
+		this.guardFlashKind = null;
 
 	}
 
@@ -167,6 +178,13 @@ export class PlayerCombat {
 		if ( this.state === 'down' ) return 'no';
 		if ( this.state === 'evade' ) return 'busy';
 		if ( this.evadeCd > 0 ) return 'cooldown';
+		// mid-swing: before the contact the dodge waits for it (the blow still lands), after it the recovery is cancelled
+		if ( this.state === 'swing' && ! this.swingContact ) {
+
+			this.dodgeQueued = { x: wishX, z: wishZ, yaw };
+			return 'queued';
+
+		}
 		if ( this.stamina < PLAYER.evadeStamina - 1e-6 ) {
 
 			this._tired();
@@ -178,6 +196,8 @@ export class PlayerCombat {
 		const len = Math.hypot( dx, dz );
 		if ( len > 0.1 ) { dx /= len; dz /= len; } else { dx = Math.sin( yaw ); dz = Math.cos( yaw ); } // behind: opposite of ( -sin, -cos )
 		this._spend( PLAYER.evadeStamina );
+		if ( this.state === 'swing' ) this.stats.cancels ++;
+		this.dodgeQueued = null;
 		this.evadeDir.x = dx;
 		this.evadeDir.z = dz;
 		this.state = 'evade';
@@ -207,6 +227,7 @@ export class PlayerCombat {
 		if ( this.buffer > 0 ) this.buffer = Math.max( 0, this.buffer - dt );
 		if ( this.tiredT > 0 ) this.tiredT -= dt;
 		if ( this.hurtFlash > 0 ) this.hurtFlash = Math.max( 0, this.hurtFlash - dt * 3.5 );
+		if ( this.guardFlash > 0 ) this.guardFlash = Math.max( 0, this.guardFlash - dt * 4 );
 
 		switch ( this.state ) {
 
@@ -223,12 +244,15 @@ export class PlayerCombat {
 				this.guarding = this.guardHeld && h.rodStowed() && this.stamina > PLAYER.guardMin;
 				if ( this.guarding && ! was ) {
 
-					this.guardStart = this.clock; // the parry timing counts from here
+					// the parry timing counts from the step the press arrived in (wave 12E, the harness: stamping the step's end
+					// made a raise one frame before the blow a 'late' block)
+					this.guardStart = this.clock - dt;
 					this._raiseGuardPose();
 
 				}
 
-				if ( this.guarding ) this._spend( PLAYER.guardDrain * dt );
+				// (the stance is free outside a fight: wave 12E shows it whenever RMB is held with the rod away)
+				if ( this.guarding && h.engaged() ) this._spend( PLAYER.guardDrain * dt );
 				if ( this.hp < this.maxHp && this.sinceHurt > PLAYER.regenDelay && ! h.engaged() ) this.hp = Math.min( this.maxHp, this.hp + PLAYER.regen * dt );
 				break;
 
@@ -249,10 +273,18 @@ export class PlayerCombat {
 
 					this.swingContact = true;
 					this.lastSwing = this._resolveSwing();
+					// a Q pressed during the swing's wind-up: the dodge comes out the moment the blow is through
+					const q = this.dodgeQueued;
+					if ( q ) {
+
+						this.dodgeQueued = null;
+						if ( this.evadePress( q.x, q.z, q.yaw ) === 'evade' ) break;
+
+					}
 
 				}
 
-				if ( this.t >= PLAYER.attackTotal ) {
+				if ( this.t >= ( this.swingContact && ! this.lastSwing ? PLAYER.whiffTotal : PLAYER.attackTotal ) ) {
 
 					this.state = 'free';
 					this.t = 0;
@@ -384,14 +416,26 @@ export class PlayerCombat {
 
 		// the swing's contact point for the destructible props (a raider in reach takes the hit as well)
 		if ( h.emit ) h.emit( 'meleeHit', { x: p.x + forwardX( yaw ) * 1.2, y: p.y + 1.0, z: p.z + forwardZ( yaw ) * 1.2, range: PLAYER.attackRange, energy: PLAYER.attackDamage * 40, by: 'player' } );
-		if ( ! best ) return null;
+		if ( ! best ) {
+
+			// a whiff: a thin swish through the air and the longer recovery (whiffTotal)
+			this.stats.whiffs ++;
+			h.sfx( 'hookSwing', { rate: 1.45, gain: 0.32 } );
+			return null;
+
+		}
+
 		const res = best.takeHit( PLAYER.attackDamage );
 		this.stats.hits ++;
 		this.sinceCombat = 0;
 		h.sfx( 'paddleHit', { at: { x: best.x, y: best.y + 1.1, z: best.z }, gain: 0.95, rate: res.punish ? 0.9 : 1 } );
 		best.headPosition( _v );
 		h.pop( res.punish ? `PUNISH ${ res.dealt }` : String( res.dealt ), _v, res.punish ? 'punish' : 'dmg' );
-		h.kick( res.punish || res.killed ? 'meleeHeavy' : 'meleeHit', 'catch' ); // a hitstop and a small FOV pull
+		const heavy = res.punish || res.killed;
+		h.kick( heavy ? 'meleeHeavy' : 'meleeHit', 'catch' ); // the camera's hold and a small FOV pull
+		// both fighters freeze for a beat (the sim's hitstop); dust off the contact, nearer him than the player
+		if ( h.hitstop ) h.hitstop( res.killed ? FEEL.killStop : heavy ? FEEL.heavyStop : FEEL.hitstop );
+		if ( h.puff ) h.puff( 'hit', { x: ( p.x + best.x * 2 ) / 3, y: best.y + 1.15, z: ( p.z + best.z * 2 ) / 3 } );
 		return { target: best, dealt: res.dealt, killed: res.killed, punish: res.punish };
 
 	}
@@ -428,6 +472,26 @@ export class PlayerCombat {
 		if ( this.guarding && facingDot( h.player.yaw, p.x, p.z, r.x, r.z ) >= PLAYER.blockCone ) {
 
 			const timing = this.guardTiming();
+			if ( r.ranged ) {
+
+				// a rock on the guard: it holds whatever the timing; a guard with no wind left breaks
+				if ( this.stamina >= THROW.chip - 1e-6 ) {
+
+					this._spend( THROW.chip );
+					this.stats.blocks ++;
+					h.sfx( 'hookHit', { at: { x: p.x, y: p.y + 1.2, z: p.z }, gain: 0.5, rate: 1.6 } );
+					h.pop( 'BLOCK', { x: p.x, y: p.y + 1.9, z: p.z }, 'block' );
+					h.kick( 'snap', null );
+					this._blockFx( r, 'block' );
+					return 'blocked';
+
+				}
+
+				this.guarding = false;
+				return this._damage( r, Math.ceil( dmg * 0.5 ), 'guardBroken' );
+
+			}
+
 			if ( timing === 'parry' ) {
 
 				// a clean parry: nothing lost, a little wind back, the raider reels open
@@ -438,6 +502,8 @@ export class PlayerCombat {
 				if ( ! h.sfx( 'parry', { at: { x: p.x, y: p.y + 1.3, z: p.z }, gain: 0.9 } ) ) h.sfx( 'hookHit', { at: { x: p.x, y: p.y + 1.2, z: p.z }, gain: 0.8, rate: 1.7 } );
 				h.pop( 'PARRY', { x: p.x, y: p.y + 1.9, z: p.z }, 'parry' );
 				h.kick( 'parry', 'catch' );
+				this._blockFx( r, 'parry' );
+				if ( h.slowmo ) h.slowmo( FEEL.slowT, FEEL.slowK ); // the moment: 0.3 s at 0.4 speed
 				if ( h.montage ) h.montage( 'parry', { slot: 'upper', blendIn: 0.03, blendOut: 0.2 } );
 				this._upperBusy = this.clock + 0.45; // the parry's one-shot plays out before the guard pose comes back
 				return 'parried';
@@ -453,6 +519,7 @@ export class PlayerCombat {
 				h.sfx( 'hookHit', { at: { x: p.x, y: p.y + 1.2, z: p.z }, gain: 0.7, rate: 1.2 } );
 				h.pop( chip ? `LATE ${ chip }` : 'LATE', { x: p.x, y: p.y + 1.9, z: p.z }, 'chip' );
 				h.kick( 'snap' );
+				this._blockFx( r, 'block' );
 				if ( chip > 0 ) {
 
 					this.hp = Math.max( 0, this.hp - chip );
@@ -473,6 +540,7 @@ export class PlayerCombat {
 				h.sfx( 'hookHit', { at: { x: p.x, y: p.y + 1.2, z: p.z }, gain: 0.55, rate: 1.4 } );
 				h.pop( 'BLOCK', { x: p.x, y: p.y + 1.9, z: p.z }, 'block' );
 				h.kick( 'snap' );
+				this._blockFx( r, 'block' );
 				return 'blocked';
 
 			}
@@ -489,9 +557,45 @@ export class PlayerCombat {
 
 	}
 
+	// the shield flash (HUD) and sparks where the blow met the guard
+	_blockFx( r, kind ) {
+
+		const h = this.host, p = h.player.position;
+		this.guardFlash = 1;
+		this.guardFlashKind = kind;
+		if ( h.flash ) h.flash( kind );
+		if ( h.puff ) {
+
+			const dx = r.x - p.x, dz = r.z - p.z, d = Math.hypot( dx, dz ) || 1;
+			h.puff( kind, { x: p.x + dx / d * 0.55, y: p.y + 1.25, z: p.z + dz / d * 0.55 } );
+
+		}
+
+	}
+
 	_damage( r, dmg, outcome ) {
 
 		const h = this.host, p = h.player.position;
+		if ( r.practiceFight && this.hp - dmg <= this.maxHp * PLAYER.practiceYield + 1e-6 ) {
+
+			// the practice fight: the player yields at 10 % instead of going down; nothing is lost
+			this.hp = Math.max( 1, Math.round( this.maxHp * PLAYER.practiceYield ) );
+			this.hurtInv = 1.2;
+			this.sinceHurt = 0;
+			this.hurtFlash = 1;
+			this.buffer = 0;
+			this.dodgeQueued = null;
+			this.state = 'hurt';
+			this.t = 0;
+			this.guarding = false;
+			this.stats.yields ++;
+			this.sinceCombat = 0;
+			h.kick( 'meleeHurt', 'strike' );
+			if ( h.practiceLost ) h.practiceLost( r );
+			return 'yielded';
+
+		}
+
 		if ( r.practice ) {
 
 			// the training post's swing: shown, never felt
@@ -511,6 +615,8 @@ export class PlayerCombat {
 		h.sfx( r.kind === 'captain' ? 'hookHit' : 'paddleHit', { at: { x: p.x, y: p.y + 1.2, z: p.z }, gain: 1, rate: 0.85 } );
 		h.pop( String( dmg ), { x: p.x, y: p.y + 1.9, z: p.z }, 'hurt' );
 		h.kick( 'meleeHurt', 'strike' );
+		if ( h.flash ) h.flash( 'hurt' );
+		this.dodgeQueued = null;
 		if ( h.montage && this.hp > 0 ) h.montage( 'hit', { slot: 'full', blendIn: 0.04, blendOut: 0.2 } );
 		if ( this.hp <= 0 ) {
 

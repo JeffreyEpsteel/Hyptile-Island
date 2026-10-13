@@ -19,6 +19,7 @@ import * as debugPanel from '../ui/DebugPanel.js';
 import * as saveManager from '../ui/SaveManager.js';
 import * as destruction from './destruction/index.js';
 import * as pirates from './pirates/index.js';
+import * as stronghold from './pirates/Stronghold.js';
 import * as harbour from './harbour/index.js';
 import * as crafting from './crafting/index.js';
 import * as inverted from './inverted/index.js';
@@ -47,6 +48,7 @@ export const MODULES = [
 	[ 'sfx', sfx ],
 	[ 'boarding', boarding ],
 	[ 'pirates', pirates ], // named captains, dens, notoriety (spawns through naval)
+	[ 'stronghold', stronghold ], // Blackwater: the fort's batteries, alarm, guards, claim and black market
 	[ 'crew', crew ], // hired characters posted aboard: gunners and anglers
 	[ 'emotes', emotes ], // 5 opens the emote row (wave, dance, point, cheer), synced as a world event
 	[ 'netsync', netsync ],
