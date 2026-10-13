@@ -16,12 +16,28 @@
 # housing sits just behind GEOM.panel, where src/features/seaplane/Cockpit.js puts its live (canvas) face. Every mesh
 # carries a planar UV (the glass uses it for its reflection streak). The preview also renders the eye view without
 # the glass (nothing of the cabin may block the view) and with it.
+# Wave 12C (airframes, src/features/seaplane/Airframes.js): a third argument picks the variant, all with the Jade's cabin,
+# panel housing and eye point unchanged (the cockpit and its UVs are shared) and the same node names (the wreck parts):
+#   jade       (default) Seaplane.glb
+#   petrel     Petrel.glb: an 11.6 m wing, smaller floats (x 1.2, 85 % long), a 1.0 m propeller, orange and cream
+#   albatross  Albatross.glb: a boat hull under the fuselage (keel at y 0), a 19 m wing, two engines in nacelles (nodes
+#              Propeller / Propeller2 at x +-2.7), wingtip floats as FloatL / FloatR, a longer tail, slate and white
+#   kestrel    Kestrel.glb: the Jade on a fixed tricycle gear (FloatL / FloatR are the main legs and wheels), teal
+#   D:\blender\blender.exe -b --python tools/seaplane/build_seaplane.py -- public/models/seaplane/Petrel.glb preview.png petrel
 import bpy, bmesh, sys, os, math
 from mathutils import Vector, Matrix
 
 argv = sys.argv[sys.argv.index('--') + 1:] if '--' in sys.argv else []
 OUT = argv[0] if argv else 'Seaplane.glb'
-PREVIEW = argv[1] if len(argv) > 1 else None
+PREVIEW = argv[1] if len(argv) > 1 and argv[1] not in ('', '-') else None
+VARIANT = argv[2] if len(argv) > 2 else 'jade'
+# per variant: span, wing chord scale, tail stretch (the fuselage behind z -1.2) and tail size, colours
+VAR = {
+    'jade': dict(span=14.6, chord=1.0, stretch=1.0, tail=1.0, main=(0.05, 0.56, 0.44), trim=(0.95, 0.9, 0.76)),
+    'petrel': dict(span=11.6, chord=0.88, stretch=0.92, tail=0.88, main=(0.86, 0.36, 0.1), trim=(0.95, 0.9, 0.76)),
+    'albatross': dict(span=19.0, chord=1.3, stretch=1.3, tail=1.35, main=(0.3, 0.4, 0.5), trim=(0.94, 0.94, 0.92)),
+    'kestrel': dict(span=14.6, chord=1.0, stretch=1.0, tail=1.0, main=(0.08, 0.42, 0.58), trim=(0.95, 0.9, 0.76)),
+}[VARIANT]
 
 bpy.ops.wm.read_factory_settings(use_empty=True)
 
@@ -62,8 +78,9 @@ def mat(name, rgb, rough=0.6, metal=0.0, double=False):
     return m
 
 
-mat('SeaplaneJade', (0.05, 0.56, 0.44), 0.45, 0.0, True)
-mat('SeaplaneCream', (0.95, 0.9, 0.76), 0.5, 0.0, True)
+mat('SeaplaneJade', VAR['main'], 0.45, 0.0, True)  # (the names stay: Model.js repaints them for the liveries)
+mat('SeaplaneCream', VAR['trim'], 0.5, 0.0, True)
+mat('SeaplaneTyre', (0.07, 0.07, 0.08), 0.9)
 mat('SeaplaneGlass', (0.55, 0.7, 0.75), 0.1, 0.0, True)
 mat('SeaplaneDark', (0.08, 0.09, 0.1), 0.6, 0.3)
 mat('SeaplaneStrut', (0.32, 0.34, 0.35), 0.5, 0.6)
@@ -206,6 +223,10 @@ ST = [
     (-2.9, 1.86, 2.92, 0.45), (-3.8, 2.04, 2.87, 0.34), (-4.6, 2.2, 2.83, 0.25), (-5.4, 2.33, 2.8, 0.17), (-6.0, 2.42, 2.76, 0.11),
     (-6.42, 2.5, 2.72, 0.06),
 ]
+# a longer (or shorter) tail cone behind the cabin (the cabin and the nose stay exactly where they are)
+TAIL0 = -1.2
+ST = [(s[0] if s[0] >= TAIL0 else TAIL0 + (s[0] - TAIL0) * VAR['stretch'],) + tuple(s[1:]) for s in ST]
+TZ = lambda z: z if z >= TAIL0 else TAIL0 + (z - TAIL0) * VAR['stretch']  # a tail point's station
 CY = lambda s: (s[1] + s[2]) / 2
 
 
@@ -305,26 +326,32 @@ dih = math.tan(math.radians(2))
 # (src/features/seaplane/Model.js maps the node names to wreck parts); each half is capped at the root (hidden in the
 # other half while whole)
 WS = [(0.0, 1.45, 1.7, 0.14), (3.6, 1.42, 1.62, 0.13), (7.05, 1.3, 1.3, 0.11), (7.3, 1.2, 1.18, 0.1)]
+SPAN_K = VAR['span'] / 14.6
+WS = [(x * SPAN_K, 1.45 - (1.45 - le) * VAR['chord'], ch * VAR['chord'], t) for x, le, ch, t in WS]
 wings = []
 for side, name in ((1, 'WingL'), (-1, 'WingR')):
     w = Builder(name)
     wrings = [wing_ring(side * x, le, ch, WY + x * dih, t) for x, le, ch, t in WS]
-    w.loft(wrings, lambda c, *_: 'SeaplaneJade' if abs(c[0]) > 6.9 else 'SeaplaneCream', True, True)
+    w.loft(wrings, lambda c, *_: 'SeaplaneJade' if abs(c[0]) > 6.9 * SPAN_K else 'SeaplaneCream', True, True)
     wings.append(w)
 
 # ---------------------------------------------------------------------------------------------- tail
 tail = Builder('Tail')
+TK = VAR['tail']
 TS = [(-2.45, -5.2, 0.75), (-2.3, -5.0, 0.95), (0.0, -4.75, 1.25), (2.3, -5.0, 0.95), (2.45, -5.2, 0.75)]
 trings = []
 for x, le, ch in TS:
-    trings.append([(x, 2.6 + yy * 0.6, le - u) for u, yy in airfoil(ch, 0.1, 8)])
-tail.loft(trings, lambda c, *_: 'SeaplaneCream' if abs(c[0]) < 2.2 else 'SeaplaneJade', True, True)
+    z0 = TZ(-4.75) + (le + 4.75) * TK
+    trings.append([(x * TK, 2.6 + yy * 0.6, z0 - u * TK) for u, yy in airfoil(ch, 0.1, 8)])
+tail.loft(trings, lambda c, *_: 'SeaplaneCream' if abs(c[0]) < 2.2 * TK else 'SeaplaneJade', True, True)
 # fin: symmetric-ish profile in (x, z), stations up the height
 FS = [(2.7, -4.55, 1.8), (3.4, -5.05, 1.35), (4.0, -5.45, 0.95), (4.15, -5.6, 0.75)]
 frings = []
 for y, le, ch in FS:
-    frings.append([(yy * 0.9, y, le - u) for u, yy in airfoil(ch, 0.11, 8)])
-tail.loft(frings, lambda c, *_: 'SeaplaneJade' if c[1] < 3.7 else 'SeaplaneCream', True, True)
+    y2 = 2.7 + (y - 2.7) * TK
+    z0 = TZ(-4.55) + (le + 4.55) * TK
+    frings.append([(yy * 0.9, y2, z0 - u * TK) for u, yy in airfoil(ch * TK, 0.11, 8)])
+tail.loft(frings, lambda c, *_: 'SeaplaneJade' if c[1] < 2.7 + 1.0 * TK else 'SeaplaneCream', True, True)
 
 # ---------------------------------------------------------------------------------------------- floats (Edo-style, V bottom)
 FL = [  # z, width factor, keel y, deck y
@@ -343,26 +370,81 @@ def float_ring(cx, z, w, keel, deck):
 
 # one node per float (FloatL = port, FloatR = starboard): a wreck can tear one off
 floats = []
-for cx, name in ((1.35, 'FloatL'), (-1.35, 'FloatR')):
-    fb = Builder(name)
-    floats.append(fb)
-    fb.loft([float_ring(cx, *s) for s in FL], lambda c, *_: 'SeaplaneCream' if c[1] > 0.55 else 'SeaplaneJade', True, True, False)
-    fb.box((cx, 0.3, -4.0), (0.02, 0.22, 0.14), 'SeaplaneDark')  # the water rudder at the heel
-    for z in (3.0, -3.2):
-        fb.box((cx, 0.66, z), (0.06, 0.04, 0.03), 'SeaplaneStrut')  # cleats
-
-# ---------------------------------------------------------------------------------------------- struts
 struts = Builder('Struts')
-for s in (1, -1):
-    # float struts (N) and the wing struts (V) from the lower fuselage to the wing at mid span
-    struts.rod((s * 1.35, 0.62, 1.7), (s * 0.45, 1.36, 1.55), 0.045, 'SeaplaneStrut')
-    struts.rod((s * 1.35, 0.62, 1.7), (s * 0.45, 1.36, 0.1), 0.04, 'SeaplaneStrut')
-    struts.rod((s * 1.35, 0.62, -0.5), (s * 0.45, 1.4, -0.55), 0.045, 'SeaplaneStrut')
-    struts.rod((s * 0.62, 1.5, 1.05), (s * 3.6, WY + 3.6 * dih + 0.02, 1.0), 0.05, 'SeaplaneStrut')
-    struts.rod((s * 0.62, 1.5, 0.35), (s * 3.6, WY + 3.6 * dih + 0.02, 0.2), 0.05, 'SeaplaneStrut')
-for z in (1.7, -0.5):
-    struts.rod((1.35, 0.6, z), (-1.35, 0.6, z), 0.035, 'SeaplaneStrut')  # spreader bars
-struts.box((0.95, 1.0, 1.2), (0.12, 0.015, 0.1), 'SeaplaneStrut')  # boarding step by the port door
+FX = 1.2 if VARIANT == 'petrel' else 1.35
+WSX = 3.6 * SPAN_K  # the wing struts' attachment
+if VARIANT in ('jade', 'petrel'):
+    fk, fw = (0.85, 0.875) if VARIANT == 'petrel' else (1.0, 1.0)
+    for cx, name in ((FX, 'FloatL'), (-FX, 'FloatR')):
+        fb = Builder(name)
+        floats.append(fb)
+        fb.loft([float_ring(cx, z * fk, w * fw, k, d) for z, w, k, d in FL], lambda c, *_: 'SeaplaneCream' if c[1] > 0.55 else 'SeaplaneJade', True, True, False)
+        fb.box((cx, 0.3, -4.0 * fk), (0.02, 0.22, 0.14), 'SeaplaneDark')  # the water rudder at the heel
+        for z in (3.0, -3.2):
+            fb.box((cx, 0.66, z * fk), (0.06, 0.04, 0.03), 'SeaplaneStrut')  # cleats
+    for s in (1, -1):
+        # float struts (N) from the lower fuselage
+        struts.rod((s * FX, 0.62, 1.7 * fk), (s * 0.45, 1.36, 1.55), 0.045, 'SeaplaneStrut')
+        struts.rod((s * FX, 0.62, 1.7 * fk), (s * 0.45, 1.36, 0.1), 0.04, 'SeaplaneStrut')
+        struts.rod((s * FX, 0.62, -0.5 * fk), (s * 0.45, 1.4, -0.55), 0.045, 'SeaplaneStrut')
+    for z in (1.7 * fk, -0.5 * fk):
+        struts.rod((FX, 0.6, z), (-FX, 0.6, z), 0.035, 'SeaplaneStrut')  # spreader bars
+    struts.box((0.95, 1.0, 1.2), (0.12, 0.015, 0.1), 'SeaplaneStrut')  # boarding step by the port door
+elif VARIANT == 'albatross':
+    # the boat hull under the fuselage: a V bottom with a step, flared chines, the keel at y 0 (Airframes.js HULL)
+    def hull_ring(z):
+        bow = max(0.0, (z - 2.4) / 1.9)
+        aft = max(0.0, (-z - 1.6) / 3.2)
+        keel = 0.55 * bow * bow + 0.35 * aft + (0.06 if z < -0.6 else 0.0)
+        hw = 1.0 * (1 - 0.6 * bow * bow) * (1 - 0.45 * aft)
+        top = 1.42
+        chine = keel + 0.28
+        pts = [(0, keel), (hw * 0.5, keel + 0.12), (hw, chine), (hw * 1.02, 0.9), (hw * 0.97, top), (-hw * 0.97, top), (-hw * 1.02, 0.9), (-hw, chine), (-hw * 0.5, keel + 0.12)]
+        return [(x, y, z) for x, y in pts]
+    HZ = [4.35, 4.1, 3.7, 3.2, 2.6, 1.8, 0.8, -0.2, -0.6, -0.61, -1.4, -2.4, -3.4, -4.3, -4.8]
+    body.loft([hull_ring(z) for z in HZ], lambda c, *_: 'SeaplaneCream' if c[1] < 0.5 else 'SeaplaneJade', True, True)
+    body.box((0, 0.5, -4.85), (0.03, 0.4, 0.2), 'SeaplaneDark')  # the water rudder
+    struts.box((1.03, 1.0, 0.3), (0.06, 0.015, 0.25), 'SeaplaneStrut')  # the step under the port door
+    # wingtip floats (FloatL / FloatR), on two struts each from the wing
+    TX = 7.2
+    for cx, name in ((TX, 'FloatL'), (-TX, 'FloatR')):
+        fb = Builder(name)
+        floats.append(fb)
+        TF = [(0.75, 0.15, 1.15, 1.35), (0.55, 0.6, 1.0, 1.42), (0.15, 0.9, 0.95, 1.45), (-0.3, 0.85, 0.97, 1.44), (-0.75, 0.3, 1.1, 1.38)]
+        fb.loft([float_ring(cx, z, w * 0.45, k, d) for z, w, k, d in TF], lambda c, *_: 'SeaplaneCream' if c[1] > 1.35 else 'SeaplaneJade', True, True, False)
+        y_w = WY + TX * dih
+        fb.rod((cx, 1.44, 0.35), (cx, y_w, 0.6), 0.04, 'SeaplaneStrut')
+        fb.rod((cx, 1.44, -0.3), (cx, y_w, 0.0), 0.035, 'SeaplaneStrut')
+    # engine nacelles on the wing (the propellers' hubs at x +-2.7, y 3.05, z 2.75)
+    for s in (1, -1):
+        nx = s * 2.7
+        NR = [(2.62, 0.1), (2.5, 0.27), (2.2, 0.36), (1.6, 0.38), (0.8, 0.34), (0.0, 0.22), (-0.6, 0.06)]
+        rings = [[(nx + r * math.cos(a), 3.05 + r * math.sin(a), z) for a in (2 * math.pi * i / 12 for i in range(12))] for z, r in NR]
+        body.loft(rings, lambda c, *_: 'SeaplaneDark' if c[2] > 2.4 else 'SeaplaneCream', True, True)
+elif VARIANT == 'kestrel':
+    # fixed tricycle gear: the main legs (FloatL / FloatR: a wreck tears them off) and the nose leg (in the struts)
+    def wheel(b, c, r, w):
+        rings = []
+        for dx, rr in ((-w / 2, r * 0.8), (-w / 2 + 0.03, r), (w / 2 - 0.03, r), (w / 2, r * 0.8)):
+            rings.append([(c[0] + dx, c[1] + rr * math.cos(a), c[2] + rr * math.sin(a)) for a in (2 * math.pi * i / 14 for i in range(14))])
+        b.loft(rings, lambda *a: 'SeaplaneTyre', True, True)
+        b.box((c[0], c[1], c[2]), (w / 2 + 0.02, r * 0.45, r * 0.45), 'SeaplaneStrut')  # the hub
+    for cx, name in ((1.3, 'FloatL'), (-1.3, 'FloatR')):
+        fb = Builder(name)
+        floats.append(fb)
+        wheel(fb, (cx, 0.3, -0.35), 0.3, 0.18)
+        fb.rod((cx, 0.3, -0.35), (cx * 0.35, 1.36, -0.1), 0.05, 'SeaplaneStrut')
+        fb.rod((cx, 0.3, -0.35), (cx * 0.35, 1.36, 0.8), 0.035, 'SeaplaneStrut')
+        fb.box((cx, 0.62, -0.35), (0.12, 0.03, 0.32), 'SeaplaneJade')  # the spat over the wheel
+    wheel(struts, (0, 0.25, 3.0), 0.25, 0.14)
+    struts.rod((0, 0.25, 3.0), (0, 1.62, 3.1), 0.045, 'SeaplaneStrut')
+    struts.box((0.95, 1.0, 1.2), (0.12, 0.015, 0.1), 'SeaplaneStrut')  # boarding step by the port door
+    struts.rod((0.95, 1.0, 1.2), (0.95, 0.35, 1.2), 0.02, 'SeaplaneStrut')
+if VARIANT != 'albatross':
+    for s in (1, -1):
+        # the wing struts (V) from the lower fuselage to the wing at mid span
+        struts.rod((s * 0.62, 1.5, 1.05), (s * WSX, WY + WSX * dih + 0.02, 1.0), 0.05, 'SeaplaneStrut')
+        struts.rod((s * 0.62, 1.5, 0.35), (s * WSX, WY + WSX * dih + 0.02, 0.2), 0.05, 'SeaplaneStrut')
 
 # ---------------------------------------------------------------------------------------------- cabin interior
 cab = Builder('Cabin')
@@ -404,33 +486,46 @@ cab.box((0, 1.78, 2.56), (0.64, 0.3, 0.03), 'SeaplaneDark')  # firewall under th
 cab.box((0, PANEL_C[1] - PANEL_H / 2 * ct - 0.03, PANEL_C[2] - 0.02), (0.14, 0.03, 0.06), 'SeaplaneStrut')  # throttle quadrant
 
 # ---------------------------------------------------------------------------------------------- propeller (own node)
-prop = Builder('Propeller')
-px, py, pz = PROP
-spin = []
-for z, r in ((3.68, 0.24), (3.78, 0.25), (3.9, 0.23), (4.0, 0.18), (4.08, 0.11), (4.13, 0.04)):
-    spin.append([(px + r * math.cos(a), py + r * math.sin(a), z) for a in (2 * math.pi * i / 16 for i in range(16))])
-prop.loft(spin, lambda c, *_: 'SeaplaneProp', True, True)
-for k in range(3):
-    th = 2 * math.pi * k / 3 + 0.3
-    ca, sa = math.cos(th), math.sin(th)
-    brings = []
-    for r, ch, tw in ((0.18, 0.16, 0.7), (0.5, 0.2, 0.45), (0.95, 0.17, 0.28), (1.22, 0.12, 0.2), (1.3, 0.07, 0.18)):
-        ring = []
-        for u, yy in airfoil(ch, 0.12, 6):
-            # blade frame: span along the radius, chord along the tangent, twisted towards the axis
-            cu = u - ch * 0.4
-            t_ = cu * math.cos(tw)
-            ax = -cu * math.sin(tw) + yy
-            ring.append((px + ca * r - sa * t_, py + sa * r + ca * t_, pz + ax))
-        brings.append(ring)
-    prop.loft(brings, lambda c, *_: 'SeaplanePropTip' if math.hypot(c[0] - px, c[1] - py) > 1.12 else 'SeaplaneProp', False, True)
+def make_prop(name, hub, R):
+    prop = Builder(name)
+    px, py, pz = hub
+    k_ = R / 1.3
+    spin = []
+    for z, r in ((3.68, 0.24), (3.78, 0.25), (3.9, 0.23), (4.0, 0.18), (4.08, 0.11), (4.13, 0.04)):
+        spin.append([(px + r * k_ * math.cos(a), py + r * k_ * math.sin(a), pz + (z - 3.85) * k_) for a in (2 * math.pi * i / 16 for i in range(16))])
+    prop.loft(spin, lambda c, *_: 'SeaplaneProp', True, True)
+    for k in range(3):
+        th = 2 * math.pi * k / 3 + 0.3
+        ca, sa = math.cos(th), math.sin(th)
+        brings = []
+        for r, ch, tw in ((0.18, 0.16, 0.7), (0.5, 0.2, 0.45), (0.95, 0.17, 0.28), (1.22, 0.12, 0.2), (1.3, 0.07, 0.18)):
+            ring = []
+            for u, yy in airfoil(ch * k_, 0.12, 6):
+                # blade frame: span along the radius, chord along the tangent, twisted towards the axis
+                cu = u - ch * k_ * 0.4
+                t_ = cu * math.cos(tw)
+                ax = -cu * math.sin(tw) + yy
+                ring.append((px + ca * r * k_ - sa * t_, py + sa * r * k_ + ca * t_, pz + ax))
+            brings.append(ring)
+        prop.loft(brings, lambda c, *_: 'SeaplanePropTip' if math.hypot(c[0] - px, c[1] - py) > 1.12 * k_ else 'SeaplaneProp', False, True)
+    return prop
 
-objs = [b.build(col) for b in (body, glass, *wings, tail, *floats, struts, cab, prop)]
-pob = objs[-1]
-# the propeller's origin at the hub, so the node carries the spin axis
-pc = B(PROP)
-pob.data.transform(Matrix.Translation(-pc))
-pob.location = pc
+
+# the propeller hubs (Airframes.js geom.props); a twin's second is the node Propeller2
+if VARIANT == 'albatross':
+    HUBS = [(2.7, 3.05, 2.75), (-2.7, 3.05, 2.75)]
+    PR = 1.12
+else:
+    HUBS = [PROP]
+    PR = 1.0 if VARIANT == 'petrel' else 1.3
+props = [make_prop('Propeller' if i == 0 else 'Propeller2', h, PR) for i, h in enumerate(HUBS)]
+
+objs = [b.build(col) for b in (body, glass, *wings, tail, *floats, struts, cab, *props)]
+for pob, hub in zip(objs[-len(props):], HUBS):
+    # the propeller's origin at the hub, so the node carries the spin axis
+    pc = B(hub)
+    pob.data.transform(Matrix.Translation(-pc))
+    pob.location = pc
 
 tri = sum(len(p.vertices) - 2 for o in objs for p in o.data.polygons)
 lo = [1e9] * 3
@@ -476,7 +571,8 @@ if PREVIEW:
         MATS['SeaplaneGlass'].diffuse_color = (*srgb((0.55, 0.7, 0.75)), 0.18)
     except Exception:
         pass
-    shots = [('front3q', (12.0, -11.0, 6.0)), ('side', (16.0, 0.5, 2.2)), ('rear3q', (-10.0, 12.0, 7.0)), ('cockpit_clear', 'eye'), ('cockpit', 'eye'), ('cockpit_left', 'left')]
+    far = 1.35 if VARIANT == 'albatross' else 1.0
+    shots = [('front3q', (12.0 * far, -11.0 * far, 6.0 * far)), ('side', (16.0 * far, 0.5, 2.2)), ('rear3q', (-10.0 * far, 12.0 * far, 7.0 * far)), ('cockpit_clear', 'eye'), ('cockpit', 'eye'), ('cockpit_left', 'left')]
     base, ext = os.path.splitext(PREVIEW)
     for name, loc in shots:
         glass_ob.hide_render = name == 'cockpit_clear'

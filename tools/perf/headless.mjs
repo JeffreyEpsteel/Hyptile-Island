@@ -12,6 +12,7 @@
 //                                                      the device refuses anything above them) [--features=none] (no optional features)
 //                                [--boot[=frames]]   (no perf run: boot, start a sandbox session, run frames, print the GPU memory
 //                                                     and every GPU error; exit 1 on any error: test/engine-smoke.mjs --limits=default)
+//                                [--boat-swaps[=n] [--patch-dispose]]   (no perf run: n boat swaps, the GPU buffer count after each)
 //                                [--nan-check[=frames]]   (no perf run: Jade Landing in rain at a few headings; exit 1 when a
 //                                                          NaN / Inf reaches the scene colour or the TAA input)
 //   node tools/perf/report.mjs <out>/perf-<tag>.json
@@ -190,6 +191,76 @@ if ( process.argv.includes( '--mobile' ) ) {
 }
 stage = 'start session';
 app.startSession( null, { mode: 'sandbox', restore: false, session: false } );
+// --boat-swaps[=n] (wave 12D): n boat swaps through the catalog (App.setBoat, 20 frames and the GLB between them), the live
+// GPU buffer count after each one and the labels that grew; --patch-dispose first applies the engine patch of the wave 12D
+// report (UniformBlock.destroyBuffer, Material.dispose frees it, the bind groups follow the buffer version) to compare
+const swapArg = process.argv.find( ( a ) => a === '--boat-swaps' || a.startsWith( '--boat-swaps=' ) );
+if ( swapArg ) {
+
+	const n = Number( swapArg.split( '=' )[ 1 ] ) || 16;
+	if ( process.argv.includes( '--patch-dispose' ) ) {
+
+		const { UniformBlock } = await import( '../../src/engine/gpu/Uniforms.js' );
+		const { Material } = await import( '../../src/engine/render/Material.js' );
+		if ( ! UniformBlock.prototype.destroyBuffer ) {
+
+			UniformBlock.prototype.destroyBuffer = function () {
+
+				if ( ! this.buffer ) return;
+				this.buffer.destroy();
+				this.buffer = null;
+				this._last = null;
+				this.bufferVersion = ( this.bufferVersion || 0 ) + 1;
+
+			};
+			const dispose = Material.prototype.dispose;
+			Material.prototype.dispose = function () {
+
+				dispose.call( this );
+				if ( this.uniformBlock && this.uniformBlock.destroyBuffer ) this.uniformBlock.destroyBuffer();
+
+			};
+			console.log( '  (engine patch applied by the harness; the bind-group version check is not: a reused disposed material would fail)' );
+
+		}
+
+	}
+
+	stage = 'boat swaps';
+	const { BOATS } = await import( '../../src/game/Boats.js' );
+	const ids = Object.keys( BOATS );
+	const frames = async ( k ) => {
+
+		for ( let i = 0; i < k; i ++ ) app.frame( 1 / 60 );
+		await GPU.queue.onSubmittedWorkDone();
+
+	};
+
+	await frames( 20 );
+	const labels = () => new Map( [ ...GPU._byLabel ].filter( ( [ k ] ) => k.startsWith( 'buffer' ) ).map( ( [ k, e ] ) => [ k, e.c ] ) );
+	const c0 = GPU.memory.bufferCount, l0 = labels();
+	for ( let i = 0; i < n; i ++ ) {
+
+		const id = ids[ ( i + 1 ) % ids.length ];
+		app.setBoat( id );
+		await frames( 10 );
+		if ( app.boat.ready ) await app.boat.ready.catch( () => {} );
+		await frames( 10 );
+		console.log( `  swap ${ i + 1 } -> ${ id }: ${ GPU.memory.bufferCount } buffers (${ GPU.memory.bufferCount - c0 >= 0 ? '+' : '' }${ GPU.memory.bufferCount - c0 })` );
+
+	}
+
+	app.setBoat( ids[ 0 ] );
+	await frames( 20 );
+	const l1 = labels(), grew = [];
+	for ( const [ k, c ] of l1 ) if ( c > ( l0.get( k ) || 0 ) ) grew.push( `${ k } +${ c - ( l0.get( k ) || 0 ) }` );
+	console.log( `  after ${ n } swaps and back: ${ GPU.memory.bufferCount - c0 } buffers more (${ ( ( GPU.memory.bufferCount - c0 ) / ( n + 1 ) ).toFixed( 1 ) } per swap)` );
+	console.log( '  grew: ' + ( grew.join( ', ' ) || 'nothing' ) );
+	for ( const e of gpuErrors.slice( 0, 12 ) ) console.log( `GPU ${ e.kind } [${ e.stage }]${ e.label ? ' ' + e.label : '' }: ${ e.message.split( '\n' )[ 0 ] }` );
+	process.exit( gpuErrors.length ? 1 : 0 );
+
+}
+
 // --boot[=frames]: the start path and the first frames only; GPU memory and errors; exit 1 on any GPU error
 const bootArg = process.argv.find( ( a ) => a === '--boot' || a.startsWith( '--boot=' ) );
 if ( bootArg ) {

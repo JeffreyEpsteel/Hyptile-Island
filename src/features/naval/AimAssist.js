@@ -2,6 +2,7 @@ import { leadAim, solveElevation, rotateByQuat, MUZZLE_SPEED, arcPoints, impactT
 import { clamp, normaliseSide } from './util.js';
 import { pitchToRange } from './AimCamera.js';
 import { aimPoint } from './Sections.js';
+import { setStyle, setNum, setClass } from './DomWrites.js';
 
 // Naval aim assist (wave 4): at the helm, each loaded battery shows where its broadside would go - a faint line of dots
 // along the ball's arc to where it meets the target (or the water), a small lead marker where the target will be, and a
@@ -328,10 +329,10 @@ export class AimAssist {
 					const q = project( camera, p.points[ i ] );
 					if ( ! q || ! q.visible ) continue;
 					const e = this._dot( nd ++ );
-					e.style.display = '';
-					e.className = i % 2 ? cls : ( cls || 'is-dim' );
-					e.style.left = ( q.x * 100 ).toFixed( 2 ) + '%';
-					e.style.top = ( q.y * 100 ).toFixed( 2 ) + '%';
+					setStyle( e, 'display', '' );
+					setClass( e, i % 2 ? cls : ( cls || 'is-dim' ) );
+					setNum( e, 'left', q.x * 100, 2, '', '%' );
+					setNum( e, 'top', q.y * 100, 2, '', '%' );
 
 				}
 
@@ -341,9 +342,9 @@ export class AimAssist {
 					if ( q && q.visible ) {
 
 						const e = this._mark( nm ++ );
-						e.style.display = '';
-						e.style.left = ( q.x * 100 ).toFixed( 2 ) + '%';
-						e.style.top = ( q.y * 100 ).toFixed( 2 ) + '%';
+						setStyle( e, 'display', '' );
+						setNum( e, 'left', q.x * 100, 2, '', '%' );
+						setNum( e, 'top', q.y * 100, 2, '', '%' );
 
 					}
 
@@ -353,8 +354,8 @@ export class AimAssist {
 
 		}
 
-		for ( let i = nd; i < this.dots.length; i ++ ) this.dots[ i ].style.display = 'none';
-		for ( let i = nm; i < this.marks.length; i ++ ) this.marks[ i ].style.display = 'none';
+		for ( let i = nd; i < this.dots.length; i ++ ) setStyle( this.dots[ i ], 'display', 'none' );
+		for ( let i = nm; i < this.marks.length; i ++ ) setStyle( this.marks[ i ], 'display', 'none' );
 
 	}
 

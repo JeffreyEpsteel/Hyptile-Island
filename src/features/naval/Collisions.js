@@ -41,11 +41,13 @@ export const COLLIDE = {
 
 const cross = ( rx, rz, nx, nz ) => rz * nx - rx * nz; // (r x n).y about +Y
 
-export function obb2( cx, cz, yaw, hx, hz ) {
+export function obb2( cx, cz, yaw, hx, hz, out = null ) {
 
 	const s = Math.sin( yaw ), c = Math.cos( yaw );
 	// port = ( cos, -sin ), forward = ( sin, cos ) (Ballistics.yawBox)
-	return { cx, cz, px: c, pz: - s, fx: s, fz: c, hx, hz };
+	if ( ! out ) return { cx, cz, px: c, pz: - s, fx: s, fz: c, hx, hz };
+	out.cx = cx; out.cz = cz; out.px = c; out.pz = - s; out.fx = s; out.fz = c; out.hx = hx; out.hz = hz;
+	return out;
 
 }
 
@@ -69,31 +71,33 @@ const radius = ( b, lx, lz ) => b.hx * Math.abs( b.px * lx + b.pz * lz ) + b.hz 
 
 export function satOverlap( A, B, out = {} ) {
 
-	const dx = B.cx - A.cx, dz = B.cz - A.cz;
-	let best = - Infinity, nx = 1, nz = 0;
-	const axes = [ A.px, A.pz, A.fx, A.fz, B.px, B.pz, B.fx, B.fz ];
-	for ( let i = 0; i < 8; i += 2 ) {
-
-		const lx = axes[ i ], lz = axes[ i + 1 ];
-		const d = dx * lx + dz * lz;
-		const sep = Math.abs( d ) - ( radius( A, lx, lz ) + radius( B, lx, lz ) );
-		if ( sep > best ) {
-
-			best = sep;
-			const sg = d < 0 ? - 1 : 1;
-			nx = lx * sg;
-			nz = lz * sg;
-
-		}
-
-	}
-
-	out.sep = best;
+	// the four axes in order (A port, A forward, B port, B forward); the first largest gap wins (no array per call)
+	out.sep = - Infinity;
+	out.nx = 1;
+	out.nz = 0;
+	satAxis( A, B, A.px, A.pz, out );
+	satAxis( A, B, A.fx, A.fz, out );
+	satAxis( A, B, B.px, B.pz, out );
+	satAxis( A, B, B.fx, B.fz, out );
+	const best = out.sep;
 	out.hit = best < 0;
 	out.depth = best < 0 ? - best : 0;
-	out.nx = nx;
-	out.nz = nz;
 	return out;
+
+}
+
+function satAxis( A, B, lx, lz, out ) {
+
+	const d = ( B.cx - A.cx ) * lx + ( B.cz - A.cz ) * lz;
+	const sep = Math.abs( d ) - ( radius( A, lx, lz ) + radius( B, lx, lz ) );
+	if ( sep > out.sep ) {
+
+		out.sep = sep;
+		const sg = d < 0 ? - 1 : 1;
+		out.nx = lx * sg;
+		out.nz = lz * sg;
+
+	}
 
 }
 
@@ -219,14 +223,28 @@ export function predictContact( a, b, horizon = 3 ) {
 
 }
 
+// Broad phase (wave 12D): bodies are binned in GRID.cell m squares and a body only meets the bodies of its own and the
+// eight cells round it; the pairs are still visited in the brute-force order (i < j by list index), so contacts resolve
+// exactly as before. Under GRID.min bodies (or a body longer than a cell) the plain loop is used: measured in node, the
+// plain loop with its box reject costs 1 us for 13 hulls and 20 us for 64 (the grid 5 / 21 us), the grid wins from ~64
+// (128 hulls: 47 against 78 us). A world of 12 AI ships and a few player boats stays on the plain loop.
+export const GRID = { cell: 64, min: 64 };
+
 export class CollisionWorld {
 
 	constructor() {
 
-		this.pairs = new Map(); // 'idA|idB' -> { armed, last, seen }
+		this.pairs = new Map(); // 'idA|idB' -> { key, armed, last, seen }
 		this.contacts = [];
 		this._frame = 0;
 		this._sat = {};
+		this._A = {};
+		this._B = {};
+		this._rad = [];
+		this._cells = new Map(); // cell key -> [ body index ]
+		this._cellOf = [];
+		this._cand = [];
+		this.stats = { tested: 0, grid: false };
 
 	}
 
@@ -236,13 +254,88 @@ export class CollisionWorld {
 		let p = this.pairs.get( k );
 		if ( ! p ) {
 
-			p = { armed: true, last: - Infinity, seen: 0 };
+			p = { key: k, armed: true, last: - Infinity, seen: 0 };
 			this.pairs.set( k, p );
 
 		}
 
 		p.seen = this._frame;
 		return p;
+
+	}
+
+	// bin every body; false when the grid cannot be used this step (a reach longer than a cell)
+	_bin( bodies, rad ) {
+
+		const cells = this._cells, cellOf = this._cellOf, C = GRID.cell;
+		for ( const list of cells.values() ) list.length = 0;
+		let maxR = 0;
+		for ( let i = 0; i < bodies.length; i ++ ) {
+
+			const b = bodies[ i ];
+			if ( rad[ i ] > maxR ) maxR = rad[ i ];
+			// cell keys as one number (|cx|, |cz| < 2^20: +-67 000 km of sea)
+			const k = ( Math.floor( b.x / C ) + 524288 ) * 1048576 + ( Math.floor( b.z / C ) + 524288 );
+			cellOf[ i ] = k;
+			let list = cells.get( k );
+			if ( ! list ) cells.set( k, list = [] );
+			list.push( i );
+
+		}
+
+		// a pair within reach is within one cell of each other while 2 maxR + skin (+ a push of a few m) stays under a cell
+		if ( 2 * maxR + COLLIDE.skin + 4 > C || ! Number.isFinite( maxR ) ) return false;
+		if ( cells.size > 4 * bodies.length + 64 ) cells.clear(); // (forget cells nobody uses any more)
+		return true;
+
+	}
+
+	// the bodies after i (list order) in the 3 x 3 cells round body i, ascending
+	_candidates( i ) {
+
+		const out = this._cand, cells = this._cells, k = this._cellOf[ i ];
+		out.length = 0;
+		for ( let dx = - 1; dx <= 1; dx ++ ) for ( let dz = - 1; dz <= 1; dz ++ ) {
+
+			const list = cells.get( k + dx * 1048576 + dz );
+			if ( ! list ) continue;
+			for ( let m = 0; m < list.length; m ++ ) if ( list[ m ] > i ) out.push( list[ m ] );
+
+		}
+
+		if ( out.length > 1 ) out.sort( ascending );
+		return out;
+
+	}
+
+	_test( time, a, b, ra, rb, out ) {
+
+		this.stats.tested ++;
+		const reach = ra + rb + COLLIDE.skin;
+		if ( Math.abs( b.x - a.x ) > reach || Math.abs( b.z - a.z ) > reach ) return;
+		const A = obb2( a.x, a.z, a.yaw, a.hx, a.hz, this._A ), B = obb2( b.x, b.z, b.yaw, b.hx, b.hz, this._B );
+		const s = satOverlap( A, B, this._sat );
+		if ( s.sep > COLLIDE.skin ) return; // apart: the pair re-arms below (not seen this frame)
+		const p = this._pair( a, b );
+		if ( ! s.hit ) return; // within the skin: touching, nothing to resolve
+		const nx = s.nx, nz = s.nz, depth = s.depth;
+		const pt = contactPoint( A, B, nx, nz );
+		const c = { a, b, x: pt.x, z: pt.z, nx, nz, depth, vClose: 0, jn: 0, damage: null, bowA: false, bowB: false };
+		const bowA = isBowOn( a, nx, nz, pt ), bowB = isBowOn( b, - nx, - nz, pt );
+		const r = resolveContact( a, b, c );
+		c.vClose = r.vClose;
+		c.jn = r.jn;
+		c.bowA = bowA;
+		c.bowB = bowB;
+		if ( p.armed && ! a.gentle && ! b.gentle && r.vClose > COLLIDE.minSpeed && time - p.last >= COLLIDE.minGap ) {
+
+			p.armed = false;
+			p.last = time;
+			c.damage = { a: ramDamage( a, b, r.vClose, bowA, bowB ), b: ramDamage( b, a, r.vClose, bowB, bowA ) };
+
+		}
+
+		out.push( c );
 
 	}
 
@@ -253,47 +346,34 @@ export class CollisionWorld {
 		const out = this.contacts;
 		out.length = 0;
 		const n = bodies.length;
+		const rad = this._rad;
+		rad.length = n;
+		for ( let i = 0; i < n; i ++ ) rad[ i ] = Math.hypot( bodies[ i ].hx, bodies[ i ].hz );
+		const grid = n >= GRID.min && this._bin( bodies, rad );
+		this.stats.grid = grid;
 		for ( let i = 0; i < n; i ++ ) {
 
 			const a = bodies[ i ];
-			for ( let j = i + 1; j < n; j ++ ) {
+			if ( grid ) {
 
-				const b = bodies[ j ];
-				const reach = Math.hypot( a.hx, a.hz ) + Math.hypot( b.hx, b.hz ) + COLLIDE.skin;
-				if ( Math.abs( b.x - a.x ) > reach || Math.abs( b.z - a.z ) > reach ) continue;
-				const A = obb2( a.x, a.z, a.yaw, a.hx, a.hz ), B = obb2( b.x, b.z, b.yaw, b.hx, b.hz );
-				const s = satOverlap( A, B, this._sat );
-				if ( s.sep > COLLIDE.skin ) continue; // apart: the pair re-arms below (not seen this frame)
-				const p = this._pair( a, b );
-				if ( ! s.hit ) continue; // within the skin: touching, nothing to resolve
-				const pt = contactPoint( A, B, s.nx, s.nz );
-				const c = { a, b, x: pt.x, z: pt.z, nx: s.nx, nz: s.nz, depth: s.depth, vClose: 0, jn: 0, damage: null, bowA: false, bowB: false };
-				const bowA = isBowOn( a, s.nx, s.nz, pt ), bowB = isBowOn( b, - s.nx, - s.nz, pt );
-				const r = resolveContact( a, b, c );
-				c.vClose = r.vClose;
-				c.jn = r.jn;
-				c.bowA = bowA;
-				c.bowB = bowB;
-				if ( p.armed && ! a.gentle && ! b.gentle && r.vClose > COLLIDE.minSpeed && time - p.last >= COLLIDE.minGap ) {
+				const cand = this._candidates( i );
+				for ( let m = 0; m < cand.length; m ++ ) {
 
-					p.armed = false;
-					p.last = time;
-					c.damage = { a: ramDamage( a, b, r.vClose, bowA, bowB ), b: ramDamage( b, a, r.vClose, bowB, bowA ) };
+					const j = cand[ m ];
+					this._test( time, a, bodies[ j ], rad[ i ], rad[ j ], out );
 
 				}
 
-				out.push( c );
-
-			}
+			} else for ( let j = i + 1; j < n; j ++ ) this._test( time, a, bodies[ j ], rad[ i ], rad[ j ], out );
 
 		}
 
 		// pairs not touching this frame are apart again: armed for the next blow (and forgotten after a while)
-		for ( const [ k, p ] of this.pairs ) {
+		for ( const p of this.pairs.values() ) {
 
 			if ( p.seen === this._frame ) continue;
 			p.armed = true;
-			if ( time - p.last > 30 ) this.pairs.delete( k );
+			if ( time - p.last > 30 ) this.pairs.delete( p.key );
 
 		}
 
@@ -309,3 +389,5 @@ export class CollisionWorld {
 	}
 
 }
+
+const ascending = ( a, b ) => a - b;

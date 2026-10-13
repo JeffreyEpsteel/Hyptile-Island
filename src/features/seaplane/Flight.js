@@ -25,6 +25,14 @@
 // heave damping per section, a resistance that peaks at the hump (~9 m/s) and drops once the floats are on the step
 // (planing lift near the step raises them), keel-like side resistance and a water rudder for taxiing. Terrain:
 // keel points get a stiff spring with friction (beaching at a walk); other parts touching anything are strikes.
+//
+// Wave 12 (airframes, Airframes.js): the geometry is per spec (spec.geom, GEOM for the Jade): any number of floats
+// ({ x, side: 1 port / -1 starboard / 0 a centre hull, y0, beam, top, step, fore, sections, rudder }), keel points,
+// strike points, engines (a twin: f.engineFail[ i ] cuts one, the other's thrust yaws the plane), and for a land
+// plane wheels ({ x, y, z, steer, brake }: tricycle gear, nose wheel steering with f.controls.waterRudder,
+// f.controls.brake 0..1 on the main wheels, rolling resistance). f.setSpec( spec ) swaps the airframe / its upgrades
+// / its load in place (the state is kept). spec.humpDrag scales the hump of the water resistance, spec.flaps.notches
+// (2, or 3 with STOL flaps) the flap lever.
 
 import { Vector3, Quaternion, MathUtils } from '../../engine/index.js';
 
@@ -94,7 +102,7 @@ export const SPEC = {
 export const SPRUNG = { buoyancy: 0.3, drag: 0.08 };
 
 // float sections: [ z, area factor (beam taper), keel rise ]
-const SECTIONS = [ [ 3.1, 0.5, 0.26 ], [ 2.3, 0.85, 0.08 ], [ 1.5, 1, 0 ], [ 0.7, 1, 0 ], [ - 0.1, 1, 0 ], [ - 0.9, 1, 0.07 ], [ - 1.7, 1, 0.16 ], [ - 2.5, 0.85, 0.26 ], [ - 3.3, 0.6, 0.36 ] ];
+export const SECTIONS = [ [ 3.1, 0.5, 0.26 ], [ 2.3, 0.85, 0.08 ], [ 1.5, 1, 0 ], [ 0.7, 1, 0 ], [ - 0.1, 1, 0 ], [ - 0.9, 1, 0.07 ], [ - 1.7, 1, 0.16 ], [ - 2.5, 0.85, 0.26 ], [ - 3.3, 0.6, 0.36 ] ];
 const SECTION_LEN = 0.8;
 // parts that may not touch anything: [ name, x, y, z ] (Seaplane.js also tests them against ships and buildings)
 export const STRIKE = [
@@ -104,12 +112,20 @@ export const STRIKE = [
 // float keel points against the ground
 const KEELS = [];
 for ( const x of [ GEOM.floatX, - GEOM.floatX ] ) KEELS.push( [ x, 0.3, 3.4 ], [ x, 0, 0.8 ], [ x, 0, - 0.3 ], [ x, 0.22, - 3.7 ] );
+// the Jade's geometry in the per-spec form (wave 12: the other airframes carry their own, Airframes.js)
+GEOM.floats = [ GEOM.floatX, - GEOM.floatX ].map( ( x ) => ( { x, side: Math.sign( x ), y0: 0, beam: GEOM.floatBeam, top: GEOM.floatTop, step: GEOM.step, fore: 2.0, len: SECTION_LEN, sections: SECTIONS, rudder: true } ) );
+GEOM.keels = KEELS;
+GEOM.strike = STRIKE;
+GEOM.wheels = null;
+GEOM.engines = [ SPEC.thrustPoint ];
+GEOM.props = [ GEOM.prop ];
+SPEC.geom = GEOM;
 
 // hull resistance per newton carried by the water: rises to the hump at ~9 m/s, falls once on the step
-export function waterResistance( u ) {
+export function waterResistance( u, hump = 1 ) {
 
 	const a = Math.abs( u );
-	return MathUtils.lerp( 0.02 + 0.2 * sstep( a, 0, 9 ), 0.07, sstep( a, 9, 15 ) );
+	return MathUtils.lerp( 0.02 + 0.2 * hump * sstep( a, 0, 9 ), 0.07, sstep( a, 9, 15 ) );
 
 }
 
@@ -130,22 +146,20 @@ const _vb = new Vector3(), _wb = new Vector3(), _r = new Vector3(), _vl = new Ve
 const _n = new Vector3(), _c = new Vector3(), _a = new Vector3(), _t = new Vector3(), _fw = new Vector3(), _pw = new Vector3();
 const _vp = new Vector3(), _up = new Vector3();
 const _ws = {}; // a wing half's section with the flaps applied (scratch)
-const _ff = new Vector3();
+const _ff = new Vector3(), _wd = new Vector3(), _ws2 = new Vector3();
 
 export class Flight {
 
 	constructor( spec = SPEC ) {
 
-		this.spec = spec;
-		this.mass = spec.mass;
-		this.com = new Vector3( ...GEOM.com );
-		this.inertia = new Vector3( ...spec.inertia );
+		this.com = new Vector3();
+		this.inertia = new Vector3();
 		this.position = new Vector3(); // model origin, world
 		this.quaternion = new Quaternion();
 		this.velocity = new Vector3(); // centre of mass, world
 		this.angular = new Vector3(); // world
 		this.wind = new Vector3();
-		this.controls = { throttle: 0, pitch: 0, roll: 0, yaw: 0, waterRudder: 0, trim: 0 };
+		this.controls = { throttle: 0, pitch: 0, roll: 0, yaw: 0, waterRudder: 0, trim: 0, brake: 0 };
 		this.flaps = 0; // notch asked for (0..2)
 		this.flapPos = 0; // where the flaps are (0..2, follows at spec.flaps.rate)
 		this.fuel = 1;
@@ -181,7 +195,29 @@ export class Flight {
 		this._acc = 0;
 		this._wasAir = false;
 		this._struck = new Set();
+		this.setSpec( spec );
+
+	}
+
+	// the airframe, its upgrades and its load (Airframes.js spec()): mass, inertia, surfaces, geometry; the state stays
+	setSpec( spec = SPEC ) {
+
+		this.spec = spec;
+		this.geom = spec.geom || GEOM;
+		this.mass = spec.mass;
+		this.com.set( ...this.geom.com );
+		this.inertia.set( ...spec.inertia );
+		const n = ( this.geom.engines || [ spec.thrustPoint ] ).length;
+		if ( ! this.engineFail || this.engineFail.length !== n ) this.engineFail = new Array( n ).fill( false );
 		this.surfaces = spec.surfaces.map( ( s ) => this._surface( s ) );
+		if ( this.flaps > this.notches ) this.flaps = this.notches;
+		return this;
+
+	}
+
+	get notches() {
+
+		return ( this.spec.flaps && this.spec.flaps.notches ) || 2;
 
 	}
 
@@ -261,7 +297,7 @@ export class Flight {
 	// world xz of water probe i a little ahead along the velocity (lead: the read-back latency in seconds)
 	probeWorld( i, out, lead = 0 ) {
 
-		const [ x, z ] = GEOM.probes[ i ];
+		const [ x, z ] = this.geom.probes[ i ];
 		return this.toWorldXYZ( x, 0, z, out ).addScaledVector( this.velocity, lead );
 
 	}
@@ -288,14 +324,18 @@ export class Flight {
 
 	}
 
-	// water height under a float section: the float's bow and stern probes, linear along the float
-	_waterAtSection( port, z ) {
+	// water height under a float section: the float's bow and stern probes, linear along the float (side: 1 the port
+	// probes, -1 the starboard ones, 0 a centre hull: their mean)
+	_waterAtSection( side, z ) {
 
 		if ( ! this.hasWater ) return 0;
+		if ( side === 0 ) return ( this._waterAtSection( 1, z ) + this._waterAtSection( - 1, z ) ) * 0.5;
+		const port = side === true || side > 0;
 		const b = port ? 0 : 1, s = port ? 2 : 3;
 		const a = this.waterAge;
 		const hb = this.water[ b ] + this.waterV[ b ] * a, hs = this.water[ s ] + this.waterV[ s ] * a;
-		const zb = GEOM.probes[ b ][ 1 ], zs = GEOM.probes[ s ][ 1 ];
+		const P = this.geom.probes;
+		const zb = P[ b ][ 1 ], zs = P[ s ][ 1 ];
 		const t = ( z - zs ) / ( zb - zs );
 		return hs + ( hb - hs ) * t;
 
@@ -326,7 +366,7 @@ export class Flight {
 		const fl = sp.flaps;
 		if ( fl ) {
 
-			const want = clamp( Math.round( this.flaps ), 0, 2 );
+			const want = clamp( Math.round( this.flaps ), 0, fl.notches || 2 );
 			this.flaps = want;
 			const step = fl.rate * dt;
 			this.flapPos += clamp( want - this.flapPos, - step, step );
@@ -399,11 +439,22 @@ export class Flight {
 		const u = Math.max( vb.z, 0 );
 		// (rpm ^ 1.5: a propeller's thrust grows faster than its speed; at idle it barely pulls, so a closed
 		// throttle lets the plane settle on the water and bleeds speed in the air)
-		const thrust = sp.maxThrust * Math.pow( this.rpm, 1.5 ) * Math.max( 0.04, 1 - u / sp.pitchSpeed );
+		// (a twin: each engine pulls its share at its nacelle; a failed one pulls nothing, so the other yaws the plane)
+		const engines = this.geom.engines || [ sp.thrustPoint ];
+		const each = sp.maxThrust * Math.pow( this.rpm, 1.5 ) * Math.max( 0.04, 1 - u / sp.pitchSpeed ) / engines.length;
+		let thrust = 0;
+		for ( let i = 0; i < engines.length; i ++ ) {
+
+			if ( this.engineFail[ i ] ) continue;
+			const tp = engines[ i ];
+			thrust += each;
+			_f.set( 0, 0, each ).applyQuaternion( q );
+			addWorld( _f, this.toWorldXYZ( tp[ 0 ], tp[ 1 ], tp[ 2 ], _pw ) );
+
+		}
+
 		this.thrust = thrust;
 		this.slip = Math.sqrt( u * u + 2 * thrust / ( RHO_AIR * sp.discArea ) ) - u;
-		_f.set( 0, 0, thrust ).applyQuaternion( q );
-		addWorld( _f, this.toWorldXYZ( sp.thrustPoint[ 0 ], sp.thrustPoint[ 1 ], sp.thrustPoint[ 2 ], _pw ) );
 
 		// lifting surfaces (the flaps add camber and drag to the wing halves and stall them a little earlier)
 		const defl = sp.deflection, d = this.deflect;
@@ -475,35 +526,38 @@ export class Flight {
 		const fwd = _fw.set( 0, 0, 1 ).applyQuaternion( q );
 		const side = _up.set( 1, 0, 0 ).applyQuaternion( q );
 		const trim = Math.asin( clamp( fwd.y, - 1, 1 ) );
-		let wetN = 0, buoySum = 0, lowest = Infinity;
-		const area0 = GEOM.floatBeam * SECTION_LEN;
-		const C = waterResistance( this.forwardSpeed );
+		let wetN = 0, buoySum = 0, lowest = Infinity, totalN = 0;
+		const C = waterResistance( this.forwardSpeed, sp.humpDrag ?? 1 );
 		// a bad attitude on the step digs in (bow down) or drags the heels (bow high)
 		const attitude = sstep( Math.abs( this.forwardSpeed ), 8, 13 ) * ( Math.max( 0, - 1 * DEG - trim ) + Math.max( 0, trim - 9 * DEG ) ) / DEG * 0.025;
-		for ( let fl = 0; fl < 2; fl ++ ) {
+		for ( const FL of this.geom.floats ) {
 
-			const x = fl === 0 ? GEOM.floatX : - GEOM.floatX;
-			for ( const [ z, af, rise ] of SECTIONS ) {
+			const x = FL.x, y0 = FL.y0 || 0, sd = FL.side;
+			const area0 = FL.beam * ( FL.len || SECTION_LEN );
+			totalN += FL.sections.length;
+			for ( const [ z, af, rise0 ] of FL.sections ) {
 
+				const rise = rise0 + y0;
 				const pw = this.toWorldXYZ( x, rise, z, _pw );
-				const hw = this._waterAtSection( fl === 0, z );
+				const hw = this._waterAtSection( sd, z );
 				const depth = hw - pw.y;
 				lowest = Math.min( lowest, - depth );
 				if ( depth <= 0 ) continue;
-				const sub = Math.min( depth, GEOM.floatTop - rise );
+				const sub = Math.min( depth, FL.top - rise );
+				if ( sub <= 0 ) continue;
 				const A = area0 * af;
 				wetN ++;
 				// velocity of the section (world) relative to the water's own heave
 				_vp.copy( this.angular ).cross( _r.copy( pw ).sub( comW ) ).add( this.velocity );
-				const vy = _vp.y - this.waterV[ fl === 0 ? 0 : 1 ] * 0.5;
+				const vy = _vp.y - this.waterV[ sd < 0 ? 1 : 0 ] * 0.5;
 				const wetK = Math.min( 1, sub / 0.15 ) * A;
-				const leak = this.sprung[ fl ] || 0;
+				const leak = sd > 0 ? this.sprung[ 0 ] || 0 : sd < 0 ? this.sprung[ 1 ] || 0 : Math.max( this.sprung[ 0 ], this.sprung[ 1 ] ) * 0.5;
 				const fb = RHO_W * G * A * sub * sp.buoyK * ( 1 - SPRUNG.buoyancy * leak );
 				buoySum += fb;
 				const ul = _vp.dot( fwd ), vs = _vp.dot( side );
 				_f.set( 0, fb - ( sp.heaveDamp * vy + sp.heaveDamp2 * vy * Math.abs( vy ) ) * wetK, 0 );
 				// planing lift on the forebody ahead of the step (pushes the floats up onto the step)
-				if ( z > GEOM.step && z < 2.0 && ul > 3 ) {
+				if ( z > FL.step && z < ( FL.fore ?? 2.0 ) && ul > 3 ) {
 
 					const pl = RHO_W * ul * ul * A * sp.planing * Math.min( 1, sub / 0.12 );
 					_f.y += pl;
@@ -520,9 +574,10 @@ export class Flight {
 			}
 
 			// water rudder at the float's heel: steers while taxiing, fades as the floats get up to speed
+			if ( ! FL.rudder ) continue;
 			const wr = sp.waterRudder;
-			const pr = this.toWorldXYZ( x, 0.05, wr.z, _pw );
-			const dw = this._waterAtSection( fl === 0, wr.z ) - pr.y;
+			const pr = this.toWorldXYZ( x, 0.05 + y0, wr.z, _pw );
+			const dw = this._waterAtSection( sd, wr.z ) - pr.y;
 			if ( dw > 0 ) {
 
 				_vp.copy( this.angular ).cross( _r.copy( pr ).sub( comW ) ).add( this.velocity );
@@ -536,15 +591,16 @@ export class Flight {
 
 		}
 
-		const totalN = SECTIONS.length * 2;
-		this.wet = wetN / totalN;
+		this.wet = totalN ? wetN / totalN : 0;
 		this.load = buoySum / ( m * G );
 
 		// ---- ground: the float keels slide on sand; strikes of the other parts are reported
 		let grounded = false;
 		if ( this.groundAt ) {
 
-			for ( const [ x, y, z ] of KEELS ) {
+			// wave 12: a land plane's wheels (tricycle: the nose wheel steers, the mains brake)
+			if ( this.geom.wheels ) grounded = this._wheels( comW, addWorld ) || grounded;
+			for ( const [ x, y, z ] of this.geom.keels ) {
 
 				const pw = this.toWorldXYZ( x, y, z, _pw );
 				const g = this.groundAt( pw.x, pw.z );
@@ -567,7 +623,7 @@ export class Flight {
 
 			}
 
-			for ( const [ part, x, y, z ] of STRIKE ) {
+			for ( const [ part, x, y, z ] of this.geom.strike ) {
 
 				const pw = this.toWorldXYZ( x, y, z, _pw );
 				const g = this.groundAt( pw.x, pw.z );
@@ -584,7 +640,7 @@ export class Flight {
 
 		// the other parts in the water at speed (a wingtip dug in, the propeller, a nose-in)
 		const sea = this.seaLevel();
-		for ( const [ part, x, y, z ] of STRIKE ) {
+		for ( const [ part, x, y, z ] of this.geom.strike ) {
 
 			const pw = this.toWorldXYZ( x, y, z, _pw );
 			if ( pw.y < sea - 0.05 && this.velocity.length() > 4 && ! this._struck.has( part + 'W' ) ) {
@@ -602,7 +658,7 @@ export class Flight {
 		if ( this.groundAt ) {
 
 			const g = this.groundAt( comW.x, comW.z );
-			if ( g > sea ) this.agl = Math.min( this.agl, comW.y - GEOM.com[ 1 ] - g );
+			if ( g > sea ) this.agl = Math.min( this.agl, comW.y - this.com.y - g );
 
 		}
 
@@ -657,6 +713,41 @@ export class Flight {
 		}
 
 		this.position.copy( comW ).sub( _t.copy( this.com ).applyQuaternion( this.quaternion ) );
+
+	}
+
+	// the wheels on the ground (a land plane): a stiff damped strut per wheel, rolling resistance along the wheel's
+	// heading (the brakes on the mains), side grip across it up to the tyre's friction; true while any wheel touches
+	_wheels( comW, addWorld ) {
+
+		const sp = this.spec, c = this.controls, q = this.quaternion;
+		const K = sp.gearK || 90000, D = sp.gearC || 9000;
+		let any = false;
+		for ( const w of this.geom.wheels ) {
+
+			const pw = this.toWorldXYZ( w.x, w.y, w.z, _pw );
+			const g = this.groundAt( pw.x, pw.z );
+			const pen = g - pw.y;
+			if ( pen <= 0 ) continue;
+			any = true;
+			_vp.copy( this.angular ).cross( _r.copy( pw ).sub( comW ) ).add( this.velocity );
+			const fn = Math.max( 0, Math.min( pen, 0.5 ) * K - _vp.y * D );
+			// the wheel's rolling direction: the body's forward, the nose wheel turned by the steering (+: to starboard)
+			const steer = w.steer ? clamp( c.waterRudder || 0, - 1, 1 ) * - ( sp.noseSteer || 0.45 ) : 0;
+			_wd.set( Math.sin( steer ), 0, Math.cos( steer ) ).applyQuaternion( q );
+			_wd.y = 0;
+			_wd.normalize();
+			_ws2.set( _wd.z, 0, - _wd.x );
+			const ul = _vp.x * _wd.x + _vp.z * _wd.z, vs = _vp.x * _ws2.x + _vp.z * _ws2.z;
+			const roll = ( sp.rollMu || 0.025 ) + ( w.brake ? clamp( c.brake || 0, 0, 1 ) * ( sp.brakeMu || 0.55 ) : 0 );
+			const fl = - Math.sign( ul ) * Math.min( 1, Math.abs( ul ) / 0.3 ) * roll * fn;
+			const fs = - clamp( vs * 6000, - 0.8 * fn, 0.8 * fn );
+			_f.set( _wd.x * fl + _ws2.x * fs, fn, _wd.z * fl + _ws2.z * fs );
+			addWorld( _f, pw );
+
+		}
+
+		return any;
 
 	}
 

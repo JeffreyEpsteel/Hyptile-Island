@@ -35,7 +35,7 @@ import { makeChestMesh } from './Crate.js';
 
 export const KEEP = 100; // $ that stays in your pocket
 export const EXPIRE_HOURS = 48; // in-game hours (2 days)
-export const LOST_RANGE = 450; // m: thrown overboard with no land this close is the end
+export const LOST_RANGE = 300; // m: thrown overboard with no land this close is the end (450 until wave 12: the new islands leave no water that far from land)
 export const LOST_AFTER = 5; // s in the water before "lost at sea"
 export const FADE_IN = 0.7, RESPAWN_AT = 1.4, FADE_OUT_AT = 2.7, DURATION = 3.5; // s of the cut
 const MARKER_ID = 'sea-chest';

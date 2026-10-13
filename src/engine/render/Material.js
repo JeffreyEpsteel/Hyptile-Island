@@ -191,6 +191,8 @@ export class Material {
 
 		for ( const f of this._listeners ) f( { target: this } );
 
+		// (the uniform buffer was never freed: ~10 buffers leaked per boat swap, wave 12 perf)
+		if ( this.uniformBlock && this.uniformBlock.destroyBuffer ) this.uniformBlock.destroyBuffer();
 	}
 
 	clone() {

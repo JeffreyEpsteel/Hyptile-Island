@@ -37,7 +37,7 @@ const store = () => {
 
 const terrain = new TerrainData();
 const colliders = new Colliders();
-const SEA_FAR = { x: 0, z: 700 }; // deep water, no land within 450 m
+const SEA_FAR = { x: 800, z: - 800 }; // (0, 700 is Blackwater's caldera since wave 12; the lost range is 300 m now) // deep water, no land within 450 m
 const SEA_NEAR = { x: - 50, z: 450 }; // deep water a swim from the shore
 
 // a stand-in of the trade feature's hold

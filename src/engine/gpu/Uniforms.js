@@ -269,6 +269,17 @@ export class UniformBlock {
 
 	}
 
+	// the GPU buffer goes (Material.dispose): a later getBuffer() makes a fresh one and the bind groups see a new version
+	destroyBuffer() {
+
+		if ( ! this.buffer ) return;
+		this.buffer.destroy();
+		this.buffer = null;
+		this._last = null;
+		this.bufferVersion = ( this.bufferVersion || 0 ) + 1;
+
+	}
+
 	// upload when anything changed since the last upload (cheap compare of the packed words)
 	// token: calls with the same token as the previous upload skip the repack (the caller knows
 	// nothing ran in between, see BindingSet.getBindGroup)

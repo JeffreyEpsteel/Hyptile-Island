@@ -32,6 +32,7 @@ import { rotateByQuat } from './Ballistics.js';
 import { AIM_LABELS } from './Sections.js';
 import { OUT_OF_SHOT } from './Ammo.js';
 import { AimAssist, aimPlan, AIM_CSS } from './AimAssist.js';
+import { setText, setStyle, setNum } from './DomWrites.js';
 
 export const ARROW_RANGE = 400;
 export const TARGET_RANGE = 320; // m (x the long-gun module's range): the target bar shows a pirate this close
@@ -371,13 +372,13 @@ export class NavalHud {
 		if ( ! this.root ) return;
 		const on = !! model.visible;
 		this.root.classList.toggle( 'is-on', on );
-		this.arrowLayer.style.display = on ? '' : 'none';
+		setStyle( this.arrowLayer, 'display', on ? '' : 'none' );
 		if ( on ) {
 
 			const h = model.hull;
-			this.hullFill.style.transform = `scaleX(${ Math.max( 0, Math.min( 1, h.frac ) ).toFixed( 3 ) })`;
+			setNum( this.hullFill, 'transform', Math.max( 0, Math.min( 1, h.frac ) ), 3, 'scaleX(', ')' );
 			this.hullRow.classList.toggle( 'is-low', h.low );
-			this.hullNum.textContent = h.sunk ? 'Sunk' : String( h.hp );
+			setText( this.hullNum, h.sunk ? 'Sunk' : String( h.hp ) );
 			for ( const g of model.guns ) {
 
 				const e = this.gunEls[ g.side ];
@@ -386,7 +387,7 @@ export class NavalHud {
 				e.root.classList.toggle( 'is-off', ! g.owned );
 				e.root.classList.toggle( 'is-ready', g.ready );
 				e.root.classList.toggle( 'is-target', g.ready && g.range !== null && g.range !== undefined );
-				e.fill.style.width = ( g.frac * 100 ).toFixed( 0 ) + '%';
+				setNum( e.fill, 'width', g.frac * 100, 0, '', '%' );
 				// READY / seconds left, and the range to what this side would hit
 				const st = g.silent ? 'OUT OF ACTION' : g.dry ? 'NO SHOT'
 					: ( g.ready ? 'READY' : `${ ( g.left || 0 ).toFixed( 1 ) } s` ) + ( g.range !== null && g.range !== undefined ? ` · ${ g.range } m` : '' );
@@ -400,8 +401,8 @@ export class NavalHud {
 			if ( tg ) {
 
 				if ( this.tgtName.textContent !== tg.name ) this.tgtName.textContent = tg.name;
-				this.tgtFill.style.width = ( tg.frac * 100 ).toFixed( 1 ) + '%';
-				this.tgtMark.style.left = ( tg.mark * 100 ).toFixed( 1 ) + '%';
+				setNum( this.tgtFill, 'width', tg.frac * 100, 1, '', '%' );
+				setNum( this.tgtMark, 'left', tg.mark * 100, 1, '', '%' );
 				this.tgtRow.classList.toggle( 'is-crippled', tg.crippled );
 				const num = tg.crippled ? 'BOARD' : `${ Math.round( tg.frac * 100 ) }%`;
 				if ( this.tgtNum.textContent !== num ) this.tgtNum.textContent = num;
@@ -446,32 +447,38 @@ export class NavalHud {
 
 			}
 
-			const seen = new Set();
+			const stamp = this._stamp = ( this._stamp || 0 ) + 1; // (no Set per frame)
 			for ( const a of model.arrows ) {
 
-				seen.add( a.id );
 				let e = this.arrows.get( a.id );
 				if ( ! e ) {
 
 					const root = this._make( 'div', 'nv-arrow', this.arrowLayer );
-					e = { root, tri: this._make( 'i', '', root ), label: this._make( 'span', '', root, '' ) };
+					e = { id: a.id, root, tri: this._make( 'i', '', root ), label: this._make( 'span', '', root, '' ), stamp: 0, dist: null };
 					this.arrows.set( a.id, e );
 
 				}
 
-				e.root.style.left = ( a.x * 100 ).toFixed( 1 ) + '%';
-				e.root.style.top = ( a.y * 100 ).toFixed( 1 ) + '%';
-				e.tri.style.transform = `rotate(${ a.angle.toFixed( 3 ) }rad)`;
-				e.label.textContent = `${ a.dist } m`;
+				e.stamp = stamp;
+
+				setNum( e.root, 'left', a.x * 100, 1, '', '%' );
+				setNum( e.root, 'top', a.y * 100, 1, '', '%' );
+				setNum( e.tri, 'transform', a.angle, 3, 'rotate(', 'rad)' );
+				if ( e.dist !== a.dist ) {
+
+					e.dist = a.dist;
+					e.label.textContent = `${ a.dist } m`;
+
+				}
 				e.root.classList.toggle( 'is-hunting', a.hunting );
 
 			}
 
-			for ( const [ id, e ] of this.arrows ) {
+			for ( const e of this.arrows.values() ) {
 
-				if ( seen.has( id ) ) continue;
+				if ( e.stamp === stamp ) continue;
 				e.root.remove();
-				this.arrows.delete( id );
+				this.arrows.delete( e.id );
 
 			}
 
@@ -516,18 +523,18 @@ export class NavalHud {
 		if ( this.hitT > 0 ) {
 
 			this.hitT -= dt;
-			this.hitEl.style.opacity = String( Math.max( 0, this.hitT / 0.28 ) );
+			setStyle( this.hitEl, 'opacity', String( Math.max( 0, this.hitT / 0.28 ) ) );
 			this.hitEl.classList.toggle( 'is-sunk', this.hitKind === 'sunk' );
 
-		} else if ( this.hitEl.style.opacity !== '0' ) this.hitEl.style.opacity = '0';
+		} else setStyle( this.hitEl, 'opacity', '0' );
 
 		if ( this.dmgT > 0 ) {
 
 			this.dmgT -= dt;
-			this.dmgEl.style.opacity = String( Math.max( 0, Math.min( 1, this.dmgT / 0.6 ) ) );
-			this.dmgWedge.style.transform = `rotate(${ this.dmgAngle.toFixed( 3 ) }rad)`;
+			setStyle( this.dmgEl, 'opacity', String( Math.max( 0, Math.min( 1, this.dmgT / 0.6 ) ) ) );
+			setNum( this.dmgWedge, 'transform', this.dmgAngle, 3, 'rotate(', 'rad)' );
 
-		} else if ( this.dmgEl.style.opacity !== '0' ) this.dmgEl.style.opacity = '0';
+		} else setStyle( this.dmgEl, 'opacity', '0' );
 
 	}
 

@@ -24,6 +24,7 @@ const CLOCK_SPEED = 0.01; // h per real second (net/Protocol.js CLOCK_SPEED): tu
 const REAL_FALLBACK = 24 / 2400; // h per real second when the island clock is stopped
 const RESPAWN_CLEAR = 25; // m: nothing pops back in closer than this to the player
 const BOAT_MASS = 3200;
+const RAM_POINTS = [ [ 0, 3.6 ], [ 1.1, 2.0 ], [ - 1.1, 2.0 ], [ 1.3, - 1 ], [ - 1.3, - 1 ] ]; // hull points (boat frame) that break props when ramming
 
 const _v = new Vector3();
 
@@ -623,12 +624,15 @@ export class Destruction {
 		const v = b.velocity, sp = Math.hypot( v.x, v.z );
 		if ( sp < 2.2 ) return;
 		const q = b.quaternion, f = rotate( q, 0, 0, 1 ), r = rotate( q, 1, 0, 0 );
-		const pts = [ [ 0, 3.6 ], [ 1.1, 2.0 ], [ - 1.1, 2.0 ], [ 1.3, - 1 ], [ - 1.3, - 1 ] ];
+		const pts = RAM_POINTS;
 		const bp = b.position;
 		for ( const prop of this.props ) {
 
 			if ( prop.state !== 'intact' ) continue;
-			if ( Math.hypot( prop.center.x - bp.x, prop.center.z - bp.z ) > prop.radius + 6 ) continue;
+			// a loose square reject before the exact test (every prop, every frame at speed: no Math.hypot for the far ones)
+			const ex = prop.center.x - bp.x, ez = prop.center.z - bp.z, er = prop.radius + 6;
+			if ( ex * ex + ez * ez > er * er * 1.001 ) continue;
+			if ( Math.hypot( ex, ez ) > er ) continue;
 			if ( prop.center.y - prop.half.y > 1.5 || prop.center.y + prop.half.y < - 0.5 ) continue; // not at the waterline
 			let hit = false;
 			for ( const [ lx, lz ] of pts ) {
@@ -770,7 +774,9 @@ export class Destruction {
 			// sphere reject
 			const cx = prop.center.x - ax, cy = prop.center.y - ay, cz = prop.center.z - az;
 			const t0 = Math.max( 0, Math.min( 1, ( cx * dx + cy * dy + cz * dz ) / len2 ) );
-			if ( Math.hypot( cx - dx * t0, cy - dy * t0, cz - dz * t0 ) > prop.radius ) continue;
+			const ox = cx - dx * t0, oy = cy - dy * t0, oz = cz - dz * t0;
+			if ( ox * ox + oy * oy + oz * oz > prop.radius * prop.radius * 1.001 ) continue; // (loose square reject first)
+			if ( Math.hypot( ox, oy, oz ) > prop.radius ) continue;
 			const t = slab( prop, ax, ay, az, dx, dy, dz );
 			if ( t !== null && ( ! best || t < best.t ) ) best = { t, id: prop.id };
 

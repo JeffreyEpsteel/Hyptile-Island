@@ -165,8 +165,17 @@ export class Crew {
 	// the posted members of a post, in posting order; with ctx only the ones on duty (hired, not the one being played)
 	_of( post, ctx ) {
 
-		const on = ( id ) => ! ctx || ( id !== ctx.character && ( ctx.unlocked || [] ).includes( id ) );
-		return [ ...this.posts ].filter( ( [ id, p ] ) => p === post && on( id ) ).map( ( [ id ] ) => id );
+		// (a plain walk in posting order: this runs several times a frame; no entry arrays, no spread copies)
+		const out = [], un = ctx ? ( ctx.unlocked || [] ) : null;
+		for ( const id of this.posts.keys() ) {
+
+			if ( this.posts.get( id ) !== post ) continue;
+			if ( ctx && ( id === ctx.character || ! un.includes( id ) ) ) continue;
+			out.push( id );
+
+		}
+
+		return out;
 
 	}
 
@@ -223,20 +232,19 @@ export class Crew {
 	sync( ctx = {} ) {
 
 		const out = [];
-		for ( const [ id, post ] of [ ...this.posts ] ) {
+		// (the played character holds at most one post: no copy of the posts every frame)
+		if ( this.posts.has( ctx.character ) ) {
 
-			if ( id === ctx.character ) {
-
-				this._clear( id );
-				out.push( { id, post, why: 'playing' } );
-
-			}
+			const post = this.posts.get( ctx.character );
+			this._clear( ctx.character );
+			out.push( { id: ctx.character, post, why: 'playing' } );
 
 		}
 
 		// (no boat known: keep the posts; they are ashore with the skipper)
 		if ( ! BOATS[ ctx.boat ] ) return out;
 		const berths = berthsOf( ctx.boat );
+		if ( this.posts.size <= berths ) return out; // everyone has a berth (the usual frame)
 		const list = [ ...this.posts ];
 		for ( let i = list.length - 1; i >= berths; i -- ) {
 

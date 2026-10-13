@@ -6,6 +6,8 @@
 // first, then the repair; a sprung float shows as a row.
 // Wave 8: while piloting the same window is the cockpit's switch panel (3, or the touch controls' Cockpit button):
 // every panel control as a button (seaplane.act( id )), plus climbing out and refuelling when they are possible.
+// Wave 12 (airframes): the hangar lists the airframes of its scope (the ramp: Jade, Petrel, Albatross; the airstrip:
+// the Kestrel) with Buy / Take out, then the one out: its condition, fuel, cargo and the upgrade rows (seaplane.fit).
 
 import { t } from '../../i18n/index.js';
 
@@ -38,6 +40,19 @@ const CSS = /* css */`
 .sp-grid .sp-btn { white-space: normal; padding: var(--tw-2) var(--tw-3); border-radius: var(--tw-r-md); }
 .sp-btn.is-on { color: var(--tw-aqua); box-shadow: inset 0 0 0 1px rgba(var(--tw-aqua-rgb), 0.55); }
 .sp-panel.is-cockpit { top: auto; bottom: var(--tw-edge); transform: translate(-50%, 8%); }
+.sp-panel { max-height: calc(100vh - 2 * var(--tw-edge)); overflow-y: auto; }
+.sp-fleet { display: grid; gap: var(--tw-2); margin: var(--tw-3) 0; }
+.sp-af { display: flex; align-items: center; gap: var(--tw-3); padding: var(--tw-2) var(--tw-3); border-radius: var(--tw-r-md); background: var(--tw-fill); border: 1px solid var(--tw-line); }
+.sp-af.is-cur { box-shadow: inset 0 0 0 1px rgba(var(--tw-aqua-rgb), 0.55); }
+.sp-af div { flex: 1; min-width: 0; }
+.sp-af b { display: block; font-weight: 600; }
+.sp-af span { color: var(--tw-ink-3); font-size: var(--tw-fs-sm); }
+.sp-h3 { margin: var(--tw-3) 0 var(--tw-1); font-size: var(--tw-fs-sm); color: var(--tw-ink-3); text-transform: uppercase; letter-spacing: 0.08em; }
+.sp-up { display: flex; align-items: center; gap: var(--tw-2); padding: calc(4 * var(--tw-u)) var(--tw-3); border-bottom: 1px solid var(--tw-line); }
+.sp-up div { flex: 1; min-width: 0; }
+.sp-up span { color: var(--tw-ink-3); font-size: var(--tw-fs-xs); display: block; }
+.sp-pips { font: 600 var(--tw-fs-sm) var(--tw-mono); color: var(--tw-aqua); }
+.sp-up .sp-btn { padding: calc(4 * var(--tw-u)) var(--tw-3); font-size: var(--tw-fs-sm); }
 .sp-panel.is-cockpit.is-open { transform: translate(-50%, 0); }
 `;
 
@@ -51,6 +66,7 @@ export class SeaplanePanel {
 		this.plane = plane;
 		this.el = null;
 		this.isOpen = false;
+		this.scope = 'ramp'; // wave 12: 'ramp' (the seaplanes) or 'strip' (the airstrip: the Kestrel)
 		this.msg = null;
 		this._keys = ( e ) => {
 
@@ -122,11 +138,32 @@ export class SeaplanePanel {
 	render() {
 
 		if ( ! this.el ) return;
-		const v = this.plane.view();
+		const v = this.plane.view( this.scope );
 		this.el.classList.toggle( 'is-cockpit', !! v.piloted );
 		if ( v.piloted ) return this._renderCockpit( v );
 		const rows = [];
 		let acts = '';
+		// wave 12: the airframes of this hangar (buy / take out)
+		const fleet = ( v.airframes || [] ).map( ( a ) => {
+
+			const act = a.owned ? ( a.current ? `<b class="sp-pips">${ t( 'seaplane.outNow', 'out' ) }</b>` : `<button class="sp-btn" data-take="${ a.id }" ${ a.canTake ? '' : 'disabled' }>${ t( 'seaplane.takeOut', 'Take out' ) }</button>` )
+				: `<button class="sp-btn is-main" data-buy="${ a.id }" ${ a.canBuy ? '' : 'disabled' }>${ v.free ? t( 'seaplane.freeShort', 'free' ) : money( a.price ) }</button>`;
+			return `<div class="sp-af ${ a.current ? 'is-cur' : '' }"><div><b>${ a.name }${ a.lost ? ' · ' + t( 'seaplane.wreckedShort', 'wrecked' ) : '' }</b><span>${ a.sub } · ${ a.seats } ${ t( 'seaplane.seats', 'seats' ) }${ a.crates ? ` · ${ a.crates } ${ t( 'seaplane.crates', 'crates' ) }` : '' }</span></div>${ act }</div>`;
+
+		} ).join( '' );
+		if ( ! v.inScope ) {
+
+			// the airframe out belongs to the other hangar (the strip / the ramp): this one only sells and swaps
+			acts += `<button class="sp-btn" data-act="close">${ t( 'seaplane.close', 'Close' ) }</button>`;
+			this.el.innerHTML = `
+<div class="sp-head"><div><h2>${ v.scope === 'strip' ? t( 'seaplane.stripTitle', 'Airstrip hangar' ) : t( 'seaplane.title', 'Seaplane hangar' ) }</h2><p class="sp-sub">${ t( 'seaplane.outElsewhere', 'Out now' ) }: ${ v.name }</p></div></div>
+<div class="sp-fleet">${ fleet }</div>
+<div class="sp-acts">${ acts }</div>
+<div class="sp-msg ${ this.msg && this.msg.bad ? 'is-bad' : '' }">${ this.msg ? this.msg.text : '' }</div>`;
+			return;
+
+		}
+
 		if ( ! v.owned ) {
 
 			rows.push( `<div class="sp-row"><span>${ t( 'seaplane.price', 'Price' ) }</span><b>${ v.free ? t( 'seaplane.free', 'Free (sandbox)' ) : money( v.price ) }</b></div>` );
@@ -147,16 +184,36 @@ export class SeaplanePanel {
 			if ( ! v.lost && ( v.repairCost > 0 || pct < 100 ) ) acts += `<button class="sp-btn is-main" data-act="repair" ${ v.canRepair ? '' : 'disabled' }>${ t( 'seaplane.repair', 'Repair' ) } · ${ v.free ? t( 'seaplane.freeShort', 'free' ) : money( v.repairCost ) }</button>`;
 			if ( fp < 100 && ! v.lost ) acts += `<button class="sp-btn is-main" data-act="refuel" ${ v.canRefuel ? '' : 'disabled' }>${ t( 'seaplane.refuel', 'Refuel' ) } · ${ v.free ? t( 'seaplane.freeShort', 'free' ) : money( v.refuelCost ) }</button>`;
 			if ( ! v.home && ! v.piloted && ! v.lost ) acts += `<button class="sp-btn" data-act="recall">${ t( 'seaplane.recall', 'Tow it back to the ramp' ) }</button>`;
+			if ( v.engineOut && ! v.lost ) rows.push( `<div class="sp-row"><span>${ t( 'seaplane.engines', 'Engines' ) }</span><b>${ t( 'seaplane.engineOutRow', 'One has failed: repair it' ) }</b></div>` );
+			if ( v.cargo && v.cargo.capacity > 0 ) rows.push( `<div class="sp-row"><span>${ t( 'seaplane.cargo', 'Cargo' ) }</span><b>${ v.cargo.crates } / ${ v.cargo.capacity } ${ t( 'seaplane.crates', 'crates' ) }${ v.cargo.kg ? ` · ${ v.cargo.kg } kg` : '' }</b></div>` );
+
+		}
+
+		// the upgrades of the airframe out (fitted explicitly, even when free)
+		let ups = '';
+		if ( v.owned && ! v.lost && v.upgrades ) {
+
+			ups = v.upgrades.map( ( u ) => {
+
+				const pips = u.paint ? u.scheme : u.tiers > 1 ? '●'.repeat( u.tier ) + '○'.repeat( u.tiers - u.tier ) : u.tier ? t( 'seaplane.fitted', 'fitted' ) : '';
+				const label = u.paint ? `${ t( 'seaplane.repaint', 'Paint' ) }: ${ u.nextScheme }` : u.maxed ? '' : u.tier ? t( 'seaplane.upgrade', 'Upgrade' ) : t( 'seaplane.fit', 'Fit' );
+				const btn = u.maxed ? '' : `<button class="sp-btn" data-fit="${ u.id }" ${ u.canFit ? '' : 'disabled' }>${ label }${ u.cost ? ' · ' + money( u.cost ) : '' }</button>`;
+				return `<div class="sp-up"><div>${ t( 'seaplane.up.' + u.id, u.name ) } <span>${ t( 'seaplane.upNote.' + u.id, u.note ) }</span></div><b class="sp-pips">${ pips }</b>${ btn }</div>`;
+
+			} ).join( '' );
+			ups = `<p class="sp-h3">${ t( 'seaplane.upgrades', 'Upgrades' ) }${ v.home ? '' : ' · ' + t( 'seaplane.fitAtHangar', 'Upgrades are fitted at the hangar' ) }</p>${ ups }`;
 
 		}
 
 		acts += `<button class="sp-btn" data-act="close">${ t( 'seaplane.close', 'Close' ) }</button>`;
 		const notes = t( 'seaplane.notes2', 'Board at the door from the jetty (E). <kbd>O</kbd> starts the engine (or just open the throttle), <kbd>Shift</kbd> / <kbd>C</kbd> throttle, <kbd>W</kbd> / <kbd>S</kbd> nose down / up, <kbd>A</kbd> / <kbd>D</kbd> bank (steer while taxiing), <kbd>,</kbd> / <kbd>.</kbd> rudder, <kbd>[</kbd> / <kbd>]</kbd> flaps, <kbd>-</kbd> / <kbd>=</kbd> trim, <kbd>Y</kbd> autopilot, <kbd>V</kbd> the cockpit (click its switches). Flaps 1, get on the step and pull back gently near 26 m/s. Land into the water slowly: a sink over 3 m/s bends the floats. A full tank lasts about 25 minutes at full power. A hard arrival springs a float; a crash breaks the plane up (you are thrown clear unless you fly straight into something): the crew of Captain Roid recovers the wreck from here.' );
 		this.el.innerHTML = `
-<div class="sp-head"><div><h2>${ t( 'seaplane.title', 'Seaplane hangar' ) }</h2><p class="sp-sub">${ t( 'seaplane.sub', 'A jade high-wing floatplane: takes off from and lands on the water' ) }</p></div></div>
+<div class="sp-head"><div><h2>${ v.scope === 'strip' ? t( 'seaplane.stripTitle', 'Airstrip hangar' ) : t( 'seaplane.title', 'Seaplane hangar' ) }</h2><p class="sp-sub">${ v.name } · ${ ( v.airframes.find( ( a ) => a.current ) || {} ).sub || t( 'seaplane.sub', 'A jade high-wing floatplane: takes off from and lands on the water' ) }</p></div></div>
+<div class="sp-fleet">${ fleet }</div>
 <div class="sp-rows">${ rows.join( '' ) }</div>
 <div class="sp-acts">${ acts }</div>
 <div class="sp-msg ${ this.msg && this.msg.bad ? 'is-bad' : '' }">${ this.msg ? this.msg.text : '' }</div>
+${ ups }
 <p class="sp-notes">${ notes }</p>`;
 
 	}
@@ -166,7 +223,7 @@ export class SeaplanePanel {
 
 		const c = v.cockpit;
 		const btn = ( id, label, on = false, dis = false ) => `<button class="sp-btn ${ on ? 'is-on' : '' }" data-ctl="${ id }" ${ dis ? 'disabled' : '' }>${ label }</button>`;
-		const flaps = [ t( 'seaplane.flapsUpShort', 'up' ), '1', '2' ][ c.flaps ] || '0';
+		const flaps = [ t( 'seaplane.flapsUpShort', 'up' ), '1', '2', '3' ][ c.flaps ] || '0';
 		const trim = ( c.trim > 0 ? '+' : '' ) + c.trim.toFixed( 1 );
 		const grid = [
 			btn( 'engine', c.engine ? t( 'seaplane.btnStop', 'Engine: stop' ) : c.cranking ? t( 'seaplane.btnCranking', 'Starting...' ) : t( 'seaplane.btnStart', 'Engine: start' ), c.engine ),
@@ -176,10 +233,12 @@ export class SeaplanePanel {
 			btn( 'landing', t( 'seaplane.btnLanding', 'Landing light' ), c.landing ),
 			btn( 'map', t( 'seaplane.btnMap', 'Map' ) ),
 			btn( 'flapsUp', `${ t( 'seaplane.btnFlapsUp', 'Flaps up' ) } (${ flaps })`, false, c.flaps <= 0 ),
-			btn( 'flapsDown', `${ t( 'seaplane.btnFlapsDown', 'Flaps down' ) } (${ flaps })`, false, c.flaps >= 2 ),
+			btn( 'flapsDown', `${ t( 'seaplane.btnFlapsDown', 'Flaps down' ) } (${ flaps })`, false, c.flaps >= ( c.notches || 2 ) ),
 			btn( 'warn', t( 'seaplane.btnWarn', 'Silence warning' ) ),
 			btn( 'trimDown', `${ t( 'seaplane.btnTrimDown', 'Trim nose down' ) } (${ trim })` ),
 			btn( 'trimUp', `${ t( 'seaplane.btnTrimUp', 'Trim nose up' ) } (${ trim })` ),
+			c.hasSearch ? btn( 'search', t( 'seaplane.btnSearch', 'Searchlight' ), c.search ) : '',
+			c.canBail ? btn( 'bail', t( 'seaplane.btnBail', 'Bail out' ) ) : '',
 			c.canExit ? btn( 'exit', t( 'seaplane.climbOut', 'Climb out' ) ) : '',
 		].join( '' );
 		let acts = '';
@@ -200,6 +259,17 @@ export class SeaplanePanel {
 
 			this.plane.act( ctl.dataset.ctl, 'panel' );
 			if ( this.isOpen ) this.render();
+			return;
+
+		}
+
+		// wave 12: buy / take out an airframe, fit an upgrade
+		const w = e.target && e.target.closest ? e.target.closest( '[data-buy],[data-take],[data-fit]' ) : null;
+		if ( w && ! w.disabled ) {
+
+			const p = this.plane, d = w.dataset;
+			const r = d.buy ? p.buy( d.buy ) : d.take ? p.takeOut( d.take ) : p.fit( d.fit );
+			if ( r ) this.say( r.text, ! r.ok );
 			return;
 
 		}

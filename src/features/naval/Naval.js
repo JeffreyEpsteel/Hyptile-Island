@@ -185,6 +185,7 @@ export const CRIPPLE = BOARDING_RULES.cripple ?? 0.25;
 // ships in these states come alongside on purpose (a grapple, a boarding): they bump without damage
 const GENTLE = new Set( [ 'close', 'grapple', 'boarding', 'boarded', 'moored' ] );
 export const NO_GUN = NO_GUN_TEXT;
+const byDist = ( a, b ) => a.dist - b.dist;
 const isCrippled = ( s ) => s.faction === 'pirate' && s.hpFraction < CRIPPLE;
 
 // quaternion product a * b ( [ x, y, z, w ] )
@@ -438,11 +439,15 @@ export class Naval {
 	// the effects of the modules fitted on the current hull (Fitting.stats, cached per change)
 	get mods() {
 
-		const f = this.fitting, key = `${ f.boat }|${ f.version }|${ this.playerGun.bought ? this.playerGun.swivel : 0 }`;
-		if ( key !== this._modsKey || ! this._mods ) {
+		// (read many times a frame: compared field by field, no key string built per read)
+		const f = this.fitting, sw = this.playerGun.bought ? this.playerGun.swivel : 0, k = this._modsK || ( this._modsK = { boat: undefined, version: undefined, sw: undefined } );
+		if ( ! this._mods || k.boat !== f.boat || k.version !== f.version || k.sw !== sw ) {
 
 			this._mods = f.stats();
-			this._modsKey = key;
+			k.boat = f.boat;
+			k.version = f.version;
+			k.sw = sw;
+			this._modsKey = `${ f.boat }|${ f.version }|${ sw }`;
 
 		}
 
@@ -902,7 +907,8 @@ export class Naval {
 		w.storm = this.storm;
 		const cam = this._camPos();
 		const amp = w.storm ? 2.2 : 1;
-		const near = [];
+		const near = this._near || ( this._near = [] ); // (one list for the life of the feature)
+		near.length = 0;
 		for ( const s of this.ships ) {
 
 			w.target = s.puppet ? this.target : this._targetFor( s );
@@ -913,7 +919,7 @@ export class Naval {
 
 		}
 
-		near.sort( ( a, b ) => a.dist - b.dist );
+		if ( near.length > 1 ) near.sort( byDist );
 		this.pool.assign( near );
 
 		const night = this.night ? 1 : 0;

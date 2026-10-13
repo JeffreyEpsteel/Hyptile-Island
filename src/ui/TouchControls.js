@@ -52,7 +52,10 @@ const BUTTONS = {
 	fire: { label: 'Fire', button: 'left', big: true }, // a drawn pistol / musket
 	aim: { label: 'Aim', button: 'right' },
 	draw: { label: 'Gun', code: 'KeyG' },
-	emote: { label: 'Emote', code: 'Digit5' }, // at the helm next to land: E steps ashore, this one keeps the deck
+	emote: { label: 'Emote', code: 'Digit5' },
+	bail: { label: 'Bail out', code: 'Quote' }, // (twice within 2 s)
+	brake: { label: 'Brake', code: 'KeyB', hold: true }, // the Kestrel on the ground
+	search: { label: 'Search', code: 'Semicolon', hold: true }, // the searchlight (held) // at the helm next to land: E steps ashore, this one keeps the deck
 	cockpit: { label: 'Cockpit', code: 'Digit3' },
 	lights: { label: 'Lights', code: 'KeyL' }, // boat: root's L toggles every hull's lights
 	navLights: { label: 'Nav', code: 'KeyN' }, // seaplane cockpit keys (Seaplane.js COCKPIT_KEYS)
@@ -755,6 +758,7 @@ export class TouchControls {
 			melee: meleeOn,
 			helmAshore: !! ( app.player && app.player.helmAshore ),
 			gunOwned: !! ( get( 'firearms' ) && get( 'firearms' ).anyOwned && get( 'firearms' ).anyOwned() ), gunDrawn: !! ( get( 'firearms' ) && get( 'firearms' ).drawn ),
+			planeWheels: !! ( get( 'seaplane' ) && get( 'seaplane' ).flight && get( 'seaplane' ).flight.spec && get( 'seaplane' ).flight.spec.wheels ), planeSearch: !! ( get( 'seaplane' ) && get( 'seaplane' ).hasUpgrade && get( 'seaplane' ).hasUpgrade( 'searchlight' ) ),
 			boatLights: !! app.boatLightsOn,
 			planeNav: !! get( 'seaplane' )?.systems?.nav,
 			planeLanding: !! get( 'seaplane' )?.systems?.landing,

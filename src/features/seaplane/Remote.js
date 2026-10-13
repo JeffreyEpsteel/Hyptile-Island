@@ -1,6 +1,6 @@
 // The other players' seaplanes (multiplayer). A flying / taxiing player's state carries
 // `plane: { p: [ x, y, z ], q: [ x, y, z, w ], thr }` (Seaplane.decorateState); the server passes unknown state fields
-// through. ingest( states ) buffers them per peer with the local receive time; update( dt ) draws each plane
+// through (wave 12: plus af, the airframe id, and liv, its livery). ingest( states ) buffers them per peer with the local receive time; update( dt ) draws each plane
 // INTERP behind the newest sample (position lerp, quaternion slerp) and drops planes not heard of for a while.
 //
 //   const remote = new RemotePlanes( { models } );
@@ -43,9 +43,20 @@ export class RemotePlanes {
 			const pl = s.plane;
 			if ( ! pl || ! finite( pl.p, 3 ) || ! finite( pl.q, 4 ) ) continue;
 			let r = this.peers.get( s.id );
+			// wave 12: the airframe (af) and its livery (liv) pick the model; a switch rebuilds it
+			const af = typeof pl.af === 'string' ? pl.af : 'jade', liv = Number.isFinite( pl.liv ) ? pl.liv | 0 : 0;
+			if ( r && ( r.af !== af || r.liv !== liv ) ) {
+
+				if ( r.visual ) r.visual.dispose();
+				r.visual = this.models ? this.models.create( af, liv ) : null;
+				r.af = af;
+				r.liv = liv;
+
+			}
+
 			if ( ! r ) {
 
-				r = { snaps: [], visual: this.models ? this.models.create() : null, last: t };
+				r = { snaps: [], visual: this.models ? this.models.create( af, liv ) : null, last: t, af, liv };
 				this.peers.set( s.id, r );
 
 			}

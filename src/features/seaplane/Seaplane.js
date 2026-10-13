@@ -32,9 +32,29 @@
 // too (Flight STRIKE points; props along the nose's path). planeCrashed gains { severity, speed, water, recovery };
 // seaplaneRecovered { cost }. The floating fuselage's cabin roof is a perch (a walkable collider box riding it): a swimmer
 // beside it climbs on with E (or swims onto it) instead of treading water; it goes when the wreck starts to sink.
+// Wave 12C, airframes and upgrades (Airframes.js): the hangar sells the Jade, the Petrel, the Albatross (a twin flying
+// boat: sp.failEngine( i )) and, at the airstrip (Site.js findAirstrip: WORLD[ island ].airstrip; none and it is not
+// for sale), the Kestrel on wheels. sp.af is the airframe out on the ramp / the pad; sp.fleet[ id ] the others' records
+// (owned, hp, fuel, switches, sprung, lost, upgrades, cargo). sp.buy( id ), sp.takeOut( id ), sp.fit( key, tier? )
+// (hangar rows, prices by class, free in the sandbox but fitted explicitly), sp.spec (the composed Flight spec).
+// Cargo: sp.cargo [ { good, qty, kg, crates, cond, paid } ]: sp.loadCargo() takes crates from the trade hold at a port
+// (or the ramp) up to the pod / bay (sp.capacity()), sp.unloadCargo() puts them back into the hold at any port (E at
+// the cargo door: trade.takeCargo / addCargo( ..., { force } )); the load's mass and centre of gravity go into the
+// spec. Radio: the world map shows ships / wrecks within 600 m (markers 'seaplane-radio-*'). Searchlight: hold ; (a
+// tap still toggles the landing light), aimed where the pilot looks. Bailing out: ' twice (or the switch panel's
+// Bail out) above CHUTE.minAgl: the pilot rides the parachute (Chute.js, a vehicle like the plane) down to the water /
+// ground; the plane flies on, wings level, the throttle where it was, until it hits something (a wreck: Crash.js) or
+// runs dry and glides down (sp.abandoned). The Kestrel brakes on B (read on the ground only, not claimed). Events:
+// seaplaneBought { airframe }, seaplaneUpgraded { airframe, upgrade, tier, price }, planeBailedOut { x, y, z },
+// chuteLanded { x, z, mode }, planeEngineFailed { engine }.
 
 import { Vector3, Quaternion } from '../../engine/index.js';
-import { Flight, GEOM, STRIKE } from './Flight.js';
+import { Flight, GEOM } from './Flight.js';
+import { AIRFRAMES, AIRFRAME_IDS, UPGRADES, LIVERIES, RADIO_RANGE, spec as composeSpec, upgradePrice, upgradeFits, capacity, defaultUpgrades, cleanUpgrades, cargoMass } from './Airframes.js';
+import { Chute, CHUTE } from './Chute.js';
+import { findAirstrip, stripPad, stripOffice, onStrip, StripSite } from './Site.js';
+import { GOODS } from '../trade/goods.js';
+import { WORLD } from '../../world/WorldLayout.js';
 import { CRASH, throwPoint, wreckParts } from './Crash.js';
 import { Wreck } from './Wreck.js';
 import { Stun } from './Stun.js';
@@ -53,10 +73,14 @@ export const REPAIR_PER_HP = 15; // $ per point of condition: a full rebuild aft
 export const ID = 'seaplane';
 const SIM_RANGE = 700; // m from the camera: an unattended plane further away is not simulated
 // claimed for the plane (KeyC is the core dive key: read, not claimed). Nothing here ever combines Ctrl with a key.
-export const KEYS = [ 'ShiftLeft', 'Comma', 'Period', 'KeyO', 'KeyU', 'KeyN', 'Semicolon', 'KeyY', 'BracketLeft', 'BracketRight', 'Minus', 'Equal', 'Digit3' ];
+// (wave 12: Quote, ', bails out; J, proposed, is the journal's)
+export const KEYS = [ 'ShiftLeft', 'Comma', 'Period', 'KeyO', 'KeyU', 'KeyN', 'Semicolon', 'KeyY', 'BracketLeft', 'BracketRight', 'Minus', 'Equal', 'Digit3', 'Quote' ];
 export const THROTTLE_DOWN = 'KeyC';
-// the cockpit's keys -> Seaplane.act ids (pressed, not held; the trim keys are held: _keysNow)
-export const COCKPIT_KEYS = { KeyO: 'engine', KeyU: 'master', KeyN: 'nav', Semicolon: 'landing', KeyY: 'ap', BracketLeft: 'flapsUp', BracketRight: 'flapsDown', Digit3: 'panel' };
+export const BRAKE = 'KeyB'; // the Kestrel's wheel brakes: read on the ground only (B is the boarding key: not claimed)
+// the cockpit's keys -> Seaplane.act ids (pressed, not held; the trim keys are held: _keysNow; ; is held for the searchlight)
+export const COCKPIT_KEYS = { KeyO: 'engine', KeyU: 'master', KeyN: 'nav', Semicolon: 'landing', KeyY: 'ap', BracketLeft: 'flapsUp', BracketRight: 'flapsDown', Digit3: 'panel', Quote: 'bail' };
+export const SEARCH_HOLD = 0.3; // s: holding ; this long sweeps the searchlight instead of toggling the landing light
+const RADIO_ID = 'seaplane-radio-';
 
 const _v = new Vector3(), _v2 = new Vector3(), _v3 = new Vector3(), _nose = new Vector3(), _q = new Quaternion();
 const WRECK_ID = 'seaplane-wreck';
@@ -83,6 +107,17 @@ export class Seaplane {
 		this.owned = false;
 		this.hp = MAX_HP;
 		this.piloted = false;
+		// wave 12: the airframe out (af), the hangar's records of every airframe, the current one's upgrades and load
+		this.af = 'jade';
+		this.fleet = {};
+		this.upgrades = defaultUpgrades();
+		this.cargo = [];
+		this.abandoned = false; // bailed out of: flying on by itself
+		this.chute = null;
+		this._bailArm = - 10;
+		this._radio = new Set();
+		this._radioT = 0;
+		this._semi = 0;
 		this.flight = new Flight();
 		this.pilot = new Pilot();
 		this.flight.engineOn = false;
@@ -107,7 +142,8 @@ export class Seaplane {
 
 		const terrain = this.app.terrainData || null;
 		this.terrain = terrain;
-		if ( terrain && terrain.heightAt ) this.flight.groundAt = ( x, z ) => terrain.heightAt( x, z );
+		// the ground: the terrain, and the airstrip's paved surface (the Kestrel rolls on it)
+		this.flight.groundAt = ( x, z ) => this._groundAt( x, z );
 
 		// four float probes from the shared GPU water queries
 		this.query = this.app.query || null;
@@ -122,6 +158,8 @@ export class Seaplane {
 
 		const scene = this.app.scene || null;
 		this.site = opts.site === false ? null : new SeaplaneSite( { scene, terrain, colliders: this.app.colliders || null, mesh: !! scene } );
+		const strip = this.strip;
+		this.stripSite = strip && opts.site !== false ? new StripSite( { strip, scene, terrain, colliders: this.app.colliders || null, mesh: !! scene } ) : null;
 		this.models = opts.models === false || ! scene ? null : new PlaneModels( { scene } );
 		this.visual = this.models ? this.models.create() : null;
 		this.remote = new RemotePlanes( { models: this.models } );
@@ -129,7 +167,9 @@ export class Seaplane {
 		this.panel = new SeaplanePanel( this );
 		this.systems = new Systems( this.flight, this.pilot );
 		this.lights = this.systems.lights; // the registry hands them to the scene's local lights
+		this._extraLit = false;
 		this.cockpit = new Cockpit( this );
+		this._respec();
 		this._startTip = false;
 		this.autoCrank = opts.autoCrank !== false; // the throttle cranks a stopped engine (touch lever, pad trigger)
 
@@ -138,7 +178,7 @@ export class Seaplane {
 		this.vehicle = {
 			kind: 'plane',
 			quaternion: f.quaternion,
-			seat: GEOM.seat,
+			seat: GEOM.seat, // (every airframe shares the Jade's cabin: Airframes.js)
 			eye: GEOM.eye,
 			focus: [ 0, 2.4, - 0.6 ],
 			chase: 17,
@@ -160,9 +200,9 @@ export class Seaplane {
 			// the cabin door, from the jetty (or swimming beside it)
 			this._interact.push( this.features.interactable( {
 				id: 'seaplane-door',
-				position: () => f.toWorldXYZ( GEOM.door[ 0 ], GEOM.door[ 1 ], GEOM.door[ 2 ], _v2 ),
+				position: () => f.toWorldXYZ( f.geom.door[ 0 ], f.geom.door[ 1 ], f.geom.door[ 2 ], _v2 ),
 				radius: 3.2,
-				when: () => ! this.piloted && ! this._aboard() && ! this.lost,
+				when: () => ! this.piloted && ! this._aboard() && ! this.lost && ! this.chute,
 				prompt: () => ( ! this.owned ? t( 'seaplane.forSale', 'Seaplane for sale · ask at the hangar' ) : this.hp <= 0 ? t( 'seaplane.broken', 'Seaplane · needs repair at the hangar' ) : t( 'seaplane.board', 'Fly the seaplane' ) ),
 				onInteract: () => this.board(),
 			} ) );
@@ -172,12 +212,314 @@ export class Seaplane {
 				radius: 3.0,
 				when: () => ! this.piloted,
 				prompt: () => t( 'seaplane.hangar', 'Seaplane hangar' ),
-				onInteract: () => this.open(),
+				onInteract: () => this.open( 'ramp' ),
+			} ) );
+			// wave 12: the airstrip's hangar office (the same window, scoped to the strip: the Kestrel)
+			this._interact.push( this.features.interactable( {
+				id: 'seaplane-strip-hangar',
+				position: () => {
+
+					const o = stripOffice( this.strip );
+					return o ? { x: o.x, y: o.y, z: o.z } : { x: 1e9, y: - 1e9, z: 1e9 };
+
+				},
+				radius: 3.0,
+				when: () => ! this.piloted && !! this.strip,
+				prompt: () => t( 'seaplane.stripHangar', 'Airstrip hangar' ),
+				onInteract: () => this.open( 'strip' ),
+			} ) );
+			// the cargo door (starboard): load crates from the trade hold at a port, unload them at any port
+			this._interact.push( this.features.interactable( {
+				id: 'seaplane-cargo',
+				position: () => f.toWorldXYZ( - Math.abs( f.geom.door[ 0 ] ), f.geom.door[ 1 ], f.geom.door[ 2 ] - 1.2, _v3 ),
+				radius: 2.8,
+				when: () => ! this.piloted && ! this.lost && this.owned && ! this.chute && this.capacity() > 0 && f.airspeed < 2 && !! this.cargoPort(),
+				prompt: () => this.cargoPrompt(),
+				onInteract: () => {
+
+					const r = this.cargo.length ? this.unloadCargo() : this.loadCargo();
+					if ( r && r.text ) this._toast( r.text, 2600 );
+
+				},
 			} ) );
 
 		}
 
 		this._place();
+
+	}
+
+	// ------------------------------------------------------------------ wave 12: airframes, upgrades, cargo
+
+	// the airstrip (the Kestrel's base), read from the world each time (an island worker may add it later)
+	get strip() {
+
+		return findAirstrip( this.opts.world || WORLD );
+
+	}
+
+	get airframe() {
+
+		return AIRFRAMES[ this.af ] || AIRFRAMES.jade;
+
+	}
+
+	// the airframe's base: the ramp's berth or the airstrip's pad
+	base( af = this.af ) {
+
+		const A = AIRFRAMES[ af ] || AIRFRAMES.jade;
+		if ( A.base === 'strip' ) {
+
+			const p = stripPad( this.strip );
+			if ( p ) return { kind: 'strip', x: p.x, z: p.z, heading: p.heading, y: p.y };
+
+		}
+
+		return { kind: 'ramp', x: SITE.berth.x, z: SITE.berth.z, heading: SITE.berth.heading, y: - 0.2 };
+
+	}
+
+	// can this airframe be had here at all (the Kestrel needs an airstrip)
+	available( af ) {
+
+		const A = AIRFRAMES[ af ];
+		return !! A && ( A.base !== 'strip' || !! this.strip );
+
+	}
+
+	_groundAt( x, z ) {
+
+		const t = this.terrain;
+		let g = t && t.heightAt ? t.heightAt( x, z ) : - Infinity;
+		const s = this.strip;
+		if ( s && Number.isFinite( s.y ) && onStrip( s, x, z, 1 ) ) g = Math.max( g, s.y );
+		return g;
+
+	}
+
+	// the composed spec (airframe + fitted upgrades + the load) into the flight model, the lights and the model
+	_respec() {
+
+		const s = composeSpec( this.af, this.upgrades, this.cargo );
+		this.spec = s;
+		this.flight.setSpec( s );
+		if ( this.systems ) {
+
+			this.systems.configure( s );
+			// the upgrades' lamps join the scene's local lights the first time one is fitted
+			if ( ! this._extraLit && ( s.lights.pair || s.lights.search ) && this.app.localLights && this.app.localLights.add ) {
+
+				for ( const l of this.systems.extraLights ) this.app.localLights.add( l );
+				this._extraLit = true;
+
+			}
+
+		}
+
+		if ( this.models && this.visual && this.visual.af !== this.af ) {
+
+			// another airframe out: its model (the cockpit face moves over: every airframe has the same panel)
+			const face = this.cockpit && this.cockpit.mesh;
+			this.visual.dispose();
+			this.visual = this.models.create( this.af, s.livery );
+			if ( face ) this.visual.body.add( face );
+
+		}
+
+		if ( this.visual && this.visual.setLivery && this.visual.livery !== s.livery ) this.visual.setLivery( s.livery );
+		if ( this.visual ) this.visual.stopped = this.flight.engineFail.slice();
+		return s;
+
+	}
+
+	capacity() {
+
+		return capacity( this.af, this.upgrades );
+
+	}
+
+	// the live state of the airframe out -> its record
+	_stash() {
+
+		const sp = this.flight.sprung;
+		this.fleet[ this.af ] = {
+			owned: this.owned, hp: this.hp, fuel: this.flight.fuel, switches: this.systems ? this.systems.toJSON() : null, sprung: [ sp[ 0 ], sp[ 1 ] ], lost: this.lost,
+			upgrades: { ...this.upgrades }, cargo: this.cargo.map( ( c ) => ( { ...c } ) ), engineFail: this.flight.engineFail.slice(),
+		};
+		return this.fleet[ this.af ];
+
+	}
+
+	// a record -> the live state (the airframe goes out)
+	_unstash( af ) {
+
+		const r = this.fleet[ af ] || { owned: false };
+		this.af = af;
+		this.owned = r.owned === true;
+		this.hp = Number.isFinite( r.hp ) ? Math.max( 0, Math.min( MAX_HP, r.hp ) ) : MAX_HP;
+		this.flight.fuel = Number.isFinite( r.fuel ) ? Math.max( 0, Math.min( 1, r.fuel ) ) : 1;
+		if ( r.switches && this.systems ) this.systems.fromJSON( r.switches );
+		const sp = Array.isArray( r.sprung ) ? r.sprung : [];
+		for ( let i = 0; i < 2; i ++ ) this.flight.sprung[ i ] = Number.isFinite( sp[ i ] ) ? Math.max( 0, Math.min( 1, sp[ i ] ) ) : 0;
+		this.lost = r.lost === true && this.owned;
+		this.upgrades = cleanUpgrades( r.upgrades );
+		this.cargo = Array.isArray( r.cargo ) ? r.cargo.filter( ( c ) => c && GOODS[ c.good ] && c.qty > 0 ).map( ( c ) => ( { ...c } ) ) : [];
+		this._respec();
+		const ef = Array.isArray( r.engineFail ) ? r.engineFail : [];
+		this.flight.engineFail.forEach( ( _, i ) => ( this.flight.engineFail[ i ] = ef[ i ] === true ) );
+		if ( this.visual ) this.visual.stopped = this.flight.engineFail.slice();
+
+	}
+
+	owns( af ) {
+
+		if ( af === this.af ) return this.owned;
+		return !! ( this.fleet[ af ] && this.fleet[ af ].owned );
+
+	}
+
+	// the airframe in the hangar goes out onto the ramp / the pad (the one out goes in: towed home if it was away)
+	takeOut( af ) {
+
+		if ( ! AIRFRAMES[ af ] ) return { ok: false, text: '' };
+		if ( this.piloted || this.chute ) return { ok: false, text: t( 'seaplane.flyingNow', 'Not while you are flying' ) };
+		if ( ! this.owns( af ) ) return { ok: false, text: t( 'seaplane.notOwned', 'Not yours yet' ) };
+		if ( af === this.af ) return { ok: true, text: t( 'seaplane.alreadyOut', 'Already out' ) };
+		if ( ! this.available( af ) ) return { ok: false, text: t( 'seaplane.noStrip', 'There is no airstrip for it' ) };
+		this._stash();
+		this._clearWreck();
+		this.abandoned = false;
+		this._unstash( af );
+		this._place();
+		if ( this.lost && this.visual ) this.visual.setVisible( false );
+		this._save();
+		return { ok: true, text: `${ AIRFRAMES[ af ].name }: ${ AIRFRAMES[ af ].base === 'strip' ? t( 'seaplane.onPad', 'out on the pad' ) : t( 'seaplane.onRamp', 'out at the ramp' ) }` };
+
+	}
+
+	// fit the next tier of an upgrade (a livery: scheme n) in the hangar; prices by airframe class, free in the sandbox
+	fit( key, tier = null ) {
+
+		const U = UPGRADES.find( ( u ) => u.id === key );
+		if ( ! U || ! upgradeFits( this.af, key ) ) return { ok: false, text: t( 'seaplane.noFit', 'That does not fit this airframe' ) };
+		if ( ! this.owned || this.lost ) return { ok: false, text: t( 'seaplane.notOwned', 'Not yours yet' ) };
+		if ( this.piloted || ! this.home ) return { ok: false, text: t( 'seaplane.fitAtHangar', 'Upgrades are fitted at the hangar' ) };
+		const cur = this.upgrades[ key ] || 0;
+		const want = U.paint ? ( Number.isFinite( tier ) ? tier : ( cur + 1 ) % ( U.tiers + 1 ) ) : cur + 1;
+		if ( want === cur ) return { ok: false, text: t( 'seaplane.fitted', 'Already fitted' ) };
+		if ( want < 0 || want > U.tiers ) return { ok: false, text: t( 'seaplane.maxed', 'Fully upgraded' ) };
+		const price = this.free ? 0 : upgradePrice( this.af, key, want );
+		const st = this.features && this.features.state;
+		if ( price > 0 && ( ! st || ! st.spend || ! st.spend( price ) ) ) return { ok: false, text: t( 'seaplane.short', 'Not enough money yet' ) + ` (${ money$( price ) })` };
+		this.upgrades[ key ] = want;
+		this._respec();
+		this._save();
+		this._emit( 'seaplaneUpgraded', { airframe: this.af, upgrade: key, tier: want, price } );
+		const name = t( 'seaplane.up.' + key, U.name );
+		return { ok: true, text: U.paint ? `${ t( 'seaplane.repainted', 'Repainted' ) }: ${ LIVERIES[ want ].name }` : `${ name } ${ U.tiers > 1 ? want + ' ' : '' }${ t( 'seaplane.fittedNow', 'fitted' ) }` + ( price ? ` (${ money$( price ) })` : '' ) };
+
+	}
+
+	// a twin's engine stops (damage): the other one yaws the plane (Flight's asymmetric thrust)
+	failEngine( i ) {
+
+		const ef = this.flight.engineFail;
+		if ( ef.length < 2 || i < 0 || i >= ef.length || ef[ i ] ) return false;
+		ef[ i ] = true;
+		if ( this.visual ) this.visual.stopped = ef.slice();
+		this._emit( 'planeEngineFailed', { engine: i } );
+		if ( this.piloted ) this._toast( i === 0 ? t( 'seaplane.portEngine', 'The port engine failed' ) : t( 'seaplane.starboardEngine', 'The starboard engine failed' ), 3200 );
+		return true;
+
+	}
+
+	// the port whose dock / stand the plane is at (the home ramp counts as home's), or null
+	cargoPort() {
+
+		const f = this.flight, x = f.position.x, z = f.position.z;
+		if ( this.home ) return 'home';
+		for ( const p of WORLD.ports || [] ) {
+
+			const q = [ p.dock && p.dock.position, p.stand, p.center ];
+			for ( let k = 0; k < 2; k ++ ) if ( q[ k ] && Math.hypot( q[ k ].x - x, q[ k ].z - z ) < 90 ) return p.id;
+
+		}
+
+		return null;
+
+	}
+
+	cargoCrates() {
+
+		return cargoMass( this.cargo ).crates;
+
+	}
+
+	cargoPrompt() {
+
+		const n = this.cargoCrates(), cap = this.capacity();
+		if ( n > 0 ) return `${ t( 'seaplane.unload', 'Unload the cargo' ) } (${ n } / ${ cap })`;
+		const tr = this._trade();
+		return tr && tr.crates && tr.crates() > 0 ? `${ t( 'seaplane.load', 'Load cargo from the hold' ) } (${ cap } ${ t( 'seaplane.crates', 'crates' ) })` : null;
+
+	}
+
+	_trade() {
+
+		return this.features && this.features.get ? this.features.get( 'trade' ) : null;
+
+	}
+
+	// crates out of the trade hold into the pod / bay (as many whole units as fit, the most valuable first)
+	loadCargo() {
+
+		const tr = this._trade();
+		if ( ! tr || ! tr.cargo || ! tr.takeCargo ) return { ok: false, text: t( 'seaplane.noTrade', 'Nothing to load' ) };
+		if ( ! this.cargoPort() ) return { ok: false, text: t( 'seaplane.cargoAtPort', 'Load and unload cargo at a port' ) };
+		let room = this.capacity() - this.cargoCrates();
+		if ( room <= 0 ) return { ok: false, text: t( 'seaplane.cargoFull', 'The cargo space is full' ) };
+		const held = tr.cargo;
+		const goods = Object.keys( held ).filter( ( g ) => GOODS[ g ] && held[ g ].qty > 0 ).sort( ( a, b ) => GOODS[ b ].base / GOODS[ b ].crates - GOODS[ a ].base / GOODS[ a ].crates );
+		let moved = 0;
+		for ( const g of goods ) {
+
+			const G = GOODS[ g ], n = Math.min( held[ g ].qty, Math.floor( room / G.crates ) );
+			if ( n < 1 ) continue;
+			const got = tr.takeCargo( g, n );
+			if ( ! got || ! got.qty ) continue;
+			const cond = held[ g ].cond ?? 1;
+			const item = this.cargo.find( ( c ) => c.good === g );
+			if ( item ) {
+
+				item.qty += got.qty;
+				item.paid = ( item.paid || 0 ) + ( got.paid || 0 );
+
+			} else this.cargo.push( { good: g, qty: got.qty, kg: G.kg, crates: G.crates, cond, paid: got.paid || 0 } );
+			room -= got.qty * G.crates;
+			moved += got.qty * G.crates;
+
+		}
+
+		if ( ! moved ) return { ok: false, text: t( 'seaplane.noTrade', 'Nothing to load' ) };
+		this._respec();
+		this._save();
+		return { ok: true, crates: moved, text: `${ t( 'seaplane.loaded', 'Loaded' ) } ${ moved } ${ t( 'seaplane.crates', 'crates' ) } (${ Math.round( cargoMass( this.cargo ).kg ) } kg)` };
+
+	}
+
+	// the crates back into the trade hold at a port (sell them there as usual)
+	unloadCargo() {
+
+		const tr = this._trade(), port = this.cargoPort();
+		if ( ! port ) return { ok: false, text: t( 'seaplane.cargoAtPort', 'Load and unload cargo at a port' ) };
+		if ( ! this.cargo.length ) return { ok: false, text: t( 'seaplane.noCargo', 'No cargo aboard' ) };
+		if ( ! tr || ! tr.addCargo ) return { ok: false, text: t( 'seaplane.noTrade', 'Nothing to load' ) };
+		let n = 0;
+		for ( const c of this.cargo ) n += tr.addCargo( c.good, c.qty, { cond: c.cond ?? 1, paid: c.paid || 0, port: port === 'home' ? 'home' : port, force: true } ) * ( c.crates || 1 );
+		this.cargo = [];
+		this._respec();
+		this._save();
+		return { ok: true, crates: n, text: `${ t( 'seaplane.unloaded', 'Unloaded' ) } ${ n } ${ t( 'seaplane.crates', 'crates' ) } ${ t( 'seaplane.intoHold', 'into the hold' ) }` };
 
 	}
 
@@ -192,6 +534,8 @@ export class Seaplane {
 
 	get home() {
 
+		const b = this.base();
+		if ( b.kind === 'strip' ) return Math.hypot( this.flight.position.x - b.x, this.flight.position.z - b.z ) < SITE.homeRadius;
 		return distToBerth( this.flight.position.x, this.flight.position.z ) < SITE.homeRadius;
 
 	}
@@ -217,20 +561,40 @@ export class Seaplane {
 
 	}
 
-	view() {
+	view( scope = this.panel ? this.panel.scope : 'ramp' ) {
 
 		const st = this.features && this.features.state;
 		const money = st ? st.money : 0;
-		const fuel = this.flight.fuel, fuelCost = refuelCost( fuel, this.free ), s = this.systems, f = this.flight;
+		const litres = this.spec.litres || FUEL.litres;
+		const fuel = this.flight.fuel, fuelCost = refuelCost( fuel, this.free, litres ), s = this.systems, f = this.flight;
+		const price = this.airframe.price;
+		// wave 12: the hangar's airframes for this scope (the ramp: the seaplanes; the strip: the Kestrel)
+		const airframes = AIRFRAME_IDS.filter( ( id ) => ( AIRFRAMES[ id ].base === 'strip' ) === ( scope === 'strip' ) && this.available( id ) ).map( ( id ) => {
+
+			const A = AIRFRAMES[ id ], owned = this.owns( id ), rec = id === this.af ? null : this.fleet[ id ];
+			return { id, name: A.name, sub: A.sub, price: A.price, owned, current: id === this.af, lost: id === this.af ? this.lost : !! ( rec && rec.lost ), seats: A.seats, crates: A.crates, canBuy: ! owned && ( this.free || money >= A.price ), canTake: owned && id !== this.af && ! this.piloted };
+
+		} );
+		const upgrades = UPGRADES.filter( ( U ) => upgradeFits( this.af, U.id ) ).map( ( U ) => {
+
+			const tier = this.upgrades[ U.id ] || 0, next = U.paint ? ( tier + 1 ) % ( U.tiers + 1 ) : tier + 1;
+			const cost = next > U.tiers || ( U.paint && next === 0 ) ? 0 : this.free ? 0 : upgradePrice( this.af, U.id, next );
+			const label = U.id === 'floats' && this.spec.landplane ? 'Undercarriage' : U.id === 'floats' && this.spec.hull ? 'Hull' : U.name;
+			return { id: U.id, name: label, note: U.note, tier, tiers: U.tiers, next, paint: !! U.paint, scheme: U.paint ? LIVERIES[ tier ].name : null, nextScheme: U.paint ? LIVERIES[ next ].name : null, cost, maxed: ! U.paint && tier >= U.tiers, canFit: this.owned && ! this.lost && this.home && ! this.piloted && ( U.paint || tier < U.tiers ) && ( this.free || money >= cost ) };
+
+		} );
 		return {
-			owned: this.owned, free: this.free, price: PRICE, money, hp: this.hp, home: this.home, piloted: this.piloted,
-			canBuy: ! this.owned && ( this.free || money >= PRICE ), repairCost: this.repairCost(),
+			scope, af: this.af, name: this.airframe.name, airframes, upgrades, inScope: ( this.airframe.base === 'strip' ) === ( scope === 'strip' ),
+			cargo: { crates: this.cargoCrates(), capacity: this.capacity(), kg: Math.round( cargoMass( this.cargo ).kg ), items: this.cargo.map( ( c ) => ( { good: c.good, name: GOODS[ c.good ] ? GOODS[ c.good ].name : c.good, qty: c.qty } ) ) },
+			engineOut: f.engineFail.some( Boolean ),
+			owned: this.owned, free: this.free, price, money, hp: this.hp, home: this.home, piloted: this.piloted,
+			canBuy: ! this.owned && ( this.free || money >= price ), repairCost: this.repairCost(),
 			canRepair: this.owned && ! this.lost && this.hp < MAX_HP && ( this.free || money >= this.repairCost() ),
 			lost: this.lost, wreck: !! this.wreck, recoveryCost: this.recoveryCost(), canRecover: this.lost && ( this.free || money >= this.recoveryCost() ),
 			sprung: this.flight.sprung[ 0 ] > 0 || this.flight.sprung[ 1 ] > 0,
-			fuel, litres: fuel * FUEL.litres, tank: FUEL.litres, refuelCost: fuelCost,
+			fuel, litres: fuel * litres, tank: litres, refuelCost: fuelCost,
 			canRefuel: this.owned && this.home && fuel < 0.995 && ! f.airborne && ( this.free || money >= fuelCost ),
-			cockpit: { master: s.master, engine: f.engineOn, cranking: s.cranking, nav: s.nav, landing: s.landing, ap: s.apOn, flaps: f.flaps, trim: this.pilot.trim, canExit: this.canExit() },
+			cockpit: { master: s.master, engine: f.engineOn, cranking: s.cranking, nav: s.nav, landing: s.landing, ap: s.apOn, flaps: f.flaps, notches: f.notches, trim: this.pilot.trim, canExit: this.canExit(), search: s.search, hasSearch: s.fit.search, canBail: this.canBail(), radio: !! this.spec.radio },
 		};
 
 	}
@@ -241,8 +605,10 @@ export class Seaplane {
 
 	}
 
-	open() {
+	open( scope = null ) {
 
+		if ( scope ) this.panel.scope = scope;
+		else if ( ! this.piloted ) this.panel.scope = this.airframe.base === 'strip' ? 'strip' : 'ramp';
 		return this.panel.open();
 
 	}
@@ -266,21 +632,39 @@ export class Seaplane {
 
 	}
 
-	buy() {
+	// buy an airframe (the one out when none is named: the Jade in a new game); a new one goes out at once
+	buy( af = null ) {
 
-		if ( this.owned ) return { ok: false, text: t( 'seaplane.owned', 'The seaplane is already yours' ) };
+		af = af || this.af;
+		const A = AIRFRAMES[ af ];
+		if ( ! A ) return { ok: false, text: '' };
+		if ( this.owns( af ) ) return { ok: false, text: t( 'seaplane.owned', 'The seaplane is already yours' ) };
+		if ( ! this.available( af ) ) return { ok: false, text: t( 'seaplane.noStrip', 'There is no airstrip for it' ) };
+		if ( af !== this.af && ( this.piloted || this.chute ) ) return { ok: false, text: t( 'seaplane.flyingNow', 'Not while you are flying' ) };
 		const st = this.features && this.features.state;
 		if ( ! this.free ) {
 
-			if ( ! st || ! st.spend || ! st.spend( PRICE ) ) return { ok: false, text: t( 'seaplane.short', 'Not enough money yet' ) };
+			if ( ! st || ! st.spend || ! st.spend( A.price ) ) return { ok: false, text: t( 'seaplane.short', 'Not enough money yet' ) };
+
+		}
+
+		if ( af !== this.af ) {
+
+			this._stash();
+			this._clearWreck();
+			this.abandoned = false;
+			this.fleet[ af ] = { owned: true, hp: MAX_HP, fuel: 1, upgrades: defaultUpgrades(), cargo: [] };
+			this._unstash( af );
+			this._place();
 
 		}
 
 		this.owned = true;
 		this.hp = MAX_HP;
 		this._save();
-		this._emit( 'seaplaneBought', { price: this.free ? 0 : PRICE } );
-		return { ok: true, text: t( 'seaplane.bought', 'The seaplane is yours. Board it at the door from the jetty.' ) };
+		this._emit( 'seaplaneBought', { price: this.free ? 0 : A.price, airframe: af } );
+		if ( af === 'jade' ) return { ok: true, text: t( 'seaplane.bought', 'The seaplane is yours. Board it at the door from the jetty.' ) };
+		return { ok: true, text: `${ t( 'seaplane.boughtA', 'The' ) } ${ A.name } ${ t( 'seaplane.boughtB', 'is yours' ) }: ${ A.base === 'strip' ? t( 'seaplane.onPad', 'out on the pad' ) : t( 'seaplane.onRamp', 'out at the ramp' ) }` };
 
 	}
 
@@ -293,6 +677,8 @@ export class Seaplane {
 		if ( cost > 0 && ( ! st || ! st.spend || ! st.spend( cost ) ) ) return { ok: false, text: t( 'seaplane.short', 'Not enough money yet' ) };
 		this.hp = MAX_HP;
 		this.flight.sprung[ 0 ] = this.flight.sprung[ 1 ] = 0;
+		this.flight.engineFail.fill( false );
+		if ( this.visual ) this.visual.stopped = null;
 		this._save();
 		return { ok: true, text: t( 'seaplane.repaired', 'Repaired: good as new' ) };
 
@@ -305,7 +691,7 @@ export class Seaplane {
 		if ( ! this.owned ) return { ok: false, text: '' };
 		if ( ! this.home || f.airborne ) return { ok: false, text: t( 'seaplane.refuelAway', 'Refuel at the ramp' ) };
 		if ( f.fuel >= 0.995 ) return { ok: false, text: t( 'seaplane.full', 'The tank is full' ) };
-		const cost = refuelCost( f.fuel, this.free );
+		const cost = refuelCost( f.fuel, this.free, this.spec.litres || FUEL.litres );
 		const st = this.features && this.features.state;
 		if ( cost > 0 && ( ! st || ! st.spend || ! st.spend( cost ) ) ) return { ok: false, text: t( 'seaplane.short', 'Not enough money yet' ) };
 		f.fuel = 1;
@@ -348,8 +734,16 @@ export class Seaplane {
 
 	_place() {
 
-		const f = this.flight;
-		f.place( SITE.berth.x, SITE.berth.z, SITE.berth.heading );
+		const f = this.flight, b = this.base();
+		if ( b.kind === 'strip' ) {
+
+			// on the pad, nose down the runway, the wheels on the ground (brakes set)
+			const g = this._groundAt( b.x, b.z );
+			f.place( b.x, b.z, b.heading, Number.isFinite( g ) ? g : b.y );
+			f.controls.brake = 1;
+
+		} else f.place( b.x, b.z, b.heading );
+		this.abandoned = false;
 		f.engineOn = false;
 		f.flaps = f.flapPos = 0;
 		f.clearStrikes();
@@ -373,9 +767,10 @@ export class Seaplane {
 
 		}
 
-		if ( ! p || ! p.enterVehicle || this._aboard() ) return false;
+		if ( ! p || ! p.enterVehicle || this._aboard() || this.chute ) return false;
 		const f = this.flight;
 		this.piloted = true;
+		this.abandoned = false;
 		// the engine is cold: it starts on the starter (O, the panel's START, or opening the throttle)
 		f.clearStrikes();
 		this.pilot.reset();
@@ -405,7 +800,8 @@ export class Seaplane {
 
 		const p = this.app.player, inp = this.app.input;
 		if ( ! p || p.mode !== 'swim' || ! this.owned || this.hp <= 0 || this.lost || this._sinceExit < 0.6 ) return;
-		const d = this.flight.toWorldXYZ( GEOM.door[ 0 ], GEOM.door[ 1 ], GEOM.door[ 2 ], _v2 );
+		const dr = this.flight.geom.door;
+		const d = this.flight.toWorldXYZ( dr[ 0 ], dr[ 1 ], dr[ 2 ], _v2 );
 		if ( Math.hypot( d.x - p.position.x, d.z - p.position.z ) > 3.2 ) {
 
 			this._swimHint = false;
@@ -457,11 +853,12 @@ export class Seaplane {
 		if ( this.isOpen() ) this.close();
 		this.pilot.reset();
 		if ( ! p || ! p.exitVehicle ) return;
-		const door = f.toWorldXYZ( GEOM.door[ 0 ] + 0.6, GEOM.door[ 1 ], GEOM.door[ 2 ], _v );
+		const dr = f.geom.door;
+		const door = f.toWorldXYZ( dr[ 0 ] + 0.6, dr[ 1 ], dr[ 2 ], _v );
 		const yaw = f.heading() + Math.PI;
 		const jp = jettyPoint( door.x, door.z );
 		const sea = f.seaLevel();
-		const ground = this.terrain ? this.terrain.heightAt( door.x, door.z ) : - Infinity;
+		const ground = this._groundAt( door.x, door.z );
 		if ( Math.hypot( jp.x - door.x, jp.z - door.z ) < 4 ) p.exitVehicle( jp.x, jp.y, jp.z, yaw - Math.PI / 2, 'walk' );
 		else if ( ground > sea - 1.1 ) p.exitVehicle( door.x, Math.max( ground, sea - 1.1 ), door.z, yaw, 'walk' );
 		else p.exitVehicle( door.x, sea - 0.2, door.z, yaw, 'swim', sea );
@@ -481,6 +878,7 @@ export class Seaplane {
 			throttleUp: d( 'ShiftLeft' ) || d( 'ShiftRight' ), throttleDown: d( THROTTLE_DOWN ),
 			yawLeft: d( 'Comma' ), yawRight: d( 'Period' ),
 			trimUp: d( 'Equal' ) || d( 'NumpadAdd' ), trimDown: d( 'Minus' ) || d( 'NumpadSubtract' ),
+			brake: d( BRAKE ), semicolon: d( 'Semicolon' ),
 		};
 
 	}
@@ -507,6 +905,9 @@ export class Seaplane {
 		const f = this.flight;
 		if ( ! f.engineOn && ! this.systems.cranking && f.fuel > 0 && ( keys.throttleUp || ( pad && pad.throttle > 0.3 ) ) && this.autoCrank ) this.act( 'engine', 'throttle' );
 		this.pilot.read( keys, pad, f, dt );
+		// the wheel brakes (a land plane on the ground: B held, or the throttle closed and nearly stopped)
+		f.controls.brake = f.geom.wheels && f.grounded && ( keys.brake || ( this.pilot.throttle < 0.02 && f.airspeed < 0.6 ) ) ? 1 : 0;
+		this._searchKey( keys, dt );
 		const drop = this.pilot.ap.dropped;
 		if ( drop ) {
 
@@ -530,7 +931,155 @@ export class Seaplane {
 
 			// with a panel open only 3 (closing the switch panel) is ours
 			if ( open && code !== 'Digit3' ) continue;
+			// with the searchlight fitted ; acts on release (a tap: the landing light; held: the searchlight)
+			if ( code === 'Semicolon' && this.systems.fit.search ) continue;
 			if ( inp.hit( code ) ) this.act( COCKPIT_KEYS[ code ], 'key' );
+
+		}
+
+	}
+
+	// ; with the searchlight: held past SEARCH_HOLD it sweeps where the pilot looks; a tap toggles the landing light
+	_searchKey( keys, dt ) {
+
+		const s = this.systems;
+		if ( ! s.fit.search ) {
+
+			this._semi = 0;
+			return;
+
+		}
+
+		if ( keys.semicolon ) {
+
+			this._semi += dt;
+			if ( this._semi >= SEARCH_HOLD && ! s.search ) {
+
+				s.search = true;
+				s.syncLights();
+
+			}
+
+		} else if ( this._semi > 0 ) {
+
+			if ( this._semi < SEARCH_HOLD ) this.act( 'landing', 'key' );
+			else if ( ! this._searchLatched ) {
+
+				s.search = false;
+				s.syncLights();
+
+			}
+
+			this._semi = 0;
+
+		}
+
+		if ( s.search ) this._aimSearch();
+
+	}
+
+	// the searchlight follows the camera's line of sight (into the model frame)
+	_aimSearch() {
+
+		const cam = this.app.camera;
+		if ( ! cam || ! cam.quaternion ) return;
+		const d = _v.set( 0, 0, - 1 ).applyQuaternion( cam.quaternion ).applyQuaternion( _q.copy( this.flight.quaternion ).invert() );
+		this.systems.aim( d.x, d.y, d.z );
+
+	}
+
+	canBail() {
+
+		const f = this.flight;
+		return this.piloted && f.airborne && f.agl > CHUTE.minAgl;
+
+	}
+
+	// out of the plane on the parachute (Chute.js); the plane flies on by itself (sp.abandoned)
+	bail() {
+
+		const f = this.flight, p = this.app.player;
+		if ( ! this.piloted || ! f.airborne ) return { ok: false, why: 'ground' };
+		if ( f.agl <= CHUTE.minAgl ) return { ok: false, why: 'low' };
+		if ( ! p || ! p.enterVehicle ) return { ok: false, why: 'player' };
+		const dr = f.geom.door;
+		const door = f.toWorldXYZ( dr[ 0 ] + 0.8, Math.max( dr[ 1 ], 1.2 ), dr[ 2 ], new Vector3() );
+		// out of the port door: the plane's way and a shove clear of the wing strut
+		const side = _v.set( 1, 0, 0 ).applyQuaternion( f.quaternion );
+		const vel = f.velocity.clone().multiplyScalar( 0.85 ).addScaledVector( side, 3 );
+		const sea = f.seaLevel();
+		const agl = f.agl;
+		this.piloted = false;
+		this.abandoned = true;
+		this.pilot.disengageAutopilot();
+		if ( this.isOpen() ) this.close();
+		this.systems.search = false;
+		this.systems.syncLights();
+		const cam = this.app.camera;
+		this.chute = new Chute( {
+			position: door, velocity: vel, heading: f.heading(), agl, scene: this.app.scene || null,
+			seaAt: () => sea, groundAt: ( x, z ) => this._groundAt( x, z ),
+			look: () => this._chuteLook(),
+		} );
+		this.chute.onDrive = ( ev ) => this._chuteEvents( ev );
+		p.enterVehicle( this.chute.vehicle );
+		this._emit( 'planeBailedOut', { x: door.x, y: door.y, z: door.z, airframe: this.af } );
+		this._toast( t( 'seaplane.bailed', 'Bailed out! Look where you want to drift.' ), 2600 );
+		this.audio.click( 'clunk' );
+		return { ok: true };
+
+	}
+
+	// where the parachute drifts: W / A / S / D relative to its heading (the touch drag sends them too), else where the
+	// camera looks
+	_chuteLook() {
+
+		const inp = this.app.input, c = this.chute, cam = this.app.camera;
+		if ( inp && inp.down && c ) {
+
+			const f = ( inp.down( 'KeyW' ) ? 1 : 0 ) - ( inp.down( 'KeyS' ) ? 1 : 0 ), l = ( inp.down( 'KeyA' ) ? 1 : 0 ) - ( inp.down( 'KeyD' ) ? 1 : 0 );
+			if ( f || l ) {
+
+				const h = c.yaw, sn = Math.sin( h ), cs = Math.cos( h );
+				return _v2.set( sn * f + cs * l, 0, cs * f - sn * l );
+
+			}
+
+		}
+
+		return cam && cam.quaternion ? _v2.set( 0, 0, - 1 ).applyQuaternion( cam.quaternion ) : null;
+
+	}
+
+	_chuteEvents( ev ) {
+
+		const c = this.chute, p = this.app.player;
+		if ( ! c ) return;
+		for ( const e of ev ) {
+
+			if ( e.type === 'open' ) this.audio.click( 'clunk' );
+			if ( e.type !== 'landed' ) continue;
+			if ( p && p.exitVehicle && p.vehicle === c.vehicle ) p.exitVehicle( e.x, e.y, e.z, c.yaw + Math.PI, e.mode, e.mode === 'swim' ? e.sea : null );
+			this._sinceExit = 0;
+			c.dispose();
+			this.chute = null;
+			this._emit( 'chuteLanded', { x: e.x, z: e.z, mode: e.mode } );
+
+		}
+
+	}
+
+	// the abandoned plane: the assist keeps the wings level, the throttle stays where it was; it ends in a wreck, or
+	// adrift once it has glided down and stopped
+	_flyAbandoned( dt ) {
+
+		const f = this.flight;
+		this.pilot.read( {}, null, f, dt );
+		this._step( dt );
+		if ( ! this.lost && ! f.airborne && f.airspeed < 1.5 ) {
+
+			this.abandoned = false;
+			this.systems.stop();
 
 		}
 
@@ -582,10 +1131,49 @@ export class Seaplane {
 			case 'flapsUp': case 'flapsDown': {
 
 				const was = f.flaps;
-				f.flaps = Math.max( 0, Math.min( 2, Math.round( f.flaps ) + ( id === 'flapsDown' ? 1 : - 1 ) ) );
+				f.flaps = Math.max( 0, Math.min( f.notches, Math.round( f.flaps ) + ( id === 'flapsDown' ? 1 : - 1 ) ) );
 				ok = f.flaps !== was;
 				sound = 'clunk';
-				if ( ok ) text = [ t( 'seaplane.flaps0', 'Flaps up' ), t( 'seaplane.flaps1', 'Flaps 1: takeoff' ), t( 'seaplane.flaps2', 'Flaps 2: landing' ) ][ f.flaps ];
+				if ( ok ) text = [ t( 'seaplane.flaps0', 'Flaps up' ), t( 'seaplane.flaps1', 'Flaps 1: takeoff' ), t( 'seaplane.flaps2', 'Flaps 2: landing' ), t( 'seaplane.flaps3', 'Flaps 3: STOL' ) ][ f.flaps ];
+				break;
+
+			}
+
+			case 'search':
+				ok = s.fit.search && s.master;
+				if ( ok ) {
+
+					// (the switch panel / touch: latched on, aimed by the look)
+					s.search = ! s.search;
+					this._searchLatched = s.search;
+					s.syncLights();
+					text = s.search ? t( 'seaplane.searchOn', 'Searchlight on: it follows your look' ) : t( 'seaplane.searchOff', 'Searchlight off' );
+
+				} else text = s.fit.search ? t( 'seaplane.needMaster', 'The master switch is off (U)' ) : t( 'seaplane.noSearch', 'No searchlight fitted (the hangar sells one)' );
+				break;
+
+			case 'bail': {
+
+				// twice within 2 s (an accidental press only warns)
+				const now = this.systems.time;
+				if ( ! this.canBail() ) {
+
+					ok = false;
+					text = this.flight.airborne ? t( 'seaplane.bailLow', 'Too low to bail out' ) : t( 'seaplane.bailGround', 'Bail out in the air (climb out on the water)' );
+
+				} else if ( now - this._bailArm > 2 ) {
+
+					this._bailArm = now;
+					text = how === 'key' ? t( 'seaplane.bailArm', "Press ' again to bail out" ) : t( 'seaplane.bailArmPanel', 'Bail out? Press again' );
+
+				} else {
+
+					this._bailArm = - 10;
+					this.bail();
+					return true;
+
+				}
+
 				break;
 
 			}
@@ -698,6 +1286,7 @@ export class Seaplane {
 
 		const f = this.flight;
 		this._readWater();
+		if ( this.visual ) this.visual.stopped = f.engineFail.some( Boolean ) ? f.engineFail : null; // (a dead engine's propeller stands still)
 		for ( const ev of this.systems.update( dt, { hp: this.hp } ) ) {
 
 			if ( ev === 'noStart' && this.piloted ) this._toast( t( 'seaplane.noStart', 'The engine did not catch' ), 1600 );
@@ -739,7 +1328,8 @@ export class Seaplane {
 
 		}
 
-		const c = f.toWorldXYZ( GEOM.prop[ 0 ], GEOM.prop[ 1 ], GEOM.prop[ 2 ], _v2 );
+		const pr = f.geom.prop || GEOM.prop;
+		const c = f.toWorldXYZ( pr[ 0 ], pr[ 1 ], pr[ 2 ], _v2 );
 		const p = this.app.player;
 		const s = this.systems;
 		this.audio.update( dt, {
@@ -751,7 +1341,10 @@ export class Seaplane {
 
 	_event( e ) {
 
-		const f = this.flight, r = judge( e, this.hp );
+		// (the airframe's thresholds: fragile floats, a hull, a land plane; armour: more hull points to lose)
+		const f = this.flight, hpts = this.spec.hullPoints || 1;
+		const r = judge( e, this.hp * hpts, { rough: this.spec.rough, landplane: this.spec.landplane } );
+		if ( r.damage ) r.damage /= hpts;
 		this.log.push( { e, r } );
 		if ( this.log.length > 24 ) this.log.shift();
 		const x = f.position.x, z = f.position.z;
@@ -791,6 +1384,8 @@ export class Seaplane {
 		const f = this.flight, x = f.position.x, z = f.position.z;
 		const vfx = this.features && this.features.get ? this.features.get( 'vfx' ) : null;
 		this.hp = Math.max( 1, this.hp - r.damage );
+		// a twin: a hard knock on one side can stop that side's engine
+		if ( f.engineFail.length > 1 && r.damage >= 20 ) this.failEngine( ( r.sprung === 'R' || e.side < 0 ) ? 1 : 0 );
 		if ( r.sprung ) {
 
 			const i = r.sprung === 'L' ? 0 : 1;
@@ -818,13 +1413,15 @@ export class Seaplane {
 		const surf = e && e.surface;
 		const water = surf === 'water' || ( surf !== 'ground' && ground < sea - 0.5 );
 		// (a bare _crash( cause ), without a judged event, is the old fatal crash: test/feature-death.mjs drives it so)
-		const severity = r ? ( r.severity === 'death' ? 'death' : 'wreck' ) : 'death';
+		// (nobody aboard - bailed out, adrift - nobody dies: a fatal impact is just a wreck)
+		const severity = r ? ( r.severity === 'death' && this.piloted ? 'death' : 'wreck' ) : 'death';
 		const speed = r && Number.isFinite( r.speed ) && r.speed > 0 ? r.speed : f.velocity.length();
 		this.stats.crashes ++;
 		this.hp = this.free ? MAX_HP : 0;
 		const cost = this.repairCost();
 		const wasPiloted = this.piloted;
 		this.piloted = false;
+		this.abandoned = false;
 		this.systems.stop();
 		f.controls.throttle = 0;
 		this.pilot.reset();
@@ -904,7 +1501,7 @@ export class Seaplane {
 		const f = this.flight;
 		const seed = Number.isFinite( this.opts.seed ) ? this.opts.seed + this.stats.crashes : ( Math.random() * 1e9 ) | 0;
 		if ( this._wreck ) this._clearWreck(); // (a second wreck replaces a first that was never recovered)
-		const w = new Wreck( { position: f.position, quaternion: f.quaternion, velocity: f.velocity, angular: f.angular, seed } );
+		const w = new Wreck( { position: f.position, quaternion: f.quaternion, velocity: f.velocity, angular: f.angular, seed, airframe: this.af } );
 		this._rand = w.rand;
 		for ( const n of wreckParts( e || {}, severity, w.rand ) ) w.detach( n );
 		this._wreck = w;
@@ -1228,7 +1825,7 @@ export class Seaplane {
 		}
 
 		const nf = f.noseFirst();
-		for ( const [ part, x, y, z ] of STRIKE ) {
+		for ( const [ part, x, y, z ] of f.geom.strike ) {
 
 			const key = part + 'S';
 			if ( f._struck.has( key ) ) continue;
@@ -1262,6 +1859,13 @@ export class Seaplane {
 		const f = this.flight, p = this.app.player;
 		this._sinceExit += dt;
 		this.stun.update( dt );
+		// the parachute: something else took the player out of it (a respawn) -> it is gone
+		if ( this.chute && p && p.vehicle !== this.chute.vehicle ) {
+
+			this.chute.dispose();
+			this.chute = null;
+
+		}
 		// something else took the player out of the cockpit (a rescue, a respawn, the free camera reset)
 		if ( this.piloted && p && ( p.mode !== 'plane' || p.vehicle !== this.vehicle ) ) {
 
@@ -1284,6 +1888,10 @@ export class Seaplane {
 			if ( ! this._driven ) this._step( dt );
 			this._driven = false;
 
+		} else if ( this.abandoned ) {
+
+			this._flyAbandoned( dt );
+
 		} else {
 
 			this._idle( dt );
@@ -1291,8 +1899,57 @@ export class Seaplane {
 
 		}
 
+		this._radioUpdate( dt );
 		this.cockpit.update( dt );
 		this.remote.update( dt );
+
+	}
+
+	// the radio upgrade: while flying, ships and wrecks within RADIO_RANGE go on the world map (refreshed every 2 s)
+	radioContacts() {
+
+		const f = this.flight, out = [], x = f.position.x, z = f.position.z;
+		const nv = this.features && this.features.get ? this.features.get( 'naval' ) : null;
+		for ( const s of ( nv && nv.ships ) || [] ) {
+
+			if ( ! s || ! Number.isFinite( s.x ) || Math.hypot( s.x - x, s.z - z ) > RADIO_RANGE ) continue;
+			out.push( { kind: s.alive === false ? 'wreck' : 'ship', x: s.x, z: s.z, label: s.name || t( 'seaplane.radioShip', 'Ship' ) } );
+
+		}
+
+		const sd = this.features && this.features.get ? this.features.get( 'shipdamage' ) : null;
+		const wl = sd && typeof sd.wrecks === 'function' ? sd.wrecks() : [];
+		for ( const w of Array.isArray( wl ) ? wl : [] ) if ( w && Number.isFinite( w.x ) && Math.hypot( w.x - x, w.z - z ) <= RADIO_RANGE ) out.push( { kind: 'wreck', x: w.x, z: w.z, label: w.name || t( 'seaplane.radioWreck', 'Wreck' ) } );
+		return out;
+
+	}
+
+	_radioUpdate( dt ) {
+
+		const wm = this.features && this.features.get ? this.features.get( 'worldmap' ) : null;
+		const on = this.piloted && !! this.spec.radio && this.systems.master;
+		if ( ! wm || ! wm.addMarker ) return;
+		if ( ! on ) {
+
+			if ( this._radio.size && wm.removeMarker ) for ( const id of this._radio ) wm.removeMarker( id );
+			this._radio.clear();
+			return;
+
+		}
+
+		this._radioT -= dt;
+		if ( this._radioT > 0 ) return;
+		this._radioT = 2;
+		const seen = new Set();
+		this.radioContacts().forEach( ( c, i ) => {
+
+			const id = RADIO_ID + i;
+			seen.add( id );
+			wm.addMarker( { id, kind: c.kind, icon: c.kind, x: Math.round( c.x ), z: Math.round( c.z ), label: `${ c.label } · ${ t( 'seaplane.radio', 'radio' ) }` } );
+
+		} );
+		for ( const id of this._radio ) if ( ! seen.has( id ) && wm.removeMarker ) wm.removeMarker( id );
+		this._radio = seen;
 
 	}
 
@@ -1310,6 +1967,7 @@ export class Seaplane {
 		if ( f.engineOn || this.systems.cranking ) this.systems.stop();
 		const c = f.controls;
 		c.throttle = c.pitch = c.roll = c.yaw = c.waterRudder = 0;
+		c.brake = f.geom.wheels ? 1 : 0; // (parked: the brakes set)
 		const cam = this.app.camera && this.app.camera.position;
 		if ( cam && Math.hypot( cam.x - f.position.x, cam.z - f.position.z ) > SIM_RANGE && ! f.airborne ) {
 
@@ -1321,7 +1979,7 @@ export class Seaplane {
 		if ( ! f.airborne && f.onWater ) {
 
 			const k = 1 - Math.exp( - dt * ( this.home ? 0.9 : 0.4 ) );
-			if ( this.home ) {
+			if ( this.home && this.base().kind === 'ramp' ) {
 
 				// mooring lines: pull to the berth and turn to its heading
 				const b = SITE.berth;
@@ -1359,7 +2017,7 @@ export class Seaplane {
 		if ( ! out || ! this.piloted ) return out;
 		const f = this.flight, p = f.position, q = f.quaternion;
 		const r = ( v ) => Math.round( v * 1000 ) / 1000;
-		out.plane = { p: [ r( p.x ), r( p.y ), r( p.z ) ], q: [ r( q.x ), r( q.y ), r( q.z ), r( q.w ) ], thr: r( f.rpm ) };
+		out.plane = { p: [ r( p.x ), r( p.y ), r( p.z ) ], q: [ r( q.x ), r( q.y ), r( q.z ), r( q.w ) ], thr: r( f.rpm ), af: this.af, liv: this.upgrades.livery || 0 };
 		// the avatar faces the nose for clients that do not know mode 'plane' yet (Player yaw convention: 0 faces -Z)
 		out.yaw = f.heading() + Math.PI;
 		return out;
@@ -1376,16 +2034,45 @@ export class Seaplane {
 
 	// ------------------------------------------------------------------ save
 
+	// the airframe out in the top-level fields (older saves read them), every airframe's record in `fleet`
 	toJSON() {
 
 		const sp = this.flight.sprung;
-		return { owned: this.owned, hp: Math.round( this.hp ), fuel: Math.round( this.flight.fuel * 1000 ) / 1000, switches: this.systems.toJSON(), stats: { ...this.stats }, lost: this.lost, sprung: [ sp[ 0 ], sp[ 1 ] ] };
+		this._stash();
+		const fleet = {};
+		for ( const id of Object.keys( this.fleet ) ) {
+
+			const r = this.fleet[ id ];
+			if ( ! r || ! r.owned ) continue;
+			fleet[ id ] = { owned: true, hp: Math.round( r.hp ), fuel: Math.round( ( r.fuel ?? 1 ) * 1000 ) / 1000, switches: r.switches || null, sprung: r.sprung || [ 0, 0 ], lost: !! r.lost, upgrades: { ...cleanUpgrades( r.upgrades ) }, cargo: ( r.cargo || [] ).map( ( c ) => ( { ...c } ) ), engineFail: ( r.engineFail || [] ).slice() };
+
+		}
+
+		return { owned: this.owned, hp: Math.round( this.hp ), fuel: Math.round( this.flight.fuel * 1000 ) / 1000, switches: this.systems.toJSON(), stats: { ...this.stats }, lost: this.lost, sprung: [ sp[ 0 ], sp[ 1 ] ], af: this.af, fleet };
 
 	}
 
 	fromJSON( d ) {
 
 		if ( ! d || typeof d !== 'object' ) return;
+		// wave 12: the fleet (every airframe's record) and the one out; an older save is the Jade's
+		this.fleet = {};
+		if ( d.fleet && typeof d.fleet === 'object' ) for ( const id of AIRFRAME_IDS ) if ( d.fleet[ id ] && typeof d.fleet[ id ] === 'object' ) this.fleet[ id ] = { ...d.fleet[ id ] };
+		const af = AIRFRAMES[ d.af ] && this.available( d.af ) ? d.af : 'jade';
+		if ( af !== this.af ) {
+
+			this._clearWreck();
+			this.af = af;
+
+		}
+
+		this.upgrades = cleanUpgrades( this.fleet[ af ] && this.fleet[ af ].upgrades );
+		const rc = this.fleet[ af ] && this.fleet[ af ].cargo;
+		this.cargo = Array.isArray( rc ) ? rc.filter( ( c ) => c && GOODS[ c.good ] && c.qty > 0 ).map( ( c ) => ( { ...c } ) ) : [];
+		this._respec();
+		const ef = this.fleet[ af ] && Array.isArray( this.fleet[ af ].engineFail ) ? this.fleet[ af ].engineFail : [];
+		this.flight.engineFail.forEach( ( _, i ) => ( this.flight.engineFail[ i ] = ef[ i ] === true ) );
+		this.abandoned = false;
 		this.owned = d.owned === true;
 		this.hp = Number.isFinite( d.hp ) ? Math.max( 0, Math.min( MAX_HP, d.hp ) ) : MAX_HP;
 		this.flight.fuel = Number.isFinite( d.fuel ) ? Math.max( 0, Math.min( 1, d.fuel ) ) : 1; // (older saves: a full tank)
@@ -1418,6 +2105,20 @@ export class Seaplane {
 		this.flight.fuel = 1;
 		this.lost = false;
 		this._clearWreck();
+		if ( this.chute ) {
+
+			this.chute.dispose();
+			this.chute = null;
+
+		}
+
+		this.abandoned = false;
+		this.fleet = {};
+		this.af = 'jade';
+		this.upgrades = defaultUpgrades();
+		this.cargo = [];
+		this._respec();
+		this.flight.engineFail.fill( false );
 		this.flight.sprung[ 0 ] = this.flight.sprung[ 1 ] = 0;
 		for ( const k of Object.keys( this.stats ) ) this.stats[ k ] = 0;
 		this._place();
@@ -1430,6 +2131,8 @@ export class Seaplane {
 		for ( const off of this._offs ) off();
 		this._interact = [];
 		this._clearWreck();
+		if ( this.chute ) this.chute.dispose();
+		if ( this.stripSite ) this.stripSite.dispose();
 		this.stun.dispose();
 		this.cockpit.dispose();
 		this.panel.dispose();

@@ -11,6 +11,10 @@
 // fuselage); each part draws in its own group, so a wreck can tear it off:
 //   v.detach( name ) -> Group | null   (once: out of the plane into the scene; Wreck.pose() places it)
 //   v.setPart( name, position, quaternion ), v.partVisible( name, bool ), v.reassemble() (the recovered plane), v.detached
+// Wave 12 (airframes): models.create( airframe = 'jade', livery = 0 ): each airframe has its GLB (Airframes.js model:
+// Seaplane.glb is the Jade, Petrel.glb, Albatross.glb, Kestrel.glb), loaded once per file; a twin's second propeller
+// is the node Propeller2 (its own pivot, parts.prop2). v.setLivery( n ) repaints the main / trim materials
+// (SeaplaneJade / SeaplaneCream) in one of Airframes.js LIVERIES (material colours only: shared clones per scheme).
 
 import { Group, Mesh } from '../../engine/index.js';
 import { LAYERS } from '../../core/SceneRenderer.js';
@@ -19,6 +23,7 @@ import { loadGLB } from '../../engine/loaders/GLTF.js';
 import { prepare, mergePrepared, box, cylinder, mat4 } from '../../world/boat/GeoKit.js';
 import { createPropMaterial, PAT } from '../../game/GameMaterials.js';
 import { GEOM } from './Flight.js';
+import { AIRFRAMES, LIVERIES, spec as airframeSpec } from './Airframes.js';
 
 export const MODEL_URL = 'models/seaplane/Seaplane.glb';
 const PREFIX = 'seaplane-';
@@ -39,7 +44,17 @@ export const GLASS = {
 };
 
 // the GLB's node names -> wreck parts (Wreck.js PARTS); any other node is the fuselage
-export const NODE_PART = { WingL: 'wingL', WingR: 'wingR', Tail: 'tail', FloatL: 'floatL', FloatR: 'floatR', Propeller: 'prop' };
+export const NODE_PART = { WingL: 'wingL', WingR: 'wingR', Tail: 'tail', FloatL: 'floatL', FloatR: 'floatR', Propeller: 'prop', Propeller2: 'prop2' };
+// an airframe's propeller hubs (model frame)
+export function propHubs( af = 'jade' ) {
+
+	const A = AIRFRAMES[ af ] ? af : 'jade';
+	const g = airframeSpec( A ).geom;
+	return ( g.props || [ g.prop || GEOM.prop ] ).map( ( p ) => p.slice() );
+
+}
+
+const srgbToLinear = ( c ) => ( c <= 0.04045 ? c / 12.92 : Math.pow( ( c + 0.055 ) / 1.055, 2.4 ) );
 export const BODY_PARTS = [ 'fuselage', 'wingL', 'wingR', 'tail', 'floatL', 'floatR' ];
 
 // the part of every mesh loadStaticGLB makes from this glTF, in its order (it walks the roots depth first, one mesh per
@@ -112,37 +127,49 @@ export class PlaneModels {
 
 		this.scene = scene;
 		this.baseUrl = baseUrl.endsWith( '/' ) ? baseUrl : baseUrl + '/';
-		this.template = null; // { body: [ Mesh ], prop: [ Mesh ] } once loaded (prop geometry recentred on the hub)
+		this.templates = new Map(); // airframe -> { body: [ Mesh ], prop: [ [ Mesh ] per hub ], parts } once loaded
+		this.loads = new Map(); // airframe -> promise
 		this.visuals = new Set();
 		this.failed = false;
 		this.standIn = null;
 		this._load = load;
 		this.ready = null;
+		this._livery = new Map(); // material id | scheme -> the repainted clone
 
 	}
 
-	_ensureLoad() {
+	// (the Jade's template: the older callers' name)
+	get template() {
 
-		if ( this.ready ) return this.ready;
+		return this.templates.get( 'jade' ) || null;
+
+	}
+
+	_ensureLoad( af = 'jade' ) {
+
+		if ( this.loads.has( af ) ) return this.loads.get( af );
+		const url = this.baseUrl + ( AIRFRAMES[ af ] ? AIRFRAMES[ af ].model : MODEL_URL );
+		const hubs = propHubs( af );
 		const materials = ( info ) => ( /Glass/.test( info && info.name ) ? { underwaterLighting: 'lite', opacity: GLASS.opacity, surface: GLASS.surface } : { underwaterLighting: 'lite' } );
-		this.ready = Promise.resolve( this._load( this.baseUrl + MODEL_URL, { shadows: true, prefix: PREFIX, materials } ) ).then( async ( glb ) => {
+		const ready = Promise.resolve( this._load( url, { shadows: true, prefix: PREFIX, materials } ) ).then( async ( glb ) => {
 
 			if ( ! glb || ! glb.meshes ) throw new Error( 'empty seaplane GLB' );
 			// the parts by node (the glTF parse is cached by url, so this costs no second fetch)
 			let parts = glb.parts || null;
-			if ( ! parts && this._load === loadStaticGLB ) try { parts = meshParts( await loadGLB( this.baseUrl + MODEL_URL ) ); } catch ( e ) { parts = null; }
+			if ( ! parts && this._load === loadStaticGLB ) try { parts = meshParts( await loadGLB( url ) ); } catch ( e ) { parts = null; }
 			if ( ! parts || parts.length !== glb.meshes.length ) parts = null;
-			const body = [], prop = [], bodyParts = [];
+			const body = [], prop = hubs.map( () => [] ), bodyParts = [];
 			for ( let i = 0; i < glb.meshes.length; i ++ ) {
 
 				const m = glb.meshes[ i ];
 				if ( /SeaplaneProp/.test( m.name ) ) {
 
 					// baked at the hub's model position: move it to the pivot's origin once
-					m.geometry.translate( - GEOM.prop[ 0 ], - GEOM.prop[ 1 ], - GEOM.prop[ 2 ] );
+					const k = parts && parts[ i ] === 'prop2' && hubs.length > 1 ? 1 : 0, hub = hubs[ k ];
+					m.geometry.translate( - hub[ 0 ], - hub[ 1 ], - hub[ 2 ] );
 					m.geometry.computeBoundingBox();
 					m.geometry.computeBoundingSphere();
-					prop.push( m );
+					prop[ k ].push( m );
 
 				} else {
 
@@ -153,18 +180,41 @@ export class PlaneModels {
 
 			}
 
-			this.template = { body, prop, parts: bodyParts };
-			for ( const v of this.visuals ) v._fill( this.template );
-			return this.template;
+			const tpl = { body, prop, parts: bodyParts };
+			this.templates.set( af, tpl );
+			for ( const v of this.visuals ) if ( v.af === af ) v._fill( tpl );
+			return tpl;
 
 		} ).catch( ( e ) => {
 
 			this.failed = true;
-			console.warn( 'seaplane: model not loaded, using the stand-in', e && e.message ? e.message : e );
+			console.warn( `seaplane: model ${ af } not loaded, using the stand-in`, e && e.message ? e.message : e );
 			return null;
 
 		} );
-		return this.ready;
+		this.loads.set( af, ready );
+		this.ready = ready;
+		return ready;
+
+	}
+
+	// a repainted clone of a main / trim material (one per material and scheme, shared by the visuals)
+	_painted( material, scheme, role ) {
+
+		const L = LIVERIES[ scheme ];
+		const rgb = L && L[ role ];
+		if ( ! rgb || ! material || ! material.clone ) return material;
+		const key = material.id + '|' + scheme;
+		let m = this._livery.get( key );
+		if ( ! m ) {
+
+			m = material.clone();
+			m.color = rgb.map( srgbToLinear ); // (the glTF factors are linear)
+			this._livery.set( key, m );
+
+		}
+
+		return m;
 
 	}
 
@@ -181,16 +231,19 @@ export class PlaneModels {
 
 	}
 
-	create() {
+	create( af = 'jade', livery = 0 ) {
 
-		const v = new PlaneVisual( this );
+		if ( ! AIRFRAMES[ af ] ) af = 'jade';
+		const v = new PlaneVisual( this, af );
+		v.livery = livery | 0;
 		this.visuals.add( v );
 		if ( this.scene ) this.scene.add( v.group );
-		if ( this.template ) v._fill( this.template );
+		const tpl = this.templates.get( af );
+		if ( tpl ) v._fill( tpl );
 		else {
 
 			v._fillStandIn( this._standIn() );
-			this._ensureLoad();
+			this._ensureLoad( af );
 
 		}
 
@@ -208,6 +261,8 @@ export class PlaneModels {
 	dispose() {
 
 		for ( const v of [ ...this.visuals ] ) v.dispose();
+		for ( const m of this._livery.values() ) if ( m.dispose ) m.dispose();
+		this._livery.clear();
 		if ( this.standIn ) {
 
 			this.standIn.body.dispose();
@@ -222,17 +277,28 @@ export class PlaneModels {
 
 export class PlaneVisual {
 
-	constructor( owner ) {
+	constructor( owner, af = 'jade' ) {
 
 		this.owner = owner;
+		this.af = af;
+		this.livery = 0;
+		this.hubs = propHubs( af );
 		this.group = new Group();
 		this.group.name = 'Seaplane';
 		this.body = new Group();
-		this.pivot = new Group();
-		this.pivot.position.set( GEOM.prop[ 0 ], GEOM.prop[ 1 ], GEOM.prop[ 2 ] );
-		this.group.add( this.body, this.pivot );
+		// one pivot per propeller hub (a twin has two), each spun about its own +Z
+		this.pivots = this.hubs.map( ( h ) => {
+
+			const g = new Group();
+			g.position.set( h[ 0 ], h[ 1 ], h[ 2 ] );
+			return g;
+
+		} );
+		this.pivot = this.pivots[ 0 ];
+		this.group.add( this.body, ...this.pivots );
 		// one group per part (model frame), so a wreck can carry them off; the propeller's is the pivot
 		this.parts = { prop: this.pivot };
+		if ( this.pivots[ 1 ] ) this.parts.prop2 = this.pivots[ 1 ];
 		for ( const n of BODY_PARTS ) {
 
 			const g = new Group();
@@ -280,8 +346,30 @@ export class PlaneVisual {
 
 		this._clear();
 		t.body.forEach( ( m, i ) => this._add( this.parts[ ( t.parts && t.parts[ i ] ) || 'fuselage' ], m.geometry, m.material, m.name, m ) );
-		for ( const m of t.prop ) this._add( this.pivot, m.geometry, m.material, m.name, m );
+		const props = Array.isArray( t.prop[ 0 ] ) ? t.prop : [ t.prop ];
+		props.forEach( ( list, k ) => {
+
+			for ( const m of list ) this._add( this.pivots[ k ] || this.pivot, m.geometry, m.material, m.name, m );
+
+		} );
 		this.loaded = true;
+		this.setLivery( this.livery );
+
+	}
+
+	// the paint scheme (Airframes.js LIVERIES): the main and trim materials swapped for repainted clones
+	setLivery( n = 0 ) {
+
+		this.livery = n | 0;
+		if ( ! this.loaded ) return;
+		for ( const c of this.meshes ) {
+
+			if ( c._base === undefined ) c._base = c.material;
+			const nm = c._base && c._base.name || '';
+			const role = /SeaplaneJade$/.test( nm ) ? 'main' : /SeaplaneCream$/.test( nm ) ? 'trim' : null;
+			c.material = role && this.livery ? this.owner._painted( c._base, this.livery, role ) : c._base;
+
+		}
 
 	}
 
@@ -337,9 +425,10 @@ export class PlaneVisual {
 			const g = this.parts[ n ];
 			g.removeFromParent();
 			g.quaternion.identity();
-			if ( n === 'prop' ) {
+			if ( n === 'prop' || n === 'prop2' ) {
 
-				g.position.set( GEOM.prop[ 0 ], GEOM.prop[ 1 ], GEOM.prop[ 2 ] );
+				const h = this.hubs[ n === 'prop' ? 0 : 1 ] || GEOM.prop;
+				g.position.set( h[ 0 ], h[ 1 ], h[ 2 ] );
 				this.group.add( g );
 
 			} else {
@@ -360,7 +449,13 @@ export class PlaneVisual {
 	spin( dt, rpm01 ) {
 
 		this.angle = ( this.angle + dt * rpm01 * PROP_SPIN ) % ( Math.PI * 2 );
-		this.pivot.rotation.set( 0, 0, this.angle );
+		// (a twin's propellers turn opposite ways, a stopped engine's stays still)
+		this.pivots.forEach( ( p, k ) => {
+
+			if ( this.stopped && this.stopped[ k ] ) return;
+			p.rotation.set( 0, 0, k ? - this.angle : this.angle );
+
+		} );
 
 	}
 

@@ -74,12 +74,15 @@ export class WaterPool {
 	assign( candidates ) {
 
 		if ( ! this.ready ) return;
-		const keep = candidates.slice( 0, this.capacity );
-		const ids = new Set( keep.map( ( s ) => s.id ) );
+		// the nearest `capacity` candidates keep or take a group (no slice / Set per frame: capacity is a handful)
+		const n = Math.min( candidates.length, this.capacity );
 		for ( let g = 0; g < this.capacity; g ++ ) {
 
 			const o = this.owner[ g ];
-			if ( o && ! ids.has( o.id ) ) {
+			if ( ! o ) continue;
+			let kept = false;
+			for ( let k = 0; k < n && ! kept; k ++ ) kept = candidates[ k ].id === o.id;
+			if ( ! kept ) {
 
 				o.poolGroup = - 1;
 				this.owner[ g ] = null;
@@ -88,8 +91,9 @@ export class WaterPool {
 
 		}
 
-		for ( const s of keep ) {
+		for ( let k = 0; k < n; k ++ ) {
 
+			const s = candidates[ k ];
 			if ( s.poolGroup >= 0 && this.owner[ s.poolGroup ] === s ) continue;
 			const g = this.owner.indexOf( null );
 			if ( g < 0 ) break;

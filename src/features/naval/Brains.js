@@ -87,7 +87,10 @@ export function hullLost( s, dt ) {
 
 	}
 
-	return m.hpLog.length ? Math.max( 0, Math.max( ...m.hpLog ) - s.hp ) : 0;
+	if ( ! m.hpLog.length ) return 0;
+	let top = - Infinity; // (Math.max over the log without spreading it into arguments every frame)
+	for ( let i = 0; i < m.hpLog.length; i ++ ) top = Math.max( top, m.hpLog[ i ] );
+	return Math.max( 0, top - s.hp );
 
 }
 

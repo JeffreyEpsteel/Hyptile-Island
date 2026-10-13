@@ -126,14 +126,15 @@ export function panelSnapshot( sp, hover = null ) {
 	const fwd = f.toWorldXYZ( 0, 0, 1, _fw ).sub( f.position );
 	const sea = f.seaLevel();
 	const dx = SITE.berth.x - f.position.x, dz = SITE.berth.z - f.position.z;
-	const burn = ( SPEC.fuelIdle + ( 1 - SPEC.fuelIdle ) * f.rpm ) / ( SPEC.fuelMinutes * 60 );
+	const S = f.spec || SPEC; // (wave 12: the airframe's tank and burn)
+	const burn = ( S.fuelIdle + ( 1 - S.fuelIdle ) * f.rpm ) / ( S.fuelMinutes * 60 );
 	return {
 		airspeed: f.airspeed, alt: Math.max( 0, f.position.y - sea + 0.2 ), vs: f.velocity.y,
 		pitch: f.pitchAngle() * DEG, bank: f.rollAngle() * DEG,
 		heading: wrap360( Math.atan2( fwd.x, - fwd.z ) * DEG ), // compass: north is -z (the HUD's convention)
 		rpm: f.engineOn ? 600 + 1600 * f.rpm : f.rpm * 2200, throttle: f.controls.throttle || 0,
-		fuel: f.fuel, litres: f.fuel * FUEL.litres, endurance: f.engineOn && burn > 0 ? f.fuel / burn / 60 : null,
-		hp: sp.hp, flapPos: f.flapPos, flaps: f.flaps, trim: pilot.trim,
+		fuel: f.fuel, litres: f.fuel * ( S.litres || FUEL.litres ), endurance: f.engineOn && burn > 0 ? f.fuel / burn / 60 : null,
+		hp: sp.hp, flapPos: f.flapPos, flaps: f.flaps, notches: f.notches || 2, trim: pilot.trim, name: S.name || 'Jade', engineOut: !! ( f.engineFail && f.engineFail.some( Boolean ) ),
 		master: sys.master, engineOn: f.engineOn, cranking: sys.cranking, nav: sys.nav, landing: sys.landing, ap: sys.apOn,
 		stall: sys.stallWarn, warn: sys.master && sys.masterWarn, flash: sys.flash, fuelLow: sys.master && sys.fuelLow,
 		rudderDown: sys.rudderDown, airborne: f.airborne,
@@ -535,17 +536,18 @@ function drawFlaps( ctx, s ) {
 	text( ctx, 'FLAPS', x + w / 2, y + 12, 12, INK, 800 );
 	const top = y + 34, bot = y + h - 22, sx = x + 22;
 	box( ctx, sx - 4, top - 6, 8, bot - top + 12, '#060708', 4 );
-	for ( let n = 0; n <= 2; n ++ ) {
+	const N = s.notches || 2; // (STOL flaps: a third notch)
+	for ( let n = 0; n <= N; n ++ ) {
 
-		const yy = top + ( bot - top ) * n / 2;
-		text( ctx, [ 'UP', '1', '2' ][ n ], x + 52, yy, 13, Math.round( s.flaps ) === n ? AQUA : DIM, 800 );
+		const yy = top + ( bot - top ) * n / N;
+		text( ctx, [ 'UP', '1', '2', '3' ][ n ], x + 52, yy, 13, Math.round( s.flaps ) === n ? AQUA : DIM, 800 );
 		ctx.fillStyle = DIM;
 		ctx.fillRect( sx + 8, yy - 1, 8, 2 );
 
 	}
 
 	// the knob shows where the flaps are (the motor follows the lever)
-	const ky = top + ( bot - top ) * clamp( s.flapPos, 0, 2 ) / 2;
+	const ky = top + ( bot - top ) * clamp( s.flapPos, 0, N ) / N;
 	box( ctx, sx - 12, ky - 8, 24, 16, '#e8ece8', 4 );
 
 }
@@ -685,7 +687,7 @@ const CSS = /* css */`
 `;
 
 let cssInstalled = false;
-const STRIP = [ [ 'spd', 'Speed' ], [ 'alt', 'Alt' ], [ 'hdg', 'Hdg' ], [ 'thr', 'Thr' ], [ 'fuel', 'Fuel' ] ];
+const STRIP = [ [ 'af', 'Plane' ], [ 'spd', 'Speed' ], [ 'alt', 'Alt' ], [ 'hdg', 'Hdg' ], [ 'thr', 'Thr' ], [ 'fuel', 'Fuel' ] ];
 
 function makeCanvas( w, h ) {
 
@@ -1000,6 +1002,7 @@ export class Cockpit {
 
 		};
 
+		set( 'af', s.name + ( s.engineOut ? ' <small>1 eng</small>' : '' ), s.engineOut ); // wave 12: the airframe
 		set( 'spd', `${ Math.round( s.airspeed * KT ) }<small>kt</small>${ Math.round( s.airspeed ) }<small>m/s</small>`, s.stall );
 		set( 'alt', `${ Math.round( s.alt ) }<small>m</small>` );
 		set( 'hdg', `${ String( Math.round( s.heading ) % 360 ).padStart( 3, '0' ) }°` );

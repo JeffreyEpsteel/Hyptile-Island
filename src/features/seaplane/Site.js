@@ -196,3 +196,152 @@ export class SeaplaneSite {
 	}
 
 }
+
+// ---------------------------------------------------------------- wave 12C: the airstrip (the Kestrel's base)
+// The town-island worker builds the strip: WORLD[ island ].airstrip = { x, z, y, heading, length, width, pad } (read
+// dynamically: the first island that has one; none at runtime and the Kestrel is simply not for sale). pad: { x, z }
+// (or [ x, z ]), where a plane is parked; missing: near the strip's south-west end. The hangar office (the E spot of
+// the same hangar window, scoped to the strip) stands beside the pad, off the runway.
+
+export function findAirstrip( world ) {
+
+	if ( ! world ) return null;
+	for ( const isl of world.islands || [] ) {
+
+		const s = isl && world[ isl.id ] && world[ isl.id ].airstrip;
+		if ( s && Number.isFinite( s.x ) && Number.isFinite( s.z ) ) return { island: isl.id, ...s };
+
+	}
+
+	return null;
+
+}
+
+// the parking spot on the pad: { x, y, z, heading } with the nose down the runway (towards the strip's far end)
+export function stripPad( s ) {
+
+	if ( ! s ) return null;
+	const h = Number.isFinite( s.heading ) ? s.heading : 0, L = Number.isFinite( s.length ) ? s.length : 400;
+	const fx = Math.sin( h ), fz = Math.cos( h );
+	let px, pz;
+	const pad = s.pad;
+	if ( Array.isArray( pad ) && pad.length >= 2 ) [ px, pz ] = pad;
+	else if ( pad && Number.isFinite( pad.x ) ) ( px = pad.x, pz = pad.z );
+	else ( px = s.x - fx * L * 0.42, pz = s.z - fz * L * 0.42 );
+	// face the longer part of the runway from the pad
+	const along = ( s.x - px ) * fx + ( s.z - pz ) * fz;
+	const heading = along >= 0 ? h : h + Math.PI;
+	const y = Number.isFinite( pad && pad.y ) ? pad.y : Number.isFinite( s.y ) ? s.y : 0;
+	return { x: px, y, z: pz, heading: Math.atan2( Math.sin( heading ), Math.cos( heading ) ) };
+
+}
+
+// is ( x, z ) on the runway's graded rectangle (plus a margin), or on the apron between the pad and the runway
+export function onStrip( s, x, z, margin = 0 ) {
+
+	if ( ! s ) return false;
+	const h = Number.isFinite( s.heading ) ? s.heading : 0, fx = Math.sin( h ), fz = Math.cos( h );
+	const loc = ( px, pz ) => {
+
+		const dx = px - s.x, dz = pz - s.z;
+		return [ dx * fx + dz * fz, dx * fz - dz * fx ];
+
+	};
+
+	const [ along, across ] = loc( x, z );
+	if ( Math.abs( along ) <= ( s.length || 400 ) / 2 + margin && Math.abs( across ) <= ( s.width || 20 ) / 2 + margin ) return true;
+	const p = stripPad( s );
+	if ( ! p ) return false;
+	const [ pa, pc ] = loc( p.x, p.z );
+	return Math.abs( along - pa ) <= 18 + margin && across >= Math.min( pc, 0 ) - 12 - margin && across <= Math.max( pc, 0 ) + 12 + margin;
+
+}
+
+// the strip hangar's office: beside the pad, off the runway's side (the pad's side of the centre line)
+export function stripOffice( s ) {
+
+	const p = stripPad( s );
+	if ( ! p ) return null;
+	if ( s.office && Number.isFinite( s.office.x ) ) return { x: s.office.x, z: s.office.z, y: s.office.y ?? p.y, yaw: p.heading };
+	// the town's hangar shed (WORLD[ island ].airstrip.hangar): the E spot in front of it, towards the pad
+	if ( s.hangar && Number.isFinite( s.hangar.x ) ) {
+
+		const dx = p.x - s.hangar.x, dz = p.z - s.hangar.z, d = Math.hypot( dx, dz ) || 1, k = Math.min( d * 0.5, 12 ) / d;
+		return { x: s.hangar.x + dx * k, y: p.y, z: s.hangar.z + dz * k, yaw: p.heading, shed: true };
+
+	}
+
+	const h = p.heading, rx = Math.cos( h ), rz = - Math.sin( h ); // the pad's port side (model +X)
+	const off = ( s.width || 20 ) / 2 + 6;
+	return { x: p.x + rx * off, y: p.y, z: p.z + rz * off, yaw: h };
+
+}
+
+// a small hangar office hut and a windsock at the strip (the town worker owns the runway itself)
+export function buildStripGeometry( s, terrain ) {
+
+	const o = stripOffice( s );
+	if ( ! o || o.shed ) return null; // (the town builds the hangar shed: nothing of ours to add)
+	const H = ( x, z ) => ( terrain && terrain.heightAt ? terrain.heightAt( x, z ) : o.y );
+	const P = [];
+	const add = ( g, opt ) => P.push( prepare( g, opt ) );
+	const gy = Math.max( o.y, H( o.x, o.z ) );
+	const c = Math.cos( o.yaw ), sn = Math.sin( o.yaw );
+	const at = ( lx, lz ) => [ o.x + lx * c + lz * sn, o.z - lx * sn + lz * c ];
+	const [ hx, hz ] = at( 3.2, 0 );
+	add( box( 3.2, 2.6, 3.2 ), { color: 0x2f8a72, rough: 0.9, pattern: PAT.woodX, matrix: mat4( hx, gy + 1.3, hz, 0, o.yaw, 0 ) } );
+	add( box( 3.8, 0.16, 3.8 ), { color: 0x7b4a33, rough: 0.9, pattern: PAT.woodX, matrix: mat4( hx, gy + 2.7, hz, 0, o.yaw, 0 ) } );
+	const [ sx, sz ] = at( 1.55, 0 );
+	add( box( 2.2, 0.5, 0.08 ), { color: 0xeee3c4, rough: 0.6, pattern: PAT.plain, matrix: mat4( sx, gy + 2.2, sz, 0, o.yaw + Math.PI / 2, 0 ) } ); // the sign over the door
+	const [ wx, wz ] = at( 3.2, 4.5 );
+	add( cylinder( 0.05, 0.07, 5.5, 8 ), { color: 0xeee3c4, rough: 0.6, pattern: PAT.plain, matrix: mat4( wx, gy + 2.75, wz ) } );
+	add( cylinder( 0.32, 0.12, 1.6, 10, 1, true ), { color: 0xe0612f, rough: 0.9, pattern: PAT.cloth, matrix: mat4( wx + 0.85, gy + 5.2, wz, 0, 0, Math.PI / 2 - 0.25 ) } );
+	return { geometry: mergePrepared( P ), office: o, hut: { x: hx, z: hz, y: gy } };
+
+}
+
+export class StripSite {
+
+	constructor( { strip, scene = null, terrain = null, colliders = null, mesh = true } = {} ) {
+
+		this.strip = strip;
+		this.office = stripOffice( strip );
+		this.scene = scene;
+		this.group = new Group();
+		this.group.name = 'SeaplaneStrip';
+		this.colliders = [];
+		this._world = colliders;
+		const b = buildStripGeometry( strip, terrain );
+		this.geometry = b ? b.geometry : null;
+		if ( b && mesh ) {
+
+			this.material = createPropMaterial( 'seaplaneStrip' );
+			const m = new Mesh( b.geometry, this.material );
+			m.castShadow = true;
+			m.receiveShadow = true;
+			this.group.add( m );
+
+		}
+
+		if ( scene && b ) scene.add( this.group );
+		if ( colliders && b ) this.colliders.push( colliders.addBox( new Vector3( b.hut.x, b.hut.y + 1.3, b.hut.z ), new Vector3( 1.6, 1.3, 1.6 ), this.office.yaw, { tag: 'seaplaneStrip' } ) );
+
+	}
+
+	dispose() {
+
+		if ( this._world ) for ( const c of this.colliders ) {
+
+			const i = this._world.boxes.indexOf( c );
+			if ( i >= 0 ) this._world.boxes.splice( i, 1 );
+
+		}
+
+		this.colliders = [];
+		if ( this.scene && this.scene.remove ) this.scene.remove( this.group );
+		if ( this.geometry && this.geometry.dispose ) this.geometry.dispose();
+		if ( this.material && this.material.dispose ) this.material.dispose();
+
+	}
+
+}

@@ -437,7 +437,7 @@ export class BindingSet {
 			let o = null, v = 0;
 			switch ( kinds[ i ] ) {
 
-				case K_UNIFORM: o = spec.uniform; break;
+				case K_UNIFORM: o = spec.uniform; v = o.bufferVersion || 0; break;
 				case K_UBUF: o = resolve( spec.uniformBuffer ); break;
 				case K_STORAGE:
 					o = resolve( spec.storage );

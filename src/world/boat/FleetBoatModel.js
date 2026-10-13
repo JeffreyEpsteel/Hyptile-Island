@@ -209,6 +209,7 @@ export class FleetBoatModel {
 			this.materials = glb.materials;
 			this.group.remove( ph );
 			ph.geometry.dispose && ph.geometry.dispose();
+			ph.material.dispose && ph.material.dispose(); // (its own material: drawn until the GLB came, it holds a uniform buffer)
 			this._placeholder = null;
 			const hull = this._adoptGLB( glb );
 			this.group.add( hull );
@@ -558,7 +559,13 @@ export class FleetBoatModel {
 
 	dispose() {
 
-		if ( this._placeholder ) this._placeholder.geometry.dispose && this._placeholder.geometry.dispose();
+		if ( this._placeholder ) {
+
+			this._placeholder.geometry.dispose && this._placeholder.geometry.dispose();
+			this._placeholder.material.dispose && this._placeholder.material.dispose();
+
+		}
+
 		if ( this._glb ) this._glb.dispose();
 		for ( const parts of [ this._helmParts, this._tillerParts ] ) {
 

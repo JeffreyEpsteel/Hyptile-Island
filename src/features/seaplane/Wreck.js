@@ -31,6 +31,24 @@ export const PARTS = {
 
 export const PART_NAMES = Object.keys( PARTS );
 
+// wave 12: the parts' centres on the other airframes (Airframes.js; the same names: the Albatross's floats are its
+// wingtip floats, the Kestrel's its main gear legs); new Wreck( { ..., airframe } )
+const VARIANT = {
+	petrel: { wingL: { c: [ 3.0, 3.3, 0.6 ] }, wingR: { c: [ - 3.0, 3.3, 0.6 ] }, floatL: { c: [ 1.2, 0.3, - 0.2 ] }, floatR: { c: [ - 1.2, 0.3, - 0.2 ] } },
+	albatross: { fuselage: { c: [ 0, 1.6, - 0.1 ], float: 1.0, rest: 0.8, size: 2.8 }, wingL: { c: [ 4.8, 3.35, 0.5 ] }, wingR: { c: [ - 4.8, 3.35, 0.5 ] }, tail: { c: [ 0, 3.2, - 6.6 ] }, floatL: { c: [ 7.2, 1.2, 0.1 ] }, floatR: { c: [ - 7.2, 1.2, 0.1 ] }, prop: { c: [ 2.7, 3.05, 2.75 ], origin: [ 2.7, 3.05, 2.75 ] } },
+	kestrel: { fuselage: { c: [ 0, 1.75, 0.1 ] }, floatL: { c: [ 1.3, 0.45, - 0.35 ] }, floatR: { c: [ - 1.3, 0.45, - 0.35 ] } },
+};
+
+export function partsFor( airframe = 'jade' ) {
+
+	const v = VARIANT[ airframe ];
+	if ( ! v ) return PARTS;
+	const out = {};
+	for ( const n of PART_NAMES ) out[ n ] = { ...PARTS[ n ], ...( v[ n ] || {} ) };
+	return out;
+
+}
+
 // a small seeded random (mulberry32): the same crash breaks the same way
 export function seeded( seed = 1 ) {
 
@@ -48,9 +66,11 @@ export function seeded( seed = 1 ) {
 
 export class Wreck {
 
-	constructor( { position, quaternion, velocity = null, angular = null, detach = [], seed = 1, afloat = null } = {} ) {
+	constructor( { position, quaternion, velocity = null, angular = null, detach = [], seed = 1, afloat = null, airframe = 'jade' } = {} ) {
 
 		this.rand = seeded( seed );
+		this.airframe = airframe;
+		this.P = partsFor( airframe );
 		this.t = 0;
 		this.bodies = new Map();
 		this.detached = new Set();
@@ -58,7 +78,7 @@ export class Wreck {
 		this.events = [];
 		const r = this.rand, [ a0, a1 ] = CRASH.afloat;
 		const q = new Quaternion().copy( quaternion || _q.identity() );
-		const local = new Vector3( ...PARTS.fuselage.c );
+		const local = new Vector3( ...this.P.fuselage.c );
 		const c = local.clone().applyQuaternion( q ).add( position || _a.set( 0, 0, 0 ) );
 		// the fuselage keeps a third of the plane's way (the impact took the rest) and a slow tumble
 		const v = velocity ? velocity.clone().multiplyScalar( 0.35 ) : new Vector3();
@@ -71,7 +91,7 @@ export class Wreck {
 
 	_body( name, c, q, v, w, life ) {
 
-		const P = PARTS[ name ];
+		const P = this.P[ name ];
 		const b = {
 			name, c, q, v, w, life, state: 'flying', t: 0, sinkT: 0, phase: this.rand() * 6.28,
 			local: new Vector3( ...P.c ), origin: new Vector3( ...( P.origin || [ 0, 0, 0 ] ) ),
@@ -85,7 +105,7 @@ export class Wreck {
 	// tear a part off the fuselage (once): it leaves from where it was with the fuselage's way plus a kick outwards
 	detach( name ) {
 
-		const P = PARTS[ name ];
+		const P = this.P[ name ];
 		if ( ! P || name === 'fuselage' || this.detached.has( name ) ) return false;
 		const f = this.fuselage, r = this.rand;
 		this.detached.add( name );

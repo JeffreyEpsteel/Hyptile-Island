@@ -524,6 +524,7 @@ export class AppUI {
 		this.s.view = p.view;
 		const mode = p.mode === 'boat' ? t( p.camMode === 'first' ? 'hud.boat1' : 'hud.boat3', p.camMode === 'first' ? 'Boat · 1st person' : 'Boat · 3rd person' )
 			: p.mode === 'deck' ? t( 'hud.deck', 'On deck' )
+			: p.mode === 'plane' && p.vehicle && p.vehicle.kind === 'chute' ? t( 'hud.chute', 'Parachute' )
 			: p.mode === 'plane' ? t( p.view === 'first' ? 'hud.plane1' : 'hud.plane3', p.view === 'first' ? 'Seaplane · cockpit' : 'Seaplane · chase view' )
 			: p.mode === 'swim' ? ( app.camera.position.y < ( app.cameraWaterHeight ?? 0 ) - 0.3 ? t( 'hud.dive', 'Diving' ) : t( 'hud.swim', 'Swimming' ) ) : t( 'hud.walk', 'Walking' );
 		ui.setMode( `${ tx( modeLabel( app.mode ) ) } · ${ mode }` );

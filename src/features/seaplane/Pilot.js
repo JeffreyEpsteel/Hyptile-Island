@@ -145,7 +145,7 @@ export class Pilot {
 		roll *= air;
 		yaw = clamp( yaw + steer * ( 1 - air ), - 1, 1 );
 		// + ry turns the nose to port (left): answer with right rudder, less while the player steers
-		const wet = flight.onWater && ! flight.airborne ? 1 : 0;
+		const wet = ( flight.onWater || flight.grounded ) && ! flight.airborne ? 1 : 0; // (wave 12: the Kestrel's nose wheel on the ground)
 		const yawDamp = wet * PILOT.waterYawDamp * ry * ( 1 - Math.min( 1, Math.abs( steer + s.yaw ) * 2 ) );
 		c.waterRudder = wet ? clamp( steer + s.yaw + yawDamp, - 1, 1 ) : 0;
 		yaw += yawDamp;
@@ -184,12 +184,12 @@ export class Pilot {
 // what a Flight event means: touchdowns by sink rate and attitude, strikes by part, speed and what was hit. Wave 10: the
 // table is Crash.js's CRASH (assess); judge keeps the older kinds for the callers ('bounce' is a rough landing,
 // 'crash' a wreck or, with severity 'death', a direct collision) and adds severity, hurt (pilot health) and sprung.
-export function judge( e, hp = MAX_HP ) {
+export function judge( e, hp = MAX_HP, opts = {} ) {
 
 	if ( ! e ) return { kind: 'fine', damage: 0, severity: 'none' };
 	if ( e.type === 'liftoff' ) return { kind: 'tookOff', damage: 0, severity: 'none' };
 	if ( e.type !== 'touch' && e.type !== 'strike' ) return { kind: 'fine', damage: 0, severity: 'none' };
-	const a = assess( e, hp );
+	const a = assess( e, hp, opts );
 	const onWater = e.type === 'touch' ? e.surface === 'water' : undefined;
 	const kind = a.severity === 'none' ? ( e.type === 'touch' ? 'landed' : 'fine' ) : a.severity === 'scrape' ? 'scrape' : a.severity === 'rough' ? 'bounce' : 'crash';
 	return { kind, severity: a.severity, damage: kind === 'crash' ? hp : a.damage, hurt: a.hurt, sprung: a.sprung, onWater, text: a.text, speed: a.speed };

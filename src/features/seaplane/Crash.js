@@ -15,6 +15,10 @@
 //   throwPoint( { x, z, yaw }, side, { seaLevel, groundAt, jetty } ) -> { x, y, z, mode: 'swim' | 'walk', dist }
 //   wreckParts( event, severity, rand ) -> [ part names the wreck sheds ]
 // The 'L' / 'R' names follow the model frame: L = port = +X (Flight GEOM, the Blender nodes WingL / FloatL).
+// Wave 12 (airframes): assess( event, hp, { rough, landplane } ): `rough` (spec.rough: the Petrel's fragile floats 0.8,
+// the Albatross's hull 1.5, x1.15 a floats upgrade tier) scales the arrival thresholds roughSink / wreckSink /
+// attitudeSink; a land plane (the Kestrel) lands on the ground by the same sink bands and any arrival on the water
+// faster than CRASH.landWater is a wreck (the wheels dig in).
 
 export const SEVERITY = [ 'none', 'scrape', 'rough', 'wreck', 'death' ];
 
@@ -46,6 +50,7 @@ export const CRASH = {
 	smoke: 40, // s of engine smoke
 	fire: 20, // s of fire on a ground wreck (then smoke)
 	recovery: 600, // $ Captain Roid's crew charges to raise and tow the wreck (on top of the repair; free in the sandbox)
+	landWater: 3, // m/s: a land plane arriving on the water faster than this (along or down) is wrecked
 };
 
 const STRUCK = { wingtip: 'A wingtip', propeller: 'The propeller', nose: 'The nose', tail: 'The tail', fin: 'The fin', tailplane: 'The tailplane', float: 'A float' };
@@ -66,15 +71,41 @@ export function wreckHurt( v ) {
 
 }
 
-export function assess( e, hp = 100 ) {
+export function assess( e, hp = 100, opts = {} ) {
 
 	if ( ! e || ( e.type !== 'touch' && e.type !== 'strike' ) ) return result( 'none', e || {} );
-	const C = CRASH;
+	const k = Number.isFinite( opts.rough ) && opts.rough > 0 ? opts.rough : 1;
+	const C = k === 1 ? CRASH : { ...CRASH, roughSink: CRASH.roughSink * k, wreckSink: CRASH.wreckSink * k, attitudeSink: CRASH.attitudeSink * k };
 	const surface = e.surface || 'water';
 	if ( e.type === 'touch' ) {
 
 		const sink = Math.max( 0, e.sink || 0 ), fwd = Math.abs( e.speed || 0 ), v = Math.hypot( sink, fwd );
 		const lowSide = ( e.roll ?? 0 ) >= 0 ? 'R' : 'L'; // a positive roll is the starboard wing down
+		if ( opts.landplane ) {
+
+			// wheels: the ground is its runway, the water a wreck
+			if ( surface === 'water' ) {
+
+				if ( fwd > C.landWater || sink > C.landWater ) return result( v > C.fatal ? 'death' : 'wreck', e, { speed: v, hurt: wreckHurt( Math.max( sink * 2.5, v * 0.6 ) ), damage: hp, text: 'The wheels dug into the water' } );
+				return result( 'none', e, { speed: v } );
+
+			}
+
+			const att = ( e.pitch ?? 0 ) < - 10 || Math.abs( e.roll ?? 0 ) > 25;
+			if ( sink >= C.wreckSink || ( att && sink > C.attitudeSink ) ) return result( v > C.fatal ? 'death' : 'wreck', e, { speed: v, hurt: wreckHurt( Math.max( sink * 2.5, v * 0.6 ) ), damage: hp, text: sink >= C.wreckSink ? 'The undercarriage collapsed' : 'A wing went in on touchdown' } );
+			if ( sink >= C.roughSink ) {
+
+				const [ d0, d1 ] = C.roughDamage;
+				const damage = Math.round( d0 + ( d1 - d0 ) * ( sink - C.roughSink ) / ( C.wreckSink - C.roughSink ) );
+				if ( damage >= hp ) return result( 'wreck', e, { speed: v, hurt: wreckHurt( sink * 2.5 ), damage: hp, text: 'The hard landing broke a gear leg' } );
+				return result( 'rough', e, { speed: v, damage, text: 'Hard landing: the gear is bent' } );
+
+			}
+
+			return result( 'none', e, { speed: v } );
+
+		}
+
 		if ( surface !== 'water' ) {
 
 			if ( sink > 2 || fwd > 8 ) return result( v > C.fatal ? 'death' : 'wreck', e, { speed: v, hurt: wreckHurt( v ), damage: hp, text: 'The floats hit the ground' } );

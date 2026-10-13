@@ -44,6 +44,7 @@
 //   hullsCollided { a, b, x, z, speed, damage: { a, b }, byPlayer }   shipCrippled { id, name, by?, x?, z? } (naval / boarding)
 //   gunshot { ... }                                          (firearms: a pistol / musket shot, synced as a world event)
 //   gullSquawk { x, y, z }   emote { id }                    (life cues; emotes, synced as a world event)
+//   seaplaneUpgraded { airframe, upgrade }   planeBailedOut   chuteLanded { x, y, z, water }   planeEngineFailed { engine }   (seaplane)
 //
 // Mode rules (Sandbox / Campaign / Multiplayer): features.mode is app.mode or 'campaign'; features.sandbox.
 // Money and the save stay in GameState: features.state is app.game.state (money, earn, spend, career...).
