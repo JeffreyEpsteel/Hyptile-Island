@@ -409,13 +409,14 @@ ok( ! inPeace( FAR.x, FAR.z ), 'the test arena is outside the peace zone' );
 	step( w, 0.5 );
 	aim( w, { x: 0, y: 0.5, z: - 1 } ); // at the sky
 	const r = fa.fire();
-	ok( r.refused === 'peace' && fa.loaded.pistol && /Not here/.test( w.toasts.at( - 1 ) ), 'peace zone: a shot at nothing is refused, "Not here", the ball stays in' );
+	ok( ! r.refused && ! fa.loaded.pistol, 'peace zone: a shot at the sky goes off (only a shot at a person who is not a raider is refused)' );
+	fa.loaded.pistol = true; fa.after = 0; fa.phase = 'ready';
 	const hits0 = dummy.hits;
 	step( w, 0.4 );
 	aim( w, { x: dummy.x - P.x, y: 1.0 - 1.6, z: dummy.z - ( P.z + 6 ) } );
 	const r2 = fa.fire();
 	ok( ! r2.refused && r2.hit === 'raider' && dummy.hits === hits0 + 1, 'peace zone: the training post may be shot (its own takeHit)' );
-	ok( fa.stats.refused === 1, 'the refusal is counted' );
+	ok( fa.stats.refused === 0, 'nothing was refused on the home island' );
 
 }
 

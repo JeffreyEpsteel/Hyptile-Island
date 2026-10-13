@@ -400,9 +400,10 @@ export class Firearms {
 		const p = this.app.player.position;
 		if ( inPeace( p.x, p.z ) ) {
 
-			// the peaceful home island: only the training post may be shot at (aimed dead centre, no spread)
+			// the peaceful home island: a shot at a person who is not a raider or the training post is refused; shots at the
+			// water, the sand, props and the post go off as anywhere (user 2026-10-13: "shooting does not work" was this gate)
 			const h = resolveShot( ctx, o, d, tMin, tMax );
-			if ( ! h || h.kind !== 'raider' || ! h.target || h.target.kind !== 'dummy' ) {
+			if ( h && h.kind === 'raider' && h.target && h.target.kind !== 'dummy' ) {
 
 				this.stats.refused ++;
 				this.toast( this._tips.peace ? 'Not here' : 'Not here · the home island is peaceful (the training post is fair game)', 2200 );

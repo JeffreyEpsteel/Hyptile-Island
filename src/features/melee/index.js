@@ -289,14 +289,24 @@ export class Melee {
 	wantsMouse() {
 
 		if ( ! this.enabled ) return false;
+		if ( this._gunDrawn() ) return this.combat.state !== 'free'; // a drawn pistol / musket owns the click (firearms fires it)
 		if ( this.combat.state !== 'free' ) return true; // mid-swing, hurt, evading, knocked down: the click is the fight's
 		return this.canSwing();
 
 	}
 
 	// may a left click start a swing now: on foot, the rod away, a raider within engage range
+	// a drawn firearm (src/features/firearms): no swing, the left button shoots
+	_gunDrawn() {
+
+		const fa = this.features && this.features.get ? this.features.get( 'firearms' ) : null;
+		return !! ( fa && fa.drawn );
+
+	}
+
 	canSwing() {
 
+		if ( this._gunDrawn() ) return false;
 		// a swing is always allowed with the rod away (the peaceful home island only stops NPCs attacking you): it lands on
 		// a raider, the training post or a breakable prop when one is in reach, else it is a swing at the air
 		return !! ( this.enabled && this._canAct() && this.rodStowed() );
