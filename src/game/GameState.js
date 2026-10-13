@@ -303,12 +303,12 @@ export class GameState {
 	}
 
 	// buy the next level of an upgrade track; returns the new level entry or null
-	buy( key, standing = null ) {
+	buy( key, standing = null, discount = 0 ) {
 
 		if ( ! UPGRADES[ key ] ) return null;
 		const next = nextLevel( this.upgrades, key );
 		if ( next && unmetReqs( this, next.req, standing ).length ) return null; // gated gear (level, reputation, quest, standing)
-		const cost = next && ! this.free ? next.cost : 0;
+		const cost = next && ! this.free ? Math.round( next.cost * ( 1 - Math.min( 0.9, Math.max( 0, discount || 0 ) ) ) ) : 0;
 		if ( ! next || cost > this.money ) return null;
 		this.money -= cost;
 		this.upgrades[ key ] = next.index;

@@ -37,7 +37,7 @@ const CSS = /* css */`
 .sd-regions { display: flex; flex-wrap: wrap; gap: var(--tw-1) var(--tw-3); color: var(--tw-ink-3); font-size: var(--tw-fs-xs); margin: var(--tw-1) 0; }
 `;
 
-export const REGION_NAMES = { home: 'Hyptile', pons: 'Pons Cove', gull: 'Gull Rock', key: 'Saltmarsh Key', sea: 'Open sea' };
+export const REGION_NAMES = { home: 'Hyptile', pons: 'Pons Cove', gull: 'Gull Rock', key: 'Saltmarsh Key', sea: 'Open sea', tidemark: 'Tidemark', blackwater: 'Blackwater' };
 
 // the open conversation
 export function dialogueHTML( m ) {
@@ -63,8 +63,11 @@ export function journalHTML( j ) {
 		|| '<div class="nb-empty">No quests running. Talk to the islanders: some of them have work.</div>';
 	const offers = j.offers.map( ( o ) => `<div class="nb-act"><div class="nb-text">${ esc( o.giver ) } (${ esc( o.port ) }) has work: ${ esc( o.title ) }</div></div>` ).join( '' );
 	const regions = Object.entries( j.regions ).map( ( [ r, g ] ) => `<span>${ esc( REGION_NAMES[ r ] || r ) } ${ g.done } / ${ g.total }</span>` ).join( '' );
+	// the notes a finished quest leaves behind (wave 13: what opened, the parry tip)
+	const notes = ( j.entries || [] ).map( ( e ) => `<div class="nb-act"><div><div class="nb-title">${ esc( e.title ) }</div><div class="nb-text">${ esc( e.text ) }</div></div></div>` ).join( '' );
 	return `<div class="nb-sec">Quests · ${ j.done } of ${ j.total } done</div><div class="sd-regions">${ regions }</div>${ act }
-		${ offers ? `<div class="nb-sec">Offers waiting</div>${ offers }` : '' }`;
+		${ offers ? `<div class="nb-sec">Offers waiting</div>${ offers }` : '' }
+		${ notes ? `<div class="nb-sec">Notes</div>${ notes }` : '' }`;
 
 }
 

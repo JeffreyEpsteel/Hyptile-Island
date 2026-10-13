@@ -1,5 +1,8 @@
 import { FISH } from '../../game/FishTable.js';
 import { WORLD } from '../../world/WorldLayout.js';
+import { SPOTS as TOWN_SPOTS, at as townAt } from '../../world/islands/town/Layout.js';
+import { strongholdLayout } from '../../world/islands/stronghold/Layout.js';
+import { TRAINING_POST } from '../melee/MeleeData.js';
 
 // The story's data (pure: no DOM, no engine state): the people who give and take quests, the items a chain can
 // give, and the quest chains themselves. Story.js runs them; Dialogue.js turns them into conversations.
@@ -26,7 +29,18 @@ import { WORLD } from '../../world/WorldLayout.js';
 //   deliver: { species, alt, any, minKg, night }, goal, at: npc                              hand fish over (dialogue)
 //   talk: npc, say, response                                                                 speak to someone
 //   reach: { x, z, r, aboard, night, port }                                                  be somewhere (polled)
-//   check: ( ctx ) => bool                                                                   a state to reach (polled)
+//   check: ( ctx ) => bool                                                                   a state to reach (polled;
+//                                                                                            ctx { state, story, rep, features, player })
+//   (wave 13) a step may also carry: pin { x, z, label } (the map pin while it is current: questPin / questPinClear),
+//   payout { money, xp, rep } (paid when the step is done: one chain, several payouts), clean { within: s, on, match,
+//   already( ctx ), text } (the payout waits `within` s and is forfeited if that event comes first: the chain goes on),
+//   start: 'raid' (Story arms the Tidemark raid when the step begins), limit: s (the chain fails if the step is not done
+//   in time), reach.mode [ player modes ] (e.g. [ 'plane' ]).
+// (wave 13) a chain may carry: fail { on, match, goal, steps: [ step ids ], then: 'fail' | 'restart', text } (the chain fails
+//   or starts over), repeat { days } (offered again that many in-game days after it was done: the board recurs it),
+//   journal (the line the journal keeps once it is done), and its reward: item (perks: 'off:<key>' discounts read by
+//   story.discount, gunnerFee), flags [ 'open:<key>' ] (story.opens), seaplane [ { airframe, key, tier } ] (fitted free),
+//   merchant n (trade.credit standing), repairTown port, cartridges n (pouches into firearms.shots).
 // match keys: species / alt (lists; alt is used when none of species is in the fish table: the Unreal species are added by
 //   another module and may be missing; with neither, any fish), fallback { ...keys } (only applies when species fell back),
 //   habitat, minKg, aboard, night, dawnDusk, port, faction, byPlayer, good, kind, onWater, near { x, z, r } (payload x / z,
@@ -61,12 +75,32 @@ export const NPCS = {
 	bran: { name: 'Bran', role: 'Boatwright', port: 'home', match: 'bran' },
 	rook: { name: 'Rook', role: 'Caretaker', port: 'home', match: 'rook' },
 	pip: { name: 'Pip', role: 'Storyteller', port: 'pons', match: 'pip' },
+	// wave 13: Tidemark's tavern keeper and harbourmaster (harbour residents from world/islands/town/Folk.js: same ids), the
+	// Blackwater fence (a spot beside his counter) and Ethena Prosper (a spot beside her chandlery stall)
+	brine: { name: 'Brine', role: 'Tavern keeper, the Tide & Tankard', port: 'tidemark', pin: () => ( { x: TOWN_SPOTS.keeper.x, z: TOWN_SPOTS.keeper.z } ) },
+	osric: { name: 'Harbourmaster Osric', role: 'Harbourmaster', port: 'tidemark', pin: () => townAt( - 147, 22 ) },
+	fence: { name: 'The fence', role: 'Blackwater black market', port: 'blackwater', at: 'spot', spot: () => fenceSpot(), pin: () => fenceSpot() },
+	ethena: { name: 'Ethena Prosper', role: 'Chandler', port: 'home', at: 'spot', spot: () => ETHENA_SPOT, pin: () => ETHENA_SPOT },
 };
+
+// beside Ethena's stall, on the side away from her bait tub (src/game/Chandlery.js CHANDLERY { 85.5, -60.5, yaw -1.9 }, local
+// x 4.2 / z 1.2: clear of her own sale prompt, 3.2 m round her)
+export const ETHENA_SPOT = { x: 83.0, z: - 56.9 };
+
+// two and a half metres along the black market's front from the fence's own prompt (Stronghold.js: front( bm, d / 2 + 2.2 ))
+export function fenceSpot() {
+
+	const L = strongholdLayout(), bm = L.town.find( ( b ) => b.kind === 'market' );
+	if ( ! bm ) return { x: L.center.x, z: L.center.z };
+	const d = bm.d / 2 + 2.2, fx = bm.x + Math.sin( bm.yaw ) * d, fz = bm.z + Math.cos( bm.yaw ) * d;
+	return { x: Math.round( ( fx + Math.cos( bm.yaw ) * 2.6 ) * 100 ) / 100, z: Math.round( ( fz - Math.sin( bm.yaw ) * 2.6 ) * 100 ) / 100 };
+
+}
 
 // the vendor whose Quests tab shows a person's chains (HudPanels lists game.contracts.active; Contracts.js asks the story)
 export const VENDOR_NPC = { PoorGoat: 'joe', Pons: 'pons' };
 // who keeps each port's word (consequences reach them; the board keepers)
-export const KEEPERS = { home: 'orla', pons: 'tiber', gull: 'ansel', key: 'sal' };
+export const KEEPERS = { home: 'orla', pons: 'tiber', gull: 'ansel', key: 'sal', tidemark: 'osric' };
 // who buys fish at each port (a sale is a good trade with them)
 export const BUYERS = { home: 'joe', pons: 'pons' };
 
@@ -76,6 +110,11 @@ export const ITEMS = {
 	oilskin: { name: 'Old Pepe\'s oilskin', text: 'Rain off your back: the weather bothers you less.', perk: { weatherCalm: 0.1 } },
 	keeperChart: { name: 'Keeper\'s chart', text: 'Ansel\'s chart of the reefs and the lanes the raiders use.', perk: {} },
 	marshLantern: { name: 'Marsh lantern', text: 'Sal\'s lantern: night catches come a little easier.', perk: { nightBite: 0.05 } },
+	// wave 13 rewards: discounts and waivers other features read through story.discount( key ) / story.perk( name )
+	tidemarkFavour: { name: 'Marlow\'s favour', text: 'A friend of Brine\'s: Tidemark\'s chandlery knocks 10 % off.', perk: { 'off:chandler:tidemark': 0.1 } },
+	kestrelVoucher: { name: 'Hangar voucher', text: 'The Tidemark airstrip hangar sells you the Kestrel at 20 % off.', perk: { 'off:kestrel': 0.2 } },
+	brotherhoodMark: { name: 'Brotherhood mark', text: 'Blackwater\'s fence sells powder to a brother a quarter cheaper.', perk: { 'off:powder:blackwater': 0.25 } },
+	gunnerWaiver: { name: 'Tidemark mooring pass', text: 'The town waives the post fee for your gunners.', perk: { gunnerFee: 1 } },
 };
 
 const P = ( id ) => WORLD.ports.find( ( p ) => p.id === id ) || null;
@@ -605,6 +644,154 @@ export const CHAINS = {
 
 };
 
+// ---------------------------------------------------------------- wave 13: the quest lines that tie the new content together
+// Tidemark (the town island, the airstrip), Blackwater (the pirate stronghold and its black market), the seaplane hangars, the
+// practice fight. Positions come from WORLD.tidemark / the stronghold layout / MeleeData, read when this module loads.
+
+const TM = WORLD.tidemark || { center: { x: 1720, z: - 60 }, radius: 440, bay: { x: 1996, z: 58, radius: 150 }, dock: { position: { x: 1924, z: 21 } }, airstrip: { x: 1561, z: 56 } };
+const TM_PORT = WORLD.ports.find( ( p ) => p.id === 'tidemark' ) || null;
+const TM_STAND = TM_PORT && TM_PORT.stand ? { x: TM_PORT.stand.x, z: TM_PORT.stand.z } : { x: TM.center.x, z: TM.center.z };
+const TM_PIER = { x: TM.dock.position.x, z: TM.dock.position.z };
+const TM_BAY = { x: TM.bay.x, z: TM.bay.z, r: TM.bay.radius };
+const TM_STRIP = { x: TM.airstrip.x, z: TM.airstrip.z };
+const HOME_ISLAND = ISLAND( 'home' ) || { x: 0, z: - 330, r: 560 };
+const BW = strongholdLayout();
+const HOME_STAND = P( 'home' ) && P( 'home' ).stand ? { x: P( 'home' ).stand.x, z: P( 'home' ).stand.z } : { x: 50, z: - 75 };
+export const RAID_ID = 'tidemark-raider'; // the raiding sloop Story spawns through naval.spawn (Hold the line)
+export const RAID_PROPS = 6; // props broken in Tidemark before the raid is lost
+
+const svc = ( c, name ) => ( c && c.features && c.features.get ? c.features.get( name ) : null );
+const seaplane = ( c ) => svc( c, 'seaplane' );
+const stronghold = ( c ) => svc( c, 'stronghold' );
+const isKestrel = ( e, c ) => { const sp = seaplane( c ); return ( e && e.airframe ) === 'kestrel' || !! ( sp && sp.af === 'kestrel' ); };
+const hotAtHome = ( c ) => { const t = svc( c, 'trade' ); try { return t && t.contraband ? t.contraband( 'home' ).reduce( ( a, h ) => a + h.qty, 0 ) : 0; } catch ( err ) { return 0; } };
+// past the home harbour's customs with contraband aboard: waved through (papers, a bribe, a search that missed the hidden
+// compartment) or ashore at home with it still in the hold (no launch came out)
+const smuggled = ( e, c ) => {
+
+	if ( c.event === 'portVisited' ) return e.port === 'home' && hotAtHome( c ) > 0;
+	return e.port === 'home' && ! e.found && ! e.dumped && ( !! e.papers || !! e.bribed || hotAtHome( c ) > 0 );
+
+};
+
+export const W13_CHAINS = {
+
+	ferryToTidemark: {
+		title: 'A ferry to Tidemark', giver: 'joe', port: 'home', region: 'tidemark',
+		offer: 'Quiet week, friend. Over east there is a whole town, Tidemark, and Hana\'s fish hall there pays over the odds for reef fish. Sail across, put five fish over her counter, and ask Brine at the Tide & Tankard who is buying. Then we both know.',
+		accept: 'Five fish at Tidemark.', accepted: 'East past the Key, then keep going. Fresh ones, mind. Hana can tell.',
+		remind: 'Still here? Tidemark is east. Big quay, stone pier, smells of tar.',
+		thanks: 'PoorGoat sent you? Then tell him the town buys everything that floats. The market booth will take your contracts now, and Marlow at the chandlery knocks a tenth off for a friend of mine.',
+		steps: [
+			{ id: 'sail', text: 'Sail to Tidemark and step ashore', on: 'portVisited', match: { port: 'tidemark' }, check: ( c ) => !! ( c.state && Array.isArray( c.state.discovered ) && c.state.discovered.includes( 'tidemark' ) ), pin: { ...TM_STAND, label: 'Tidemark' } },
+			{ id: 'sell', text: 'Sell five fish at the Tidemark fish hall', on: 'fishSold', match: { near: { ...TM_STAND, r: 60 } }, count: 'count', goal: 5, pin: { ...TM_STAND, label: 'Hana\'s fish hall' } },
+			talk( 'brine', 'Ask Brine at the Tide & Tankard who is buying', 'PoorGoat\'s friend? Sit down. What does the old goat want to know?', 'PoorGoat wants to know who is buying.' ),
+		],
+		reward: { money: 120, xp: 60, rep: { tidemark: 6, home: 2 }, item: 'tidemarkFavour', flags: [ 'open:haul:tidemark' ], disposition: 6,
+			journal: 'Tidemark: Hana\'s fish hall pays for reef fish, Brine keeps the Tide & Tankard, the market booth takes your delivery contracts and Marlow\'s chandlery knocks 10 % off.' },
+	},
+
+	wings: {
+		title: 'Wings', giver: 'roid', port: 'home', region: 'tidemark', requires: { chain: 'ferryToTidemark' },
+		offer: 'Boats are my trade, but the sky is quicker. Take a plane out, buy one or take yours from the hangar, set her down in Tidemark\'s bay and taxi her to the stone pier. If she floats at the pier, you can fly.',
+		accept: 'Down in Tidemark\'s bay.', accepted: 'Land into the wind. Then slow, slow, to the pier. A plane on water is a bad boat.',
+		remind: 'Tidemark\'s bay, then the pier. Listen to her floats; they tell you before they complain.',
+		thanks: 'Heard you on the radio: at the pier, upright. The airstrip hangar owes me a favour. The Kestrel is a fifth off for you, and they will fit her the bigger engine.',
+		steps: [
+			{ id: 'plane', text: 'Buy a plane at the hangar, or take yours out', on: 'seaplaneBought', check: ( c ) => { const sp = seaplane( c ); return !! ( sp && sp.owned && ! sp.lost ); } },
+			{ id: 'land', text: 'Land in Tidemark\'s bay', on: 'planeLanded', match: { near: { x: TM_BAY.x, z: TM_BAY.z, r: TM_BAY.r + 110 } }, pin: { x: TM_BAY.x, z: TM_BAY.z, label: 'Tidemark bay' } },
+			{ id: 'taxi', text: 'Taxi to the Tidemark pier', check: ( c ) => { const sp = seaplane( c ); const m = sp && sp.piloted && sp.marker ? sp.marker() : null; return !! ( m && Math.hypot( m.x - TM_PIER.x, m.z - TM_PIER.z ) <= 45 ); }, pin: { ...TM_PIER, label: 'Tidemark pier' } },
+		],
+		reward: { money: 150, xp: 70, rep: { tidemark: 3 }, item: 'kestrelVoucher', flags: [ 'open:engine:strip' ], disposition: 6,
+			journal: 'Wings: set down in Tidemark\'s bay and taxied to the pier. The airstrip hangar sells the Kestrel at 20 % off and lists her engine upgrade.' },
+	},
+
+	longWayRound: {
+		title: 'The long way round', giver: 'brine', port: 'tidemark', region: 'tidemark', requires: { chain: 'wings' },
+		offer: 'Planes behind the chapel, goats in a sulk, and a bet on the bar: nobody flies the Kestrel to the home island and back in one piece. Prove the bar wrong. Nothing on it but pride. Well, pride and a paint job.',
+		accept: 'There and back, in one piece.', accepted: 'Off the strip, over the home island, back down on the strip. Bend her and the bet starts again.',
+		remind: 'The bar is still betting against you. Mostly me.',
+		thanks: 'Not a scratch? The bar pays up: a fresh coat of paint and the radio the hangar was keeping back. Drinks are on the goats.',
+		steps: [
+			{ id: 'up', text: 'Take off from the Tidemark airstrip in the Kestrel', on: 'planeTookOff', match: { near: { ...TM_STRIP, r: 400 }, test: isKestrel }, pin: { ...TM_STRIP, label: 'Tidemark airstrip' } },
+			{ id: 'over', text: 'Fly over the home island', reach: { ...HOME_ISLAND, mode: [ 'plane' ] }, pin: { x: HOME_ISLAND.x, z: HOME_ISLAND.z, label: 'Hyptile Island' } },
+			{ id: 'back', text: 'Land the Kestrel back on the Tidemark airstrip', on: 'planeLanded', match: { near: { ...TM_STRIP, r: 300 }, onWater: false, test: isKestrel }, pin: { ...TM_STRIP, label: 'Tidemark airstrip' } },
+			talk( 'brine', 'Collect the bet from Brine', 'Well? In one piece?', 'In one piece. Pay up.' ),
+		],
+		fail: { on: [ 'planeCrashed', 'planeBailedOut' ], steps: [ 'over', 'back' ], then: 'restart', text: 'The Kestrel came down hard: the bet starts again from the airstrip' },
+		reward: { money: 100, xp: 90, rep: { tidemark: 4 }, seaplane: [ { airframe: 'kestrel', key: 'radio', tier: 1 }, { airframe: 'kestrel', key: 'livery', tier: 2 } ], disposition: 8,
+			journal: 'The long way round: the Kestrel to the home island and back without a scratch. Brine\'s bar paid in navy-and-gold paint and the radio.' },
+	},
+
+	blackwaterRumours: {
+		title: 'Rumours from Blackwater', giver: 'brine', port: 'tidemark', region: 'blackwater', requires: { any: [ { flag: 'blackwaterRumour' }, { chain: 'ferryToTidemark' } ] },
+		offer: 'Rumours come up the stairs with the fishermen: a pirate town on the island south of the reef, guns on the cliffs, a fence who buys what customs seizes. The board pays to know if it is true. Look from the sea first, quietly. Then, if you are mad, silence a gun. If you are very mad, take the place.',
+		accept: 'I will take a look.', accepted: 'Quietly. If their bell rings, they know your sail.',
+		remind: 'Blackwater, south of the reef. Quiet first, then loud.',
+		thanks: 'You took Blackwater? The bar will not believe it. I barely do.',
+		steps: [
+			{ id: 'scout', text: 'Scout Blackwater from the sea without raising the alarm', on: 'strongholdDiscovered', check: ( c ) => { const s = stronghold( c ); return !! ( s && s.discovered ); },
+				payout: { money: 150, xp: 30 }, clean: { within: 120, on: 'strongholdAlarm', match: { is: { state: 'alarm' } }, already: ( c ) => { const s = stronghold( c ); return !! ( s && s.alarm && s.alarm.state === 'alarm' ); }, text: 'The bell rang: no scouting fee, but the work goes on' },
+				pin: { x: BW.center.x, z: BW.center.z, label: 'Blackwater' } },
+			{ id: 'battery', text: 'Silence one of Blackwater\'s shore batteries', on: 'batterySilenced', check: ( c ) => { const s = stronghold( c ); return !! ( s && s.batteries && Array.isArray( s.batteries.list ) && s.batteries.list.some( ( b ) => b.silenced ) ); },
+				payout: { money: 250, xp: 40 }, pin: { x: BW.batteries[ 0 ].x, z: BW.batteries[ 0 ].z, label: 'Blackwater battery' } },
+			{ id: 'claim', text: 'Claim Blackwater at its flagstaff', on: 'strongholdClaimed', check: ( c ) => { const s = stronghold( c ); return !! ( s && s.holder === 'player' ); },
+				payout: { money: 400, xp: 60 }, pin: { x: BW.flag.x, z: BW.flag.z, label: 'Blackwater flagstaff' } },
+		],
+		reward: { xp: 60, rep: { tidemark: 5, home: 3 }, disposition: 6,
+			journal: 'Blackwater: scouted from the sea, a battery silenced and the island claimed. The brotherhood will want it back.' },
+	},
+
+	blackFlag: {
+		title: 'The black flag', giver: 'fence', port: 'blackwater', region: 'blackwater', requires: { corsair: 10 },
+		offer: 'You have a name, and not the kind harbourmasters like. Good. Fly our flag, sell me three crates the customs men would weep over, and run one past the home harbour\'s launch. Then you are one of us. Merchants will spit when you pass. Let them.',
+		accept: 'The flag, three crates, one run.', accepted: 'The flag first. Eight hundred, no haggling. I do not haggle with friends; I do not have any.',
+		remind: 'Flag, crates, customs. In that order, if you like breathing.',
+		thanks: 'Past the launch with it? Ha. Powder is cheaper for a brother now. Do not let the merchants see you smile.',
+		steps: [
+			{ id: 'flag', text: 'Buy the black flag from the fence', on: 'blackFlagBought', check: ( c ) => { const s = stronghold( c ); return !! ( s && s.blackFlag ); }, pin: { ...fenceSpot(), label: 'The fence' } },
+			{ id: 'sell', text: 'Sell three crates of contraband at the black market', on: 'contrabandSold', match: { is: { port: 'blackwater' } }, count: 'qty', goal: 3, pin: { ...fenceSpot(), label: 'The black market' } },
+			{ id: 'smuggle', text: 'Smuggle contraband past the home harbour\'s customs', on: [ 'customsInspected', 'portVisited' ], match: { test: smuggled }, pin: { ...HOME_STAND, label: 'Hyptile Harbour' } },
+		],
+		reward: { xp: 80, item: 'brotherhoodMark', merchant: - 10, disposition: 10,
+			journal: 'The black flag: flown, three crates sold to the fence, one run past the home customs. Powder is cheaper at Blackwater; the merchants trust you less.' },
+	},
+
+	holdTheLine: {
+		title: 'Hold the line', giver: 'osric', port: 'tidemark', region: 'tidemark', requires: { discovered: 'tidemark' }, repeat: { days: 1 },
+		offer: 'A pirate sloop works the outer bay when the moon is dark. She means to shoot up my pier and strip the wharf. Be in the bay when she comes and put her on the bottom, or knock the fight out of her, before she breaks six things on my waterfront.',
+		accept: 'I will hold the line.', accepted: 'She comes in from the east. Moor clear of the pier head, not on my wharf.',
+		remind: 'The pier is still standing. Keep it that way.',
+		thanks: 'The pier stands. The town mends what she broke by morning, and your gunners moor free here: no post fee.',
+		steps: [
+			{ id: 'arm', text: 'Be in Tidemark\'s bay when the raiders come', reach: { x: TM_BAY.x, z: TM_BAY.z, r: 700 }, pin: { x: TM_BAY.x, z: TM_BAY.z, label: 'Tidemark bay' } },
+			{ id: 'fight', text: 'Sink or cripple the raiding sloop before she breaks six props', on: [ 'shipSunk', 'shipCrippled' ], match: { is: { id: RAID_ID } }, start: 'raid', limit: 900, pin: { ...TM_PIER, label: 'The raid' } },
+			talk( 'osric', 'Report to Harbourmaster Osric', 'I saw her strike. Well?', 'She will not be back.' ),
+		],
+		fail: { on: 'propDestroyed', match: { is: { port: 'tidemark' } }, goal: RAID_PROPS, steps: [ 'fight' ], then: 'fail', text: 'The raiders broke the waterfront and sailed off with the wharf\'s goods' },
+		reward: { money: 300, xp: 90, rep: { tidemark: 8 }, repairTown: 'tidemark', item: 'gunnerWaiver', disposition: 8,
+			journal: 'Hold the line: the raiding sloop beaten off Tidemark\'s pier. The town mended itself and waives your gunners\' post fee. Osric posts it again when the raiders return.' },
+	},
+
+	learnToFight: {
+		title: 'Learn to fight', giver: 'ethena', port: 'home', region: 'home',
+		offer: 'Rope and reels I can sell you. Sense, I cannot. Go to the training post on the beach: win a practice fight, then put one pistol ball in the post. Come back and I will fill your pouch.',
+		accept: 'A fight and a shot.', accepted: 'Watch the post\'s arm. When it glows, block or step aside. Then hit back.',
+		remind: 'The post is on the beach. It does not bite. Much.',
+		thanks: 'Both? Good hands. Here, a pouch of cartridges on the house. And remember: block as the blow lands, not before. That is a parry.',
+		steps: [
+			{ id: 'practice', text: 'Win a practice fight at the training post (E at the weapon rack)', on: 'practiceEnded', match: { is: { result: 'won' } }, pin: { x: TRAINING_POST.x, z: TRAINING_POST.z, label: 'Training post' } },
+			{ id: 'pistol', text: 'Hit the training post with a pistol shot', on: 'gunHit', match: { is: { weapon: 'pistol', target: 'training-post' } }, pin: { x: TRAINING_POST.x, z: TRAINING_POST.z, label: 'Training post' } },
+			talk( 'ethena', 'Tell Ethena Prosper', 'Well? Did the post win?', 'I won the fight, and the post has a hole in it.' ),
+		],
+		reward: { xp: 40, rep: { home: 2 }, cartridges: 1, disposition: 6,
+			journal: 'The parry: block just as the blow lands (the amber cue), not before. The attacker staggers, open for a punish. Ethena filled the pouch.' },
+	},
+
+};
+
+Object.assign( CHAINS, W13_CHAINS );
+
 // one errand per port beyond the first four (WORLD.ports is read when the story starts: islands added later get theirs)
 export function errandChains( ports = WORLD.ports ) {
 
@@ -747,7 +934,7 @@ export function nearestPort( x, z, ports = WORLD.ports ) {
 
 export function portName( id ) {
 
-	const p = WORLD.ports.find( ( x ) => x.id === id );
-	return p ? p.name : id;
+	const p = WORLD.ports.find( ( x ) => x.id === id ) || WORLD.islands.find( ( x ) => x.id === id ); // Blackwater is an island, not a port
+	return p && p.name ? p.name : id;
 
 }

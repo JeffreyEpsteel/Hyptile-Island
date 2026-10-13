@@ -124,13 +124,14 @@ export class BlackMarket {
 		const tr = this.trade;
 		if ( ! tr || ! tr.addCargo ) return { ok: false, reason: 'noHold' };
 		const want = clamp( Math.floor( n ) || 1, 1, this.rules.powder.max );
-		const total = want * this.rules.powder.price;
+		const each = Math.round( this.rules.powder.price * ( 1 - clamp( ctx.powderOff || 0, 0, 0.9 ) ) ); // wave 13: the story's discount
+		const total = want * each;
 		if ( ! this._pay( total ) ) return { ok: false, reason: 'money' };
 		const got = tr.addCargo( 'powder', want, { paid: total } ) || 0;
 		// whatever does not fit is paid back
 		if ( got < want ) {
 
-			const back = ( want - got ) * this.rules.powder.price;
+			const back = ( want - got ) * each;
 			this._earn( back );
 			this.taken -= back;
 			this.sold -= back;

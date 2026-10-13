@@ -875,7 +875,9 @@ export class Stronghold {
 
 	marketCtx() {
 
-		return { standing: this.standing(), flag: this.flagFlown(), alarm: this.alarm.state === 'alarm', held: this.holder === 'pirates' };
+		const story = this.features && this.features.get ? this.features.get( 'story' ) : null;
+		const powderOff = story && story.discount ? story.discount( 'powder:blackwater' ) || 0 : 0; // wave 13: The black flag's reward
+		return { standing: this.standing(), flag: this.flagFlown(), alarm: this.alarm.state === 'alarm', held: this.holder === 'pirates', powderOff };
 
 	}
 
@@ -889,7 +891,12 @@ export class Stronghold {
 
 		const ctx = this.marketCtx(), M = this.market;
 		let r = { ok: false, reason: 'unknown' };
-		if ( id.startsWith( 'sell:' ) ) r = M.sell( id.slice( 5 ), 'all', ctx );
+		if ( id.startsWith( 'sell:' ) ) {
+
+			r = M.sell( id.slice( 5 ), 'all', ctx );
+			if ( r.ok ) this._emit( 'contrabandSold', { good: id.slice( 5 ), qty: r.qty, total: r.total, port: 'blackwater' } );
+
+		}
 		else if ( id === 'buy:powder' ) r = M.buyPowder( 1, ctx );
 		else if ( id === 'buy:shot' ) r = M.buyShot( ctx );
 		else if ( id === 'flag' ) {

@@ -45,7 +45,7 @@ export const BOARD_SIZE = [ 4, 4, 5, 5, 6 ]; // postings listed at standing leve
 export const TIER_NAMES = [ '', 'Harbour nuisance', 'Open-sea corsair', 'Notorious captain' ];
 export const TYPE_LABEL = {
 	catchSpecies: 'Catch', catchWeight: 'Big catch', catchHabitat: 'Fishing trip', deliverCargo: 'Cargo run', sellFish: 'Market day',
-	visitPort: 'Errand', sinkPirate: 'Sink a raider', shoreRaider: 'Shore watch', bounty: 'Wanted',
+	visitPort: 'Errand', sinkPirate: 'Sink a raider', shoreRaider: 'Shore watch', bounty: 'Wanted', story: 'Quest',
 };
 // drop chance of a posting of a type the player failed or abandoned (by how many times in the last day)
 export const MEMORY_DROP = [ 0, 0.55, 0.8, 0.95 ];
@@ -568,5 +568,52 @@ export function regionText( n ) {
 
 	if ( ! n.region ) return '';
 	return `${ fmtDistance( n.region.distance ) } ${ n.region.compass } of ${ PORT_INFO[ n.port ].name }`;
+
+}
+
+// ---------------------------------------------------------------- quest notices (wave 13: the story's chains on the boards)
+// A board pins the story's wave 13 quests where they fit: the posting is taken through the story (story.acceptPosting),
+// not as a notice (it does not count against MAX_ACTIVE). While a chain cannot be taken (gated, running, done and not due
+// again) its notice is not up. Hold the line recurs: the story offers it again a day after it was done.
+//
+// Notices.js wiring (the notices owner adds it):
+//   board( port ), before `out.sort( ... )`:
+//       const story = this.features.get && this.features.get( 'story' );
+//       if ( story ) try { out.push( ...storyPostings( port, story, now ) ); } catch ( e ) { /* the story is optional */ }
+//   accept( id ), first line after `this.lastError = '';`:
+//       if ( typeof id === 'string' && id.startsWith( 'story:' ) ) {
+//           const story = this.features.get && this.features.get( 'story' );
+//           if ( ! story || ! story.acceptPosting( id ) ) return this._err( ( story && story.lastError ) || 'That notice is gone' );
+//           this._changed(); return { id, story: true };
+//       }
+export const QUEST_NOTICES = [
+	{ chain: 'ferryToTidemark', ports: [ 'home' ], client: 'PoorGoat, fish buyer', title: 'A ferry to Tidemark', text: 'Wanted: somebody to sail east to Tidemark, sell a catch at the fish hall and find out who is buying. Ask at my stand.' },
+	{ chain: 'learnToFight', ports: [ 'home' ], client: 'Ethena Prosper, chandlery', title: 'Learn to fight', text: 'Win a practice fight at the training post and land one pistol shot in it. A pouch of cartridges for anyone who manages both.' },
+	{ chain: 'blackwaterRumours', ports: [ 'home', 'tidemark' ], client: 'Brine, the Tide & Tankard', title: 'Rumours from Blackwater', text: 'Talk in the tavern of a pirate town south of the reef. Scout it quietly, silence a gun, take it: the board pays for each.' },
+	{ chain: 'longWayRound', ports: [ 'tidemark' ], client: 'Brine, the Tide & Tankard', title: 'The long way round', text: 'A bet on the bar: nobody flies the Kestrel to the home island and back in one piece. Prove it wrong.' },
+	{ chain: 'holdTheLine', ports: [ 'tidemark' ], client: 'Harbourmaster Osric', title: 'Hold the line', text: 'A pirate sloop raids the bay when the moon is dark. Sink or cripple her before she wrecks the waterfront.' },
+];
+
+// the quest notices on `port`'s board now (story: the story feature; hours: the board's clock): board-card shaped
+export function storyPostings( port, story, hours = 0 ) {
+
+	if ( ! story || typeof story.canAccept !== 'function' ) return [];
+	const day = Math.floor( num( hours ) / DAY_HOURS ), out = [];
+	QUEST_NOTICES.forEach( ( q, i ) => {
+
+		if ( ! q.ports.includes( port ) ) return;
+		const c = typeof story.chain === 'function' ? story.chain( q.chain ) : null;
+		if ( ! c || ! story.canAccept( q.chain ) ) return;
+		const r = c.reward || {};
+		const money = r.money || [ ...( c.steps || [] ) ].reduce( ( a, s ) => a + num( s.payout && s.payout.money ), 0 );
+		const expires = ( day + 1 ) * DAY_HOURS; // pinned afresh each day
+		out.push( {
+			id: `story:${ q.chain }`, port, day, slot: 100 + i, kind: 'quest', type: 'story', story: true, chain: q.chain,
+			title: q.title, client: q.client, text: q.text, params: {}, goal: 1,
+			reward: { money, rep: num( r.rep && r.rep[ port ] ), unlock: null }, issued: day * DAY_HOURS, expires, left: expires - num( hours ),
+		} );
+
+	} );
+	return out;
 
 }

@@ -13,10 +13,14 @@ import { effectiveMatch, portAt } from './StoryData.js';
 //     { item: id } / { unlocked: id } owns / may buy an item      { money: n }               money >= n
 //     { night: bool }                 after dark now              { hostile: bool }          the speaker's port is hostile
 //     { any: [ req ] }  { not: req }  { met: bool }               { debt: true }             the speaker is owed money
+//     { corsair: n }                  pirates.standing() >= n (wave 13: the black-market dealer's work)
 //   ctx: { story, state, npc, mem, night, features }
+//   sandboxGate( req ) -> req         the gates the sandbox keeps (only { feature }: the sandbox plays everything else)
 //
 //   matches( m, e, ctx ) -> bool      a step's match against an event payload (StoryData header lists the keys)
-//   amount( step, e ) -> n            how far an event moves a step (count: 'qty' | 'total' | 'kg' | 'value', else 1)
+//   amount( step, e ) -> n            how far an event moves a step (count: 'qty' | 'total' | 'kg' | 'value' | 'count', else 1)
+//   (wave 13) match keys is { key: value | [ values ] } (plain payload equality: { result: 'won' }, { id: 'tidemark-raider' })
+//   and test( e, ctx ) -> bool (ctx.event is the event's name, ctx.features the registry)
 //   fishFits( rule, f ) -> bool       a fish in the hold against a deliver rule
 
 const num = ( v, d = 0 ) => ( typeof v === 'number' && Number.isFinite( v ) ? v : d );
@@ -79,6 +83,15 @@ export function gate( req, ctx = {} ) {
 			case 'hostile': pass = !! ( story && ctx.npc && story.hostileTo( ctx.npc ) ) === !! v; break;
 			case 'met': pass = !! ( mem && mem.met ) === !! v; break;
 			case 'debt': pass = ( num( mem && mem.debt ) > 0 ) === !! v; break;
+			case 'corsair': {
+
+				const p = ctx.features && ctx.features.get ? ctx.features.get( 'pirates' ) : null;
+				let s = 0;
+				try { s = p && typeof p.standing === 'function' ? num( p.standing() ) : 0; } catch ( e ) { s = 0; }
+				pass = s >= v;
+				break;
+
+			}
 			case 'any': pass = list( v ).some( ( r ) => gate( r, ctx ) ); break;
 			case 'not': pass = ! gate( v, ctx ); break;
 			default: pass = true; // unknown keys never lock content away
@@ -90,6 +103,16 @@ export function gate( req, ctx = {} ) {
 	}
 
 	return true;
+
+}
+
+// the sandbox plays every chain: only the gates that need a feature to exist stay
+export function sandboxGate( req ) {
+
+	if ( ! req || typeof req !== 'object' ) return null;
+	const out = [];
+	for ( const r of [].concat( req ) ) if ( r && typeof r === 'object' && r.feature ) out.push( { feature: r.feature } );
+	return out.length ? out : null;
 
 }
 
@@ -119,6 +142,18 @@ export function matches( raw, e, ctx = {} ) {
 	}
 
 	if ( m.notInPort && ( ! at || portAt( at.x, at.z ) !== null ) ) return false;
+	if ( m.is && typeof m.is === 'object' ) {
+
+		for ( const [ k, v ] of Object.entries( m.is ) ) if ( ! list( v ).includes( e[ k ] ) ) return false;
+
+	}
+
+	if ( typeof m.test === 'function' ) {
+
+		try { if ( ! m.test( e, ctx ) ) return false; } catch ( err ) { return false; }
+
+	}
+
 	return true;
 
 }
@@ -131,6 +166,7 @@ export function amount( step, e ) {
 		case 'total': return Math.max( 0, num( e && e.total ) );
 		case 'kg': return Math.max( 0, num( e && e.kg ) );
 		case 'value': return Math.max( 0, num( e && e.value ) );
+		case 'count': return Math.max( 0, num( e && e.count ) );
 		default: return 1;
 
 	}

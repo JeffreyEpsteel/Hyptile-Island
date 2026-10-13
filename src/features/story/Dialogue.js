@@ -54,6 +54,23 @@ export const GREET = {
 	clownCabin: [
 		{ if: { mem: [ 'pranks', '>=', 3 ] }, line: 'You keep coming back. You know what happens. I respect that.' },
 	],
+	// wave 13
+	brine: [
+		{ if: { chain: 'longWayRound' }, line: 'The bar still talks about that flight. The goats do not.' },
+		{ if: { chain: 'ferryToTidemark' }, line: 'PoorGoat\'s friend! Sit. Dice? Nothing on it but pride.' },
+	],
+	osric: [
+		{ if: { chain: 'holdTheLine' }, line: 'The pier stands because of you. Moor at the head, as ever.' },
+		{ line: 'Harbourmaster. Moor at the pier head, not on my wharf.' },
+	],
+	fence: [
+		{ if: { chain: 'blackFlag' }, line: 'Brother. The powder is cheaper for you. Keep your voice down.' },
+		{ line: 'Buying or selling? Customs seized it somewhere, I pay for it here.' },
+	],
+	ethena: [
+		{ if: { chain: 'learnToFight' }, line: 'Pouch still full? Block as the blow lands. Not before.' },
+		{ line: 'Rope, reels, fuel, and good advice for free. The advice is the part people skip.' },
+	],
 };
 
 export const TOPICS = {
@@ -78,6 +95,15 @@ export const TOPICS = {
 	],
 	sal: [
 		{ id: 'flats', label: 'What is good on the flats?', line: 'Mullet in the day, anything at night. The roots hold fish nobody wants to lose a hook for.' },
+	],
+	brine: [
+		{ id: 'blackwater', if: { not: { flag: 'blackwaterRumour' } }, label: 'Any word from the south?', line: 'Blackwater. A pirate town on the island past the reef, guns on the cliffs. The board pays to know more.', effect: { flag: 'blackwaterRumour' } },
+	],
+	osric: [
+		{ id: 'standing', label: 'What does Tidemark think of me?', line: ( c ) => standingLine( c ) },
+	],
+	ethena: [
+		{ id: 'parry', label: 'How do I parry?', line: 'Block just as the blow lands, when the amber shows, not before. They stagger, and you hit back.' },
 	],
 	// anyone the player has wronged: pay to set it right (story.amends)
 	'*': [

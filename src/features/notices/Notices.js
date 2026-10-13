@@ -4,6 +4,7 @@ import {
 	hash32, generateDay, standingLevel, standingInfo, eventDelta, targetMatches,
 } from './NoticeData.js';
 import { BOARD_SITES } from './Sites.js';
+import { storyPostings } from './NoticeData.js';
 import { NoticeUI } from './NoticeUI.js';
 import { NoticeBoard3D } from './NoticeBoard3D.js';
 
@@ -234,6 +235,9 @@ export class Notices {
 
 		}
 
+		// wave 13: the story's quest notices where they fit (taken through the story, not as a notice)
+		const story = this.features && this.features.get ? this.features.get( 'story' ) : null;
+		if ( story ) try { out.push( ...storyPostings( port, story, now ) ); } catch ( e ) { /* the story is optional */ }
 		out.sort( ( a, b ) => a.expires - b.expires || a.slot - b.slot );
 		return out;
 
@@ -288,6 +292,14 @@ export class Notices {
 	accept( id ) {
 
 		this.lastError = '';
+		if ( typeof id === 'string' && id.startsWith( 'story:' ) ) {
+
+			const story = this.features && this.features.get ? this.features.get( 'story' ) : null;
+			if ( ! story || ! story.acceptPosting( id ) ) return this._err( ( story && story.lastError ) || 'That notice is gone' );
+			this._changed();
+			return { id, story: true };
+
+		}
 		const port = typeof id === 'string' ? id.split( ':' )[ 0 ] : '';
 		if ( ! PORT_INFO[ port ] ) return this._err( 'Unknown notice' );
 		if ( this._active.some( ( n ) => n.id === id ) ) return this._err( 'You already took that one' );

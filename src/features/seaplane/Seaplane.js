@@ -572,10 +572,14 @@ export class Seaplane {
 		const airframes = AIRFRAME_IDS.filter( ( id ) => ( AIRFRAMES[ id ].base === 'strip' ) === ( scope === 'strip' ) && this.available( id ) ).map( ( id ) => {
 
 			const A = AIRFRAMES[ id ], owned = this.owns( id ), rec = id === this.af ? null : this.fleet[ id ];
-			return { id, name: A.name, sub: A.sub, price: A.price, owned, current: id === this.af, lost: id === this.af ? this.lost : !! ( rec && rec.lost ), seats: A.seats, crates: A.crates, canBuy: ! owned && ( this.free || money >= A.price ), canTake: owned && id !== this.af && ! this.piloted };
+			const price = this.airframePrice( id );
+			return { id, name: A.name, sub: A.sub, price, owned, current: id === this.af, lost: id === this.af ? this.lost : !! ( rec && rec.lost ), seats: A.seats, crates: A.crates, canBuy: ! owned && ( this.free || money >= price ), canTake: owned && id !== this.af && ! this.piloted };
 
 		} );
-		const upgrades = UPGRADES.filter( ( U ) => upgradeFits( this.af, U.id ) ).map( ( U ) => {
+		// wave 13: the airstrip hangar lists the engine row once "Wings" is done (the story opens 'engine:strip')
+		const story = this._story();
+		const engineAtStrip = ! ( scope === 'strip' && story && story.opens && story.opens( 'engine:strip' ) === false );
+		const upgrades = UPGRADES.filter( ( U ) => upgradeFits( this.af, U.id ) && ( U.id !== 'engine' || engineAtStrip ) ).map( ( U ) => {
 
 			const tier = this.upgrades[ U.id ] || 0, next = U.paint ? ( tier + 1 ) % ( U.tiers + 1 ) : tier + 1;
 			const cost = next > U.tiers || ( U.paint && next === 0 ) ? 0 : this.free ? 0 : upgradePrice( this.af, U.id, next );
@@ -633,6 +637,23 @@ export class Seaplane {
 	}
 
 	// buy an airframe (the one out when none is named: the Jade in a new game); a new one goes out at once
+	// wave 13: what an airframe costs here (the story's "Wings" reward takes 20 % off the Kestrel)
+	airframePrice( af ) {
+
+		const A = AIRFRAMES[ af ];
+		if ( ! A ) return 0;
+		const story = this._story();
+		const off = af === 'kestrel' && story && story.discount ? story.discount( 'kestrel' ) || 0 : 0;
+		return Math.round( A.price * ( 1 - off ) );
+
+	}
+
+	_story() {
+
+		try { return this.features && this.features.get ? this.features.get( 'story' ) : null; } catch ( e ) { return null; }
+
+	}
+
 	buy( af = null ) {
 
 		af = af || this.af;
@@ -642,9 +663,10 @@ export class Seaplane {
 		if ( ! this.available( af ) ) return { ok: false, text: t( 'seaplane.noStrip', 'There is no airstrip for it' ) };
 		if ( af !== this.af && ( this.piloted || this.chute ) ) return { ok: false, text: t( 'seaplane.flyingNow', 'Not while you are flying' ) };
 		const st = this.features && this.features.state;
+		const price = this.airframePrice( af );
 		if ( ! this.free ) {
 
-			if ( ! st || ! st.spend || ! st.spend( A.price ) ) return { ok: false, text: t( 'seaplane.short', 'Not enough money yet' ) };
+			if ( ! st || ! st.spend || ! st.spend( price ) ) return { ok: false, text: t( 'seaplane.short', 'Not enough money yet' ) };
 
 		}
 
@@ -662,7 +684,7 @@ export class Seaplane {
 		this.owned = true;
 		this.hp = MAX_HP;
 		this._save();
-		this._emit( 'seaplaneBought', { price: this.free ? 0 : A.price, airframe: af } );
+		this._emit( 'seaplaneBought', { price: this.free ? 0 : price, airframe: af } );
 		if ( af === 'jade' ) return { ok: true, text: t( 'seaplane.bought', 'The seaplane is yours. Board it at the door from the jetty.' ) };
 		return { ok: true, text: `${ t( 'seaplane.boughtA', 'The' ) } ${ A.name } ${ t( 'seaplane.boughtB', 'is yours' ) }: ${ A.base === 'strip' ? t( 'seaplane.onPad', 'out on the pad' ) : t( 'seaplane.onRamp', 'out at the ramp' ) }` };
 

@@ -414,6 +414,18 @@ torch lights the pier. Known: the roster's Helm_Idle / Steer / Seated_Idle / Fal
 (re-export in tools/roster some day); AI ships' wheels and fleet tillers are still; other players do not see wrecks;
 remote boats do not collide.
 
+### Wave 13 (2026-10-13 night, root + 4 workers): the new places become places
+13C ambience and maps (docs/briefs/w13-ambience-maps.md, landed 535b5aa): synthesised beds for Tidemark (market murmur on
+the residents' schedule, chapel bell on the hour, quay gulls, airstrip run-ups, boatyard hammering by day) and Blackwater
+(Rum Hole and drums at night, caldera surf, fort bell on the alarm, battery reports echoing), cues for batteries, powder,
+the black flag, claims, practice swords, the chute, the Kestrel's wheels; the Albatross's second engine voice beats
+against the first (PlaneAudio engines / failed); world map legend, Blackwater "?" until discovered, airstrip and
+parked-plane markers, quest pins (questPin / questPinClear), Tidemark on the map terrain bake.
+13A water / vegetation domain (w13-water-domain.md), 13B quest lines (w13-quests.md), 13D netsync parity (w13-netsync.md):
+in progress.
+Root: climb out of the water onto a pier or ledge (Space / W, rise 0.2-2.6 m); the crash toast says where to recover a
+wreck (hangar or yard); the world map refreshes its discovery state.
+
 ### Wave 12 (2026-10-13 evening, root + 6 workers): two islands, planes, perf, combat feel
 12A Tidemark (docs/briefs/w12-town-island.md): a 440 m town island on its own terrain tile at (1720, -60) outside the
 2048 m heightmap (no room inside with 400 m of water), a town of 10-14 buildings with a pier, quay, market, chandler,

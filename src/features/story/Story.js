@@ -1,7 +1,9 @@
 import { WORLD } from '../../world/WorldLayout.js';
-import { CHAINS, NPCS, ITEMS, VENDOR_NPC, KEEPERS, BUYERS, errandChains, speciesLabel, portAt, nearestPort, portName } from './StoryData.js';
+import { CHAINS, NPCS, ITEMS, VENDOR_NPC, KEEPERS, BUYERS, W13_CHAINS, RAID_ID, errandChains, speciesLabel, portAt, nearestPort, portName } from './StoryData.js';
 import { DISPOSITION, blankMemory, cleanMemory, clampDisposition } from './Memory.js';
-import { gate, matches, amount, pickFish, isNight, isDawnDusk } from './Rules.js';
+import { gate, sandboxGate, matches, amount, pickFish, isNight, isDawnDusk } from './Rules.js';
+import { leadAim } from '../naval/Ballistics.js';
+import { POUCH } from '../firearms/FirearmsData.js';
 import { buildModel, applyChoice, chainsOf } from './Dialogue.js';
 import { DialogueUI, journalHTML } from './DialogueUI.js';
 import { RESIDENTS } from '../../world/residents/ResidentData.js';
@@ -29,6 +31,34 @@ import { RESIDENTS } from '../../world/residents/ResidentData.js';
 // Events emitted: questAccepted { id, title, giver, port }   questStep { id, step }   questCompleted { id, title, giver,
 //   port, reward }   questAbandoned { id }   reputationChanged { port, delta, reason, rep }   rewardUnlock { character, id,
 //   source: 'story' }   storyItem { item }
+//
+// Wave 13 (the seven quest lines of StoryData.W13_CHAINS: Tidemark, the hangars, Blackwater, the practice fight):
+//   story.opens( key ) -> bool       a door a quest opened ('haul:tidemark', 'engine:strip'); always true in the sandbox
+//   story.discount( key ) -> 0..0.9  a quest reward's discount ('chandler:tidemark' 0.1, 'kestrel' 0.2, 'powder:blackwater' 0.25)
+//   story.perk( 'gunnerFee' ) -> 1   Hold the line's waiver: the crew gunners' post fee / wage is not charged
+//   story.acceptPosting( 'story:<chain>' ) -> bool   a quest notice taken from a board (NoticeData.storyPostings)
+//   story.entries                    the journal's notes [ { id, title, text, day } ] (a line per finished quest, the parry tip)
+// Emitted too: questPin { id: 'quest:<chain>', x, z, label, chain, step } while a step names a place (the world map pins it),
+//   questPinClear { id }, questFailed { id, why }. The sandbox keeps only the { feature } gates (it plays everything).
+// Hold the line arms a raid: naval.spawn( 'sloop', { id: StoryData.RAID_ID, ... } ) off Tidemark's bay on a loop route,
+//   and while she is afloat and within 330 m of the pier Story fires her guns at the town's intact props through
+//   naval.launchFrom (leadAim); 6 props broken in Tidemark (propDestroyed port 'tidemark') loses it, sinking or crippling
+//   her (shipSunk / shipCrippled id RAID_ID) wins it. A Brains.js 'raid' state could take that aiming over later.
+//
+// Hooks other owners add (optional chaining: nothing breaks without them):
+//   pirates/Stronghold.js marketAction, after `M.sell( ... )` succeeds:
+//       if ( r.ok ) this._emit( 'contrabandSold', { good: id.slice( 5 ), qty: r.qty, total: r.total, port: 'blackwater' } );
+//     (until then Story notices the sale from the fence's `market.sold` and the hold: one sale late by a poll)
+//   pirates/BlackMarket.js buyPowder: total = want * Math.round( price * ( 1 - ( story?.discount( 'powder:blackwater' ) || 0 ) ) )
+//   seaplane/Seaplane.js buy( af ): price = A.price * ( 1 - ( af === 'kestrel' ? story?.discount( 'kestrel' ) || 0 : 0 ) );
+//     Panel.js at the strip hangar lists the engine row only when story?.opens( 'engine:strip' ) !== false
+//   trade/HaulContracts.js offers( port ): [] for 'tidemark' while story?.opens( 'haul:tidemark' ) === false
+//   trade/Operating.js wagesPerDay(): minus OPERATING.wage per posted gunner while story?.perk( 'gunnerFee' ) > 0
+//   game/Game.js _salePort(): `this.ports?.near?.( p ) || ( pons near ? 'pons' : 'home' )` (Tidemark's sales say 'tidemark';
+//     the quest also counts sales by the player's position) and the chandler's gear price x ( 1 - story.discount(
+//     `chandler:${ port }` ) ) where Game / HudPanels price a shop row
+//   notices/Notices.js board( port ): push NoticeData.storyPostings( port, story, this.hours ) before the sort; accept( id ):
+//     an id starting 'story:' goes to story.acceptPosting( id ) (NoticeData's header has the exact lines)
 
 export const HOSTILE = - 15; // story.rep at or below this: the port is hostile
 export const GRUDGE_DECAY = 2; // grudge forgiven per in-game day
@@ -38,7 +68,10 @@ const SAVE_VERSION = 1;
 const POLL = 0.5;
 const LISTEN = [ 'fishCaught', 'fishSold', 'cargoSold', 'cargoBought', 'portVisited', 'shipSunk', 'bountyClaimed', 'propDestroyed',
 	'planeTookOff', 'planeLanded', 'enemyDefeated', 'noticeCompleted', 'lootCollected', 'playerBoatSunk', 'residentPrank',
-	'prisonerRansomed', 'denRaided', 'customsInspected' ];
+	'prisonerRansomed', 'denRaided', 'customsInspected', 'rumourHeard', 'contrabandSold' ];
+const LEAD = new Set( Object.keys( W13_CHAINS ) ); // offered first: a giver pitches at most OFFERS_PER_NPC at once
+const RAID = { fire: 7, reach: 330, muzzleY: 3, out: 420, loop: 110 }; // the raiding sloop's guns (s, m) and her route (m)
+const MAX_ENTRIES = 24;
 const num = ( v, d = 0 ) => ( typeof v === 'number' && Number.isFinite( v ) ? v : d );
 const clamp = ( v, a, b ) => Math.max( a, Math.min( b, v ) );
 const RES_BY_ID = new Map( RESIDENTS.map( ( r ) => [ r.id, r ] ) );
@@ -60,8 +93,19 @@ export class Story {
 		this._spots = false;
 		this._initState();
 		this._refreshChains();
+		this._raid = null; // { chain, fireT } while Hold the line's sloop is out
+		this._fence = null; // the fence's till and the hold, for a sale without contrabandSold
+		this._fenceEvent = false;
+		this._pins = new Set();
+		this._resume = true; // a step's pin / raid is (re)started on the first update
 		const names = new Set( LISTEN );
-		for ( const c of Object.values( this.chains ) ) for ( const s of c.steps ) for ( const n of [].concat( s.on || [] ) ) names.add( n );
+		for ( const c of Object.values( this.chains ) ) {
+
+			for ( const s of c.steps ) for ( const n of [].concat( s.on || [], s.clean ? s.clean.on : [] ) ) names.add( n );
+			if ( c.fail ) for ( const n of [].concat( c.fail.on ) ) names.add( n );
+
+		}
+
 		for ( const name of names ) this._offs.push( features.on( name, ( e ) => this._onEvent( name, e ) ) );
 
 	}
@@ -76,6 +120,8 @@ export class Story {
 		this.unlocks = []; // ITEMS ids the player may buy
 		this.log = []; // recent outcomes { id, title, outcome, day }
 		this.stats = { done: 0, dropped: 0 };
+		this.entries = []; // the journal's notes { id, title, text, day }
+		this.grants = []; // seaplane upgrades won but not yet fitted (the airframe is not owned yet) { airframe, key, tier }
 		this._ownDay = 0;
 		this._lastTod = null;
 		this._rolledDay = null;
@@ -265,16 +311,51 @@ export class Story {
 	canAccept( id ) {
 
 		const c = this.chains[ id ];
-		if ( ! c || this.progress[ id ] ) return false;
+		if ( ! c ) return false;
+		if ( this.progress[ id ] && ! this._again( id ) ) return false;
 		if ( this.hostileTo( c.giver ) ) return false;
-		return gate( c.requires, this.ctx( c.giver ) );
+		// the sandbox plays everything: only the gates that need a feature to exist stay
+		return gate( this.features.sandbox ? sandboxGate( c.requires ) : c.requires, this.ctx( c.giver ) );
+
+	}
+
+	// a repeatable chain done long enough ago (the board posts it again)
+	_again( id ) {
+
+		const c = this.chains[ id ], p = this.progress[ id ];
+		if ( ! c || ! c.repeat || ! p || p.s !== 'done' ) return false;
+		return this.features.sandbox === true || this.day - num( p.end ) >= num( c.repeat.days, 1 );
+
+	}
+
+	// what other features ask: a door a quest opened, a reward's discount
+	opens( key ) {
+
+		return this.features.sandbox === true || this.flags.includes( 'open:' + key );
+
+	}
+
+	discount( key ) {
+
+		return clamp( this.perk( 'off:' + key ), 0, 0.9 );
+
+	}
+
+	// a quest notice taken from a board (NoticeData.storyPostings ids 'story:<chain>')
+	acceptPosting( postId ) {
+
+		const id = String( postId || '' ).replace( /^story:/, '' );
+		return !! this.accept( id );
 
 	}
 
 	offers( npc ) {
 
 		const out = [];
-		for ( const [ id, c ] of Object.entries( this.chains ) ) {
+		const ids = Object.keys( this.chains ).sort( ( a, b ) => ( LEAD.has( b ) ? 1 : 0 ) - ( LEAD.has( a ) ? 1 : 0 ) );
+		for ( const id of ids ) {
+
+			const c = this.chains[ id ];
 
 			if ( c.giver !== npc || ! this.canAccept( id ) ) continue;
 			out.push( id );
@@ -341,13 +422,14 @@ export class Story {
 		this.lastError = '';
 		const c = this.chains[ id ];
 		if ( ! c ) return this._fail( 'Unknown work' );
-		if ( this.progress[ id ] ) return this._fail( this.isDone( id ) ? 'Already done' : 'Already running' );
+		if ( this.progress[ id ] && ! this._again( id ) ) return this._fail( this.isDone( id ) ? 'Already done' : 'Already running' );
 		if ( npc && c.giver !== npc ) return this._fail( 'Ask the right person' );
 		if ( ! this.canAccept( id ) ) return this._fail( this.hostileTo( c.giver ) ? 'They will not give you work' : 'Not yet' );
 		this.progress[ id ] = { s: 'active', step: 0, n: 0, at: this.day, end: - 1 };
 		this._touch( c.giver );
 		this.features.emit( 'questAccepted', { id, title: c.title, giver: c.giver, port: c.port } );
 		this._toast( `Quest: ${ c.title } · ${ this.stepText( id ) }`, 3200 );
+		this._startStep( id );
 		this._poll(); // a step that already holds (own a boat, be somewhere) completes now
 		this._changed();
 		return true;
@@ -358,6 +440,8 @@ export class Story {
 
 		const c = this.chains[ id ];
 		if ( ! this.isActive( id ) ) return false;
+		if ( this._raid && this._raid.chain === id ) this._endRaid();
+		this._unpin( id );
 		delete this.progress[ id ];
 		this._dispose( c.giver, - 2 );
 		this.stats.dropped ++;
@@ -385,7 +469,9 @@ export class Story {
 
 		}
 
-		const done = this._advance( id );
+		this._turning = true; // the giver's thanks are said in the conversation, not toasted
+		let done = false;
+		try { done = this._advance( id ); } finally { this._turning = false; }
 		const next = done ? '' : this.stepText( id );
 		const r = { said: done ? c.thanks : `${ s.deliver ? 'Good. ' : '' }${ next ? `Next: ${ next }.` : '' }`.trim(), done, reward: done ? c.reward : null };
 		this._changed();
@@ -397,18 +483,49 @@ export class Story {
 	_advance( id ) {
 
 		const p = this.progress[ id ], c = this.chains[ id ];
-		this.features.emit( 'questStep', { id, step: c.steps[ p.step ] ? c.steps[ p.step ].id : '' } );
+		const s = c.steps[ p.step ] || null;
+		this.features.emit( 'questStep', { id, step: s ? s.id : '' } );
+		// a step's own payout: now, or (clean) after its window when nothing spoiled it
+		if ( s && s.payout ) {
+
+			if ( s.clean ) {
+
+				let spoiled = false;
+				try { spoiled = !! ( s.clean.already && s.clean.already( this._checkCtx() ) ); } catch ( e ) { spoiled = false; }
+				if ( spoiled ) this._toast( `${ c.title } · ${ s.clean.text || 'no fee for that one' }`, 3200 );
+				else p.watch = { step: s.id, left: num( s.clean.within, 60 ) };
+
+			} else this._payout( s.payout, `${ c.title } · ${ s.text }` );
+
+		}
+
 		p.step ++;
 		p.n = 0;
+		p.f = 0;
+		p.t = 0;
 		if ( p.step < c.steps.length ) {
 
 			this._toast( `${ c.title } · ${ this.stepText( id ) }`, 2800 );
+			if ( this._raid && this._raid.chain === id && c.steps[ p.step ].start !== 'raid' ) this._endRaid( false );
+			this._startStep( id );
 			return false;
 
 		}
 
 		this._complete( id );
 		return true;
+
+	}
+
+	// money / XP / reputation (a chain's reward, a step's payout)
+	_payout( r, label = '' ) {
+
+		const st = this.state;
+		if ( ! r ) return;
+		if ( st && r.money > 0 && typeof st.earn === 'function' ) st.earn( r.money );
+		if ( st && r.xp > 0 && typeof st.addXp === 'function' ) st.addXp( r.xp );
+		for ( const [ port, n ] of Object.entries( r.rep || {} ) ) this._addRep( port, n, 'quest' );
+		if ( label && ( r.money || r.xp ) ) this._toast( `${ label }${ r.money ? ` · +$${ r.money }` : '' }${ r.xp ? ` · +${ r.xp } XP` : '' }`, 3000 );
 
 	}
 
@@ -419,9 +536,13 @@ export class Story {
 		p.end = this.day;
 		delete p.step;
 		delete p.n;
-		if ( st && r.money > 0 && typeof st.earn === 'function' ) st.earn( r.money );
-		if ( st && r.xp > 0 && typeof st.addXp === 'function' ) st.addXp( r.xp );
-		for ( const [ port, n ] of Object.entries( r.rep || {} ) ) this._addRep( port, n, 'quest' );
+		delete p.f;
+		delete p.t;
+		if ( this._raid && this._raid.chain === id ) this._endRaid( false );
+		this._unpin( id );
+		this._payout( r );
+		for ( const f of r.flags || [] ) if ( ! this.flags.includes( f ) ) this.flags.push( f );
+		this._grantMore( id, c, r );
 		if ( r.item && ITEMS[ r.item ] && ! this.items.includes( r.item ) ) {
 
 			this.items.push( r.item );
@@ -446,6 +567,300 @@ export class Story {
 		this._log( id, 'done' );
 		this.features.emit( 'questCompleted', { id, title: c.title, giver: c.giver, port: c.port, reward: { ...r } } );
 		this._toast( `${ c.title } · done${ r.money ? ` · +$${ r.money }` : '' }${ r.xp ? ` · +${ r.xp } XP` : '' }`, 3600 );
+		// finished out in the world, away from the giver: their word comes as a note (in a conversation they say it)
+		if ( ! this._turning && c.thanks && NPCS[ c.giver ] ) this._toast( `${ NPCS[ c.giver ].name }: ${ c.thanks }`, 4600 );
+
+	}
+
+	// the wave 13 reward kinds: the journal's line, seaplane upgrades, merchant standing, the town mended, cartridges
+	_grantMore( id, c, r ) {
+
+		const text = r.journal || c.journal;
+		if ( text && ! this.entries.some( ( e ) => e.id === id ) ) {
+
+			this.entries.unshift( { id, title: c.title, text, day: this.day } );
+			if ( this.entries.length > MAX_ENTRIES ) this.entries.length = MAX_ENTRIES;
+
+		}
+
+		for ( const g of r.seaplane || [] ) this.grants.push( { airframe: g.airframe, key: g.key, tier: g.tier } );
+		this._fitGrants();
+		if ( r.merchant ) {
+
+			const t = this._feature( 'trade' );
+			try { if ( t && t.credit && t.credit.adjust ) t.credit.adjust( r.merchant, 'story' ); } catch ( e ) { /* trade is optional */ }
+
+		}
+
+		if ( r.repairTown ) this._repairTown( r.repairTown );
+		if ( r.cartridges > 0 ) {
+
+			const fa = this._feature( 'firearms' );
+			if ( fa && Number.isFinite( fa.shots ) ) fa.shots = Math.min( POUCH.max, fa.shots + POUCH.count * r.cartridges );
+
+		}
+
+	}
+
+	_feature( name ) {
+
+		try { return this.features.get ? this.features.get( name ) : null; } catch ( e ) { return null; }
+
+	}
+
+	// seaplane upgrades won: fitted free on that airframe (out on the pad, or in the hangar's fleet records); kept until
+	// the player owns it
+	_fitGrants() {
+
+		const sp = this._feature( 'seaplane' );
+		if ( ! sp || ! this.grants.length ) return;
+		const left = [];
+		for ( const g of this.grants ) {
+
+			let done = false;
+			try {
+
+				if ( sp.af === g.airframe && sp.owned && sp.upgrades ) {
+
+					sp.upgrades[ g.key ] = g.key === 'livery' ? g.tier : Math.max( num( sp.upgrades[ g.key ] ), g.tier );
+					if ( typeof sp._respec === 'function' ) sp._respec();
+					if ( typeof sp._save === 'function' ) sp._save();
+					done = true;
+
+				} else if ( sp.fleet && sp.fleet[ g.airframe ] && sp.fleet[ g.airframe ].owned ) {
+
+					const rec = sp.fleet[ g.airframe ];
+					rec.upgrades = { ...( rec.upgrades || {} ), [ g.key ]: g.key === 'livery' ? g.tier : Math.max( num( rec.upgrades && rec.upgrades[ g.key ] ), g.tier ) };
+					done = true;
+
+				}
+
+			} catch ( e ) { done = false; }
+
+			if ( done ) this.features.emit( 'seaplaneUpgraded', { airframe: g.airframe, upgrade: g.key, tier: g.tier, price: 0, source: 'story' } );
+			else left.push( g );
+
+		}
+
+		this.grants = left;
+
+	}
+
+	// the town mends itself: its broken props stand again, its buildings lose their scars
+	_repairTown( port ) {
+
+		const d = this._feature( 'destruction' );
+		try {
+
+			if ( d && Array.isArray( d.props ) && typeof d.respawn === 'function' ) for ( const prop of d.props ) if ( prop.port === port && prop.state !== 'intact' ) d.respawn( prop.id, true );
+
+		} catch ( e ) { /* destruction is optional */ }
+
+		const ports = ( this.app && ( this.app.ports || ( this.app.game && this.app.game.ports ) ) ) || null;
+		const town = ports && ports[ port ];
+		try { if ( town && town.damage && typeof town.damage.reset === 'function' ) town.damage.reset(); } catch ( e ) { /* no town mesh headless */ }
+
+	}
+
+	// ---------------------------------------------------------------- steps that begin: map pins, the raid
+
+	_checkCtx( name = null ) {
+
+		const p = this.player;
+		return { state: this.state, story: this, rep: ( port ) => this.rep( port ), features: this.features, player: p ? { x: p.position.x, z: p.position.z, mode: p.mode } : null, event: name };
+
+	}
+
+	// where a step happens (its pin, the place it must reach, the payload's `near`, the person to see) or null
+	pinOf( id ) {
+
+		const s = this._step( id ), c = this.chains[ id ];
+		if ( ! s || ! c ) return null;
+		const label = ( q ) => ( q && q.label ) || c.title;
+		const P = ( q ) => ( q && Number.isFinite( q.x ) && Number.isFinite( q.z ) ? { x: q.x, z: q.z, label: label( q ) } : null );
+		if ( s.pin ) return P( typeof s.pin === 'function' ? s.pin() : s.pin );
+		if ( s.reach ) return P( s.reach );
+		if ( s.match && s.match.near ) return P( s.match.near );
+		const who = NPCS[ s.talk || s.at ];
+		if ( who && who.pin ) { const q = who.pin(); return q ? { x: q.x, z: q.z, label: who.name } : null; }
+		return null;
+
+	}
+
+	_pin( id ) {
+
+		const q = this.pinOf( id ), key = 'quest:' + id;
+		if ( q ) {
+
+			this._pins.add( key );
+			this.features.emit( 'questPin', { id: key, x: Math.round( q.x * 10 ) / 10, z: Math.round( q.z * 10 ) / 10, label: q.label, chain: id, step: this._step( id ).id } );
+
+		} else this._unpin( id );
+
+	}
+
+	_unpin( id ) {
+
+		const key = 'quest:' + id;
+		if ( ! this._pins.has( key ) ) return;
+		this._pins.delete( key );
+		this.features.emit( 'questPinClear', { id: key } );
+
+	}
+
+	// a step becomes current (accepted, advanced, or a save loaded mid-quest: resume keeps its timers)
+	_startStep( id, resume = false ) {
+
+		const s = this._step( id ), p = this.progress[ id ];
+		if ( ! s || ! p ) return;
+		if ( ! resume ) { p.f = 0; p.t = 0; }
+		this._pin( id );
+		if ( s.start === 'raid' ) this._armRaid( id );
+
+	}
+
+	// the chain fails (or, 'restart', starts over from its first step)
+	_failChain( id, why ) {
+
+		const c = this.chains[ id ], p = this.progress[ id ];
+		if ( ! c || ! p || p.s !== 'active' ) return;
+		const f = c.fail || {};
+		if ( f.then === 'restart' ) {
+
+			p.step = 0;
+			p.n = 0;
+			this._toast( `${ c.title } · ${ why || f.text || 'start again' }`, 3600 );
+			this._startStep( id );
+			this._changed();
+			return;
+
+		}
+
+		if ( this._raid && this._raid.chain === id ) this._endRaid( true );
+		this._unpin( id );
+		delete this.progress[ id ];
+		this.stats.dropped ++;
+		this._log( id, 'failed' );
+		this.features.emit( 'questFailed', { id, why: why || f.text || 'failed' } );
+		this._toast( `${ c.title } · failed: ${ why || f.text || 'too late' }`, 4200 );
+		this._changed();
+
+	}
+
+	// Hold the line: the raiding sloop comes in on Tidemark's bay (naval.spawn), unless she is already afloat
+	_armRaid( id ) {
+
+		const nv = this._feature( 'naval' );
+		this._raid = { chain: id, fireT: RAID.fire };
+		if ( ! nv || typeof nv.spawn !== 'function' ) return;
+		if ( Array.isArray( nv.ships ) && nv.ships.some( ( s ) => s.id === RAID_ID && s.alive ) ) return;
+		const tm = WORLD.tidemark;
+		if ( ! tm ) return;
+		const bay = tm.bay, c = tm.center;
+		const dx = bay.x - c.x, dz = bay.z - c.z, l = Math.hypot( dx, dz ) || 1, ux = dx / l, uz = dz / l; // out to sea
+		const hub = { x: bay.x + ux * 130, z: bay.z + uz * 130 };
+		const route = [ 0, 1, 2, 3 ].map( ( k ) => { const a = k * Math.PI / 2; return [ Math.round( hub.x + Math.cos( a ) * RAID.loop ), Math.round( hub.z + Math.sin( a ) * RAID.loop ) ]; } );
+		const x = bay.x + ux * RAID.out, z = bay.z + uz * RAID.out;
+		try {
+
+			const ship = nv.spawn( 'sloop', { id: RAID_ID, x, z, yaw: Math.atan2( hub.x - x, hub.z - z ), name: 'Red Gull', captain: 'Skerry Wrack', route, loop: true, index: 0 } );
+			if ( ship ) { ship.raid = 'tidemark'; ship.fleeAt = 0.12; }
+			this._toast( 'A pirate sloop is running in on Tidemark\'s bay · stop her before she wrecks the waterfront', 4200 );
+
+		} catch ( e ) { console.warn( 'story: the raid could not spawn', e ); }
+
+	}
+
+	_endRaid( sailOff = false ) {
+
+		const nv = this._feature( 'naval' );
+		const ship = nv && Array.isArray( nv.ships ) ? nv.ships.find( ( s ) => s.id === RAID_ID ) : null;
+		// she got what she came for (or lost her nerve): off she goes
+		if ( sailOff && ship && ship.alive && typeof ship.setState === 'function' ) try { ship.setState( 'flee' ); } catch ( e ) { /* ignore */ }
+		this._raid = null;
+
+	}
+
+	// while she is afloat and near the pier, her guns work the town's intact props
+	_tickRaid( dt ) {
+
+		const r = this._raid;
+		if ( ! r ) return;
+		r.fireT -= dt;
+		if ( r.fireT > 0 ) return;
+		r.fireT = RAID.fire;
+		const nv = this._feature( 'naval' ), d = this._feature( 'destruction' ), tm = WORLD.tidemark;
+		if ( ! nv || typeof nv.launchFrom !== 'function' || ! d || ! Array.isArray( d.props ) || ! tm ) return;
+		const ship = Array.isArray( nv.ships ) ? nv.ships.find( ( s ) => s.id === RAID_ID ) : null;
+		if ( ! ship || ! ship.alive || ship.state === 'flee' || ship.state === 'sinking' ) return;
+		const pier = tm.dock.position;
+		if ( Math.hypot( ship.x - pier.x, ship.z - pier.z ) > RAID.reach ) return;
+		let best = null, bd = Infinity;
+		for ( const prop of d.props ) {
+
+			if ( prop.port !== 'tidemark' || prop.state !== 'intact' || ! prop.center ) continue;
+			const dd = Math.hypot( prop.center.x - ship.x, prop.center.z - ship.z );
+			if ( dd < bd ) { bd = dd; best = prop; }
+
+		}
+
+		if ( ! best ) return;
+		const S = { x: ship.x, y: RAID.muzzleY, z: ship.z }, T = { x: best.center.x, y: best.center.y, z: best.center.z };
+		const aim = leadAim( S, { x: 0, y: 0, z: 0 }, T, { x: 0, y: 0, z: 0 } );
+		if ( aim && aim.dir ) try { nv.launchFrom( S.x, S.y, S.z, aim.dir, { owner: RAID_ID, faction: 'pirate', damage: 4, sigma: 0.004 } ); } catch ( e ) { /* naval is optional */ }
+
+	}
+
+	// the fence buys without an event of his own: his till (market.sold) went up and the hold's contraband went down
+	_watchFence() {
+
+		if ( this._fenceEvent ) return;
+		const want = Object.keys( this.progress ).some( ( id ) => { const s = this._step( id ); return s && [].concat( s.on || [] ).includes( 'contrabandSold' ); } );
+		const sh = this._feature( 'stronghold' ), t = this._feature( 'trade' );
+		if ( ! want || ! sh || ! sh.market || ! t || typeof t.contraband !== 'function' ) { this._fence = null; return; }
+		let qty = 0;
+		try { qty = t.contraband( 'home' ).reduce( ( a, h ) => a + h.qty, 0 ); } catch ( e ) { return; }
+		const sold = num( sh.market.sold );
+		const f = this._fence;
+		this._fence = { sold, qty };
+		if ( f && sold > f.sold && qty < f.qty ) this._onEvent( 'contrabandSold', { qty: f.qty - qty, total: sold - f.sold, port: 'blackwater', polled: true } );
+
+	}
+
+	// per frame: a clean step's payout window, a step's time limit, the raid's guns
+	_tick( dt ) {
+
+		if ( ! ( dt > 0 ) ) return;
+		for ( const id of Object.keys( this.progress ) ) {
+
+			const p = this.progress[ id ], c = this.chains[ id ];
+			if ( ! c ) continue;
+			if ( p.watch ) {
+
+				p.watch.left -= dt;
+				if ( p.watch.left <= 0 ) {
+
+					const s = c.steps.find( ( x ) => x.id === p.watch.step );
+					delete p.watch;
+					if ( s && s.payout ) this._payout( s.payout, `${ c.title } · ${ s.text }` );
+					this._changed();
+
+				}
+
+			}
+
+			if ( p.s !== 'active' ) continue;
+			const s = this._step( id );
+			if ( s && s.limit ) {
+
+				p.t = num( p.t ) + dt;
+				if ( p.t >= s.limit ) this._failChain( id, 'out of time' );
+
+			}
+
+		}
+
+		this._tickRaid( dt );
 
 	}
 
@@ -466,12 +881,12 @@ export class Story {
 
 	// ---------------------------------------------------------------- events
 
-	_evCtx() {
+	_evCtx( name = null ) {
 
 		const p = this.player, w = this.features.get && this.features.get( 'weather' );
 		let weather = null;
 		try { weather = w ? w.kind : null; } catch ( e ) { weather = null; }
-		return { night: isNight( this.tod ), dawnDusk: isDawnDusk( this.tod ), weather, player: p ? { x: p.position.x, z: p.position.z } : null };
+		return { night: isNight( this.tod ), dawnDusk: isDawnDusk( this.tod ), weather, player: p ? { x: p.position.x, z: p.position.z } : null, event: name, features: this.features, story: this, state: this.state };
 
 	}
 
@@ -479,12 +894,40 @@ export class Story {
 
 		e = e && typeof e === 'object' ? e : {};
 		try { this._consequence( name, e ); } catch ( err ) { console.warn( 'story: consequence failed', err ); }
-		const ctx = this._evCtx();
+		const ctx = this._evCtx( name );
 		let changed = false;
 		for ( const id of Object.keys( this.progress ) ) {
 
+			const p0 = this.progress[ id ], c = this.chains[ id ];
+			if ( ! p0 || ! c ) continue;
+			// a clean step's window: this event spoils its payout (the chain goes on)
+			if ( p0.watch ) {
+
+				const ws = c.steps.find( ( x ) => x.id === p0.watch.step );
+				const cl = ws && ws.clean;
+				if ( cl && [].concat( cl.on ).includes( name ) && ( ! cl.match || matches( cl.match, e, ctx ) ) ) {
+
+					delete p0.watch;
+					this._toast( `${ c.title } · ${ cl.text || 'no fee for that one' }`, 3200 );
+					changed = true;
+
+				}
+
+			}
+
 			const s = this._step( id );
-			if ( ! s || ! s.on || ! [].concat( s.on ).includes( name ) ) continue;
+			if ( ! s ) continue;
+			// what loses the chain (or starts it over): counted while one of its steps is current
+			const f = c.fail;
+			if ( f && [].concat( f.on ).includes( name ) && ( ! f.steps || f.steps.includes( s.id ) ) && ( ! f.match || matches( f.match, e, ctx ) ) ) {
+
+				p0.f = num( p0.f ) + 1;
+				changed = true;
+				if ( p0.f >= ( f.goal || 1 ) ) { this._failChain( id, f.text ); continue; }
+
+			}
+
+			if ( ! s.on || ! [].concat( s.on ).includes( name ) ) continue;
 			if ( s.match && ! matches( s.match, e, ctx ) ) continue;
 			const p = this.progress[ id ];
 			p.n += amount( s, e );
@@ -598,6 +1041,9 @@ export class Story {
 			}
 
 			case 'noticeCompleted': this._dispose( KEEPERS[ e.port ], 1 ); break;
+			// tavern talk turns to Blackwater: the board posts its rumour (Rumours from Blackwater)
+			case 'rumourHeard': if ( ! this.flags.includes( 'blackwaterRumour' ) ) this.flags.push( 'blackwaterRumour' ); break;
+			case 'contrabandSold': if ( ! e.polled ) { this._fenceEvent = true; this._fence = null; } break;
 			default: break;
 
 		}
@@ -616,7 +1062,7 @@ export class Story {
 			let done = false;
 			if ( s.check ) {
 
-				try { done = !! s.check( { state: st, story: this, rep: ( port ) => this.rep( port ) } ); } catch ( e ) { done = false; }
+				try { done = !! s.check( this._checkCtx() ); } catch ( e ) { done = false; }
 
 			} else if ( s.reach && p ) {
 
@@ -625,6 +1071,7 @@ export class Story {
 				if ( done && r.aboard ) done = [ 'boat', 'deck', 'seat' ].includes( p.mode );
 				if ( done && r.night ) done = isNight( this.tod );
 				if ( done && r.port ) done = portAt( x, z ) === r.port;
+				if ( done && r.mode ) done = [].concat( r.mode ).includes( p.mode );
 
 			}
 
@@ -638,6 +1085,8 @@ export class Story {
 		}
 
 		if ( st && st.boat && ! this.memoryOf( 'roid' ).notes.firstBoat ) this._mem( 'roid' ).notes.firstBoat = st.boat;
+		this._watchFence();
+		this._fitGrants();
 		if ( changed ) this._changed();
 
 	}
@@ -942,7 +1391,7 @@ export class Story {
 
 		}
 
-		return { active, offers, regions, done: this.stats.done, total: Object.keys( this.chains ).length, log: this.log.slice( 0, 4 ) };
+		return { active, offers, regions, done: this.stats.done, total: Object.keys( this.chains ).length, log: this.log.slice( 0, 4 ), entries: this.entries.slice( 0, 6 ) };
 
 	}
 
@@ -966,9 +1415,17 @@ export class Story {
 		this._spots = true;
 		for ( const [ id, spec ] of Object.entries( NPCS ) ) {
 
-			if ( spec.at !== 'lighthouse' && spec.at !== 'hut' ) continue;
-			const port = () => WORLD.ports.find( ( p ) => p.id === spec.port ) || null;
+			if ( spec.at !== 'lighthouse' && spec.at !== 'hut' && ! ( spec.at === 'spot' && typeof spec.spot === 'function' ) ) continue;
+			const port = () => WORLD.ports.find( ( p ) => p.id === spec.port ) || ( spec.at === 'spot' ? spec : null );
 			const pos = () => {
+
+				if ( spec.at === 'spot' ) {
+
+					// a spot of their own (the fence beside his counter, Ethena beside her stall)
+					const q = spec.spot(), t = this.app && this.app.terrainData;
+					return q ? { x: q.x, y: t && t.heightAt ? Math.max( 0, t.heightAt( q.x, q.z ) ) : undefined, z: q.z } : null;
+
+				}
 
 				const p = port();
 				if ( ! p || ! p.stand ) return null;
@@ -1043,6 +1500,15 @@ export class Story {
 
 		this._syncClock();
 		this._buildSpots();
+		if ( this._resume ) {
+
+			// after a load (or the first frame): the current steps' pins, a raid that was under way
+			this._resume = false;
+			for ( const id of Object.keys( this.progress ) ) if ( this.isActive( id ) ) this._startStep( id, true );
+
+		}
+
+		this._tick( dt );
 		const g = this.app && this.app.game;
 		if ( g && g.contracts && g.contracts.story !== this ) g.contracts.story = this; // PoorGoat's / Pons' Quests tab
 		this._pollT += dt;
@@ -1072,10 +1538,21 @@ export class Story {
 	toJSON() {
 
 		const progress = {};
-		for ( const [ id, p ] of Object.entries( this.progress ) ) progress[ id ] = p.s === 'done' ? { s: 'done', at: p.at, end: p.end } : { s: 'active', step: p.step, n: Math.round( p.n * 100 ) / 100, at: p.at };
+		for ( const [ id, p ] of Object.entries( this.progress ) ) {
+
+			const o = p.s === 'done' ? { s: 'done', at: p.at, end: p.end } : { s: 'active', step: p.step, n: Math.round( p.n * 100 ) / 100, at: p.at };
+			// wave 13: a fail count, the time on a timed step, a clean step's payout window
+			if ( p.s === 'active' && num( p.f ) > 0 ) o.f = p.f;
+			if ( p.s === 'active' && num( p.t ) > 0 ) o.t = Math.round( p.t * 10 ) / 10;
+			if ( p.watch ) o.watch = { step: p.watch.step, left: Math.round( p.watch.left * 10 ) / 10 };
+			progress[ id ] = o;
+
+		}
+
 		return {
 			v: SAVE_VERSION, progress, memory: JSON.parse( JSON.stringify( this.memory ) ), grudge: { ...this.grudge }, flags: [ ...this.flags ],
 			items: [ ...this.items ], unlocks: [ ...this.unlocks ], log: this.log.map( ( l ) => ( { ...l } ) ), stats: { ...this.stats }, day: this._ownDay, rolled: this._rolledDay,
+			entries: this.entries.map( ( e ) => ( { ...e } ) ), grants: this.grants.map( ( g ) => ( { ...g } ) ),
 		};
 
 	}
@@ -1096,9 +1573,14 @@ export class Story {
 
 				const step = Math.max( 0, num( p.step ) | 0 );
 				if ( c && step >= c.steps.length ) continue;
-				this.progress[ id ] = { s: 'active', step, n: Math.max( 0, num( p.n ) ), at: num( p.at ) | 0, end: - 1 };
+				const q = this.progress[ id ] = { s: 'active', step, n: Math.max( 0, num( p.n ) ), at: num( p.at ) | 0, end: - 1 };
+				if ( num( p.f ) > 0 ) q.f = Math.floor( num( p.f ) );
+				if ( num( p.t ) > 0 ) q.t = num( p.t );
 
 			}
+
+			const w = p.watch, pr = this.progress[ id ];
+			if ( pr && w && typeof w.step === 'string' && num( w.left ) > 0 && c && c.steps.some( ( x ) => x.id === w.step ) ) pr.watch = { step: w.step, left: num( w.left ) };
 
 		}
 
@@ -1120,6 +1602,15 @@ export class Story {
 		this.stats = { done: Math.max( 0, num( s.done ) | 0 ), dropped: Math.max( 0, num( s.dropped ) | 0 ) };
 		this._ownDay = Math.max( 0, num( d.day ) | 0 );
 		this._rolledDay = Number.isFinite( d.rolled ) ? d.rolled : null;
+		this.entries = ( Array.isArray( d.entries ) ? d.entries : [] ).filter( ( e ) => e && typeof e.id === 'string' && typeof e.text === 'string' ).slice( 0, MAX_ENTRIES )
+			.map( ( e ) => ( { id: e.id.slice( 0, 40 ), title: String( e.title || '' ).slice( 0, 60 ), text: e.text.slice( 0, 300 ), day: num( e.day ) | 0 } ) );
+		this.grants = ( Array.isArray( d.grants ) ? d.grants : [] ).filter( ( g ) => g && typeof g.airframe === 'string' && typeof g.key === 'string' && Number.isFinite( g.tier ) ).slice( 0, 8 )
+			.map( ( g ) => ( { airframe: g.airframe.slice( 0, 20 ), key: g.key.slice( 0, 20 ), tier: Math.max( 0, Math.min( 5, Math.round( g.tier ) ) ) } ) );
+		for ( const id of [ ...this._pins ] ) this.features.emit( 'questPinClear', { id } );
+		this._pins.clear();
+		this._raid = null;
+		this._fence = null;
+		this._resume = true;
 		this._roidNode = 'root';
 		this.close();
 		this._changed();
@@ -1128,6 +1619,10 @@ export class Story {
 
 	reset() {
 
+		for ( const id of [ ...this._pins ] ) this.features.emit( 'questPinClear', { id } );
+		this._pins.clear();
+		if ( this._raid ) this._endRaid( true );
+		this._fence = null;
 		this._initState();
 		this._roidNode = 'root';
 		this.close();

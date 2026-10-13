@@ -138,9 +138,17 @@ export class Game {
 
 	}
 
+	// wave 13: the story's chandler discount at this port ("A ferry to Tidemark": 10 % at Marlow's)
+	chandlerDiscount() {
+
+		const story = this.app.features?.get?.( 'story' );
+		return story && story.discount ? story.discount( `chandler:${ this._salePort() }` ) || 0 : 0;
+
+	}
+
 	buy( key ) {
 
-		const r = this.state.buy( key, this.app.features?.get( 'trade' )?.credit?.standing ?? null );
+		const r = this.state.buy( key, this.app.features?.get( 'trade' )?.credit?.standing ?? null, this.chandlerDiscount() );
 		if ( r ) this.toast( `${ UPGRADES[ key ].name }: ${ r.label }` );
 		return r;
 
@@ -345,6 +353,8 @@ export class Game {
 	_salePort() {
 
 		const pons = this.app.pons, p = this.app.player.position;
+		const ports = this.app.ports, at = ports && ports.near ? ports.near( p ) : null;
+		if ( at ) return at; // wave 13: Tidemark's fish hall and chandler say 'tidemark'
 		return pons && pons.near && pons.near( p ) ? 'pons' : 'home';
 
 	}

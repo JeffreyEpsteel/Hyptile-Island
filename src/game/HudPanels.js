@@ -137,13 +137,15 @@ export function installHudPanels( GameHUD ) {
 		} else {
 
 			const standing = this.game.app?.features?.get( 'trade' )?.credit?.standing ?? null;
+			const off = this.game.chandlerDiscount ? this.game.chandlerDiscount() : 0; // wave 13: the story's discount here
 			const rows = Object.entries( UPGRADES ).map( ( [ key, track ] ) => {
 
 				const cur = track.levels[ s.upgrades[ key ] | 0 ];
 				const next = nextLevel( s.upgrades, key );
 				const gate = gearGate( s, key, standing );
+				const cost = next ? Math.round( next.cost * ( 1 - off ) ) : 0;
 				const btn = next
-					? `<button class="gm-btn" data-buy="${ key }" ${ ( next.cost > s.money && ! s.free ) || ! gate.ok ? 'disabled' : '' }>${ s.free ? 'Free' : `$${ next.cost }` }</button>`
+					? `<button class="gm-btn" data-buy="${ key }" ${ ( cost > s.money && ! s.free ) || ! gate.ok ? 'disabled' : '' }>${ s.free ? 'Free' : `$${ cost }` }</button>`
 					: '<span class="gm-have">Top of the line</span>';
 				const needs = next && gate.why === 'locked' ? ` · Needs: ${ gate.reasons.join( ', ' ) }` : '';
 				return `<div class="gm-shop-row"><span>${ track.name }: ${ next ? next.label : cur.label }<small>Now: ${ cur.label }${ needs }</small></span>${ btn }</div>`;

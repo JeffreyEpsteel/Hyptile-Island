@@ -93,7 +93,18 @@ export class Operating {
 
 	wagesPerDay() {
 
-		return this.free ? 0 : this.boatInfo().crew * OPERATING.wage;
+		if ( this.free ) return 0;
+		let crew = this.boatInfo().crew;
+		// wave 13: "Hold the line" waives the posted gunners' wages
+		const story = this.trade && this.trade._feature ? this.trade._feature( 'story' ) : null;
+		if ( story && story.perk && story.perk( 'gunnerFee' ) > 0 ) {
+
+			const c = this.trade._feature( 'crew' ), posts = c && c.posts ? c.posts : {};
+			const gunners = Object.values( posts ).filter( ( p ) => p === 'gunner' ).length;
+			crew = Math.max( 0, crew - gunners );
+
+		}
+		return crew * OPERATING.wage;
 
 	}
 

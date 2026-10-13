@@ -174,6 +174,12 @@ export class HaulContracts {
 	offers( port ) {
 
 		if ( ! PORTS[ port ] ) return [];
+		if ( port === 'tidemark' ) { // wave 13: the market cell opens with "A ferry to Tidemark"
+
+			const story = this.trade && this.trade._feature ? this.trade._feature( 'story' ) : null;
+			if ( story && story.opens && story.opens( 'haul:tidemark' ) === false ) return [];
+
+		}
 		return this._board( port ).list.map( ( o ) => {
 
 			const why = this._why( o );
