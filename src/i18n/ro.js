@@ -431,4 +431,6 @@ export default {
 	'touch.lights': 'Lumini',
 	'touch.navLights': 'Navigație',
 	'touch.landing': 'Aterizare',
+	'touch.rail': 'Scurtături',
+	'touch.fold': 'Mai multe controale',
 };

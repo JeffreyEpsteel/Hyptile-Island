@@ -54,5 +54,13 @@ ok( ! /\.tw-tabs\s*\{[^}]*position:\s*sticky/.test( css ), 'no sticky tab strip 
 ok( /flex:\s*1 1 auto/.test( rule( '.tw-pages' ) ) && /min-height:\s*0/.test( rule( '.tw-pages' ) ) && /overflow-y:\s*auto/.test( rule( '.tw-pages' ) ) && /overscroll-behavior:\s*contain/.test( rule( '.tw-pages' ) ), '.tw-pages is the one scroller (flex 1 1 auto, min-height 0, contained)' );
 ok( /position:\s*fixed/.test( rule( '.tw-root.is-touch .tw-panel' ) ) && /100dvh/.test( rule( '.tw-root.is-touch .tw-panel' ) ), 'touch: the panel is fixed with a dvh-based height' );
 
+// the touch fold and the collapsed top-right row (wave 10E): structure rules in the stylesheet
+ok( /display:\s*none/.test( rule( '.tc-top-items' ) ) && /\.tc-top\.is-open \.tc-top-items/.test( css ) && /\.tc-root\.is-busy \.tc-top-items/.test( css ), 'touch: the top row is folded behind a toggle, opened by .is-open, and still shown while a panel is up (Menu)' );
+ok( /height:\s*44px/.test( rule( '.tc-fold' ) ) && /touch-action:\s*none/.test( rule( '.tc-fold' ) ), 'touch: the fold handle is 44 px tall and takes drags' );
+ok( /visibility:\s*hidden/.test( rule( '.tc-tray:not(.is-open)' ) ), 'touch: a closed tray shows nothing' );
+ok( /\.tc-root\.is-busy \.tc-fold/.test( css ) && /\.tc-root\.is-photo \.tc-fold/.test( css ), 'touch: no handle behind a panel or in photo mode' );
+ok( /max-height:\s*420px\)\s*and\s*\(orientation:\s*landscape\)/.test( css ) && /\.tw-brand-name\s*\{\s*display:\s*none/.test( css.slice( css.indexOf( 'orientation: landscape' ) ) ), 'phones in short landscape: the title chip goes, the mode chip stays' );
+ok( /\.tw-root\.is-touch \.tw-rail,/.test( css ), 'the desktop rail stays hidden on touch (the toggle row replaces it)' );
+
 console.log( fails ? `\n${ fails } failed` : '\nall passed' );
 process.exit( fails ? 1 : 0 );

@@ -20,6 +20,9 @@
 //   promptAction( prompt )           the game's prompt ( p.prompt = { key, text } ) -> { code } | { button } | null
 //   contextButtons( s )              which action buttons show for a snapshot of the game -> Set of ids
 //   buttonIsOn( id, s )              a toggle button's lit state from the snapshot (lights, nav, landing)
+//   fightOn( s )                     a melee or boarding fight is on (the fold's handle hides, dodge / guard come up)
+//   splitButtons( set, mode, opts )  contextButtons' set -> { primary, tray }: what stays on screen, what folds away
+//   FoldState                        the fold / rail state machine (open on tap or drag, idle close, hidden in fights)
 //   tabStripLayout( width, count )   the settings panel's tab chips: how many per row, how many rows, room for a label
 
 export const STICK = { dead: 0.16, ring: 1.18, sector: 0.38 };
@@ -257,6 +260,178 @@ export function buttonIsOn( id, s = {} ) {
 
 	const flag = TOGGLE_FLAG[ id ];
 	return !! ( flag && s[ flag ] );
+
+}
+
+// ---- the fold (wave 10E): on touch only the primary controls stay on screen, the rest sits in a tray under a handle
+
+// what folds away, in tray order (the interact button, the lever, cast / fire / reel, board and the 1 / 2 choices stay)
+export const TRAY_ORDER = [ 'rod', 'jump', 'dive', 'draw', 'aim', 'dodge', 'guard', 'camera', 'deck', 'cockpit', 'lights', 'navLights', 'landing', 'fireL', 'fireR' ];
+const TRAY_SET = new Set( TRAY_ORDER );
+// in a fight these come up beside the primary buttons so the fight stays playable (the rest is dropped: the handle is gone)
+const FIGHT_PRIMARY = new Set( [ 'dodge', 'guard', 'aim' ] );
+
+export function fightOn( s = {} ) {
+
+	return !! ( s.melee || s.boardFight );
+
+}
+
+// set: contextButtons( s ); mode: s.mode; { fight }: fightOn( s ) -> { primary: Set, tray: Set } (disjoint, tray in TRAY_ORDER).
+// The seaplane keeps only the yoke (the look area), the lever and the interact button on screen: its tray is
+// camera, cockpit, nav, landing. No tray at all in a fight.
+export function splitButtons( set, mode = 'walk', { fight = false } = {} ) {
+
+	const primary = new Set(), tray = new Set();
+	if ( ! set ) return { primary, tray };
+	for ( const id of set ) {
+
+		if ( ! TRAY_SET.has( id ) ) primary.add( id );
+		else if ( fight && FIGHT_PRIMARY.has( id ) ) primary.add( id );
+
+	}
+
+	if ( ! fight ) for ( const id of TRAY_ORDER ) if ( set.has( id ) ) tray.add( id );
+	return { primary, tray };
+
+}
+
+// The fold's state machine, pure (no DOM, the caller passes the clock in ms): the handle opens the tray on a tap or an upward
+// drag, closes it on a tap, a downward drag or after `idle` ms without a press; a held button (jump, dive) keeps it open;
+// a fight hides the handle. Remembers the open state per mode (this session only). The top-right rail uses another
+// instance: toggle() on its button, keep() while a panel is open, tick() closes it after 6 s.
+export class FoldState {
+
+	constructor( { idle = 5000, drag = 28, tap = 10 } = {} ) {
+
+		this.idle = idle;
+		this.drag = drag; // px of vertical travel that counts as a drag
+		this.tap = tap; // under this much travel a press is a tap
+		this.open = false;
+		this.hidden = false;
+		this.holds = 0; // buttons held down right now
+		this.mode = null;
+		this.mem = {};
+		this._g = null; // the handle gesture: { y0, done }
+		this._t = 0; // time of the last press / gesture
+
+	}
+
+	toggle( now = 0 ) {
+
+		return this.setOpen( ! this.open, now );
+
+	}
+
+	setOpen( on, now = 0 ) {
+
+		this._t = now;
+		this.open = !! on && ! this.hidden;
+		return this.open;
+
+	}
+
+	close() {
+
+		this.open = false;
+		this._g = null;
+
+	}
+
+	// a fight (or no tray buttons): the handle goes, the tray with it
+	setHidden( on, now = 0 ) {
+
+		on = !! on;
+		if ( on === this.hidden ) return;
+		this.hidden = on;
+		this._t = now;
+		if ( on ) this.close();
+
+	}
+
+	// a new mode (boat, plane, walk...): its own open state, as left in this session; closed the first time
+	setMode( mode, now = 0 ) {
+
+		if ( mode === this.mode ) return false;
+		if ( this.mode !== null ) this.mem[ this.mode ] = this.open;
+		this.mode = mode;
+		this.open = ! this.hidden && !! this.mem[ mode ];
+		this._t = now;
+		this._g = null;
+		return true;
+
+	}
+
+	// the handle: down( y ) -> move( y )... -> up( y ). move / up return 'open' | 'close' | null (what changed)
+	down( y, now = 0 ) {
+
+		if ( this.hidden ) return false;
+		this._g = { y0: y, done: false };
+		this._t = now;
+		return true;
+
+	}
+
+	move( y, now = 0 ) {
+
+		const g = this._g;
+		if ( ! g || g.done ) return null;
+		const dy = y - g.y0;
+		this._t = now;
+		if ( dy <= - this.drag && ! this.open ) { g.done = true; this.open = true; return 'open'; }
+		if ( dy >= this.drag && this.open ) { g.done = true; this.open = false; return 'close'; }
+		return null;
+
+	}
+
+	up( y, now = 0 ) {
+
+		const g = this._g;
+		this._g = null;
+		this._t = now;
+		if ( ! g || g.done || this.hidden ) return null;
+		if ( Math.abs( y - g.y0 ) >= this.tap ) return null;
+		this.open = ! this.open;
+		return this.open ? 'open' : 'close';
+
+	}
+
+	cancel() {
+
+		this._g = null;
+
+	}
+
+	// a tray button goes down / up: the idle clock restarts, and a held one keeps the tray open
+	press( now = 0 ) {
+
+		this.holds ++;
+		this._t = now;
+
+	}
+
+	release( now = 0 ) {
+
+		this.holds = Math.max( 0, this.holds - 1 );
+		this._t = now;
+
+	}
+
+	keep( now = 0 ) {
+
+		this._t = now;
+
+	}
+
+	// per frame: closes after `idle` ms without a press (never while one is held or the handle is being dragged)
+	tick( now = 0 ) {
+
+		if ( ! this.open || this.holds > 0 || this._g ) return false;
+		if ( now - this._t < this.idle ) return false;
+		this.open = false;
+		return true;
+
+	}
 
 }
 

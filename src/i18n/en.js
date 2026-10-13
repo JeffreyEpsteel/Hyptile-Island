@@ -431,4 +431,6 @@ export default {
 	'touch.lights': 'Lights',
 	'touch.navLights': 'Nav',
 	'touch.landing': 'Landing',
+	'touch.rail': 'Shortcuts',
+	'touch.fold': 'More controls',
 };

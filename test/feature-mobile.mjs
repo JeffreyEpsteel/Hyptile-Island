@@ -302,5 +302,111 @@ const env = ( { ua = '', points = 0, w = 1920, h = 1080, coarse = false, fine = 
 
 }
 
+// ---- the fold (wave 10E): splitButtons and the FoldState machine, fake time
+{
+
+	const names = ( set ) => [ ...set ].sort().join( ',' );
+	const split = ( s ) => T.splitButtons( T.contextButtons( s ), s.mode, { fight: T.fightOn( s ) } );
+	// the seaplane: only the interact button and the lever stay; camera, cockpit, nav, landing fold away
+	let sp = split( { mode: 'plane', prompt: { key: 'E', text: 'Leave plane' } } );
+	ok( names( sp.primary ) === 'interact,planeThrottle', 'seaplane: primary = interact + lever' );
+	ok( [ ...sp.tray ].join( ',' ) === 'camera,cockpit,navLights,landing', 'seaplane: tray = camera, cockpit, nav, landing (in order)' );
+	// on foot: Jump and Rod fold away, Cast / Reel / interact stay
+	sp = split( { mode: 'walk', rod: true, rodState: 'floating', canFish: true, prompt: { key: 'E', text: 'Talk' } } );
+	ok( sp.primary.has( 'cast' ) && sp.primary.has( 'reel' ) && sp.primary.has( 'interact' ) && ! sp.primary.has( 'jump' ), 'fishing: cast, reel, interact stay' );
+	ok( sp.tray.has( 'jump' ) && sp.tray.has( 'rod' ), 'fishing: jump and rod are in the tray' );
+	// the boat
+	sp = split( { mode: 'boat', guns: true, helmAshore: true } );
+	ok( sp.primary.has( 'throttle' ) && ! sp.primary.has( 'camera' ) && sp.tray.has( 'camera' ) && sp.tray.has( 'lights' ) && sp.tray.has( 'fireL' ) && sp.tray.has( 'fireR' ) && sp.tray.has( 'deck' ), 'boat: the lever stays, view / lights / port / starboard / deck fold' );
+	// disjoint, and nothing lost outside a fight
+	let all = true;
+	for ( const mode of [ 'walk', 'swim', 'boat', 'plane', 'deck', 'ride', 'seat' ] ) for ( const extra of [ {}, { rod: true, rodState: 'floating', canFish: true }, { gunOwned: true }, { gunDrawn: true }, { guns: true, helmAshore: true }, { boardOffer: true, choices: true } ] ) {
+
+		const st = { mode, ...extra }, full = T.contextButtons( st ), r = split( st );
+		if ( r.primary.size + r.tray.size !== full.size ) all = false;
+		for ( const id of r.tray ) if ( r.primary.has( id ) ) all = false;
+
+	}
+
+	ok( all, 'every mode: primary + tray = the full set, no button in both' );
+	// a fight: Dodge / Guard come up as primary, the tray is empty (the handle hides)
+	sp = split( { mode: 'walk', melee: true } );
+	ok( sp.primary.has( 'dodge' ) && sp.primary.has( 'guard' ) && sp.tray.size === 0, 'melee: dodge + guard primary, no tray' );
+	sp = split( { mode: 'deck', boardFight: true, boardOffer: true, melee: true, gunDrawn: true, gunOwned: true } );
+	ok( sp.primary.has( 'board' ) && sp.primary.has( 'aim' ) && sp.primary.has( 'fire' ) && sp.tray.size === 0, 'boarding fight with a gun: board, fire, aim primary, no tray' );
+	ok( T.fightOn( { boardFight: true } ) && T.fightOn( { melee: true } ) && ! T.fightOn( { fight: true } ) && ! T.fightOn( {} ), 'fightOn: melee or boarding only (a fish fight is not one)' );
+	ok( T.splitButtons( null ).tray.size === 0 && T.splitButtons( new Set( [ 'jump' ] ), 'walk' ).tray.has( 'jump' ), 'splitButtons: a null set is empty, jump folds' );
+
+	// the state machine, with a fake clock (ms)
+	const F = T.FoldState;
+	let f = new F( { idle: 5000, drag: 28, tap: 10 } );
+	ok( ! f.open && ! f.hidden, 'starts closed' );
+	f.down( 700, 0 );
+	ok( f.up( 702, 80 ) === 'open' && f.open, 'a tap opens' );
+	f.down( 700, 100 );
+	ok( f.up( 699, 160 ) === 'close' && ! f.open, 'a second tap closes' );
+	f.down( 700, 200 );
+	ok( f.move( 690, 220 ) === null && ! f.open, 'a short upward move does nothing yet' );
+	ok( f.move( 660, 240 ) === 'open' && f.open, 'an upward drag past the threshold opens' );
+	ok( f.move( 600, 260 ) === null && f.up( 600, 280 ) === null && f.open, 'the drag fires once; letting go after it does not toggle' );
+	f.down( 650, 300 );
+	ok( f.move( 690, 320 ) === 'close' && ! f.open, 'a downward drag closes' );
+	ok( f.move( 600, 330 ) === null && ! f.open, 'one gesture changes the state once' );
+	f.up( 600, 360 );
+	// the idle close
+	f = new F( { idle: 5000 } );
+	f.toggle( 1000 );
+	ok( f.open && ! f.tick( 5999 ) && f.open, 'open: still open 4.999 s later' );
+	ok( f.tick( 6000 ) && ! f.open, 'closes after 5 s without a press' );
+	f.toggle( 10000 );
+	f.press( 14000 );
+	f.release( 14500 );
+	ok( ! f.tick( 19000 ) && f.open && f.tick( 19500 ) && ! f.open, 'a press restarts the clock' );
+	f.toggle( 20000 );
+	f.press( 20100 ); // jump held
+	ok( ! f.tick( 90000 ) && f.open, 'a held button (jump) keeps the tray open' );
+	f.release( 91000 );
+	ok( ! f.tick( 95000 ) && f.tick( 96000 ) && ! f.open, 'closes 5 s after the button is let go' );
+	f.toggle( 100000 );
+	f.down( 700, 102000 );
+	ok( ! f.tick( 120000 ) && f.open, 'no idle close while the handle is being dragged' );
+	f.cancel();
+	// a fight hides the handle
+	f = new F();
+	f.toggle( 0 );
+	f.setHidden( true, 10 );
+	ok( f.hidden && ! f.open, 'a fight hides the handle and shuts the tray' );
+	ok( f.down( 700, 20 ) === false && f.up( 700, 30 ) === null && ! f.open && f.toggle( 40 ) === false, 'hidden: taps and toggles do nothing' );
+	f.setHidden( false, 50 );
+	ok( ! f.hidden && ! f.open && f.down( 700, 60 ) === true, 'the fight ends: the handle is back, closed' );
+	f.up( 700, 70 );
+	ok( f.open, 'and works again' );
+	// per-mode memory (this session only)
+	f = new F();
+	ok( f.setMode( 'walk', 0 ) && ! f.setMode( 'walk', 1 ), 'setMode reports a change once' );
+	f.toggle( 10 );
+	f.setMode( 'plane', 20 );
+	ok( ! f.open, 'a new mode starts closed' );
+	f.toggle( 30 );
+	f.setMode( 'walk', 40 );
+	ok( f.open, 'back in the first mode: it was left open' );
+	f.setMode( 'plane', 50 );
+	ok( f.open, 'the plane was left open too' );
+	f.close();
+	f.setMode( 'boat', 60 );
+	f.setMode( 'plane', 70 );
+	ok( ! f.open, 'closed in the plane: remembered closed' );
+	// the top-right rail: toggle, 6 s idle, kept open while a panel is up
+	const rail = new F( { idle: 6000 } );
+	rail.toggle( 0 );
+	ok( rail.open && ! rail.tick( 5999 ) && rail.tick( 6000 ) && ! rail.open, 'the rail toggle folds back after 6 s' );
+	rail.toggle( 10000 );
+	rail.keep( 15000 );
+	ok( ! rail.tick( 20999 ) && rail.open && rail.tick( 21000 ), 'keep() (a panel is open) restarts the rail clock' );
+	rail.toggle( 30000 );
+	ok( rail.toggle( 31000 ) === false, 'a second tap on the toggle closes it' );
+
+}
+
 console.log( fails ? `\n${ fails } failed` : '\nall passed' );
 process.exit( fails ? 1 : 0 );

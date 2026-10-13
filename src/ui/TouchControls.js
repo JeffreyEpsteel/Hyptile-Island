@@ -1,7 +1,7 @@
 import { icon } from './icons.js';
 import { t } from '../i18n/index.js';
 import { detectDevice, stickVector, stickKeys, lookDelta, boatThrottleKeys, snapThrottle, planeDragKeys, planeThrottleKeys,
-	promptAction, contextButtons, buttonIsOn } from '../core/Touch.js';
+	promptAction, contextButtons, buttonIsOn, fightOn, splitButtons, FoldState, TRAY_ORDER } from '../core/Touch.js';
 
 // Touch controls for phones and tablets: everything feeds core/Input.js (the same key / button state the keyboard and
 // the gamepad produce), so Game, melee, naval, the seaplane and the panels need no changes.
@@ -12,10 +12,15 @@ import { detectDevice, stickVector, stickKeys, lookDelta, boatThrottleKeys, snap
 //   right part of the screen  drag to look (sensitivity and invert in Settings > Game > Touch). Seaplane: the drag
 //                             is the stick (up = nose down, down = nose up, sides bank).
 //   action buttons            context-sensitive, bottom right: the game's own prompt (E / Space: "Board boat",
-//                             "Talk to PoorGoat") is the wide button; Cast / Strike / Reel (left button, hold), Rod (R),
-//                             Jump (Space), Dive (C), Dodge (Q), Guard (right button, hold), Reel in (right button),
-//                             Port / Starboard guns (Z / X), Board (B), View (V), the 1 / 2 choices.
-//   top right                 Map (M), Journal (J), Cooler (I), Crew (K), Menu (Esc: closes a panel, else pauses)
+//                             "Talk to PoorGoat") is the wide button; Cast / Strike / Reel (left button, hold), Reel in,
+//                             Board (B), the 1 / 2 choices and Fire stay on screen. The rest folds away (core/Touch.js
+//                             splitButtons): Rod (R), Jump (Space), Dive (C), Dodge (Q), Guard (right button, hold), Gun,
+//                             Aim, Port / Starboard guns (Z / X), View (V), Deck, Cockpit, Lights, Nav, Landing sit in a
+//                             tray under a slim handle at the bottom edge: tap it or drag up to open, tap / drag down /
+//                             5 s idle to close; the handle hides in a melee or boarding fight (Dodge / Guard come up).
+//   top right                 one round toggle (sliders): Map (M), Journal (J), Cooler (I), Crew (K), Fullscreen and
+//                             Menu (Esc: closes a panel, else pauses) unfold from it and fold back after 6 s idle;
+//                             while a panel is open the row stays unfolded (Menu is the way out)
 //   the minimap               tap: the world map (game/Minimap.js)
 // Discrete buttons send a real key event (keydown on press, keyup on release, through the player's bindings) so the
 // panels' own key listeners (the map's M, the menu's Escape) answer too; held state goes through input.setTouchKeys.
@@ -54,6 +59,9 @@ const BUTTONS = {
 	choice1: { label: '1', code: 'Digit1' },
 	choice2: { label: '2', code: 'Digit2' },
 };
+const FOLD_IDLE = 5000, RAIL_IDLE = 6000; // ms without a press before the tray / the top row folds back
+const ROW_B = new Set( [ 'cast', 'fire' ] ); // the big buttons sit in the lower row, the other primaries above them
+const now = () => ( typeof performance !== 'undefined' ? performance.now() : Date.now() );
 const TOP = [
 	{ id: 'map', code: 'KeyM', icon: 'compass', label: 'Map' },
 	{ id: 'journal', code: 'KeyJ', icon: 'grid', label: 'Journal' },
@@ -107,7 +115,11 @@ export class TouchControls {
 		this._fingerUsed = !! device.coarse; // a touch-first device starts with the controls
 		this._stick = null; // { id, cx, cy, v }
 		this._look = null; // { id, x, y, sx, sy }
-		this._held = new Map(); // pointerId -> { id, def }
+		this._held = new Map(); // pointerId -> { el, def, fold }
+		this.fold = new FoldState( { idle: FOLD_IDLE } ); // the bottom tray
+		this.railFold = new FoldState( { idle: RAIL_IDLE } ); // the top-right toggle
+		this._foldPtr = undefined;
+		this._trayCount = 0;
 		this._throttle = 0; // the boat lever (-1..1, notched)
 		this._planeThrottle = 0;
 		this._shown = new Set();
@@ -171,15 +183,23 @@ export class TouchControls {
 		this.interactEl.type = 'button';
 		this.interactText = this.interactEl.firstChild;
 		this.btns = {};
-		const rowA = el( 'div', 'tc-row tc-row-a' ), rowB = el( 'div', 'tc-row tc-row-b' );
-		for ( const id of [ 'choice1', 'choice2', 'board', 'reel', 'guard', 'dodge', 'rod', 'camera', 'deck', 'cockpit', 'lights', 'navLights', 'landing', 'fireL', 'fireR', 'draw', 'aim' ] ) rowA.append( this._btn( id ) );
-		for ( const id of [ 'dive', 'jump', 'cast', 'fire' ] ) rowB.append( this._btn( id ) );
+		const rowA = this.rowA = el( 'div', 'tc-row tc-row-a' ), rowB = this.rowB = el( 'div', 'tc-row tc-row-b' );
+		for ( const id of [ 'choice1', 'choice2', 'board', 'reel' ] ) rowA.append( this._btn( id ) );
+		for ( const id of [ 'cast', 'fire' ] ) rowB.append( this._btn( id ) );
 		this.actions.append( this.interactEl, rowA, rowB );
+		// the fold: a tray of the secondary buttons above a slim handle at the bottom edge
+		this.tray = el( 'div', 'tc-tray' );
+		for ( const id of TRAY_ORDER ) this.tray.append( this._btn( id ) );
+		this.foldEl = el( 'div', 'tc-fold', `<span class="tc-fold-grip"></span>${ icon( 'chevron-down' ) }` );
+		this.foldEl.setAttribute( 'role', 'button' );
+		this.foldEl.setAttribute( 'aria-label', t( 'touch.fold', 'More controls' ) );
+		this.foldEl.hidden = true;
 		// the lever (boat: astern / stop / ahead / full; seaplane: 0..100 %)
 		this.leverEl = el( 'div', 'tc-lever', '<span class="tc-lever-track"><i data-n="1"></i><i data-n="0.7"></i><i data-n="0"></i><i data-n="-0.6"></i></span><span class="tc-lever-thumb"></span><span class="tc-lever-val"></span>' );
 		this.leverThumb = this.leverEl.querySelector( '.tc-lever-thumb' );
 		this.leverVal = this.leverEl.querySelector( '.tc-lever-val' );
 		this.top = el( 'div', 'tc-top' );
+		this.topItems = el( 'div', 'tc-top-items' );
 		this.topBtns = {};
 		for ( const b of TOP ) {
 
@@ -187,17 +207,25 @@ export class TouchControls {
 			e.type = 'button';
 			e.setAttribute( 'aria-label', t( 'touch.' + b.id, b.label ) );
 			e.dataset.id = b.id;
-			this.top.append( e );
+			this.topItems.append( e );
 			this.topBtns[ b.id ] = e;
 
 		}
+
+		// the toggle (always there, rightmost): unfolds the row, folds it back on a second tap or after 6 s
+		this.railBtn = el( 'button', 'tc-tbtn tc-rail', icon( 'sliders' ) );
+		this.railBtn.type = 'button';
+		this.railBtn.setAttribute( 'aria-label', t( 'touch.rail', 'Shortcuts' ) );
+		this.railBtn.setAttribute( 'aria-expanded', 'false' );
+		this.railBtn.dataset.id = 'rail';
+		this.top.append( this.topItems, this.railBtn );
 
 		// installed on the home screen (iOS standalone) the page already fills the screen
 		if ( this.topBtns.fullscreen && typeof navigator !== 'undefined' && navigator.standalone ) this.topBtns.fullscreen.hidden = true;
 		this.photoEl = el( 'button', 'tc-tbtn tc-photo', icon( 'close' ) );
 		this.photoEl.type = 'button';
 		this.rotateEl = el( 'div', 'tc-rotate', `<div class="tc-rotate-card"><svg viewBox="0 0 48 48" aria-hidden="true"><rect x="15" y="6" width="18" height="30" rx="3" fill="none" stroke="currentColor" stroke-width="2.4"/><path d="M8 30a16 16 0 0 0 16 12M40 18A16 16 0 0 0 24 6" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/><path d="M24 42l-4-3M24 42l-3 4" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg><span>${ t( 'touch.rotate', 'Turn your device sideways to play' ) }</span></div>` );
-		root.append( this.lookEl, this.stickEl, this.leverEl, this.actions, this.top, this.photoEl, this.rotateEl );
+		root.append( this.lookEl, this.stickEl, this.leverEl, this.actions, this.tray, this.foldEl, this.top, this.photoEl, this.rotateEl );
 		document.body.append( root );
 
 	}
@@ -237,7 +265,20 @@ export class TouchControls {
 
 		};
 
-		for ( const c of [ this.actions, this.top, this.photoEl ] ) c.addEventListener( 'pointerdown', press, sig );
+		for ( const c of [ this.actions, this.tray, this.top, this.photoEl ] ) c.addEventListener( 'pointerdown', press, sig );
+		// the handle: a tap toggles, an upward drag opens, a downward drag closes (pointer capture, like the lever)
+		const foldDown = ( e ) => {
+
+			e.preventDefault();
+			e.stopPropagation();
+			this._fingerUsed = true;
+			if ( this._foldPtr !== undefined || ! this.fold.down( e.clientY, now() ) ) return;
+			try { e.currentTarget.setPointerCapture( e.pointerId ); } catch ( err ) { /* ignore */ }
+			this._foldPtr = e.pointerId;
+
+		};
+
+		this.foldEl.addEventListener( 'pointerdown', foldDown, sig );
 		this.leverEl.addEventListener( 'pointerdown', ( e ) => {
 
 			e.preventDefault();
@@ -354,6 +395,11 @@ export class TouchControls {
 			e.preventDefault();
 			this._leverAt( e.clientY );
 
+		} else if ( this._foldPtr !== undefined && e.pointerId === this._foldPtr ) {
+
+			e.preventDefault();
+			if ( this.fold.move( e.clientY, now() ) ) this._paintFold();
+
 		}
 
 	}
@@ -380,6 +426,15 @@ export class TouchControls {
 		}
 
 		if ( this._lever !== undefined && id === this._lever ) this._lever = undefined;
+		if ( this._foldPtr !== undefined && id === this._foldPtr ) {
+
+			this._foldPtr = undefined;
+			if ( e.type === 'pointercancel' ) this.fold.cancel();
+			else this.fold.up( e.clientY, now() );
+			this._paintFold();
+
+		}
+
 		const h = this._held.get( id );
 		if ( h ) {
 
@@ -437,6 +492,18 @@ export class TouchControls {
 		const id = b.dataset.id;
 		if ( this.settings.haptics && typeof navigator !== 'undefined' && navigator.vibrate ) try { navigator.vibrate( 8 ); } catch ( e ) { /* no vibration */ }
 		b.classList.add( 'is-down' );
+		// a press in the tray / the top row restarts that fold's idle clock; a held one (jump, dive) keeps it open
+		const fold = b.closest( '.tc-tray' ) ? this.fold : b.closest( '.tc-top' ) ? this.railFold : null;
+		if ( fold ) fold.press( now() );
+		if ( b === this.railBtn ) {
+
+			this.railFold.toggle( now() );
+			this._paintRail();
+			this._held.set( pointerId, { el: b, fold } );
+			return;
+
+		}
+
 		if ( b === this.photoEl ) {
 
 			if ( this.ui && this.ui.setPhotoMode ) this.ui.setPhotoMode( false );
@@ -448,7 +515,7 @@ export class TouchControls {
 		if ( id === 'fullscreen' ) {
 
 			this._fullscreen();
-			this._held.set( pointerId, { el: b } );
+			this._held.set( pointerId, { el: b, fold } );
 			return;
 
 		}
@@ -464,7 +531,7 @@ export class TouchControls {
 
 		if ( def && def.button ) this.input && this.input.setTouchButton( def.button, true );
 		else if ( def && def.code ) this._key( def.code, 'keydown' );
-		this._held.set( pointerId, { el: b, def } );
+		this._held.set( pointerId, { el: b, def, fold } );
 
 	}
 
@@ -489,6 +556,7 @@ export class TouchControls {
 	_release( h ) {
 
 		h.el.classList.remove( 'is-down' );
+		if ( h.fold ) h.fold.release( now() );
 		const d = h.def;
 		if ( ! d ) return;
 		if ( d.button ) this.input && this.input.setTouchButton( d.button, false );
@@ -518,6 +586,14 @@ export class TouchControls {
 		this._stick = null;
 		this._look = null;
 		this._lever = undefined;
+		this._foldPtr = undefined;
+		this.fold.cancel();
+		this.fold.close();
+		this.fold.holds = 0;
+		this.railFold.close();
+		this.railFold.holds = 0;
+		this._paintFold();
+		this._paintRail();
 		this.stickEl.classList.remove( 'is-on', 'is-sprint' );
 		this.stickEl.style.removeProperty( '--x' );
 		this.stickEl.style.removeProperty( '--y' );
@@ -703,6 +779,9 @@ export class TouchControls {
 		const s = this.snapshot( prompt );
 		const show = contextButtons( s );
 		const busy = s.busy;
+		const t0 = now();
+		const fight = fightOn( s );
+		const { primary, tray } = splitButtons( show, s.mode, { fight } );
 		this.root.classList.toggle( 'is-busy', busy );
 		this.root.classList.toggle( 'is-photo', !! ( this.ui && this.ui.photoMode ) );
 		// the wide button is the game's own prompt
@@ -717,13 +796,30 @@ export class TouchControls {
 		}
 
 		this.interactEl.hidden = ! iOn;
+		// a button lives in its row (primary) or in the tray; a fight lifts Dodge / Guard / Aim out of the tray
+		let moved = false;
 		for ( const [ id, b ] of Object.entries( this.btns ) ) {
 
-			const on = show.has( id );
+			const on = primary.has( id ) || tray.has( id );
 			if ( b.hidden === on ) b.hidden = ! on;
-			if ( on ) b.classList.toggle( 'is-on', buttonIsOn( id, s ) );
+			if ( ! on ) continue;
+			b.classList.toggle( 'is-on', buttonIsOn( id, s ) );
+			const home = tray.has( id ) ? this.tray : ROW_B.has( id ) ? this.rowB : this.rowA;
+			if ( b.parentNode !== home && ! b.classList.contains( 'is-down' ) ) { home.append( b ); moved = true; }
 
 		}
+
+		if ( moved ) for ( const id of TRAY_ORDER ) { const b = this.btns[ id ]; if ( b.parentNode === this.tray && ! b.classList.contains( 'is-down' ) ) this.tray.append( b ); }
+		// the fold: per-mode open state, no handle in a fight or with an empty tray, idle close
+		const fold = this.fold, rail = this.railFold;
+		this._trayCount = tray.size;
+		fold.setMode( s.mode, t0 );
+		fold.setHidden( fight || tray.size === 0, t0 );
+		if ( busy ) { fold.close(); rail.keep( t0 ); }
+		fold.tick( t0 );
+		rail.tick( t0 );
+		this._paintFold();
+		this._paintRail();
 
 		// the cast button says what the left button does now
 		if ( show.has( 'cast' ) ) {
@@ -777,6 +873,27 @@ export class TouchControls {
 			this._sync();
 
 		}
+
+	}
+
+	_paintFold() {
+
+		const f = this.fold, n = this._trayCount;
+		if ( n === 0 && f.open ) f.close();
+		const open = f.open && ! f.hidden;
+		this.tray.classList.toggle( 'is-open', open );
+		this.foldEl.classList.toggle( 'is-open', open );
+		this.foldEl.setAttribute( 'aria-expanded', open ? 'true' : 'false' );
+		const hide = n === 0 || f.hidden;
+		if ( this.foldEl.hidden !== hide ) this.foldEl.hidden = hide;
+
+	}
+
+	_paintRail() {
+
+		const open = this.railFold.open;
+		this.top.classList.toggle( 'is-open', open );
+		this.railBtn.setAttribute( 'aria-expanded', open ? 'true' : 'false' );
 
 	}
 
