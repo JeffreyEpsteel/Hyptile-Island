@@ -2714,6 +2714,12 @@ body {
 .tw-root.is-touch .tw-photo-hint,
 .tw-root.is-touch .tw-start-keys,
 .tw-root.is-touch .tw-panel-foot { display: none !important; }
+/* the tab strip stays put while the sections scroll (on a phone Safari's toolbar resizes the viewport: the panel takes the
+   dynamic height and the tabs stick to the top of whatever scrolls, so Performance and the other right-hand tabs stay reachable) */
+.tw-tabs { position: sticky; top: 0; z-index: 3; }
+.tw-root.is-touch .tw-panel { max-height: calc(100dvh - var(--tw-safe-t, 0px) - var(--tw-safe-b, 0px) - 2 * var(--tw-3)); overscroll-behavior: contain; }
+.tw-root.is-touch .tw-tabs { padding-block: calc(6 * var(--tw-u)); }
+.tw-root.is-touch .tw-tab { min-width: 44px; min-height: 44px; }
 
 .tw-root.is-touch .tw-stats { display: none; }
 .tw-root.is-touch .tw-boat {

@@ -54,7 +54,7 @@ export async function loadStaticGLB( url, { materials = null, shadows = true, pr
 	const mats = [];
 
 	// textures by image index (several materials share the same image)
-	const texCache = new Map();
+	const texCache = gltf.__texCache || ( gltf.__texCache = new Map() ); // shared by every load of this file
 	const albedoOf = async ( info ) => {
 
 		if ( ! info ) return null;
@@ -66,6 +66,7 @@ export async function loadStaticGLB( url, { materials = null, shadows = true, pr
 			const im = gltf.images[ src ];
 			if ( ! im || ! im.bytes ) return null;
 			let px = await decodeImage( im.bytes, im.mimeType );
+			im.bytes = null; // decoded once (texCache keeps the texture): free the file's image data
 			const pb = globalThis.__phoneBudget; // phones: 256 px prop maps
 			if ( pb && pb.propTexture ) px = capImage( px, pb.propTexture );
 			const t = new Texture( { label: 'glb' + src, width: px.width, height: px.height, format: 'rgba8unorm-srgb', data: px.data, mips: true, usage: [ 'sample', 'copyDst' ], sampler: 'anisoRepeat' } );
@@ -122,8 +123,8 @@ export async function loadStaticGLB( url, { materials = null, shadows = true, pr
 				const A = p.attributes;
 				if ( ! A.POSITION ) continue;
 				const geo = new BufferGeometry();
-				geo.setAttribute( 'position', new BufferAttribute( toFloat( A.POSITION ), 3 ).applyMatrix4( world ) );
-				if ( A.NORMAL ) geo.setAttribute( 'normal', new BufferAttribute( toFloat( A.NORMAL ), 3 ).applyNormalMatrix( nm ) );
+				geo.setAttribute( 'position', new BufferAttribute( toFloat( A.POSITION ).slice(), 3 ).applyMatrix4( world ) ); // (a copy: the gltf is shared)
+				if ( A.NORMAL ) geo.setAttribute( 'normal', new BufferAttribute( toFloat( A.NORMAL ).slice(), 3 ).applyNormalMatrix( nm ) );
 				if ( A.TEXCOORD_0 ) geo.setAttribute( 'uv', new BufferAttribute( toFloat( A.TEXCOORD_0 ), 2 ) );
 				if ( p.indices ) geo.setIndex( new BufferAttribute( p.indices instanceof Uint8Array ? Uint16Array.from( p.indices ) : p.indices, 1 ) );
 				if ( ! A.NORMAL ) geo.computeVertexNormals();

@@ -25,7 +25,23 @@ const COMPONENTS = { SCALAR: 1, VEC2: 2, VEC3: 3, VEC4: 4, MAT4: 16 };
 const ARRAYS = { 5120: Int8Array, 5121: Uint8Array, 5122: Int16Array, 5123: Uint16Array, 5125: Uint32Array, 5126: Float32Array };
 const NORM = { 5120: 127, 5121: 255, 5122: 32767, 5123: 65535 };
 
-export async function loadGLB( url ) {
+const _loads = new Map(); // url -> Promise<gltf>: every avatar / prop of one file shares the parsed data (and its textures / geometry caches)
+export function loadGLB( url ) {
+
+	let p = _loads.get( url );
+	if ( ! p ) {
+
+		p = loadGLBFresh( url );
+		_loads.set( url, p );
+		p.catch( () => _loads.delete( url ) );
+
+	}
+
+	return p;
+
+}
+
+export async function loadGLBFresh( url ) {
 
 	let buffer;
 	if ( globalThis.__assetFile ) buffer = await globalThis.__assetFile( url );
@@ -193,7 +209,9 @@ export function parseGLB( buffer ) {
 
 	} );
 
-	const images = ( json.images || [] ).map( ( im ) => ( { bytes: im.bufferView !== undefined ? viewBytes( im.bufferView ) : null, mimeType: im.mimeType, uri: im.uri } ) );
+	// image bytes get their own buffers (slice): a view would keep the whole GLB file alive after the textures are decoded
+	// and the meshes uploaded (the roster's 10 MB files pinned ~200 MB on a phone); the decoders null `bytes` when done
+	const images = ( json.images || [] ).map( ( im ) => ( { bytes: im.bufferView !== undefined ? viewBytes( im.bufferView ).slice() : null, mimeType: im.mimeType, uri: im.uri } ) );
 	const scene = json.scenes ? json.scenes[ json.scene || 0 ] : null;
 	const roots = scene ? scene.nodes : nodes.map( ( _, i ) => i ).filter( ( i ) => ! nodes.some( ( n ) => n.children.includes( i ) ) );
 

@@ -9,6 +9,11 @@
 #   SeaplaneJade / SeaplaneCream (body, double-sided so the cabin has walls from inside), SeaplaneGlass (transparent:
 #   StaticGLB keys on 'Glass'), SeaplaneDark, SeaplaneStrut, SeaplaneSeat, SeaplaneInterior,
 #   SeaplaneProp / SeaplanePropTip: the propeller, its own node with the hub at GEOM.prop (spun in code about +Z).
+# Wave 8 (cockpit): a lower cowling and a wide windscreen with thin jade frames, big side windows and a roof light
+# ahead of the wing, so the pilot's eye (GEOM.eye) sees the water ahead over the glare shield; the instrument panel
+# housing sits just behind GEOM.panel, where src/features/seaplane/Cockpit.js puts its live (canvas) face. Every mesh
+# carries a planar UV (the glass uses it for its reflection streak). The preview also renders the eye view without
+# the glass (nothing of the cabin may block the view) and with it.
 import bpy, bmesh, sys, os, math
 from mathutils import Vector, Matrix
 
@@ -19,6 +24,10 @@ PREVIEW = argv[1] if len(argv) > 1 else None
 bpy.ops.wm.read_factory_settings(use_empty=True)
 
 PROP = (0.0, 2.2, 3.85)
+EYE = (0.32, 2.74, 1.2)  # GEOM.eye
+# GEOM.panel: the face's centre, width, height and tilt (rad, top towards the nose)
+PANEL_C = (0.0, 2.27, 2.40)
+PANEL_W, PANEL_H, PANEL_TILT = 1.22, 0.40, 0.26
 
 
 def B(p):
@@ -138,6 +147,12 @@ class Builder:
         bm.from_mesh(me)
         bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=1e-5)
         bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+        # planar UV from the game frame (u along the length and the height, v up): the glass streak reads it
+        uv = bm.loops.layers.uv.new('UVMap')
+        for f in bm.faces:
+            for l in f.loops:
+                c = l.vert.co  # Blender frame: (x, -z, y)
+                l[uv].uv = (-c.y * 0.5 + c.x * 0.15, c.z * 0.5)
         bm.to_mesh(me)
         bm.free()
         me.update()
@@ -181,8 +196,9 @@ col = bpy.context.scene.collection
 # ---------------------------------------------------------------------------------------------- fuselage
 # stations: z, bottom y, top y, half width (the cabin from z -1.2 to 2.6, the cowling ahead, the tail cone behind)
 ST = [
-    (3.72, 1.78, 2.52, 0.44), (3.55, 1.64, 2.64, 0.56), (3.2, 1.56, 2.72, 0.62), (2.85, 1.5, 2.8, 0.66), (2.6, 1.44, 2.9, 0.68),
-    (2.45, 1.4, 3.0, 0.69), (2.3, 1.37, 3.05, 0.7), (2.15, 1.35, 3.09, 0.7), (2.0, 1.34, 3.12, 0.7), (1.75, 1.33, 3.13, 0.7),
+    # wave 8: the cowling drops to 2.5 m so the eye sees over it; the windscreen rises from z 2.6 to the roof at z 2.0
+    (3.72, 1.78, 2.36, 0.44), (3.55, 1.64, 2.42, 0.56), (3.2, 1.56, 2.46, 0.62), (2.85, 1.5, 2.5, 0.66), (2.6, 1.44, 2.56, 0.68),
+    (2.45, 1.4, 2.7, 0.69), (2.3, 1.37, 2.83, 0.7), (2.15, 1.35, 2.94, 0.7), (2.0, 1.34, 3.03, 0.7), (1.75, 1.33, 3.1, 0.7),
     (1.45, 1.32, 3.13, 0.7), (1.2, 1.32, 3.13, 0.7), (1.08, 1.32, 3.13, 0.7), (0.85, 1.32, 3.13, 0.7), (0.55, 1.32, 3.13, 0.7),
     (0.25, 1.33, 3.12, 0.7), (0.02, 1.34, 3.12, 0.7), (-0.4, 1.38, 3.1, 0.69), (-1.2, 1.48, 3.04, 0.65), (-2.0, 1.66, 2.98, 0.56),
     (-2.9, 1.86, 2.92, 0.45), (-3.8, 2.04, 2.87, 0.34), (-4.6, 2.2, 2.83, 0.25), (-5.4, 2.33, 2.8, 0.17), (-6.0, 2.42, 2.76, 0.11),
@@ -196,10 +212,13 @@ def body_mat(c, i, j):
     if j < 0:
         return 'SeaplaneDark' if z > 3 else 'SeaplaneJade'
     lo, hi = face_band(j)
-    # side windows (rows 12..40 deg, a pillar between the front and the rear pair) and the windscreen (the top rows)
-    if lo >= 12 and hi <= 40 and (0.05 < z < 1.02 or 1.14 < z < 2.12):
+    # side windows (rows 6..68 deg, a pillar between the front and the rear pair), the windscreen (every row above
+    # 26 deg from the cowling at z 2.6 back to z 2.0, frames added below) and a roof light ahead of the wing
+    if lo >= 6 and hi <= 68 and (0.05 < z < 1.02 or 1.14 < z < 2.0):
         return 'SeaplaneGlass'
-    if lo >= 40 and 2.0 < z < 2.6:
+    if lo >= 26 and 2.0 < z < 2.6:
+        return 'SeaplaneGlass'
+    if lo >= 68 and 1.5 < z < 2.0:
         return 'SeaplaneGlass'
     if z > 3.45:
         return 'SeaplaneDark' if hi <= -58 else 'SeaplaneJade'
@@ -216,6 +235,47 @@ glass = Builder('Glass')
 rings = [superellipse(0, CY(s), s[0], s[3], (s[2] - s[1]) / 2, (s[2] - s[1]) / 2) for s in ST]
 body.loft(rings, lambda c, i, j: None if body_mat(c, i, j) == 'SeaplaneGlass' else body_mat(c, i, j), True, True)
 glass.loft(rings, lambda c, i, j: 'SeaplaneGlass' if body_mat(c, i, j) == 'SeaplaneGlass' else None, False, False)
+
+
+def hull_point(z, deg, grow=1.012):
+    # a point on the fuselage skin at station z (interpolated) and ring angle deg (port 0 = side, 90 = top), a hair outside
+    for k in range(len(ST) - 1):
+        a, b = ST[k], ST[k + 1]
+        if a[0] >= z >= b[0]:
+            t = (a[0] - z) / (a[0] - b[0]) if a[0] != b[0] else 0
+            s = [a[n] + (b[n] - a[n]) * t for n in range(4)]
+            break
+    else:
+        s = list(ST[0])
+    hw, half, cy = s[3], (s[2] - s[1]) / 2, (s[1] + s[2]) / 2
+    r = math.radians(deg)
+    c, sn = math.cos(r), math.sin(r)
+    x = hw * sgn(c) * abs(c) ** (2 / 3.2) * grow
+    y = cy + half * sgn(sn) * abs(sn) ** (2 / 3.2) * grow
+    return (x, y, z)
+
+
+def frame_line(pts, r=0.011):
+    for a, b in zip(pts, pts[1:]):
+        body.rod(a, b, r, 'SeaplaneJade', 5)
+
+
+# thin jade window frames: the windscreen's centre post and its A-pillars, the sills and heads of the side windows,
+# the posts between them and round the roof light
+ARC = [6, 12, 26, 40, 54, 68, 80, 90]
+for side in (1, -1):
+    deg = lambda d: d if side > 0 else 180 - d
+    frame_line([hull_point(2.0, deg(d)) for d in ARC])  # A-pillar
+    frame_line([hull_point(2.6, deg(d)) for d in ARC[2:]])  # windscreen base on the cowling
+    for z0, z1 in ((0.05, 1.02), (1.14, 2.0)):
+        zs = [z1 - (z1 - z0) * k / 4 for k in range(5)]
+        frame_line([hull_point(z, deg(9)) for z in zs], 0.009)  # sill
+        frame_line([hull_point(z, deg(68)) for z in zs], 0.009)  # head
+        frame_line([hull_point(z0, deg(d)) for d in ARC[:6]], 0.009)
+        frame_line([hull_point(z1, deg(d)) for d in ARC[:6]], 0.009)
+    frame_line([hull_point(z, deg(68)) for z in (2.0, 1.75, 1.5)])
+frame_line([hull_point(z, 90) for z in (2.6, 2.45, 2.3, 2.15, 2.0)], 0.009)  # centre post
+frame_line([hull_point(1.5, d) for d in ARC[5:] + [100, 112]])  # roof light, rear edge
 # the cowling's exhaust stub and the air scoop
 body.rod((-0.5, 1.75, 2.95), (-0.62, 1.55, 2.6), 0.06, 'SeaplaneDark')
 body.box((0, 1.6, 3.3), (0.18, 0.08, 0.25), 'SeaplaneDark')
@@ -297,15 +357,40 @@ struts.box((0.95, 1.0, 1.2), (0.12, 0.015, 0.1), 'SeaplaneStrut')  # boarding st
 cab = Builder('Cabin')
 cab.box((0, 1.42, 0.8), (0.62, 0.03, 1.7), 'SeaplaneInterior')  # floor (top = GEOM.seat y 1.45)
 for x in (0.32, -0.32):
-    cab.box((x, 1.85, 1.15), (0.24, 0.06, 0.24), 'SeaplaneSeat')  # cushion
+    cab.box((x, 1.87, 1.15), (0.24, 0.06, 0.24), 'SeaplaneSeat')  # cushion (top 1.93: the eye 0.8 m above, GEOM.eye)
     cab.box((x, 2.2, 0.88), (0.24, 0.32, 0.05), 'SeaplaneSeat')  # back
     cab.box((x, 1.66, 1.15), (0.2, 0.16, 0.2), 'SeaplaneDark')  # frame
-    cab.rod((x, 2.05, 2.3), (x, 2.3, 1.95), 0.025, 'SeaplaneDark')  # yoke column
-    cab.box((x, 2.32, 1.93), (0.14, 0.04, 0.02), 'SeaplaneDark')  # yoke
+    cab.rod((x, 1.98, 2.3), (x, 2.18, 1.98), 0.025, 'SeaplaneDark')  # yoke column (below the line of sight to the panel)
+    cab.box((x, 2.2, 1.96), (0.14, 0.035, 0.02), 'SeaplaneDark')  # yoke
 cab.box((0, 1.85, -0.1), (0.62, 0.06, 0.3), 'SeaplaneSeat')  # rear bench
 cab.box((0, 2.2, -0.35), (0.62, 0.32, 0.05), 'SeaplaneSeat')
-cab.box((0, 2.32, 2.42), (0.64, 0.17, 0.08), 'SeaplaneDark')  # instrument panel
-cab.box((0, 2.51, 2.32), (0.64, 0.025, 0.16), 'SeaplaneDark')  # glare shield
+
+
+def quad_box(b, corners, back, m):
+    # a box from four front corners (game frame) pushed back by the vector `back`
+    f = [b.vert(p) for p in corners]
+    k = [b.vert(tuple(p[n] + back[n] for n in range(3))) for p in corners]
+    b.face(f, m, False)
+    b.face(k[::-1], m, False)
+    for i in range(4):
+        j = (i + 1) % 4
+        b.face([f[j], f[i], k[i], k[j]], m, False)
+
+
+# the instrument panel housing just behind GEOM.panel (Cockpit.js draws the live face 6 mm in front of it), tilted back
+# towards the pilot, under a glare shield whose lip sets the view over the nose (~11 deg down from the eye)
+ct, st_ = math.cos(PANEL_TILT), math.sin(PANEL_TILT)
+up = (0, ct, st_)
+nb = (0, -st_ * 0.006, ct * 0.006)  # 6 mm behind the face
+corners = []
+for sx, sy in ((1, 1), (-1, 1), (-1, -1), (1, -1)):
+    corners.append(tuple(PANEL_C[n] + (sx * PANEL_W / 2 if n == 0 else 0) + sy * PANEL_H / 2 * up[n] + nb[n] for n in range(3)))
+quad_box(cab, corners, (0, -st_ * 0.14, ct * 0.14), 'SeaplaneDark')
+top_y = PANEL_C[1] + PANEL_H / 2 * ct
+top_z = PANEL_C[2] + PANEL_H / 2 * st_
+cab.box((0, top_y + 0.02, top_z + 0.09), (PANEL_W / 2 + 0.02, 0.018, 0.12), 'SeaplaneDark')  # glare shield
+cab.box((0, 1.78, 2.56), (0.64, 0.3, 0.03), 'SeaplaneDark')  # firewall under the panel
+cab.box((0, PANEL_C[1] - PANEL_H / 2 * ct - 0.03, PANEL_C[2] - 0.02), (0.14, 0.03, 0.06), 'SeaplaneStrut')  # throttle quadrant
 
 # ---------------------------------------------------------------------------------------------- propeller (own node)
 prop = Builder('Propeller')
@@ -369,14 +454,33 @@ if PREVIEW:
     cam = bpy.data.objects.new('cam', bpy.data.cameras.new('cam'))
     col.objects.link(cam)
     sc.camera = cam
-    shots = [('front3q', (12.0, -11.0, 6.0)), ('side', (16.0, 0.5, 2.2)), ('rear3q', (-10.0, 12.0, 7.0)), ('cockpit', None)]
+    # a sea plane and a horizon line far ahead, so the eye renders show where the water starts over the nose
+    sea = bpy.data.meshes.new('sea')
+    sea.from_pydata([(-400, -400, 0.2), (400, -400, 0.2), (400, 400, 0.2), (-400, 400, 0.2)], [], [(0, 1, 2, 3)])
+    sea_ob = bpy.data.objects.new('sea', sea)
+    sea.materials.append(mat('PreviewSea', (0.1, 0.35, 0.5), 0.3))
+    col.objects.link(sea_ob)
+    glass_ob = next(o for o in objs if o.name == 'Glass')
+    try:
+        MATS['SeaplaneGlass'].diffuse_color = (*srgb((0.55, 0.7, 0.75)), 0.18)
+    except Exception:
+        pass
+    shots = [('front3q', (12.0, -11.0, 6.0)), ('side', (16.0, 0.5, 2.2)), ('rear3q', (-10.0, 12.0, 7.0)), ('cockpit_clear', 'eye'), ('cockpit', 'eye'), ('cockpit_left', 'left')]
     base, ext = os.path.splitext(PREVIEW)
     for name, loc in shots:
-        if loc is None:
-            cam.location = B((0.32, 2.92, 1.2))
-            target = B((0.25, 2.75, 6.0))
-            cam.data.lens = 16
+        glass_ob.hide_render = name == 'cockpit_clear'
+        sea_ob.hide_render = loc not in ('eye', 'left')
+        if loc in ('eye', 'left'):
+            # the game camera: 62 deg vertical field of view, the head pitched 4.6 deg down (Player helmPitch)
+            sc.render.resolution_x, sc.render.resolution_y = 1600, 900
+            cam.data.sensor_fit = 'VERTICAL'
+            cam.data.angle = math.radians(62)
+            cam.location = B(EYE)
+            look = (EYE[0], EYE[1] - 0.08, EYE[2] + 1.0) if loc == 'eye' else (EYE[0] + 1.0, EYE[1] - 0.05, EYE[2] + 0.3)
+            target = B(look)
         else:
+            sc.render.resolution_x, sc.render.resolution_y = 1200, 800
+            cam.data.sensor_fit = 'AUTO'
             cam.location = Vector(loc)
             target = Vector((0, 0.3, 2.0))
             cam.data.lens = 40

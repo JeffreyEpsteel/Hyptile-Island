@@ -270,8 +270,8 @@ export class SkinnedModel {
 	async _buildMeshes( materialOptions ) {
 
 		const g = this.gltf;
-		// textures (shared between materials that use the same image)
-		const texCache = new Map();
+		// textures (shared between materials that use the same image, and between every model built from this gltf)
+		const texCache = g.__texCache || ( g.__texCache = new Map() );
 		const tex = async ( info, srgb ) => {
 
 			if ( ! info ) return null;
@@ -281,6 +281,7 @@ export class SkinnedModel {
 
 				const im = g.images[ src ];
 				let px = await decodeImage( im.bytes, im.mimeType );
+				im.bytes = null; // decoded once (texCache keeps the texture): free the file's image data
 				const pb = globalThis.__phoneBudget; // phones: 256 px character maps (56 maps: 75 MB -> 19 MB)
 				if ( pb && pb.charTexture ) px = capImage( px, pb.charTexture );
 				const t = new Texture( { label: 'char' + src, width: px.width, height: px.height, format: srgb ? 'rgba8unorm-srgb' : 'rgba8unorm', data: px.data, mips: true, usage: [ 'sample', 'copyDst' ], sampler: 'anisoRepeat' } );
@@ -301,15 +302,23 @@ export class SkinnedModel {
 		const matCache = new Map();
 		for ( const p of prims ) {
 
-			const geo = new BufferGeometry();
-			const A = p.attributes;
-			geo.setAttribute( 'position', new BufferAttribute( A.POSITION.array, 3 ) );
-			if ( A.NORMAL ) geo.setAttribute( 'normal', new BufferAttribute( A.NORMAL.array, 3 ) );
-			if ( A.TEXCOORD_0 ) geo.setAttribute( 'uv', new BufferAttribute( toFloat( A.TEXCOORD_0 ), 2 ) );
-			geo.setAttribute( 'skinIndex', new BufferAttribute( Uint32Array.from( A.JOINTS_0.array ), 4 ) );
-			geo.setAttribute( 'skinWeight', new BufferAttribute( normalizeWeights( toFloat( A.WEIGHTS_0 ) ), 4 ) );
-			if ( p.indices ) geo.setIndex( new BufferAttribute( p.indices instanceof Uint32Array || p.indices instanceof Uint16Array ? p.indices : Uint32Array.from( p.indices ), 1 ) );
-			geo.computeBoundingSphere();
+			// the geometry is built once per primitive and shared by every model of this gltf (the renderer then shares
+			// the GPU buffers too); nothing per model is written into it (skinning and morphs run on the GPU)
+			let geo = p.__geo;
+			if ( ! geo ) {
+
+				geo = p.__geo = new BufferGeometry();
+				const A = p.attributes;
+				geo.setAttribute( 'position', new BufferAttribute( A.POSITION.array, 3 ) );
+				if ( A.NORMAL ) geo.setAttribute( 'normal', new BufferAttribute( A.NORMAL.array, 3 ) );
+				if ( A.TEXCOORD_0 ) geo.setAttribute( 'uv', new BufferAttribute( toFloat( A.TEXCOORD_0 ), 2 ) );
+				geo.setAttribute( 'skinIndex', new BufferAttribute( Uint32Array.from( A.JOINTS_0.array ), 4 ) );
+				geo.setAttribute( 'skinWeight', new BufferAttribute( normalizeWeights( toFloat( A.WEIGHTS_0 ) ), 4 ) );
+				if ( p.indices ) geo.setIndex( new BufferAttribute( p.indices instanceof Uint32Array || p.indices instanceof Uint16Array ? p.indices : Uint32Array.from( p.indices ), 1 ) );
+				geo.computeBoundingSphere();
+				geo.__shared = true;
+
+			}
 
 			// morph targets that move something: a delta buffer and a material of its own (the buffer is bound to the material)
 			const morph = this._morphFor( p );
@@ -919,7 +928,7 @@ export class SkinnedModel {
 
 		this.jointBuffer.destroy();
 		for ( const b of this.morphBuffers || [] ) b.destroy();
-		for ( const m of this.meshes ) m.geometry.dispose && m.geometry.dispose();
+		for ( const m of this.meshes ) if ( ! m.geometry.__shared && m.geometry.dispose ) m.geometry.dispose(); // (shared geometry belongs to the gltf cache)
 
 	}
 

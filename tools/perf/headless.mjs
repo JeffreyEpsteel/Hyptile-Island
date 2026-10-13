@@ -116,6 +116,8 @@ let stage = 'starting';
 GPU.onError( ( e ) => gpuErrors.push( { ...e, stage } ) );
 const mb = ( n ) => ( n / 1048576 ).toFixed( 1 ) + ' MB';
 const memLine = ( what ) => console.log( `  GPU memory ${ what }: ${ mb( GPU.memory.total ) } (buffers ${ mb( GPU.memory.buffers ) }, textures ${ mb( GPU.memory.textures ) }, peak ${ mb( GPU.memory.peak ) })` );
+// the JS side (V8 numbers; a phone's WebKit heap differs, but the big arrays are the same)
+const heapLine = ( what ) => { if ( globalThis.gc ) globalThis.gc(); const m = process.memoryUsage(); console.log( `  JS memory ${ what }: heap ${ mb( m.heapUsed ) }, array buffers ${ mb( m.arrayBuffers ) }, rss ${ mb( m.rss ) }` ); };
 // pipeline compiles left (the precompile stage waits for them)
 // --trace-compile[=file]: compiles one at a time like a phone (GPU.compileConcurrency 1) and lists them in start order with
 // their time and WGSL size: the order an iPhone's loader walks (wave 7: it stopped after #113 'final (grade + tonemap)')
@@ -172,7 +174,9 @@ await app.init( ( p, text ) => { if ( text !== last ) { last = stage = text; pro
 console.log( `init ${ ( ( performance.now() - t0 ) / 1000 ).toFixed( 1 ) } s` );
 clearInterval( tick );
 if ( limitsDefault || noFeatures ) console.log( '  ' + GPU.describe().split( '\n' ).slice( 1, 3 ).join( '\n  ' ) );
-memLine( 'after init' );
+memLine( 'after init' ); heapLine( 'after init' );
+	// --heap-snapshot=<file>: a V8 heap snapshot after init (tools/perf/heap-buffers.mjs lists the big ArrayBuffers and their owners)
+	{ const hs = process.argv.find( ( a ) => a.startsWith( '--heap-snapshot=' ) ); if ( hs ) { const v8 = await import( 'node:v8' ); const f = v8.default.writeHeapSnapshot( hs.split( '=' )[ 1 ] ); console.log( '  heap snapshot: ' + f ); } }
 console.log( `  pipelines compiled for the first frame: ${ GPU.pipelineStats.requested } (${ GPU.pipelineStats.failed } failed, ${ GPU.pipelineStats.timedOut } timed out)` );
 // --mobile: the phone profile applied like AppUI does once the loader is gone (Quality with MOBILE.phone)
 if ( process.argv.includes( '--mobile' ) ) {
