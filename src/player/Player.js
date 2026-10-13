@@ -637,6 +637,39 @@ export class Player {
 
 		}
 
+		// any ledge within reach (a pier deck, a boardwalk, a jetty, a rock shelf up to 1.7 m above the water): pull
+		// yourself up with Space or W (user 2026-10-13: "get up on the board if I fall into water")
+		if ( this.mode === 'swim' && atSurface ) {
+
+			const ax = p.x + Math.sin( this.yaw ) * - 0.9, az = p.z + Math.cos( this.yaw ) * - 0.9; // (yaw faces -z)
+			const deck = this.colliders.groundHeightAt ? this.colliders.groundHeightAt( ax, az, surfaceY + 2.6 ) : - Infinity;
+			const land = this.groundAt( ax, az, surfaceY + 2.6 );
+			const top = Math.max( deck, land );
+			const rise = top - surfaceY;
+			if ( rise > 0.2 && rise < 2.6 ) { // (the main pier deck is 2.3 m up)
+
+				this.prompt = { key: 'Space', text: 'Climb up' };
+				if ( inp.down( 'Space' ) || inp.down( 'KeyW' ) ) {
+
+					this._climb = ( this._climb || 0 ) + dt;
+					p.y += dt * 1.6;
+					if ( this._climb > 0.35 ) {
+
+						p.set( ax, top, az );
+						this.mode = 'walk';
+						this.velocity.set( 0, 0, 0 );
+						this._climb = 0;
+						if ( this.audio && this.audio.splash ) this.audio.splash( 0.4, p );
+						return;
+
+					}
+
+				} else this._climb = 0;
+
+			} else this._climb = 0;
+
+		}
+
 		// ladders on the pier: climb out when swimming into them
 		if ( this.colliders.boxes ) {
 

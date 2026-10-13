@@ -1456,7 +1456,7 @@ export class Seaplane {
 		if ( died ) this._emit( 'playerDied', { cause: 'seaplane', text: cause, x, y: water ? sea : y, z } );
 		this._save();
 		const bill = this.free ? '' : ` ${ t( 'seaplane.recoverAt', 'Recover it at the hangar' ) } (${ money$( recovery ) } + ${ t( 'seaplane.repairNext', 'repair' ) } ${ money$( cost ) }).`;
-		if ( ! died ) this._toast( thrown ? `${ cause }. ${ t( 'seaplane.thrownClear', 'You were thrown clear.' ) }${ bill }` : `${ cause }.${ bill || ' ' + t( 'seaplane.recoverFree', 'Recover it at the hangar.' ) }`, 5600 );
+		if ( ! died ) this._toast( thrown ? `${ cause }. ${ t( 'seaplane.thrownClear', 'You were thrown clear.' ) }${ bill || ' ' + t( 'seaplane.recoverWhere', 'Recover the wreck at the seaplane hangar on the beach, or at the boat yard.' ) }` : `${ cause }.${ bill || ' ' + t( 'seaplane.recoverFree', 'Recover it at the hangar.' ) }`, 5600 );
 		return thrown;
 
 	}
