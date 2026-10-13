@@ -7,10 +7,15 @@
 //
 //   const models = new PlaneModels( { scene } );
 //   const v = models.create();          v.setPose( position, quaternion );  v.spin( dt, rpm01 );  v.setVisible( b );  v.dispose()
+// Wave 10 (crashes): the GLB's nodes are parts (NODE_PART: WingL / WingR / Tail / FloatL / FloatR / Propeller, the rest the
+// fuselage); each part draws in its own group, so a wreck can tear it off:
+//   v.detach( name ) -> Group | null   (once: out of the plane into the scene; Wreck.pose() places it)
+//   v.setPart( name, position, quaternion ), v.partVisible( name, bool ), v.reassemble() (the recovered plane), v.detached
 
 import { Group, Mesh } from '../../engine/index.js';
 import { LAYERS } from '../../core/SceneRenderer.js';
 import { loadStaticGLB } from '../../world/boat/StaticGLB.js';
+import { loadGLB } from '../../engine/loaders/GLTF.js';
 import { prepare, mergePrepared, box, cylinder, mat4 } from '../../world/boat/GeoKit.js';
 import { createPropMaterial, PAT } from '../../game/GameMaterials.js';
 import { GEOM } from './Flight.js';
@@ -32,6 +37,30 @@ export const GLASS = {
 	s.roughness = 0.04;
 `,
 };
+
+// the GLB's node names -> wreck parts (Wreck.js PARTS); any other node is the fuselage
+export const NODE_PART = { WingL: 'wingL', WingR: 'wingR', Tail: 'tail', FloatL: 'floatL', FloatR: 'floatR', Propeller: 'prop' };
+export const BODY_PARTS = [ 'fuselage', 'wingL', 'wingR', 'tail', 'floatL', 'floatR' ];
+
+// the part of every mesh loadStaticGLB makes from this glTF, in its order (it walks the roots depth first, one mesh per
+// triangle primitive with positions); a node without a part name inherits its parent's
+export function meshParts( gltf ) {
+
+	const out = [];
+	const visit = ( ni, inherited ) => {
+
+		const node = gltf.nodes[ ni ];
+		if ( ! node ) return;
+		const part = NODE_PART[ node.name ] || inherited;
+		if ( node.mesh !== undefined ) for ( const p of gltf.meshes[ node.mesh ] || [] ) if ( p.mode === 4 && p.attributes && p.attributes.POSITION ) out.push( part );
+		for ( const c of node.children || [] ) visit( c, part );
+
+	};
+
+	for ( const ni of gltf.roots || [] ) visit( ni, 'fuselage' );
+	return out;
+
+}
 
 function defaultBase() {
 
@@ -96,12 +125,17 @@ export class PlaneModels {
 
 		if ( this.ready ) return this.ready;
 		const materials = ( info ) => ( /Glass/.test( info && info.name ) ? { underwaterLighting: 'lite', opacity: GLASS.opacity, surface: GLASS.surface } : { underwaterLighting: 'lite' } );
-		this.ready = Promise.resolve( this._load( this.baseUrl + MODEL_URL, { shadows: true, prefix: PREFIX, materials } ) ).then( ( glb ) => {
+		this.ready = Promise.resolve( this._load( this.baseUrl + MODEL_URL, { shadows: true, prefix: PREFIX, materials } ) ).then( async ( glb ) => {
 
 			if ( ! glb || ! glb.meshes ) throw new Error( 'empty seaplane GLB' );
-			const body = [], prop = [];
-			for ( const m of glb.meshes ) {
+			// the parts by node (the glTF parse is cached by url, so this costs no second fetch)
+			let parts = glb.parts || null;
+			if ( ! parts && this._load === loadStaticGLB ) try { parts = meshParts( await loadGLB( this.baseUrl + MODEL_URL ) ); } catch ( e ) { parts = null; }
+			if ( ! parts || parts.length !== glb.meshes.length ) parts = null;
+			const body = [], prop = [], bodyParts = [];
+			for ( let i = 0; i < glb.meshes.length; i ++ ) {
 
+				const m = glb.meshes[ i ];
 				if ( /SeaplaneProp/.test( m.name ) ) {
 
 					// baked at the hub's model position: move it to the pivot's origin once
@@ -110,11 +144,16 @@ export class PlaneModels {
 					m.geometry.computeBoundingSphere();
 					prop.push( m );
 
-				} else body.push( m );
+				} else {
+
+					body.push( m );
+					bodyParts.push( parts && BODY_PARTS.includes( parts[ i ] ) ? parts[ i ] : 'fuselage' );
+
+				}
 
 			}
 
-			this.template = { body, prop };
+			this.template = { body, prop, parts: bodyParts };
 			for ( const v of this.visuals ) v._fill( this.template );
 			return this.template;
 
@@ -192,6 +231,18 @@ export class PlaneVisual {
 		this.pivot = new Group();
 		this.pivot.position.set( GEOM.prop[ 0 ], GEOM.prop[ 1 ], GEOM.prop[ 2 ] );
 		this.group.add( this.body, this.pivot );
+		// one group per part (model frame), so a wreck can carry them off; the propeller's is the pivot
+		this.parts = { prop: this.pivot };
+		for ( const n of BODY_PARTS ) {
+
+			const g = new Group();
+			g.name = 'seaplane-' + n;
+			this.body.add( g );
+			this.parts[ n ] = g;
+
+		}
+
+		this.detached = new Set();
 		this.angle = 0;
 		this.loaded = false;
 		this.meshes = [];
@@ -228,7 +279,7 @@ export class PlaneVisual {
 	_fill( t ) {
 
 		this._clear();
-		for ( const m of t.body ) this._add( this.body, m.geometry, m.material, m.name, m );
+		t.body.forEach( ( m, i ) => this._add( this.parts[ ( t.parts && t.parts[ i ] ) || 'fuselage' ], m.geometry, m.material, m.name, m ) );
 		for ( const m of t.prop ) this._add( this.pivot, m.geometry, m.material, m.name, m );
 		this.loaded = true;
 
@@ -237,7 +288,7 @@ export class PlaneVisual {
 	_fillStandIn( s ) {
 
 		this._clear();
-		this._add( this.body, s.body, s.material, 'seaplane-standin' );
+		this._add( this.parts.fuselage, s.body, s.material, 'seaplane-standin' );
 		this._add( this.pivot, s.prop, s.material, 'seaplane-standin-prop' );
 
 	}
@@ -246,6 +297,62 @@ export class PlaneVisual {
 
 		this.group.position.copy( p );
 		this.group.quaternion.copy( q );
+
+	}
+
+	// a wreck tears a part off (once): out of the plane into the scene (its pose: setPart, from Wreck.pose)
+	detach( name ) {
+
+		const g = this.parts[ name ];
+		if ( ! g || this.detached.has( name ) ) return null;
+		this.detached.add( name );
+		g.removeFromParent();
+		const scene = this.owner && this.owner.scene;
+		if ( scene ) scene.add( g );
+		return g;
+
+	}
+
+	setPart( name, p, q ) {
+
+		const g = this.parts[ name ];
+		if ( ! g ) return;
+		g.position.copy( p );
+		g.quaternion.copy( q );
+
+	}
+
+	partVisible( name, v ) {
+
+		const g = this.parts[ name ];
+		if ( g ) g.visible = v;
+
+	}
+
+	// the recovered plane: every part back in place
+	reassemble() {
+
+		for ( const n of this.detached ) {
+
+			const g = this.parts[ n ];
+			g.removeFromParent();
+			g.quaternion.identity();
+			if ( n === 'prop' ) {
+
+				g.position.set( GEOM.prop[ 0 ], GEOM.prop[ 1 ], GEOM.prop[ 2 ] );
+				this.group.add( g );
+
+			} else {
+
+				g.position.set( 0, 0, 0 );
+				this.body.add( g );
+
+			}
+
+		}
+
+		this.detached.clear();
+		for ( const g of Object.values( this.parts ) ) g.visible = true;
 
 	}
 
@@ -265,6 +372,7 @@ export class PlaneVisual {
 
 	dispose() {
 
+		this.reassemble();
 		this._clear();
 		this.owner.release( this );
 

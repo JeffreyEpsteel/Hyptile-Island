@@ -9,6 +9,8 @@
 #   SeaplaneJade / SeaplaneCream (body, double-sided so the cabin has walls from inside), SeaplaneGlass (transparent:
 #   StaticGLB keys on 'Glass'), SeaplaneDark, SeaplaneStrut, SeaplaneSeat, SeaplaneInterior,
 #   SeaplaneProp / SeaplanePropTip: the propeller, its own node with the hub at GEOM.prop (spun in code about +Z).
+# Nodes (wave 10, crashes: Model.js turns them into the parts a wreck sheds): Fuselage, Glass, Cabin, Struts (the
+# fuselage), WingL / WingR, Tail, FloatL / FloatR, Propeller.
 # Wave 8 (cockpit): a lower cowling and a wide windscreen with thin jade frames, big side windows and a roof light
 # ahead of the wing, so the pilot's eye (GEOM.eye) sees the water ahead over the glare shield; the instrument panel
 # housing sits just behind GEOM.panel, where src/features/seaplane/Cockpit.js puts its live (canvas) face. Every mesh
@@ -299,10 +301,16 @@ def wing_ring(x, le_z, chord, y0, t):
 
 WY = 3.14  # wing root underside line
 dih = math.tan(math.radians(2))
-wing = Builder('Wing')
-WS = [(-7.3, 1.2, 1.18, 0.1), (-7.05, 1.3, 1.3, 0.11), (-3.6, 1.42, 1.62, 0.13), (0.0, 1.45, 1.7, 0.14), (3.6, 1.42, 1.62, 0.13), (7.05, 1.3, 1.3, 0.11), (7.3, 1.2, 1.18, 0.1)]
-wrings = [wing_ring(x, le, ch, WY + abs(x) * dih, t) for x, le, ch, t in WS]
-wing.loft(wrings, lambda c, *_: 'SeaplaneJade' if abs(c[0]) > 6.9 else 'SeaplaneCream', True, True)
+# wave 10 (crashes): one node per wing half (WingL = port, +X; WingR = starboard), so a wreck can shear them off
+# (src/features/seaplane/Model.js maps the node names to wreck parts); each half is capped at the root (hidden in the
+# other half while whole)
+WS = [(0.0, 1.45, 1.7, 0.14), (3.6, 1.42, 1.62, 0.13), (7.05, 1.3, 1.3, 0.11), (7.3, 1.2, 1.18, 0.1)]
+wings = []
+for side, name in ((1, 'WingL'), (-1, 'WingR')):
+    w = Builder(name)
+    wrings = [wing_ring(side * x, le, ch, WY + x * dih, t) for x, le, ch, t in WS]
+    w.loft(wrings, lambda c, *_: 'SeaplaneJade' if abs(c[0]) > 6.9 else 'SeaplaneCream', True, True)
+    wings.append(w)
 
 # ---------------------------------------------------------------------------------------------- tail
 tail = Builder('Tail')
@@ -333,12 +341,15 @@ def float_ring(cx, z, w, keel, deck):
     return [(cx + x, y, z) for x, y in pts]
 
 
-floats = Builder('Floats')
-for cx in (1.35, -1.35):
-    floats.loft([float_ring(cx, *s) for s in FL], lambda c, *_: 'SeaplaneCream' if c[1] > 0.55 else 'SeaplaneJade', True, True, False)
-    floats.box((cx, 0.3, -4.0), (0.02, 0.22, 0.14), 'SeaplaneDark')  # the water rudder at the heel
+# one node per float (FloatL = port, FloatR = starboard): a wreck can tear one off
+floats = []
+for cx, name in ((1.35, 'FloatL'), (-1.35, 'FloatR')):
+    fb = Builder(name)
+    floats.append(fb)
+    fb.loft([float_ring(cx, *s) for s in FL], lambda c, *_: 'SeaplaneCream' if c[1] > 0.55 else 'SeaplaneJade', True, True, False)
+    fb.box((cx, 0.3, -4.0), (0.02, 0.22, 0.14), 'SeaplaneDark')  # the water rudder at the heel
     for z in (3.0, -3.2):
-        floats.box((cx, 0.66, z), (0.06, 0.04, 0.03), 'SeaplaneStrut')  # cleats
+        fb.box((cx, 0.66, z), (0.06, 0.04, 0.03), 'SeaplaneStrut')  # cleats
 
 # ---------------------------------------------------------------------------------------------- struts
 struts = Builder('Struts')
@@ -414,7 +425,7 @@ for k in range(3):
         brings.append(ring)
     prop.loft(brings, lambda c, *_: 'SeaplanePropTip' if math.hypot(c[0] - px, c[1] - py) > 1.12 else 'SeaplaneProp', False, True)
 
-objs = [b.build(col) for b in (body, glass, wing, tail, floats, struts, cab, prop)]
+objs = [b.build(col) for b in (body, glass, *wings, tail, *floats, struts, cab, prop)]
 pob = objs[-1]
 # the propeller's origin at the hub, so the node carries the spin axis
 pc = B(PROP)

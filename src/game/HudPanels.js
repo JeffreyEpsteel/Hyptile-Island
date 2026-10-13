@@ -188,9 +188,13 @@ export function installHudPanels( GameHUD ) {
 	function yardExtras( hud ) {
 
 		const nv = navalOf( hud ), s = hud.game.state;
-		if ( ! nv || ! s.boat ) return '';
+		// the seaplane wreck (src/features/seaplane Crash.js): recovered here before anything else
+		const sp = hud.game.app && hud.game.app.features ? hud.game.app.features.get( 'seaplane' ) : null;
+		const spv = sp && sp.view ? sp.view() : null;
+		const wreckRow = spv && spv.lost ? `<div class="gm-shop-row"><span>Recover the seaplane wreck<small>She broke up out there · towed to the ramp, then repair her at the hangar</small></span><span class="gm-shop-act"><span class="gm-price">${ s.free ? 'Free in sandbox' : '$' + ( sp.recoveryCost ? sp.recoveryCost() : 600 ).toLocaleString() }</span><button class="gm-btn" data-recover-plane ${ ! s.free && sp.recoveryCost && sp.recoveryCost() > s.money ? 'disabled' : '' }>Recover</button></span></div>` : '';
+		if ( ! nv || ! s.boat ) return wreckRow;
 		// she lies on the sea floor: salvage first (naval.wreck / salvage)
-		if ( nv.wreck && nv.salvageCost ) { const cost = nv.salvageCost(); return `<div class="gm-shop-row"><span>Salvage ${ BOATS[ s.boat ].name }<small>She lies on the sea floor · raised and moored at her berth with her hold</small></span><span class="gm-shop-act"><span class="gm-price">${ s.free ? 'Free in sandbox' : '$' + cost.toLocaleString() }</span><button class="gm-btn" data-salvage ${ ! s.free && cost > s.money ? 'disabled' : '' }>Salvage</button></span></div>`; }
+		if ( nv.wreck && nv.salvageCost ) { const cost = nv.salvageCost(); return wreckRow + `<div class="gm-shop-row"><span>Salvage ${ BOATS[ s.boat ].name }<small>She lies on the sea floor · raised and moored at her berth with her hold</small></span><span class="gm-shop-act"><span class="gm-price">${ s.free ? 'Free in sandbox' : '$' + cost.toLocaleString() }</span><button class="gm-btn" data-salvage ${ ! s.free && cost > s.money ? 'disabled' : '' }>Salvage</button></span></div>`; }
 		const g = nv.playerGun;
 		if ( g.builtIn ) {
 
@@ -214,6 +218,8 @@ export function installHudPanels( GameHUD ) {
 
 		const nv = navalOf( hud ), s = hud.game.state;
 		if ( ! nv ) return;
+		const rp = hud.stand.querySelector( '[data-recover-plane]' );
+		if ( rp ) rp.onclick = () => { const sp = hud.game.app && hud.game.app.features ? hud.game.app.features.get( 'seaplane' ) : null; const r = sp && sp.recall ? sp.recall() : null; if ( r && r.ok ) { roidClicks( hud, 'buy' ); s.save(); } if ( r && r.text ) hud.game.toast( r.text, 3000 ); hud._keepScroll( () => hud.renderYard() ); };
 		const sb = hud.stand.querySelector( '[data-salvage]' );
 		if ( sb ) sb.onclick = () => { if ( nv.salvage( { free: !! s.free } ) ) { roidClicks( hud, 'buy' ); s.save(); } hud._keepScroll( () => hud.renderYard() ); };
 		const rb = hud.stand.querySelector( '[data-repair]' );

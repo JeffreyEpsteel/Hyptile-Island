@@ -28,6 +28,10 @@ import { STALL_SITES } from '../src/features/trade/stall.js';
 import { YARD } from '../src/game/BoatYard.js';
 import { Systems, FUEL, refuelCost, START_TIME, CONTROLS, TEX, FACE, rayPanel, hitControl, panelSnapshot, drawPanel } from '../src/features/seaplane/index.js';
 import { COCKPIT_KEYS } from '../src/features/seaplane/Seaplane.js';
+import { CRASH, assess, throwPoint, wreckParts, hullOffset } from '../src/features/seaplane/Crash.js';
+import { Wreck, PARTS } from '../src/features/seaplane/Wreck.js';
+import { meshParts, BODY_PARTS, PlaneModels } from '../src/features/seaplane/Model.js';
+import { parseGLB } from '../src/engine/loaders/GLTF.js';
 
 let fails = 0;
 const ok = ( c, msg ) => {
@@ -343,10 +347,17 @@ function makeWorld( { mode = null, money = 0 } = {} ) {
 	}
 
 	input.keys.clear();
-	ok( !! crash, `nose-in: crashed (${ crash ? crash.cause : '-' })` );
-	ok( ! sp.piloted && player.mode === 'walk' && Math.abs( player.position.y - SITE.jetty.y ) < 0.01, 'the pilot is set down on the jetty' );
-	ok( sp.home && sp.hp === 0 && crash && crash.cost === MAX_HP * REPAIR_PER_HP, `the plane is back at the ramp, repair $${ crash ? crash.cost : '-' }` );
-	ok( ! sp.board() && player.mode === 'walk', 'a wrecked plane cannot fly' );
+	ok( !! crash, `nose-in: crashed (${ crash ? `${ crash.cause }: ${ crash.severity } at ${ crash.speed.toFixed( 1 ) } m/s` : '-' })` );
+	// wave 10: a direct hit (over CRASH.fatal) is fatal (no death feature here: set down on the jetty); a wreck throws the
+	// pilot clear beside the pieces; either way the plane stays out there, wrecked, until Captain Roid's crew recovers it
+	if ( crash && crash.severity === 'death' ) ok( ! sp.piloted && player.mode === 'walk' && Math.abs( player.position.y - SITE.jetty.y ) < 0.01, 'the pilot is set down on the jetty' );
+	else ok( ! sp.piloted && [ 'swim', 'walk' ].includes( player.mode ) && sp.thrown && Math.hypot( player.position.x - crash.x, player.position.z - crash.z ) < 25, `the pilot is thrown clear beside the wreck (${ player.mode })` );
+	ok( sp.lost && ! sp.home && sp.hp === 0 && crash && crash.cost === MAX_HP * REPAIR_PER_HP && crash.recovery === CRASH.recovery, `the wreck stays out there: recovery $${ crash ? crash.recovery : '-' } + repair $${ crash ? crash.cost : '-' }` );
+	ok( sp.marker() === null && ! sp.board() && player.mode !== 'plane', 'a wrecked plane cannot fly (and has no plane pin)' );
+	state.money = 100;
+	ok( ! sp.recall().ok && sp.lost, 'the recovery needs the fee' );
+	state.money = 5000 + CRASH.recovery;
+	ok( sp.recall().ok && ! sp.lost && sp.home && sp.hp === 0 && state.money === 5000 && ! sp.wreck, 'Captain Roid\'s crew tows the wreck to the ramp' );
 	state.money = 1000;
 	ok( ! sp.repair().ok, 'repair needs the money' );
 	state.money = 5000;
@@ -772,6 +783,206 @@ function makeWorld( { mode = null, money = 0 } = {} ) {
 	for ( let i = 0; i < 30; i ++ ) W3.frame();
 	W3.sp.act( 'exit', 'panel' );
 	ok( ! W3.sp.piloted, 'climb out from the panel (at rest at the ramp)' );
+
+}
+
+// ---------------------------------------------------------------- wave 10: crashes you can see, and walk away from
+{
+
+	// the table (Crash.js CRASH): pinned
+	ok( CRASH.roughSink === 3 && CRASH.wreckSink === 6 && CRASH.tipWreck === 12 && CRASH.noseWreck === 8 && CRASH.direct === 25 && CRASH.fatal === 40, 'the CRASH thresholds: sink 3 / 6, wingtip 12, nose 8, direct 25, fatal 40 m/s' );
+	const sev = ( e ) => assess( e, MAX_HP ).severity;
+	const touch = ( sink, o = {} ) => ( { type: 'touch', surface: 'water', sink, speed: 26, pitch: 2, roll: 0, ...o } );
+	const strike = ( part, surface, speed, o = {} ) => ( { type: 'strike', part, surface, speed, nose: 0.95, side: 0, ...o } );
+	ok( sev( touch( 2 ) ) === 'none' && sev( touch( 4.2 ) ) === 'rough' && sev( touch( 6.5 ) ) === 'wreck', 'a float arrival: landing under 3 m/s, rough 3-6, a wreck above' );
+	const rl = assess( touch( 4.5, { roll: 6 } ) );
+	ok( rl.damage > 10 && rl.damage < 70 && rl.sprung === 'R', `a rough landing: hull damage (${ rl.damage }%) and the low (starboard) float sprung` );
+	ok( sev( touch( 2, { roll: 40 } ) ) === 'wreck' && sev( touch( 2, { pitch: - 12 } ) ) === 'wreck', 'a wing down or the nose dug in on touchdown: a wreck' );
+	ok( sev( strike( 'wingtip', 'water', 9 ) ) === 'rough' && sev( strike( 'wingtip', 'water', 13 ) ) === 'wreck' && sev( strike( 'wingtip', 'water', 3 ) ) === 'scrape', 'a wingtip in the water: rough under 12 m/s, a wreck above' );
+	ok( sev( strike( 'propeller', 'water', 6 ) ) === 'rough' && sev( strike( 'nose', 'water', 9 ) ) === 'wreck', 'the nose / propeller digging in above 8 m/s: a wreck' );
+	ok( sev( strike( 'float', 'ground', 4 ) ) === 'scrape' && sev( strike( 'float', 'ground', 8 ) ) === 'wreck' && sev( strike( 'tail', 'ground', 15 ) ) === 'wreck', 'the ground: beaching is fine, aground or a part on it is a wreck' );
+	ok( sev( strike( 'nose', 'ground', 30 ) ) === 'death' && sev( strike( 'nose', 'ground', 30, { nose: 0.2 } ) ) === 'wreck' && sev( strike( 'nose', 'ground', 22 ) ) === 'wreck', 'a direct collision: nose first into terrain over 25 m/s is fatal (sideways or slower: a wreck)' );
+	ok( sev( strike( 'propeller', 'ship', 27 ) ) === 'death' && sev( strike( 'wingtip', 'ship', 30 ) ) === 'wreck' && sev( strike( 'wingtip', 'ship', 6 ) ) === 'rough', 'a ship: nose first over 25 fatal, a wing into it a wreck, a clip rough' );
+	ok( sev( strike( 'nose', 'prop', 30 ) ) === 'wreck' && sev( strike( 'nose', 'water', 41 ) ) === 'death' && sev( strike( 'wingtip', 'water', 41 ) ) === 'death', 'a crate is not a cliff; anything over 40 m/s is fatal' );
+	const jr = judge( strike( 'nose', 'ground', 30 ) );
+	ok( jr.kind === 'crash' && jr.severity === 'death' && judge( touch( 4.2 ) ).kind === 'bounce' && judge( strike( 'wingtip', 'water', 20 ) ).severity === 'wreck', 'judge keeps its kinds and carries the severity' );
+	const wp = wreckParts( strike( 'wingtip', 'water', 20, { side: 1 } ), 'wreck', () => 0.3 );
+	ok( wp.includes( 'wingL' ) && wp.includes( 'wingR' ) && wp.includes( 'floatL' ) && ! wp.includes( 'tail' ), `a wreck sheds both wings and the float on the side that hit (${ wp.join( ', ' ) })` );
+	ok( wreckParts( strike( 'tail', 'ground', 15 ), 'wreck', () => 0.3 ).includes( 'tail' ) && wreckParts( strike( 'nose', 'water', 20 ), 'wreck', () => 0.3 ).includes( 'prop' ), 'a tail strike tears the tail off, a nose-in the propeller' );
+
+	// thrown clear: outside the hull and the floats, in the water (swim) or on the ground (walk); not up a cliff
+	const o = { x: 100, y: 1.5, z: 50, yaw: 0.7 };
+	const tw = throwPoint( o, 1, { seaLevel: 0.1, groundAt: () => - 20 }, () => 0.5 );
+	const off = hullOffset( o, tw.x, tw.z );
+	ok( tw.mode === 'swim' && Math.abs( tw.y - ( 0.1 - 0.2 ) ) < 1e-9 && Math.abs( off.side ) > CRASH.clearOf && off.side > 0 && tw.dist < 8, `thrown clear into the water, ${ off.side.toFixed( 1 ) } m to port of the hull` );
+	const tg = throwPoint( o, 1, { seaLevel: 0, groundAt: () => 3 }, () => 0.5 );
+	ok( tg.mode === 'walk' && tg.y === 3 && Math.abs( hullOffset( o, tg.x, tg.z ).side ) > CRASH.clearOf, 'on land: onto the ground beside the wreck' );
+	const tc = throwPoint( o, 1, { seaLevel: 0, groundAt: ( x, z ) => ( hullOffset( o, x, z ).side > 0 ? 40 : - 10 ) }, () => 0.5 );
+	ok( hullOffset( o, tc.x, tc.z ).side < - CRASH.clearOf && tc.mode === 'swim', 'a cliff to port: thrown to starboard instead' );
+
+	// the pieces: detach once, float, sink after their time
+	const w = new Wreck( { position: new E.Vector3( 0, 0.2, 0 ), quaternion: new E.Quaternion(), velocity: new E.Vector3( 0, - 3, 20 ), seed: 3, afloat: 60 } );
+	ok( w.detach( 'wingL' ) && w.detach( 'tail' ) && ! w.detach( 'wingL' ) && ! w.detach( 'fuselage' ) && w.bodies.size === 3, 'parts detach once each (and the fuselage is the wreck itself)' );
+	const ev = [];
+	let afloatAt = null;
+	for ( let i = 0; i < 20 * 90; i ++ ) {
+
+		for ( const e of w.update( 1 / 20, { seaAt: () => 0 } ) ) ev.push( { ...e, t: w.t } );
+		if ( afloatAt === null && w.fuselage.state === 'afloat' ) afloatAt = w.t;
+
+	}
+
+	const sunk = ev.find( ( e ) => e.type === 'sunk' && e.name === 'fuselage' );
+	ok( ev.some( ( e ) => e.type === 'splash' && e.name === 'wingL' ) && afloatAt !== null && afloatAt < 3, 'the torn-off parts fly and splash down; the fuselage settles afloat' );
+	ok( sunk && sunk.t > 60 && sunk.t < 60 + CRASH.sinkTime + 3 && w.sunk, `the fuselage floats its 60 s, then sinks (gone at ${ sunk ? sunk.t.toFixed( 1 ) : '-' } s)` );
+	const wg = new Wreck( { position: new E.Vector3( 0, 6, 0 ), quaternion: new E.Quaternion(), velocity: new E.Vector3( 0, - 5, 10 ), seed: 4, detach: [ 'wingR' ] } );
+	for ( let i = 0; i < 20 * 150; i ++ ) wg.update( 1 / 20, { seaAt: () => 0, groundAt: () => 4 } );
+	ok( wg.fuselage.state === 'aground' && Math.abs( wg.y - ( 4 + PARTS.fuselage.rest ) ) < 1e-6 && ! wg.sunk && wg.bodies.get( 'wingR' ).state === 'aground', 'on land the wreck comes to rest and stays' );
+	// a part's group (model-frame geometry) is placed so the part's centre is where the body is
+	const pp = new E.Vector3(), pq = new E.Quaternion();
+	w.pose( 'tail', pp, pq );
+	const tb = w.bodies.get( 'tail' );
+	ok( new E.Vector3( ...PARTS.tail.c ).applyQuaternion( pq ).add( pp ).distanceTo( tb.c ) < 1e-6, 'a detached group is posed about its own centre' );
+
+	// a sprung float lists the plane to its side
+	const fs0 = new Flight();
+	fs0.place( 0, 0, 0 );
+	fs0.sprung[ 0 ] = 1;
+	fly( fs0, 8, ( p ) => { p.controls.throttle = 0; } );
+	ok( fs0.rollAngle() * DEG < - 0.8, `a sprung port float: it lists to port (${ ( fs0.rollAngle() * DEG ).toFixed( 1 ) } deg)` );
+
+	// the GLB's nodes are the wreck's parts
+	const gb = fs.readFileSync( new URL( '../public/models/seaplane/Seaplane.glb', import.meta.url ) );
+	const parts = meshParts( parseGLB( gb.buffer.slice( gb.byteOffset, gb.byteOffset + gb.byteLength ) ) );
+	ok( [ ...BODY_PARTS, 'prop' ].every( ( n ) => parts.includes( n ) ), `the GLB splits into ${ [ ...new Set( parts ) ].join( ', ' ) }` );
+	// the visual draws each part in its own group; a wreck carries a part off once, the recovery puts it back
+	const scene = new E.Scene();
+	const mk = ( n ) => Object.assign( new E.Mesh( new E.BoxGeometry( 1, 1, 1 ), null ), { name: n } );
+	const pm = new PlaneModels( { scene, load: async () => ( { meshes: [ mk( 'seaplane-SeaplaneJade' ), mk( 'seaplane-SeaplaneCream' ), mk( 'seaplane-SeaplaneJade' ) ], parts: [ 'fuselage', 'wingL', 'tail' ] } ) } );
+	const pv = pm.create();
+	await pm.ready;
+	ok( pv.parts.wingL.children.length === 1 && pv.parts.tail.children.length === 1 && pv.parts.fuselage.children.length === 1, 'the model fills one group per part' );
+	const wg0 = pv.detach( 'wingL' );
+	ok( wg0 && wg0.parent === scene && pv.detach( 'wingL' ) === null, 'a part detaches into the scene once' );
+	pv.reassemble();
+	ok( wg0.parent === pv.body && pv.detached.size === 0, 'and goes back on the recovered plane' );
+
+}
+
+// the wreck in the world: a hard nose-in at 20 m/s (not a direct hit at sea): pieces, the pilot thrown clear
+{
+
+	const W = makeWorld( { money: 50000 } );
+	const { sp, player, state, features, frame, input } = W;
+	const calls = [];
+	const vfx = new Proxy( {}, { get: ( _, k ) => ( ...a ) => calls.push( [ k, ...a ] ) } );
+	features.list.set( 'vfx', { instance: vfx } );
+	const pins = new Map();
+	features.list.set( 'worldmap', { instance: { addMarker: ( m ) => pins.set( m.id, m ), removeMarker: ( id ) => pins.delete( id ) } } );
+	const melee = { combat: { hp: 100, sinceHurt: 9 } };
+	features.list.set( 'melee', { instance: melee } );
+	sp.buy();
+	ok( sp.board(), 'boards for the crash run' );
+	const f = sp.flight;
+	f.position.set( 60, 4, 260 );
+	f.quaternion.setFromAxisAngle( new E.Vector3( 1, 0, 0 ), 25 / DEG ); // nose 25 deg down
+	f.velocity.set( 0, - 8, 18 );
+	f.angular.set( 0, 0, 0 );
+	f.airborne = true;
+	f._wasAir = true;
+	f.airTime = 2;
+	f.engineOn = true;
+	let crash = null;
+	for ( let i = 0; i < 60 * 4 && ! crash; i ++ ) {
+
+		frame();
+		crash = W.events.find( ( e ) => e.n === 'planeCrashed' );
+
+	}
+
+	ok( crash && crash.severity === 'wreck' && crash.water && sp.stats.crashes === 1, `a wreck at sea (${ crash ? `${ crash.cause }, ${ crash.speed.toFixed( 1 ) } m/s` : '-' }), the crash counted` );
+	const wr = sp.wreck;
+	const off = wr ? hullOffset( { x: wr.x, z: wr.z, yaw: wr.yaw }, player.position.x, player.position.z ) : { side: 0, along: 0 };
+	ok( player.mode === 'swim' && ! sp.piloted && ( Math.abs( off.side ) > CRASH.clearOf || Math.abs( off.along ) > 6 ) && Math.hypot( off.side, off.along ) < 10, `thrown clear: swimming ${ Math.hypot( off.side, off.along ).toFixed( 1 ) } m from the wreck, outside the hull` );
+	ok( sp.stun.active && melee.combat.hp < 100 && melee.combat.hp > 0, `blacked out, hurt (health ${ melee.combat.hp }), alive` );
+	ok( wr && wr.detached.has( 'wingL' ) && wr.detached.has( 'wingR' ) && wr.parts.length >= 4, `the plane broke up (${ wr ? wr.parts.map( ( p ) => p.name ).join( ', ' ) : '-' })` );
+	ok( [ 'splash', 'splinters', 'debris', 'smoke' ].every( ( k ) => calls.some( ( c ) => c[ 0 ] === k ) ) && pins.has( 'seaplane-wreck' ), 'a splash, splinters, debris and smoke; a wreck pin on the map' );
+	ok( sp.audio.state.crunches >= 1, 'a crunch' );
+	for ( let i = 0; i < 90; i ++ ) frame();
+	ok( ! sp.stun.active, 'the black-out lifts' );
+	ok( sp.wreck && sp.wreck.fuselage.state === 'afloat' && player.mode === 'swim', 'the fuselage floats; the pilot treads water beside it' );
+	const smokes = calls.filter( ( c ) => c[ 0 ] === 'smoke' ).length;
+	for ( let i = 0; i < 60; i ++ ) frame();
+	ok( calls.filter( ( c ) => c[ 0 ] === 'smoke' ).length > smokes, 'the engine keeps smoking' );
+	ok( ! sp.board() && ! features.nearestInteractable( sp.flight.toWorldXYZ( ...GEOM.door, new E.Vector3() ) )?.id?.startsWith?.( 'seaplane-door' ), 'no boarding a wreck' );
+	// the floating fuselage is a perch: E beside it climbs onto the cabin roof
+	const fz = sp.wreck.fuselage.c;
+	player.position.set( fz.x + 3, player.position.y, fz.z );
+	frame();
+	input.pressed.add( 'KeyE' );
+	frame();
+	ok( player.mode === 'walk' && player.position.y > fz.y + 0.8 && sp._perchBox, `E: out of the water onto the wreck's roof (${ ( player.position.y - fz.y ).toFixed( 2 ) } m over its centre)` );
+	for ( let i = 0; i < 120; i ++ ) frame();
+	ok( player.mode === 'walk' && Math.abs( player.position.y - sp._perchBox.top ) < 0.15, 'standing on it as it bobs' );
+	// let it sink (2 min at sea at most + the sinking), at 20 Hz
+	for ( let i = 0; i < 20 * ( CRASH.afloat[ 1 ] + CRASH.sinkTime + 4 ) && sp.wreck; i ++ ) frame( 1 / 20 );
+	ok( ! sp.wreck && sp.lost && calls.some( ( c ) => c[ 0 ] === 'bubbles' ), 'the wreck sinks after its time (bubbles); the plane stays lost' );
+	ok( player.mode === 'swim' && ! sp._perchBox && ! W.colliders.boxes.some( ( b ) => b.tag === 'seaplane-wreck' ), 'it went down under the pilot: back in the water, the perch gone' );
+	ok( pins.get( 'seaplane-wreck' ) && /sunk/.test( pins.get( 'seaplane-wreck' ).label ), 'the pin marks where it went down' );
+	const saved = JSON.parse( JSON.stringify( sp.toJSON() ) );
+	const W2 = makeWorld();
+	W2.sp.fromJSON( saved );
+	ok( W2.sp.lost && ! W2.sp.board(), 'a lost plane stays lost through a save' );
+	const m0 = state.money;
+	const rc = sp.recall();
+	ok( rc.ok && ! sp.lost && sp.home && state.money === m0 - CRASH.recovery && ! pins.has( 'seaplane-wreck' ) && /Roid/.test( rc.text ), `recovered through the hangar for $${ CRASH.recovery } (${ rc.text })` );
+	ok( sp.repair().ok && sp.hp === MAX_HP && sp.board(), 'repaired, it flies again' );
+
+	// a rough landing: damage and a sprung float, the pilot stays aboard
+	f.position.set( 60, 0.45, 260 );
+	f.quaternion.setFromAxisAngle( new E.Vector3( 0, 0, 1 ), 4 / DEG ).multiply( new E.Quaternion().setFromAxisAngle( new E.Vector3( 1, 0, 0 ), - 3 / DEG ) );
+	f.velocity.set( 0, - 4.4, 24 );
+	f.angular.set( 0, 0, 0 );
+	f.airborne = true;
+	f._wasAir = true;
+	f.airTime = 2;
+	W.events.length = 0;
+	let landed = null;
+	for ( let i = 0; i < 60 * 3 && ! landed; i ++ ) {
+
+		frame();
+		landed = W.events.find( ( e ) => e.n === 'planeLanded' );
+
+	}
+
+	ok( landed && landed.sink >= CRASH.roughSink && landed.sink < CRASH.wreckSink && sp.hp < MAX_HP && sp.hp > 0, `a rough landing (sink ${ landed ? landed.sink.toFixed( 1 ) : '-' } m/s): hull ${ Math.round( sp.hp ) }%` );
+	ok( sp.piloted && player.mode === 'plane' && ! sp.lost && ( f.sprung[ 0 ] > 0 || f.sprung[ 1 ] > 0 ) && sp.view().sprung, 'the pilot stays aboard; a float is sprung' );
+	ok( sp.repair().ok && f.sprung[ 0 ] === 0 && f.sprung[ 1 ] === 0, 'the repair fixes the float' );
+
+	// a ground wreck: thrown onto the ground beside it, a fire for ~20 s
+	const land = { x: - 2.6, z: - 117.2 };
+	const g = terrain.heightAt( land.x, land.z );
+	f.place( land.x, land.z, 0.5, g + 0.2 );
+	f.velocity.set( 0, - 2, 14 );
+	calls.length = 0;
+	const ge = { type: 'strike', part: 'float', surface: 'ground', speed: 14, nose: 0.9, side: 0 };
+	sp._crash( 'Ran aground', ge, judge( ge ) );
+	ok( player.mode === 'walk' && Math.abs( player.position.y - terrain.heightAt( player.position.x, player.position.z ) ) < 1.2 && calls.some( ( c ) => c[ 0 ] === 'fire' ) && calls.some( ( c ) => c[ 0 ] === 'dust' ), `a ground wreck: thrown onto the ground (${ player.mode }), dust and a fire` );
+	for ( let i = 0; i < 20 * ( CRASH.fire + 2 ); i ++ ) frame( 1 / 20 );
+	ok( calls.some( ( c ) => c[ 0 ] === 'stopFire' ) && sp.wreck && sp.wreck.fuselage.state === 'aground', 'the fire dies after ~20 s; the wreck stays on land' );
+	ok( sp.recall().ok && ! sp.wreck && sp.home, 'and is recovered from there' );
+
+	// a direct collision: playerDied (the death feature takes it from there)
+	features.list.set( 'death', { instance: {} } );
+	const died = [];
+	features.on( 'playerDied', ( e ) => died.push( e ) );
+	sp.repair();
+	sp.board();
+	f.place( land.x, land.z, 0.5, g + 1 );
+	f.velocity.set( 0, - 6, 32 );
+	const de = { type: 'strike', part: 'nose', surface: 'ground', speed: 32, nose: 0.97, side: 0 };
+	sp._crash( 'Nose first into the ground', de, judge( de ) );
+	ok( died.length === 1 && died[ 0 ].cause === 'seaplane' && sp.lost && sp.stats.crashes === 3, 'a direct collision kills the pilot (playerDied seaplane), the plane is wrecked' );
 
 }
 

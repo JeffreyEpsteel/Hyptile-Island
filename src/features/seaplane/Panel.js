@@ -2,6 +2,8 @@
 // it, bring it back to the berth, and the short flying notes. A glass panel in the HUD's look (the --tw-* tokens of
 // ui/ui.css, .tw-glass), built lazily the first time it opens; Escape or the close button shuts it.
 // Everything it shows comes from seaplane.view(); the buttons call seaplane.buy() / repair() / refuel() / recall().
+// Wave 10: after a crash the plane is lost: "Recover the wreck" (recall(): Captain Roid's crew, CRASH.recovery) comes
+// first, then the repair; a sprung float shows as a row.
 // Wave 8: while piloting the same window is the cockpit's switch panel (3, or the touch controls' Cockpit button):
 // every panel control as a button (seaplane.act( id )), plus climbing out and refuelling when they are possible.
 
@@ -135,17 +137,21 @@ export class SeaplanePanel {
 
 			const pct = Math.round( v.hp );
 			rows.push( `<div class="sp-row"><span>${ t( 'seaplane.condition', 'Condition' ) }</span><div class="sp-bar ${ pct < 35 ? 'is-low' : '' }"><i style="width:${ pct }%"></i></div><b>${ pct }%</b></div>` );
-			rows.push( `<div class="sp-row"><span>${ t( 'seaplane.where', 'Where' ) }</span><b>${ v.home ? t( 'seaplane.atRamp', 'At the ramp' ) : t( 'seaplane.away', 'Away from the ramp' ) }</b></div>` );
+			const where = v.lost ? ( v.wreck ? t( 'seaplane.wrecked', 'Wrecked: the pieces are still out there' ) : t( 'seaplane.wreckGone', 'Wrecked: on the bottom' ) ) : v.home ? t( 'seaplane.atRamp', 'At the ramp' ) : t( 'seaplane.away', 'Away from the ramp' );
+			rows.push( `<div class="sp-row"><span>${ t( 'seaplane.where', 'Where' ) }</span><b>${ where }</b></div>` );
+			if ( v.sprung && ! v.lost ) rows.push( `<div class="sp-row"><span>${ t( 'seaplane.floats', 'Floats' ) }</span><b>${ t( 'seaplane.sprungRow', 'One is sprung: it lists and drags' ) }</b></div>` );
 			const fp = Math.round( v.fuel * 100 );
 			rows.push( `<div class="sp-row"><span>${ t( 'seaplane.fuel', 'Fuel' ) }</span><div class="sp-bar ${ fp < 15 ? 'is-low' : '' }"><i style="width:${ fp }%"></i></div><b>${ Math.round( v.litres ) } L</b></div>` );
-			if ( v.repairCost > 0 || pct < 100 ) acts += `<button class="sp-btn is-main" data-act="repair" ${ v.canRepair ? '' : 'disabled' }>${ t( 'seaplane.repair', 'Repair' ) } · ${ v.free ? t( 'seaplane.freeShort', 'free' ) : money( v.repairCost ) }</button>`;
-			if ( fp < 100 ) acts += `<button class="sp-btn is-main" data-act="refuel" ${ v.canRefuel ? '' : 'disabled' }>${ t( 'seaplane.refuel', 'Refuel' ) } · ${ v.free ? t( 'seaplane.freeShort', 'free' ) : money( v.refuelCost ) }</button>`;
-			if ( ! v.home && ! v.piloted ) acts += `<button class="sp-btn" data-act="recall">${ t( 'seaplane.recall', 'Tow it back to the ramp' ) }</button>`;
+			// wave 10: a wreck comes back through Captain Roid's crew first (the recovery fee), then the repair
+			if ( v.lost ) acts += `<button class="sp-btn is-main" data-act="recall" ${ v.canRecover ? '' : 'disabled' }>${ t( 'seaplane.recover', 'Recover the wreck' ) } · ${ v.free ? t( 'seaplane.freeShort', 'free' ) : money( v.recoveryCost ) }</button>`;
+			if ( ! v.lost && ( v.repairCost > 0 || pct < 100 ) ) acts += `<button class="sp-btn is-main" data-act="repair" ${ v.canRepair ? '' : 'disabled' }>${ t( 'seaplane.repair', 'Repair' ) } · ${ v.free ? t( 'seaplane.freeShort', 'free' ) : money( v.repairCost ) }</button>`;
+			if ( fp < 100 && ! v.lost ) acts += `<button class="sp-btn is-main" data-act="refuel" ${ v.canRefuel ? '' : 'disabled' }>${ t( 'seaplane.refuel', 'Refuel' ) } · ${ v.free ? t( 'seaplane.freeShort', 'free' ) : money( v.refuelCost ) }</button>`;
+			if ( ! v.home && ! v.piloted && ! v.lost ) acts += `<button class="sp-btn" data-act="recall">${ t( 'seaplane.recall', 'Tow it back to the ramp' ) }</button>`;
 
 		}
 
 		acts += `<button class="sp-btn" data-act="close">${ t( 'seaplane.close', 'Close' ) }</button>`;
-		const notes = t( 'seaplane.notes2', 'Board at the door from the jetty (E). <kbd>O</kbd> starts the engine (or just open the throttle), <kbd>Shift</kbd> / <kbd>C</kbd> throttle, <kbd>W</kbd> / <kbd>S</kbd> nose down / up, <kbd>A</kbd> / <kbd>D</kbd> bank (steer while taxiing), <kbd>,</kbd> / <kbd>.</kbd> rudder, <kbd>[</kbd> / <kbd>]</kbd> flaps, <kbd>-</kbd> / <kbd>=</kbd> trim, <kbd>Y</kbd> autopilot, <kbd>V</kbd> the cockpit (click its switches). Flaps 1, get on the step and pull back gently near 26 m/s. Land into the water slowly: a sink over 3 m/s bends the floats. A full tank lasts about 25 minutes at full power.' );
+		const notes = t( 'seaplane.notes2', 'Board at the door from the jetty (E). <kbd>O</kbd> starts the engine (or just open the throttle), <kbd>Shift</kbd> / <kbd>C</kbd> throttle, <kbd>W</kbd> / <kbd>S</kbd> nose down / up, <kbd>A</kbd> / <kbd>D</kbd> bank (steer while taxiing), <kbd>,</kbd> / <kbd>.</kbd> rudder, <kbd>[</kbd> / <kbd>]</kbd> flaps, <kbd>-</kbd> / <kbd>=</kbd> trim, <kbd>Y</kbd> autopilot, <kbd>V</kbd> the cockpit (click its switches). Flaps 1, get on the step and pull back gently near 26 m/s. Land into the water slowly: a sink over 3 m/s bends the floats. A full tank lasts about 25 minutes at full power. A hard arrival springs a float; a crash breaks the plane up (you are thrown clear unless you fly straight into something): the crew of Captain Roid recovers the wreck from here.' );
 		this.el.innerHTML = `
 <div class="sp-head"><div><h2>${ t( 'seaplane.title', 'Seaplane hangar' ) }</h2><p class="sp-sub">${ t( 'seaplane.sub', 'A jade high-wing floatplane: takes off from and lands on the water' ) }</p></div></div>
 <div class="sp-rows">${ rows.join( '' ) }</div>

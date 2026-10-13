@@ -8,13 +8,15 @@
 //   pilot.ap { on, alt, dropped } (the autopilot holds the wings level and the altitude it was engaged at; a firm
 //   stick or the water drops it and sets `dropped` for the caller's toast)
 //                                          // pad: null | { pitch, roll, yaw, throttle } analogue -1..1 (throttle: rate)
-//   judge( event, hp ) -> { kind: 'fine' | 'landed' | 'tookOff' | 'bounce' | 'crash' | 'scrape', damage, onWater, text }
+//   judge( event, hp ) -> { kind: 'fine' | 'landed' | 'tookOff' | 'bounce' | 'crash' | 'scrape', severity (Crash.js:
+//                           'none' | 'scrape' | 'rough' | 'wreck' | 'death'), damage, hurt, sprung, onWater, text }
 //
 // Keys (Seaplane.js reads them): Shift / C throttle up / down, W / S nose down / up, A / D roll (water rudder and
 // rudder while taxiing), , / . rudder. Wave 5: never Ctrl (Ctrl+W closes the browser tab and a page cannot stop it). With the stick neutral the assist levels the wings and damps the pitch, so a
 // released plane settles instead of spiralling in; it fades out while the player is holding the stick.
 
 import { MathUtils } from '../../engine/index.js';
+import { CRASH, assess } from './Crash.js';
 
 const clamp = MathUtils.clamp;
 const sstep = MathUtils.smoothstep;
@@ -43,8 +45,8 @@ export const AUTOPILOT = {
 	stallGuard: 3 * Math.PI / 180, // rad of stall margin: below it the autopilot lowers the nose
 };
 
-// sink rate (m/s) bands at touchdown
-export const TOUCH = { fine: 3, crash: 6 };
+// sink rate (m/s) bands at touchdown (Crash.js's CRASH holds the whole table)
+export const TOUCH = { fine: CRASH.roughSink, crash: CRASH.wreckSink };
 export const MAX_HP = 100;
 
 export class Pilot {
@@ -179,47 +181,17 @@ export class Pilot {
 
 }
 
-// what a Flight event means: touchdowns by sink rate and attitude, strikes by part and speed
+// what a Flight event means: touchdowns by sink rate and attitude, strikes by part, speed and what was hit. Wave 10: the
+// table is Crash.js's CRASH (assess); judge keeps the older kinds for the callers ('bounce' is a rough landing,
+// 'crash' a wreck or, with severity 'death', a direct collision) and adds severity, hurt (pilot health) and sprung.
 export function judge( e, hp = MAX_HP ) {
 
-	if ( ! e ) return { kind: 'fine', damage: 0 };
-	if ( e.type === 'liftoff' ) return { kind: 'tookOff', damage: 0 };
-	if ( e.type === 'touch' ) {
-
-		const onWater = e.surface === 'water';
-		const sink = e.sink || 0;
-		// nose in, a wing down or a dive onto the water: the floats dig in
-		const attitude = ( e.pitch ?? 0 ) < - 8 || Math.abs( e.roll ?? 0 ) > 25;
-		if ( ! onWater && ( sink > 2 || Math.abs( e.speed || 0 ) > 8 ) ) return { kind: 'crash', damage: hp, onWater, text: 'The floats hit the ground' };
-		if ( sink >= TOUCH.crash || ( attitude && sink > 1.5 ) ) return { kind: 'crash', damage: hp, onWater, text: 'The seaplane hit the water too hard' };
-		if ( sink >= TOUCH.fine ) {
-
-			const damage = Math.round( ( sink - TOUCH.fine ) / ( TOUCH.crash - TOUCH.fine ) * 60 + 10 );
-			return damage >= hp ? { kind: 'crash', damage: hp, onWater, text: 'The hard landing broke a float strut' } : { kind: 'bounce', damage, onWater, text: 'Hard landing: the floats took a knock' };
-
-		}
-
-		return { kind: 'landed', damage: 0, onWater };
-
-	}
-
-	if ( e.type === 'strike' ) {
-
-		const v = e.speed || 0;
-		if ( e.surface === 'ground' ) {
-
-			if ( e.part === 'float' ) return v > 6 ? { kind: 'crash', damage: hp, text: 'The seaplane ran aground' } : { kind: 'scrape', damage: 0 };
-			return { kind: 'crash', damage: hp, text: e.part === 'propeller' ? 'The propeller struck the ground' : `The ${ e.part } hit the ground` };
-
-		}
-
-		// in the water: dug in at speed is a crash, a slow dip a scrape
-		if ( v > 10 ) return { kind: 'crash', damage: hp, text: e.part === 'wingtip' ? 'A wingtip caught the water' : `The ${ e.part } dug into the water` };
-		if ( v > 4 ) return { kind: 'bounce', damage: 15, text: `The ${ e.part } dipped into the water` };
-		return { kind: 'scrape', damage: 0 };
-
-	}
-
-	return { kind: 'fine', damage: 0 };
+	if ( ! e ) return { kind: 'fine', damage: 0, severity: 'none' };
+	if ( e.type === 'liftoff' ) return { kind: 'tookOff', damage: 0, severity: 'none' };
+	if ( e.type !== 'touch' && e.type !== 'strike' ) return { kind: 'fine', damage: 0, severity: 'none' };
+	const a = assess( e, hp );
+	const onWater = e.type === 'touch' ? e.surface === 'water' : undefined;
+	const kind = a.severity === 'none' ? ( e.type === 'touch' ? 'landed' : 'fine' ) : a.severity === 'scrape' ? 'scrape' : a.severity === 'rough' ? 'bounce' : 'crash';
+	return { kind, severity: a.severity, damage: kind === 'crash' ? hp : a.damage, hurt: a.hurt, sprung: a.sprung, onWater, text: a.text, speed: a.speed };
 
 }

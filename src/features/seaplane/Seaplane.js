@@ -22,9 +22,22 @@
 // light, [ / ] flaps, - / = trim (held), Y autopilot, 3 the cockpit's switch panel (touch), M (or the radio) the map.
 // A ~25 min tank: refuel at the hangar (free in the sandbox). sp.act( id ) runs a panel control; sp.refuel();
 // sp.wantsMouse() while piloting (the left button belongs to the panel, not the rod); sp.lights (nav, landing, cabin).
+// Wave 10, crashes you can see (Crash.js the table, Wreck.js the pieces): a strike is judged from the physics - a rough
+// landing (hull damage, a float sprung: f.sprung lists it and drags until repaired; a splash and a bang, you stay
+// aboard), a wreck (the GLB's parts tear off and fly, splash, float and sink; smoke ~40 s, fire ~20 s on land; you are
+// thrown clear a few metres away, blacked out 0.8 s and hurt, alive) or a direct collision (playerDied as before).
+// sp.lost: the plane is gone until it is recovered at the hangar (sp.recall(): the recovery fee CRASH.recovery, then the
+// repair as before; free in the sandbox); sp.wreck { x, y, z, yaw, t, parts } while the fuselage is still up; a
+// worldmap marker 'seaplane-wreck'. Ships (naval hull / rigging boxes), solid colliders and destruction props are struck
+// too (Flight STRIKE points; props along the nose's path). planeCrashed gains { severity, speed, water, recovery };
+// seaplaneRecovered { cost }. The floating fuselage's cabin roof is a perch (a walkable collider box riding it): a swimmer
+// beside it climbs on with E (or swims onto it) instead of treading water; it goes when the wreck starts to sink.
 
 import { Vector3, Quaternion } from '../../engine/index.js';
-import { Flight, GEOM } from './Flight.js';
+import { Flight, GEOM, STRIKE } from './Flight.js';
+import { CRASH, throwPoint, wreckParts } from './Crash.js';
+import { Wreck } from './Wreck.js';
+import { Stun } from './Stun.js';
 import { Pilot, judge, MAX_HP } from './Pilot.js';
 import { SITE, SeaplaneSite, jettyPoint, distToBerth } from './Site.js';
 import { PlaneModels } from './Model.js';
@@ -45,7 +58,20 @@ export const THROTTLE_DOWN = 'KeyC';
 // the cockpit's keys -> Seaplane.act ids (pressed, not held; the trim keys are held: _keysNow)
 export const COCKPIT_KEYS = { KeyO: 'engine', KeyU: 'master', KeyN: 'nav', Semicolon: 'landing', KeyY: 'ap', BracketLeft: 'flapsUp', BracketRight: 'flapsDown', Digit3: 'panel' };
 
-const _v = new Vector3(), _v2 = new Vector3(), _q = new Quaternion();
+const _v = new Vector3(), _v2 = new Vector3(), _v3 = new Vector3(), _nose = new Vector3(), _q = new Quaternion();
+const WRECK_ID = 'seaplane-wreck';
+const ROOF_Y = 3.1, ROOF_Z = 0.85; // the cabin roof over the seats (model frame): the wreck's perch
+const PERCH_REACH = 4.2; // m from the fuselage's centre a swimmer can climb on from
+const money$ = ( n ) => '$' + Math.round( n ).toLocaleString( 'en-US' );
+// a point inside a naval yawBox ( { c, a: [ axes ], h: [ half extents ] } )
+const inBox = ( b, x, y, z ) => {
+
+	if ( ! b || ! b.c ) return false;
+	const dx = x - b.c.x, dy = y - b.c.y, dz = z - b.c.z;
+	for ( let i = 0; i < 3; i ++ ) if ( Math.abs( dx * b.a[ i ].x + dy * b.a[ i ].y + dz * b.a[ i ].z ) > b.h[ i ] ) return false;
+	return true;
+
+};
 
 export class Seaplane {
 
@@ -70,6 +96,14 @@ export class Seaplane {
 		this._sinceExit = Infinity;
 		this._swimHint = false;
 		this._offs = [];
+		this.lost = false; // wrecked: gone until recovered at the hangar
+		this._wreck = null; // the pieces (Wreck.js) while any of them is still about
+		this._wfx = null; // the wreck's effects clock
+		this._wq = [ false, false, false, false ]; // water probe slots pointed at wreck pieces
+		this._prevNose = null;
+		this._perchBox = null;
+		this._perchHint = false;
+		this.stun = new Stun( this.app );
 
 		const terrain = this.app.terrainData || null;
 		this.terrain = terrain;
@@ -128,7 +162,7 @@ export class Seaplane {
 				id: 'seaplane-door',
 				position: () => f.toWorldXYZ( GEOM.door[ 0 ], GEOM.door[ 1 ], GEOM.door[ 2 ], _v2 ),
 				radius: 3.2,
-				when: () => ! this.piloted && ! this._aboard(),
+				when: () => ! this.piloted && ! this._aboard() && ! this.lost,
 				prompt: () => ( ! this.owned ? t( 'seaplane.forSale', 'Seaplane for sale · ask at the hangar' ) : this.hp <= 0 ? t( 'seaplane.broken', 'Seaplane · needs repair at the hangar' ) : t( 'seaplane.board', 'Fly the seaplane' ) ),
 				onInteract: () => this.board(),
 			} ) );
@@ -162,6 +196,21 @@ export class Seaplane {
 
 	}
 
+	// what raising and towing the wreck costs (the repair comes on top)
+	recoveryCost() {
+
+		return this.free ? 0 : CRASH.recovery;
+
+	}
+
+	// the wreck while its fuselage is still up (it sinks after CRASH.afloat s at sea; on land it stays), else null
+	get wreck() {
+
+		const w = this._wreck;
+		return w && ! w.sunk ? w : null;
+
+	}
+
 	repairCost() {
 
 		return this.free ? 0 : Math.round( ( MAX_HP - this.hp ) * REPAIR_PER_HP );
@@ -176,7 +225,9 @@ export class Seaplane {
 		return {
 			owned: this.owned, free: this.free, price: PRICE, money, hp: this.hp, home: this.home, piloted: this.piloted,
 			canBuy: ! this.owned && ( this.free || money >= PRICE ), repairCost: this.repairCost(),
-			canRepair: this.owned && this.hp < MAX_HP && ( this.free || money >= this.repairCost() ),
+			canRepair: this.owned && ! this.lost && this.hp < MAX_HP && ( this.free || money >= this.repairCost() ),
+			lost: this.lost, wreck: !! this.wreck, recoveryCost: this.recoveryCost(), canRecover: this.lost && ( this.free || money >= this.recoveryCost() ),
+			sprung: this.flight.sprung[ 0 ] > 0 || this.flight.sprung[ 1 ] > 0,
 			fuel, litres: fuel * FUEL.litres, tank: FUEL.litres, refuelCost: fuelCost,
 			canRefuel: this.owned && this.home && fuel < 0.995 && ! f.airborne && ( this.free || money >= fuelCost ),
 			cockpit: { master: s.master, engine: f.engineOn, cranking: s.cranking, nav: s.nav, landing: s.landing, ap: s.apOn, flaps: f.flaps, trim: this.pilot.trim, canExit: this.canExit() },
@@ -235,11 +286,13 @@ export class Seaplane {
 
 	repair() {
 
+		if ( this.lost ) return { ok: false, text: t( 'seaplane.recoverFirst', 'Recover the wreck first' ) };
 		if ( ! this.owned || this.hp >= MAX_HP ) return { ok: false, text: t( 'seaplane.noRepair', 'Nothing to repair' ) };
 		const cost = this.repairCost();
 		const st = this.features && this.features.state;
 		if ( cost > 0 && ( ! st || ! st.spend || ! st.spend( cost ) ) ) return { ok: false, text: t( 'seaplane.short', 'Not enough money yet' ) };
 		this.hp = MAX_HP;
+		this.flight.sprung[ 0 ] = this.flight.sprung[ 1 ] = 0;
 		this._save();
 		return { ok: true, text: t( 'seaplane.repaired', 'Repaired: good as new' ) };
 
@@ -261,10 +314,26 @@ export class Seaplane {
 
 	}
 
-	// tow it home (left out at sea, or drifted off)
+	// tow it home (left out at sea, or drifted off); a wreck is raised and towed by Captain Roid's crew for the recovery
+	// fee and comes back to the ramp in pieces (the repair as before)
 	recall() {
 
 		if ( this.piloted ) return { ok: false, text: '' };
+		if ( this.lost ) {
+
+			const cost = this.recoveryCost();
+			const st = this.features && this.features.state;
+			if ( cost > 0 && ( ! st || ! st.spend || ! st.spend( cost ) ) ) return { ok: false, text: t( 'seaplane.short', 'Not enough money yet' ) + ` (${ money$( cost ) })` };
+			this._clearWreck();
+			this.lost = false;
+			this._place();
+			this._save();
+			this._emit( 'seaplaneRecovered', { cost } );
+			const rep = this.repairCost();
+			return { ok: true, text: t( 'seaplane.recovered', "Captain Roid's crew raised the wreck and towed it to the ramp" ) + ( rep > 0 ? ` · ${ t( 'seaplane.repairNext', 'repair' ) } ${ money$( rep ) }` : '' ) };
+
+		}
+
 		this._place();
 		return { ok: true, text: t( 'seaplane.towed', 'Towed back to the ramp' ) };
 
@@ -297,7 +366,7 @@ export class Seaplane {
 
 		const p = this.app.player;
 		if ( this.piloted ) return false;
-		if ( ! this.owned || this.hp <= 0 ) {
+		if ( ! this.owned || this.hp <= 0 || this.lost ) {
 
 			this.open();
 			return false;
@@ -335,7 +404,7 @@ export class Seaplane {
 	_swimmerBoard() {
 
 		const p = this.app.player, inp = this.app.input;
-		if ( ! p || p.mode !== 'swim' || ! this.owned || this.hp <= 0 || this._sinceExit < 0.6 ) return;
+		if ( ! p || p.mode !== 'swim' || ! this.owned || this.hp <= 0 || this.lost || this._sinceExit < 0.6 ) return;
 		const d = this.flight.toWorldXYZ( GEOM.door[ 0 ], GEOM.door[ 1 ], GEOM.door[ 2 ], _v2 );
 		if ( Math.hypot( d.x - p.position.x, d.z - p.position.z ) > 3.2 ) {
 
@@ -636,6 +705,7 @@ export class Seaplane {
 		}
 
 		f.update( dt );
+		this._obstacles();
 		const crashes = this.stats.crashes;
 		for ( const e of f.drainEvents() ) {
 
@@ -652,6 +722,7 @@ export class Seaplane {
 
 		}
 
+		if ( this.lost ) return; // (wrecked this step: the wreck draws itself now)
 		this._queueWater();
 		if ( f.airborne ) this.stats.maxAlt = Math.max( this.stats.maxAlt, f.agl );
 		this._syncVisual( dt );
@@ -705,64 +776,484 @@ export class Seaplane {
 
 			}
 
-			if ( r.kind === 'bounce' ) {
-
-				this.hp = Math.max( 1, this.hp - r.damage );
-				this._toast( `${ r.text } (${ Math.round( this.hp ) }%)`, 2400 );
-				this.app.cameraFeel?.kick?.( 'land' );
-
-			}
-
+			if ( r.kind === 'bounce' ) this._rough( r, e );
 			return;
 
 		}
 
-		if ( r.kind === 'crash' ) this._crash( r.text || 'The seaplane crashed', e );
+		if ( r.kind === 'crash' ) this._crash( r.text || 'The seaplane crashed', e, r );
 
 	}
 
-	_crash( cause, e = null ) {
+	// a rough landing (or a part dipped / clipped): hull damage, a float sprung, a splash and a bang; the pilot stays aboard
+	_rough( r, e ) {
+
+		const f = this.flight, x = f.position.x, z = f.position.z;
+		const vfx = this.features && this.features.get ? this.features.get( 'vfx' ) : null;
+		this.hp = Math.max( 1, this.hp - r.damage );
+		if ( r.sprung ) {
+
+			const i = r.sprung === 'L' ? 0 : 1;
+			f.sprung[ i ] = Math.min( 1, f.sprung[ i ] + 0.6 );
+
+		}
+
+		const water = ! e.surface || e.surface === 'water';
+		if ( water ) vfx?.splash?.( x, f.seaLevel(), z, 1.1 );
+		else vfx?.splinters?.( x, f.position.y + 2, z, 0.7 );
+		this.audio.crunch( 0.45, x, f.position.y + 1, z, water );
+		this._toast( `${ r.text } (${ Math.round( this.hp ) }%)`, 2600 );
+		if ( this.piloted ) this.app.cameraFeel?.kick?.( 'hit' );
+
+	}
+
+	// a wreck (or a direct collision): the plane breaks up where it hit and is gone until recovered; the pilot is thrown
+	// clear (alive) unless it was a direct collision (playerDied, or the jetty without the death feature)
+	_crash( cause, e = null, r = null ) {
 
 		const f = this.flight;
 		const x = f.position.x, y = f.position.y, z = f.position.z;
-		const vfx = this.features && this.features.get ? this.features.get( 'vfx' ) : null;
-		const water = ! e || e.surface !== 'ground';
-		if ( water ) vfx?.splash?.( x, f.seaLevel(), z, 1.6 );
-		vfx?.debris?.( x, y + 1.5, z, 1.2, 'wood' );
+		const sea = f.seaLevel();
+		const ground = this.terrain && this.terrain.heightAt ? this.terrain.heightAt( x, z ) : - Infinity;
+		const surf = e && e.surface;
+		const water = surf === 'water' || ( surf !== 'ground' && ground < sea - 0.5 );
+		// (a bare _crash( cause ), without a judged event, is the old fatal crash: test/feature-death.mjs drives it so)
+		const severity = r ? ( r.severity === 'death' ? 'death' : 'wreck' ) : 'death';
+		const speed = r && Number.isFinite( r.speed ) && r.speed > 0 ? r.speed : f.velocity.length();
 		this.stats.crashes ++;
 		this.hp = this.free ? MAX_HP : 0;
 		const cost = this.repairCost();
 		const wasPiloted = this.piloted;
 		this.piloted = false;
-		this._place();
+		this.systems.stop();
+		f.controls.throttle = 0;
+		this.pilot.reset();
+		if ( this.isOpen() ) this.close();
+		this.lost = true;
+		this._breakUp( e, severity, water, wasPiloted );
 		const p = this.app.player;
 		const death = this.features && this.features.get ? this.features.get( 'death' ) : null;
-		let died = false;
+		let died = false, thrown = null;
 		if ( wasPiloted && p && p.exitVehicle ) {
 
-			if ( death ) {
+			if ( severity === 'death' && death ) {
 
-				// the crash kills the pilot: out of the cockpit where it hit, and the death feature (src/features/death)
-				// cuts to black, leaves the sea chest there and wakes you at Jade Landing
-				const sea = typeof f.seaLevel === 'function' ? f.seaLevel() : 0;
+				// a direct collision kills the pilot: out of the cockpit where it hit, and the death feature
+				// (src/features/death) cuts to black, leaves the sea chest there and wakes you at Jade Landing
 				if ( water ) p.exitVehicle( x, sea - 0.3, z, p.yaw, 'swim', sea );
 				else p.exitVehicle( x, y, z, p.yaw, 'walk' );
 				died = true;
 
-			} else {
+			} else if ( severity === 'death' ) {
 
-				// rescued and set down on the jetty beside the towed-back plane
+				// (no death feature) rescued and set down on the jetty
 				const jp = jettyPoint( SITE.berth.x + 3, SITE.berth.z - 4 );
 				p.exitVehicle( jp.x, jp.y, jp.z, Math.PI, 'walk' );
+
+			} else thrown = this._throwClear( e, r, water, sea );
+
+		}
+
+		const recovery = this.recoveryCost();
+		this._emit( 'planeCrashed', { cause, x, y, z, cost, severity, speed, water, recovery } );
+		if ( died ) this._emit( 'playerDied', { cause: 'seaplane', text: cause, x, y: water ? sea : y, z } );
+		this._save();
+		const bill = this.free ? '' : ` ${ t( 'seaplane.recoverAt', 'Recover it at the hangar' ) } (${ money$( recovery ) } + ${ t( 'seaplane.repairNext', 'repair' ) } ${ money$( cost ) }).`;
+		if ( ! died ) this._toast( thrown ? `${ cause }. ${ t( 'seaplane.thrownClear', 'You were thrown clear.' ) }${ bill }` : `${ cause }.${ bill || ' ' + t( 'seaplane.recoverFree', 'Recover it at the hangar.' ) }`, 5600 );
+		return thrown;
+
+	}
+
+	// out of the breaking plane: a few metres clear of the hull into the water or onto the ground, a black-out, hurt
+	_throwClear( e, r, water, sea ) {
+
+		const p = this.app.player, w = this._wreck;
+		const o = { x: w.x, y: w.y, z: w.z, yaw: w.yaw };
+		const terrain = this.terrain;
+		const env = {
+			seaLevel: sea,
+			groundAt: ( x, z ) => ( terrain && terrain.heightAt ? terrain.heightAt( x, z ) : - Infinity ),
+			jetty: ( x, z ) => jettyPoint( x, z ),
+			solidAt: ( x, y, z ) => !! this._solidAt( x, y, z ),
+		};
+		// away from the side that hit (the port door otherwise)
+		const side = e && e.side > 0 ? - 1 : 1;
+		const tp = throwPoint( o, side, env, this._rand || Math.random );
+		const yaw = Math.atan2( o.x - tp.x, o.z - tp.z ) + Math.PI; // facing the wreck (Player yaw 0 faces -Z)
+		p.exitVehicle( tp.x, tp.y, tp.z, yaw, tp.mode, tp.mode === 'swim' ? sea : null );
+		this._sinceExit = 0;
+		this.stun.start( CRASH.stun );
+		const hurt = r && r.hurt ? r.hurt : CRASH.hurt[ 0 ];
+		const melee = this.features && this.features.get ? this.features.get( 'melee' ) : null;
+		const c = melee && melee.combat;
+		if ( c && Number.isFinite( c.hp ) ) {
+
+			c.hp = Math.max( 1, c.hp - hurt ); // hurt, never killed by the throw
+			if ( 'sinceHurt' in c ) c.sinceHurt = 0;
+
+		}
+
+		this.thrown = { ...tp, hurt };
+		return this.thrown;
+
+	}
+
+	// the wreck: the pieces (Wreck.js), the GLB's parts torn off the visual, the impact's effects
+	_breakUp( e, severity, water, piloted ) {
+
+		const f = this.flight;
+		const seed = Number.isFinite( this.opts.seed ) ? this.opts.seed + this.stats.crashes : ( Math.random() * 1e9 ) | 0;
+		if ( this._wreck ) this._clearWreck(); // (a second wreck replaces a first that was never recovered)
+		const w = new Wreck( { position: f.position, quaternion: f.quaternion, velocity: f.velocity, angular: f.angular, seed } );
+		this._rand = w.rand;
+		for ( const n of wreckParts( e || {}, severity, w.rand ) ) w.detach( n );
+		this._wreck = w;
+		this._wq.fill( false );
+		if ( this.visual ) for ( const n of w.detached ) this.visual.detach( n );
+		const sea = f.seaLevel();
+		this._wSea = sea;
+		this._wfx = { t: 0, smokeT: 0, bubbleT: 0, markT: 0, fire: false, water, rpm: f.rpm };
+		f.velocity.set( 0, 0, 0 );
+		f.angular.set( 0, 0, 0 );
+		f.engineOn = false;
+		f.rpm = 0;
+		// the impact
+		const vfx = this.features && this.features.get ? this.features.get( 'vfx' ) : null;
+		const x = w.x, y = w.y, z = w.z;
+		const eng = _v3.copy( w.fuselage.c ).add( _v.set( 0, 0.4, 2.6 ).applyQuaternion( w.fuselage.q ) );
+		if ( water ) {
+
+			vfx?.splash?.( x, sea, z, 2.6 );
+
+		} else {
+
+			const g = this.terrain && this.terrain.heightAt ? this.terrain.heightAt( x, z ) : y;
+			vfx?.dust?.( x, g, z, 2.2 );
+			vfx?.debris?.( x, g + 1, z, 1.3, 'dirt' );
+			vfx?.flash?.( eng.x, eng.y, eng.z, 1.2 );
+			vfx?.fire?.( WRECK_ID, eng.x, eng.y, eng.z, 1.2 );
+			this._wfx.fire = true;
+
+		}
+
+		vfx?.splinters?.( x, y + 1.5, z, 1.6 );
+		vfx?.debris?.( x, y + 1.5, z, 1.3, 'wood' );
+		vfx?.debris?.( x, y + 1.5, z, 0.8, 'metal' );
+		vfx?.smoke?.( eng.x, eng.y, eng.z, 1.2 );
+		this.audio.crunch( 1.7, x, y, z, water );
+		const cf = this.app.cameraFeel;
+		if ( cf && cf.kick ) {
+
+			if ( piloted ) cf.kick( 'broadside', { scale: 1.6 } );
+			else cf.kick( 'explosion', { x, y, z, radius: 8, energy: 2e5 } );
+
+		}
+
+		this._syncWreck();
+		this._mark( true );
+
+	}
+
+	// the water under a wreck piece: the plane's four probe slots follow the first four pieces, the rest (and a missing
+	// query) use the sea level where it went down
+	_seaAt( x, z, i ) {
+
+		const q = this.query;
+		let h = this._wSea ?? 0;
+		if ( q && this.slot >= 0 && i < 4 && q.setPoint ) {
+
+			if ( this._wq[ i ] && q.cpuValid ) {
+
+				const v = q.cpu[ ( this.slot + i ) * 4 ];
+				if ( Number.isFinite( v ) ) h = v;
+
+			}
+
+			q.setPoint( this.slot + i, x, z );
+			this._wq[ i ] = true;
+
+		}
+
+		return h;
+
+	}
+
+	_updateWreck( dt ) {
+
+		const w = this._wreck, fx = this._wfx;
+		if ( ! w ) return;
+		const terrain = this.terrain;
+		const events = w.update( dt, { seaAt: ( x, z, i ) => this._seaAt( x, z, i ), groundAt: ( x, z ) => ( terrain && terrain.heightAt ? terrain.heightAt( x, z ) : - Infinity ) } );
+		const vfx = this.features && this.features.get ? this.features.get( 'vfx' ) : null;
+		for ( const ev of events ) this._wreckEvent( ev, vfx );
+		fx.t += dt;
+		const fus = w.fuselage, up = fus.state !== 'gone';
+		// the engine dies: a last cough, then quiet
+		this.audio.update( dt, { running: fx.t < 0.35 && fx.rpm > 0.1, rpm: fx.rpm * Math.exp( - fx.t * 2 ), airspeed: 0, x: w.x, y: w.y, z: w.z, inside: false } );
+		const eng = _v3.copy( fus.c ).add( _v.set( 0, 0.4, 2.6 ).applyQuaternion( fus.q ) );
+		if ( fx.fire && ( fx.t > CRASH.fire || ! up || fus.state === 'sinking' ) ) {
+
+			vfx?.stopFire?.( WRECK_ID );
+			fx.fire = false;
+
+		} else if ( fx.fire ) vfx?.fire?.( WRECK_ID, eng.x, eng.y, eng.z, 1.2 * ( 1 - fx.t / CRASH.fire ) + 0.3 );
+
+		fx.smokeT -= dt;
+		if ( up && fx.t < CRASH.smoke && fx.smokeT <= 0 && eng.y > ( this._wSea ?? 0 ) - 0.2 ) {
+
+			fx.smokeT = 0.3;
+			vfx?.smoke?.( eng.x, eng.y + 0.3, eng.z, 0.25 + 0.9 * ( 1 - fx.t / CRASH.smoke ) );
+
+		}
+
+		fx.bubbleT -= dt;
+		if ( fus.state === 'sinking' && fx.bubbleT <= 0 ) {
+
+			fx.bubbleT = 0.45;
+			vfx?.bubbles?.( fus.c.x, this._wSea ?? 0, fus.c.z, 1.2 );
+
+		}
+
+		fx.markT -= dt;
+		if ( fx.markT <= 0 ) {
+
+			fx.markT = 1;
+			this._mark( true );
+
+		}
+
+		this._syncWreck();
+		this._perch( fus );
+		// everything gone under: the pieces are done (the plane stays lost until recovered)
+		let left = false;
+		for ( const b of w.bodies.values() ) if ( b.state !== 'gone' ) left = true;
+		if ( ! left ) {
+
+			this._dropPerch();
+			vfx?.stopFire?.( WRECK_ID );
+			this._mark( true );
+			this._wreck = null;
+			this._wfx = null;
+
+		}
+
+	}
+
+	_wreckEvent( ev, vfx ) {
+
+		const big = ev.name === 'fuselage';
+		if ( ev.type === 'splash' ) {
+
+			vfx?.splash?.( ev.x, ev.y, ev.z, ev.strength * ( big ? 1 : 0.7 ) );
+			if ( ! big ) vfx?.splinters?.( ev.x, ev.y + 0.3, ev.z, 0.5 );
+
+		} else if ( ev.type === 'land' ) {
+
+			vfx?.dust?.( ev.x, ev.y, ev.z, ev.strength );
+			vfx?.debris?.( ev.x, ev.y + 0.4, ev.z, ev.strength * 0.6, big ? 'metal' : 'wood' );
+
+		} else if ( ev.type === 'sinking' && big ) {
+
+			vfx?.sinking?.( WRECK_ID, ev.x, ev.z, 1.8 );
+			if ( this._near( ev.x, ev.z, 120 ) ) this._toast( t( 'seaplane.wreckSinking', 'The seaplane wreck is going down' ), 2600 );
+
+		} else if ( ev.type === 'sunk' && big ) {
+
+			this._mark( true ); // (relabelled: where it went down)
+			if ( this._near( ev.x, ev.z, 200 ) ) this._toast( t( 'seaplane.wreckSunk', "The wreck sank. Captain Roid's crew can raise it: see the hangar." ), 4200 );
+
+		}
+
+	}
+
+	_near( x, z, r ) {
+
+		const p = this.app.player && this.app.player.position;
+		return ! p || Math.hypot( p.x - x, p.z - z ) < r;
+
+	}
+
+	// the visual follows the pieces: the plane's group is the fuselage, the torn-off parts their own groups
+	_syncWreck() {
+
+		const w = this._wreck, v = this.visual;
+		if ( ! w || ! v ) return;
+		if ( w.pose( 'fuselage', _v, _q ) ) v.setPose( _v, _q );
+		v.setVisible( w.fuselage.state !== 'gone' );
+		for ( const n of w.detached ) {
+
+			const on = w.pose( n, _v, _q );
+			v.setPart( n, _v, _q );
+			v.partVisible( n, on );
+
+		}
+
+	}
+
+	// the wreck's pin on the world map and the minimap
+	_mark( on ) {
+
+		const wm = this.features && this.features.get ? this.features.get( 'worldmap' ) : null;
+		if ( ! wm || ! wm.addMarker ) return;
+		const w = this._wreck;
+		if ( on && w ) wm.addMarker( { id: WRECK_ID, kind: 'wreck', icon: 'wreck', x: w.x, z: w.z, label: w.sunk ? t( 'seaplane.wreckSunkPin', 'Seaplane wreck (sunk)' ) : t( 'seaplane.wreckPin', 'Seaplane wreck' ) } );
+		else if ( ! on && wm.removeMarker ) wm.removeMarker( WRECK_ID );
+
+	}
+
+	// the floating fuselage's cabin roof is a perch: a walkable collider box that rides it (a swimmer beside it climbs on
+	// with E, or swims onto it); it goes when the fuselage starts to sink (you are back in the water) or on land
+	_perch( fus ) {
+
+		const col = this.app.colliders, p = this.app.player;
+		const want = !! ( fus && fus.state === 'afloat' && col && col.addBox );
+		let b = this._perchBox;
+		if ( ! want ) {
+
+			if ( b ) this._dropPerch();
+			return;
+
+		}
+
+		const yaw = this._wreck.yaw;
+		const top = _v3.copy( fus.c ).add( _v.set( 0, ROOF_Y - GEOM.com[ 1 ], ROOF_Z ).applyQuaternion( fus.q ) );
+		if ( ! b ) b = this._perchBox = col.addBox( new Vector3( top.x, top.y - 0.15, top.z ), new Vector3( 0.55, 0.15, 1.75 ), yaw, { walkable: true, solid: false, tag: 'seaplane-wreck' } );
+		b.center.set( top.x, top.y - 0.15, top.z );
+		b.rotY = yaw;
+		b.cos = Math.cos( yaw );
+		b.sin = Math.sin( yaw );
+		b.top = top.y;
+		b.bottom = top.y - 0.3;
+		// a swimmer beside it: E climbs onto the roof
+		if ( ! p || p.mode !== 'swim' || ! p.exitVehicle ) return;
+		if ( Math.hypot( p.position.x - fus.c.x, p.position.z - fus.c.z ) > PERCH_REACH ) {
+
+			this._perchHint = false;
+			return;
+
+		}
+
+		if ( ! this._perchHint ) {
+
+			this._perchHint = true;
+			this._toast( t( 'seaplane.perchHint', 'E: climb onto the wreck' ), 1800 );
+
+		}
+
+		const inp = this.app.input;
+		if ( inp && inp.hit && inp.hit( 'KeyE' ) ) p.exitVehicle( top.x, top.y, top.z, p.yaw, 'walk' );
+
+	}
+
+	_dropPerch() {
+
+		const b = this._perchBox, col = this.app.colliders;
+		this._perchBox = null;
+		if ( ! b || ! col || ! col.boxes ) return;
+		const i = col.boxes.indexOf( b );
+		if ( i >= 0 ) col.boxes.splice( i, 1 );
+
+	}
+
+	// the pieces gone (recovered, a new game): the plane whole again
+	_clearWreck() {
+
+		this._dropPerch();
+		const vfx = this.features && this.features.get ? this.features.get( 'vfx' ) : null;
+		if ( this._wfx && this._wfx.fire ) vfx?.stopFire?.( WRECK_ID );
+		this._wreck = null;
+		this._wfx = null;
+		this._wq.fill( false );
+		if ( this.visual ) {
+
+			this.visual.reassemble();
+			this.visual.setVisible( true );
+
+		}
+
+		this._mark( false );
+
+	}
+
+	// ships, buildings and rocks: what a STRIKE point is inside of ('ship' | 'object' | null)
+	_solidAt( x, y, z ) {
+
+		const nv = this.features && this.features.get ? this.features.get( 'naval' ) : null;
+		if ( nv && nv.ships ) {
+
+			for ( const sh of nv.ships ) {
+
+				if ( ! sh || sh.alive === false || Math.abs( sh.x - x ) > 45 || Math.abs( sh.z - z ) > 45 ) continue;
+				try {
+
+					if ( inBox( sh.hullBox && sh.hullBox(), x, y, z ) || inBox( sh.riggingBox && sh.riggingBox(), x, y, z ) ) return 'ship';
+
+				} catch ( err ) { /* a ship without its pose yet */ }
 
 			}
 
 		}
 
-		this._emit( 'planeCrashed', { cause, x, z, cost } );
-		if ( died ) this._emit( 'playerDied', { cause: 'seaplane', text: cause, x, y: water ? ( typeof f.seaLevel === 'function' ? f.seaLevel() : 0 ) : y, z } );
-		this._save();
-		this._toast( this.free ? `${ cause }. It was towed back to the ramp.` : `${ cause }. Towed back to the ramp: repair it at the hangar ($${ cost.toLocaleString( 'en-US' ) }).`, 5200 );
+		// solid colliders (buildings, rocks, the hangar); decks and jetties are walkable and left out
+		const col = this.app.colliders;
+		if ( col && col.boxes ) {
+
+			for ( const b of col.boxes ) {
+
+				if ( ! b.solid || b.walkable || y > b.top || y < b.bottom ) continue;
+				const dx = x - b.center.x, dz = z - b.center.z;
+				if ( dx * dx + dz * dz > b.radius * b.radius ) continue;
+				const lx = dx * b.cos - dz * b.sin, lz = dx * b.sin + dz * b.cos;
+				if ( Math.abs( lx ) <= b.half.x && Math.abs( lz ) <= b.half.z ) return 'object';
+
+			}
+
+		}
+
+		return null;
+
+	}
+
+	// strikes against ships / buildings (the STRIKE points) and destruction props (along the nose's path this frame)
+	_obstacles() {
+
+		const f = this.flight, v = f.velocity.length();
+		const nose = f.toWorldXYZ( 0, 2.2, 4.0, _nose );
+		const prev = this._prevNose;
+		if ( v < CRASH.dip ) {
+
+			this._prevNose = null;
+			return;
+
+		}
+
+		const nf = f.noseFirst();
+		for ( const [ part, x, y, z ] of STRIKE ) {
+
+			const key = part + 'S';
+			if ( f._struck.has( key ) ) continue;
+			const pw = f.toWorldXYZ( x, y, z, _v3 );
+			const kind = this._solidAt( pw.x, pw.y, pw.z );
+			if ( ! kind ) continue;
+			f._struck.add( key );
+			f.events.push( { type: 'strike', part, surface: kind, speed: v, nose: nf, side: Math.sign( x ) } );
+
+		}
+
+		const d = this.features && this.features.get ? this.features.get( 'destruction' ) : null;
+		if ( prev && d && d.raycastSegment && ! f._struck.has( 'noseP' ) ) {
+
+			const hit = d.raycastSegment( prev.x, prev.y, prev.z, nose.x, nose.y, nose.z );
+			if ( hit ) {
+
+				f._struck.add( 'noseP' );
+				f.events.push( { type: 'strike', part: 'nose', surface: 'prop', speed: v, nose: nf, side: 0, prop: hit.id } );
+
+			}
+
+		}
+
+		this._prevNose = ( prev || new Vector3() ).copy( nose );
 
 	}
 
@@ -770,6 +1261,7 @@ export class Seaplane {
 
 		const f = this.flight, p = this.app.player;
 		this._sinceExit += dt;
+		this.stun.update( dt );
 		// something else took the player out of the cockpit (a rescue, a respawn, the free camera reset)
 		if ( this.piloted && p && ( p.mode !== 'plane' || p.vehicle !== this.vehicle ) ) {
 
@@ -780,7 +1272,13 @@ export class Seaplane {
 
 		}
 
-		if ( this.piloted ) {
+		if ( this.lost ) {
+
+			// wrecked: the pieces float, burn and sink (Wreck.js); the plane itself is gone until recovered
+			this._driven = false;
+			this._updateWreck( dt );
+
+		} else if ( this.piloted ) {
 
 			// Player.updatePlane already stepped it this frame; otherwise (free camera, paused player) keep it flying
 			if ( ! this._driven ) this._step( dt );
@@ -850,6 +1348,7 @@ export class Seaplane {
 
 	marker() {
 
+		if ( this.lost ) return null; // (the wreck has its own pin)
 		const f = this.flight;
 		return { x: f.position.x, z: f.position.z, heading: f.heading(), owned: this.owned, flying: this.piloted && f.airborne };
 
@@ -879,7 +1378,8 @@ export class Seaplane {
 
 	toJSON() {
 
-		return { owned: this.owned, hp: Math.round( this.hp ), fuel: Math.round( this.flight.fuel * 1000 ) / 1000, switches: this.systems.toJSON(), stats: { ...this.stats } };
+		const sp = this.flight.sprung;
+		return { owned: this.owned, hp: Math.round( this.hp ), fuel: Math.round( this.flight.fuel * 1000 ) / 1000, switches: this.systems.toJSON(), stats: { ...this.stats }, lost: this.lost, sprung: [ sp[ 0 ], sp[ 1 ] ] };
 
 	}
 
@@ -891,7 +1391,13 @@ export class Seaplane {
 		this.flight.fuel = Number.isFinite( d.fuel ) ? Math.max( 0, Math.min( 1, d.fuel ) ) : 1; // (older saves: a full tank)
 		this.systems.fromJSON( d.switches );
 		if ( d.stats && typeof d.stats === 'object' ) for ( const k of Object.keys( this.stats ) ) if ( Number.isFinite( d.stats[ k ] ) ) this.stats[ k ] = d.stats[ k ];
+		// a wreck left unrecovered: gone (its pieces are not saved: it sank / was picked over while you were away)
+		this._clearWreck();
+		this.lost = d.lost === true && this.owned;
+		const sp = Array.isArray( d.sprung ) ? d.sprung : [];
+		for ( let i = 0; i < 2; i ++ ) this.flight.sprung[ i ] = Number.isFinite( sp[ i ] ) ? Math.max( 0, Math.min( 1, sp[ i ] ) ) : 0;
 		if ( ! this.piloted ) this._place();
+		if ( this.lost && this.visual ) this.visual.setVisible( false );
 
 	}
 
@@ -910,6 +1416,9 @@ export class Seaplane {
 		this.owned = false;
 		this.hp = MAX_HP;
 		this.flight.fuel = 1;
+		this.lost = false;
+		this._clearWreck();
+		this.flight.sprung[ 0 ] = this.flight.sprung[ 1 ] = 0;
 		for ( const k of Object.keys( this.stats ) ) this.stats[ k ] = 0;
 		this._place();
 
@@ -920,6 +1429,8 @@ export class Seaplane {
 		for ( const off of this._interact ) off();
 		for ( const off of this._offs ) off();
 		this._interact = [];
+		this._clearWreck();
+		this.stun.dispose();
 		this.cockpit.dispose();
 		this.panel.dispose();
 		this.audio.dispose();

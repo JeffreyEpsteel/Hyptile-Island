@@ -11,6 +11,9 @@
 //   f.flaps = 0 | 1 | 2 (notch asked for; f.flapPos follows at the motor's pace), f.controls.trim (-1..1, nose up +),
 //   f.fuel (0..1: ~25 min at full power; empty stops the engine with a { type: 'fuelOut' } event), f.cranking (the
 //   starter turns the propeller over), f.stallMargin (rad of wing alpha left before the stall)
+//   f.sprung [ port, starboard ] (0..1, wave 10: a float sprung by a rough landing lists the plane and drags); strike
+//   events carry { part, surface, speed, sink (the part's downward speed), nose (f.noseFirst()), side (+1 port, -1
+//   starboard, 0 centre) } for Crash.js
 //
 // Frames: the model frame is the boat frame (+Z forward, +Y up, +X port), origin between the float keels at the
 // centre of mass' station. Air: every lifting surface (two wing halves with incidence and dihedral, the tailplane,
@@ -87,11 +90,14 @@ export const SPEC = {
 	crank: 0.06, // rpm while the starter turns the engine over
 };
 
+// wave 10: a sprung float (a rough landing) has water in it: less buoyancy (the plane lists to that side) and more drag
+export const SPRUNG = { buoyancy: 0.3, drag: 0.08 };
+
 // float sections: [ z, area factor (beam taper), keel rise ]
 const SECTIONS = [ [ 3.1, 0.5, 0.26 ], [ 2.3, 0.85, 0.08 ], [ 1.5, 1, 0 ], [ 0.7, 1, 0 ], [ - 0.1, 1, 0 ], [ - 0.9, 1, 0.07 ], [ - 1.7, 1, 0.16 ], [ - 2.5, 0.85, 0.26 ], [ - 3.3, 0.6, 0.36 ] ];
 const SECTION_LEN = 0.8;
-// parts that may not touch anything: [ name, x, y, z ]
-const STRIKE = [
+// parts that may not touch anything: [ name, x, y, z ] (Seaplane.js also tests them against ships and buildings)
+export const STRIKE = [
 	[ 'wingtip', 7.25, 3.25, 0.3 ], [ 'wingtip', - 7.25, 3.25, 0.3 ], [ 'propeller', 0, 0.95, 3.85 ], [ 'nose', 0, 2.2, 4.0 ],
 	[ 'tail', 0, 1.95, - 6.4 ], [ 'fin', 0, 4.1, - 6.2 ], [ 'tailplane', 2.4, 2.55, - 5.6 ], [ 'tailplane', - 2.4, 2.55, - 5.6 ],
 ];
@@ -144,6 +150,7 @@ export class Flight {
 		this.flapPos = 0; // where the flaps are (0..2, follows at spec.flaps.rate)
 		this.fuel = 1;
 		this.cranking = false;
+		this.sprung = [ 0, 0 ]; // wave 10: a float sprung by a rough landing (port, starboard; 0..1): it carries less and drags
 		this.wingAlpha = 0;
 		this.stallMargin = 1;
 		this.deflect = { elevator: 0, aileron: 0, rudder: 0 }; // -1..1, lagging the controls
@@ -490,7 +497,8 @@ export class Flight {
 				_vp.copy( this.angular ).cross( _r.copy( pw ).sub( comW ) ).add( this.velocity );
 				const vy = _vp.y - this.waterV[ fl === 0 ? 0 : 1 ] * 0.5;
 				const wetK = Math.min( 1, sub / 0.15 ) * A;
-				const fb = RHO_W * G * A * sub * sp.buoyK;
+				const leak = this.sprung[ fl ] || 0;
+				const fb = RHO_W * G * A * sub * sp.buoyK * ( 1 - SPRUNG.buoyancy * leak );
 				buoySum += fb;
 				const ul = _vp.dot( fwd ), vs = _vp.dot( side );
 				_f.set( 0, fb - ( sp.heaveDamp * vy + sp.heaveDamp2 * vy * Math.abs( vy ) ) * wetK, 0 );
@@ -504,7 +512,7 @@ export class Flight {
 				}
 
 				// resistance along the float (weight carried x C(u) + attitude), keel-like side resistance
-				const R = ( C + attitude ) * fb + 2.0 * ul * Math.abs( ul ) * A * ( wetK / A );
+				const R = ( C + attitude + SPRUNG.drag * leak ) * fb + 2.0 * ul * Math.abs( ul ) * A * ( wetK / A );
 				_f.addScaledVector( fwd, - R * Math.sign( ul ) * Math.min( 1, Math.abs( ul ) / 0.4 ) );
 				_f.addScaledVector( side, - ( sp.sideK * vs + sp.sideK2 * vs * Math.abs( vs ) ) * wetK );
 				addWorld( _f, pw );
@@ -553,7 +561,7 @@ export class Flight {
 				if ( ( vh > 6 || impact > 4 ) && ! this._struck.has( 'keel' ) ) {
 
 					this._struck.add( 'keel' );
-					this.events.push( { type: 'strike', part: 'float', surface: 'ground', speed: Math.max( vh, impact ) } );
+					this.events.push( { type: 'strike', part: 'float', surface: 'ground', speed: Math.max( vh, impact ), sink: impact, nose: this.noseFirst(), side: Math.sign( x ) } );
 
 				}
 
@@ -566,7 +574,7 @@ export class Flight {
 				if ( pw.y < g && ! this._struck.has( part ) ) {
 
 					this._struck.add( part );
-					this.events.push( { type: 'strike', part, surface: 'ground', speed: this.velocity.length() } );
+					this.events.push( { type: 'strike', part, surface: 'ground', speed: this.velocity.length(), sink: this._sinkAt( pw, comW ), nose: this.noseFirst(), side: Math.sign( x ) } );
 
 				}
 
@@ -582,7 +590,7 @@ export class Flight {
 			if ( pw.y < sea - 0.05 && this.velocity.length() > 4 && ! this._struck.has( part + 'W' ) ) {
 
 				this._struck.add( part + 'W' );
-				this.events.push( { type: 'strike', part, surface: 'water', speed: this.velocity.length() } );
+				this.events.push( { type: 'strike', part, surface: 'water', speed: this.velocity.length(), sink: this._sinkAt( pw, comW ), nose: this.noseFirst(), side: Math.sign( x ) } );
 
 			}
 
@@ -649,6 +657,24 @@ export class Flight {
 		}
 
 		this.position.copy( comW ).sub( _t.copy( this.com ).applyQuaternion( this.quaternion ) );
+
+	}
+
+	// how much of the motion is along the nose (1: straight ahead, 0: sideways / flat, < 0: backwards): Crash.js's
+	// "nose first" for a direct collision
+	noseFirst() {
+
+		const v = this.velocity.length();
+		if ( v < 0.1 ) return 0;
+		return _t.set( 0, 0, 1 ).applyQuaternion( this.quaternion ).dot( this.velocity ) / v;
+
+	}
+
+	// the downward speed of a world point of the body (its closing speed with the water / the ground below)
+	_sinkAt( pw, comW ) {
+
+		_vp.copy( this.angular ).cross( _r.copy( pw ).sub( comW ) ).add( this.velocity );
+		return Math.max( 0, - _vp.y );
 
 	}
 

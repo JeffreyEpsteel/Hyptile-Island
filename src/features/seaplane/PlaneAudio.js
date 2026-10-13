@@ -8,6 +8,8 @@
 //   s.update( dt, { running, rpm, airspeed, x, y, z, inside, cranking, flaps, horn } );   s.click( kind );   s.dispose()
 // Wave 8, the cockpit (straight into the bus, no panner: they are in the cabin with you): the starter's whine while it
 // cranks, the flap motor's whir while the flaps travel, the stall horn (a warbling square) and a switch click.
+// Wave 10, crashes: s.crunch( strength, x, y, z, water ) - the impact (a low thud, a tearing crunch of metal and wood, a
+// splash hiss on the water), positioned; the engine dying is the caller's (a sputter of update()s with running dropping).
 
 export class PlaneAudio {
 
@@ -16,7 +18,7 @@ export class PlaneAudio {
 		this.app = app;
 		this.nodes = null;
 		this.level = 0; // eased engine-running level
-		this.state = { rpm: 0, airspeed: 0, gain: 0, horn: false, flaps: false, cranking: false, clicks: 0 }; // last values (tests)
+		this.state = { rpm: 0, airspeed: 0, gain: 0, horn: false, flaps: false, cranking: false, clicks: 0, crunches: 0 }; // last values (tests)
 
 	}
 
@@ -181,6 +183,75 @@ export class PlaneAudio {
 			src.stop( t + 0.12 );
 
 		} catch ( e ) { /* a missed click is fine */ }
+
+	}
+
+	// the impact: strength 0.3 (a rough landing's bang) .. 2 (a wreck)
+	crunch( strength = 1, x = 0, y = 0, z = 0, water = true ) {
+
+		this.state.crunches ++;
+		const ctx = this.ctx, a = this.app && this.app.audio;
+		if ( ! ctx || ( a && a._muted ) ) return;
+		try {
+
+			const t = ctx.currentTime, k = Math.max( 0.2, Math.min( 2, strength ) );
+			const out = ctx.createGain();
+			out.gain.value = Math.min( 1, 0.45 * k );
+			const pan = ctx.createPanner();
+			pan.panningModel = 'equalpower';
+			pan.distanceModel = 'inverse';
+			pan.refDistance = 14;
+			pan.maxDistance = 3000;
+			if ( pan.positionX ) { pan.positionX.value = x; pan.positionY.value = y; pan.positionZ.value = z; } else pan.setPosition( x, y, z );
+			out.connect( pan );
+			pan.connect( a.sfxAbove || a.master || ctx.destination );
+			const len = Math.floor( ctx.sampleRate * 1.6 );
+			const buf = ctx.createBuffer( 1, len, ctx.sampleRate );
+			const d = buf.getChannelData( 0 );
+			// crackle: noise with random hard spikes (rivets and spars letting go), decaying
+			for ( let i = 0; i < len; i ++ ) {
+
+				const e = Math.exp( - i / ( ctx.sampleRate * 0.35 ) );
+				d[ i ] = ( Math.random() * 2 - 1 ) * e * ( Math.random() < 0.02 ? 3 : 1 );
+
+			}
+
+			const noise = ( type, f, q, g0, dur ) => {
+
+				const src = ctx.createBufferSource();
+				src.buffer = buf;
+				const fl = ctx.createBiquadFilter();
+				fl.type = type;
+				fl.frequency.value = f;
+				fl.Q.value = q;
+				const g = ctx.createGain();
+				g.gain.setValueAtTime( g0, t );
+				g.gain.exponentialRampToValueAtTime( 0.001, t + dur );
+				src.connect( fl );
+				fl.connect( g );
+				g.connect( out );
+				src.start( t );
+				src.stop( t + dur + 0.05 );
+
+			};
+
+			noise( 'lowpass', 700, 0.8, 1.0, 0.9 ); // the crunch
+			noise( 'bandpass', 2200, 2.5, 0.35, 0.5 ); // metal tearing
+			if ( water ) noise( 'highpass', 1800, 0.5, 0.4, 1.4 ); // the splash hiss
+			// the thud: a falling sine
+			const o = ctx.createOscillator();
+			o.type = 'sine';
+			o.frequency.setValueAtTime( 90, t );
+			o.frequency.exponentialRampToValueAtTime( 32, t + 0.5 );
+			const og = ctx.createGain();
+			og.gain.setValueAtTime( 1.1, t );
+			og.gain.exponentialRampToValueAtTime( 0.001, t + 0.6 );
+			o.connect( og );
+			og.connect( out );
+			o.start( t );
+			o.stop( t + 0.65 );
+
+		} catch ( e ) { /* a missed crunch is fine */ }
 
 	}
 
