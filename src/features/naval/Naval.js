@@ -33,6 +33,21 @@
 //   naval.active                 false when disabled, and in multiplayer unless the room's host (netsync/NavalLink.js)
 //   naval.update( dt ) / toJSON() / fromJSON( d ) / reset() / dispose()
 //
+// Wave 9 (collisions, aiming, cripple):
+//   Hulls collide (Collisions.js): the player's boat against every alive ship and the ships against each other, as oriented
+//   boxes on the water plane. They are pushed apart by inverse mass and bounce / rub (restitution 0.15, friction 0.3): the
+//   boat controller takes the impulse (applyCollision), a Ship its way / drift / yaw (applyImpulse). Each new contact faster
+//   than 0.8 m/s damages both hulls once (damagePlayer( n, 'ramming' ) / ship.damage), with splinters, debris, a splash,
+//   a crunch, the camera kick, destruction.impulse at the spot and planks when she is stove in; ships going down shed
+//   floating planks (Planks.js). Event: hullsCollided { a, b, x, z, speed, damage: { a, b }, byPlayer }.
+//   Pirates heavier than their target ram while both batteries reload; merchants steer away from a contact seen 3 s ahead.
+//   naval.aiming / naval.aimInfo       right mouse (or app.input.aimHeld) at the helm: the guns follow the camera look
+//                               (AimAssist.lookAim); the left button fires that side (naval.fire( side, { aimed: true } ))
+//   naval.playerGun.owned is always true in the sandbox (a free swivel gun); the yard sells it in the campaign
+//   shipCrippled { id, name, by, x, z }   a pirate's hull fell below CRIPPLE (boarding RULES.cripple, 25 %): she stops
+//                               shooting; the HUD shows the nearest pirate's hull bar with that mark. With the boarding
+//                               feature installed, boarding emits it (when she strikes her colours) and naval does not
+//
 // Ship modules (Modules.js; slots per hull in Boats.js `slots`):
 //   naval.fitting               the Fitting (tiers owned, the fit of every hull); naval.mods = fitting.stats() of this hull
 //   naval.moduleRows( state? ) -> [ { id, label, desc, price, owned, fitted, canBuy, canFit, tier, maxTier, next, slot, kind,
@@ -76,7 +91,7 @@ import { SHIP_CLASSES, PIRATE_CAPTAINS, PIRATE_SHIPS, MERCHANT_SHIPS, lootValue 
 import { Ship, SINK_TIME, sinkPose } from './Ship.js';
 import { Wrecks, salvageCostFor } from './Wrecks.js';
 import { strip, empty } from '../death/Belongings.js';
-import { think } from './Brains.js';
+import { think, RAM, AVOID } from './Brains.js';
 import { MERCHANT_ROUTE, PATROLS, inSafeZone, makeCursor, nearestIndex } from './Routes.js';
 import { leadAim, solveElevation, quatBox, rotateByQuat, MUZZLE_SPEED } from './Ballistics.js';
 import { Projectiles } from './Projectiles.js';
@@ -85,7 +100,11 @@ import { Loot } from './Loot.js';
 import { NavalAudio } from './NavalAudio.js';
 import { WaterPool } from './WaterPool.js';
 import { ModelSet } from './Models.js';
-import { NavalHud, hudModel, ARROW_RANGE } from './Hud.js';
+import { NavalHud, hudModel, ARROW_RANGE, NO_GUN_TEXT } from './Hud.js';
+import { CollisionWorld, predictContact, yawInertia } from './Collisions.js';
+import { Planks } from './Planks.js';
+import { lookAim } from './AimAssist.js';
+import { RULES as BOARDING_RULES } from '../boarding/BoardingData.js';
 import { Fitting, SLOT_LABELS, moduleLabel } from './Modules.js';
 import { ModuleMeshes } from './ModuleModels.js';
 import { clamp, makeRng, normaliseSide, sideSign, angleDiff, DEG } from './util.js';
@@ -105,6 +124,12 @@ const LANTERN_REACH = 12; // m: fishing this close to the boat counts as fishing
 const MAX_SHIPS = 8;
 const PARK_Y = - 400; // where a wrecked boat's (hidden) model and controller wait, out of every query and view
 const ABOARD = [ 'boat', 'deck', 'seat' ];
+// a pirate below this hull fraction is crippled: she strikes (boarding), stops shooting and can be boarded
+export const CRIPPLE = BOARDING_RULES.cripple ?? 0.25;
+// ships in these states come alongside on purpose (a grapple, a boarding): they bump without damage
+const GENTLE = new Set( [ 'close', 'grapple', 'boarding', 'boarded', 'moored' ] );
+export const NO_GUN = NO_GUN_TEXT;
+const isCrippled = ( s ) => s.faction === 'pirate' && s.hpFraction < CRIPPLE;
 
 // quaternion product a * b ( [ x, y, z, w ] )
 function qmul( a, b ) {
@@ -137,11 +162,12 @@ const RIPPLE = [ 0.08, 0.17 ];
 // comes with (builtIn); writing owned = true / false sets the purchase only (and fits / unships the swivel), so selling
 // the ship leaves the bought gun as it was. `level` is the swivel gun's tier (`swivel`), or on a ship the battery's level
 // when that is higher; writing it sets the swivel's tier.
-function makeGun( mounted = () => true, onBuy = null ) {
+function makeGun( mounted = () => true, onBuy = null, free = () => false ) {
 
 	const g = { swivel: 1, battery: 0, guns: 1, builtIn: false, bought: false };
 	Object.defineProperty( g, 'owned', {
-		get() { return this.builtIn || ( this.bought && mounted() ); },
+		// (the sandbox always has a swivel gun: free() )
+		get() { return this.builtIn || ( this.bought && mounted() ) || !! free(); },
 		set( v ) {
 
 			this.bought = !! v;
@@ -197,6 +223,7 @@ export class Naval {
 				else this.fitting.remove( 'swivel' );
 
 			},
+			() => !! ( this.features && this.features.sandbox ),
 		);
 		this.playerShots = []; // the rest of a ripple: { t, side, index, plan, target }
 		this.reloadLeft = { port: 0, starboard: 0 };
@@ -234,6 +261,18 @@ export class Naval {
 		this.modMeshes = opts.moduleMeshes === false || ! this.scene ? null : ( opts.moduleMeshes || new ModuleMeshes() );
 		this.wrecks = new Wrecks( { app: app2, features, scene: this.scene, makeModel: opts.wreckModel || null } );
 		this.sinking = null;
+		this.planks = new Planks( { scene: this.scene } );
+		this.collisions = new CollisionWorld();
+		this.contacts = []; // this frame's hull contacts (Collisions.js records)
+		this.aiming = false;
+		this.aimInfo = null; // lookAim() while aiming
+		this._lmbPrev = false;
+		this._rmbPrev = false;
+		this._noGunUntil = - 1;
+		this._creakT = 0;
+		this._avoidT = 0;
+		this.crippleAt = CRIPPLE;
+		this.hudTarget = null; // id of the pirate whose hull bar shows (the last one the player hit, while in range)
 		if ( this.hud && ! this.hud.root ) this.hud = null;
 
 		if ( this.features && this.features.claimKey ) {
@@ -447,6 +486,7 @@ export class Naval {
 		t.vx = b.velocity ? b.velocity.x : 0;
 		t.vz = b.velocity ? b.velocity.z : 0;
 		t.safe = !! inSafeZone( t.x, t.z );
+		t.mass = b.mass || ( BOATS[ this.playerHull.boat ] || BOATS.lobster ).mass; // (a heavier pirate rams)
 		// a legal target: afloat, under way (or at least not tied up), and outside the harbour / cove
 		t.ok = ! this.playerHull.sunk && ( !! b.driven || ! b.moored ) && ! t.safe;
 
@@ -784,15 +824,17 @@ export class Naval {
 
 			}
 
-			// a shot-up hull smokes
-			if ( s.alive && s.condition === 'critical' ) {
+			// past half her points a hull smokes (and lists: Ship.finalPose); under 35 % the vfx feature burns her itself
+			if ( s.alive && s.hpFraction < 0.5 ) {
 
 				s._smokeT = ( s._smokeT ?? 0 ) - dt;
 				if ( s._smokeT <= 0 ) {
 
 					s._smokeT = 0.7;
 					const p = s.toWorld( 0, s.cls.deck + 1.5, - s.cls.length * 0.15, this._m );
-					if ( ! this._vfx() ) this.fx.smoke( p.x, p.y, p.z, 1 ); // (the vfx feature burns ships under 35 % itself)
+					const v = this._vfx( 'smoke' );
+					if ( ! v ) this.fx.smoke( p.x, p.y, p.z, 1 );
+					else if ( s.hpFraction >= 0.35 ) v.smoke( p.x, p.y, p.z, 0.7 );
 
 				}
 
@@ -835,7 +877,7 @@ export class Naval {
 				let t = this._remote.get( id );
 				if ( ! t ) {
 
-					t = { x: p.boatPos.x, y: p.boatPos.y, z: p.boatPos.z, vx: 0, vz: 0, ok: false, safe: false, remote: id };
+					t = { x: p.boatPos.x, y: p.boatPos.y, z: p.boatPos.z, vx: 0, vz: 0, ok: false, safe: false, remote: id, mass: ( BOATS[ p.boat ] && BOATS[ p.boat ].mass ) || 3200 };
 					this._remote.set( id, t );
 
 				}
@@ -896,7 +938,7 @@ export class Naval {
 	_shipFire( ship, side ) {
 
 		const t = ship.tgt || this.target, c = ship.cls;
-		if ( ! t.ok || ! c.guns || ship.reload[ side ] > 0 || ! ship.alive ) return false;
+		if ( ! t.ok || ! c.guns || ship.reload[ side ] > 0 || ! ship.alive || isCrippled( ship ) ) return false; // (crippled: her guns are silent)
 		const range = Math.hypot( t.x - ship.x, t.z - ship.z );
 		if ( range > c.engage * 1.35 || range < 20 ) return false;
 		// the target must lie within the traverse of this side's guns
@@ -933,7 +975,7 @@ export class Naval {
 	_fireShipGun( s, st ) {
 
 		const t = s.tgt || this.target;
-		if ( ! s.alive || ! t.ok ) return;
+		if ( ! s.alive || ! t.ok || isCrippled( s ) ) return;
 		const m = s.toWorld( st.x, st.y, st.z, { x: 0, y: 0, z: 0 } );
 		const aim = leadAim( m, s.velocity( {} ), { x: t.x, y: t.y + 0.9, z: t.z }, { x: t.vx, y: 0, z: t.vz }, MUZZLE_SPEED );
 		if ( ! aim ) return;
@@ -1017,10 +1059,11 @@ export class Naval {
 	}
 
 	// The player's broadside: 'port' (Z) or 'starboard' (X). Aims at the best ship inside the gun's arc (auto-aim),
-	// else fires level with a little elevation. A swivel gun fires one ball at once; a ship's battery fires one ball
+	// else fires level with a little elevation. With { aimed: true } (or while aiming that side by hand) the guns fire
+	// along naval.aimInfo instead (the camera look, AimAssist.lookAim). A swivel gun fires one ball at once; a ship's battery fires one ball
 	// per gun along its side, the first now and the rest in a short ripple (bow to stern). Returns true when the
 	// broadside is on its way (a ball left the first muzzle).
-	fire( side ) {
+	fire( side, { aimed = false } = {} ) {
 
 		const sd = normaliseSide( side );
 		if ( ! sd ) return false;
@@ -1029,13 +1072,7 @@ export class Naval {
 		const gun = this.playerGun;
 		if ( ! gun.owned ) {
 
-			if ( this.time > this._hintT ) {
-
-				this._hintT = this.time + 10;
-				this._say( 'You have no swivel gun yet' );
-
-			}
-
+			this._noGun();
 			return false;
 
 		}
@@ -1043,6 +1080,24 @@ export class Naval {
 		if ( this.playerHull.sunk || this.reloadLeft[ sd ] > 0 ) return false;
 		const plan = this._gunPlan( sd );
 		const L = plan.L;
+		// aimed by hand: every gun of the side along the look (no auto target)
+		const ai = this.aimInfo;
+		if ( ( aimed || this.aiming ) && ai && ai.side === sd ) {
+
+			this.reloadLeft[ sd ] = this.reloadTime( gun.level );
+			const dir = { ...ai.dir };
+			this._fireMount( sd, plan, 0, null, dir );
+			let t = 0;
+			for ( let i = 1; i < plan.mounts.length; i ++ ) {
+
+				t += this.rng.range( RIPPLE[ 0 ], RIPPLE[ 1 ] );
+				this.playerShots.push( { t, side: sd, index: i, plan, target: null, dir } );
+
+			}
+
+			return true;
+
+		}
 
 		// target selection: a pirate (else any ship within 150 m) inside the arc, nearest first, from the middle of the battery
 		const m = this._muzzleWorld( plan.mounts[ Math.floor( ( plan.mounts.length - 1 ) / 2 ) ], b, this._m );
@@ -1112,8 +1167,9 @@ export class Naval {
 
 	}
 
-	// one gun of a broadside: aim at `target` if it is still in the arc, else level for ~90 m; recoil along the beam
-	_fireMount( sd, plan, index, target ) {
+	// one gun of a broadside: along `aimDir` (aimed by hand), else at `target` if it is still in the arc, else level for
+	// ~90 m; recoil along the beam
+	_fireMount( sd, plan, index, target, aimDir = null ) {
 
 		const b = this.app.boatCtl;
 		if ( ! b || ! b.position || ! b.quaternion ) return;
@@ -1122,8 +1178,8 @@ export class Naval {
 		const bvel = b.velocity ? { x: b.velocity.x, y: b.velocity.y, z: b.velocity.z } : { x: 0, y: 0, z: 0 };
 		const nl = Math.hypot( normal.x, normal.z ) || 1;
 
-		let dir = null;
-		if ( target && target.alive ) {
+		let dir = aimDir;
+		if ( ! dir && target && target.alive ) {
 
 			const aim = leadAim( m, bvel, { x: target.x, y: target.pose.y + target.cls.sheer * 0.4, z: target.z }, target.velocity( {} ), MUZZLE_SPEED );
 			if ( aim ) {
@@ -1164,7 +1220,10 @@ export class Naval {
 			sh.t -= dt;
 			if ( sh.t > 0 ) continue;
 			this.playerShots.splice( i, 1 );
-			if ( ! this.playerHull.sunk ) this._fireMount( sh.side, sh.plan, sh.index, sh.target );
+			if ( this.playerHull.sunk ) continue;
+			// a hand-aimed ripple follows the look while the side is still aimed
+			const dir = sh.dir ? ( this.aiming && this.aimInfo && this.aimInfo.side === sh.side ? this.aimInfo.dir : sh.dir ) : null;
+			this._fireMount( sh.side, sh.plan, sh.index, sh.target, dir );
 
 		}
 
@@ -1176,6 +1235,70 @@ export class Naval {
 		if ( ! inp || ! inp.hit || ! p || p.mode !== 'boat' ) return;
 		if ( this.keys.port && inp.hit( 'KeyZ' ) ) this.fire( 'port' );
 		if ( this.keys.starboard && inp.hit( 'KeyX' ) ) this.fire( 'starboard' );
+
+	}
+
+	// no gun to fire: a short tip (toast + a few seconds in the naval HUD), at most every 10 s
+	_noGun() {
+
+		this._noGunUntil = this.time + 4;
+		if ( this.time > this._hintT ) {
+
+			this._hintT = this.time + 10;
+			this._say( NO_GUN );
+
+		}
+
+	}
+
+	// Direct aiming at the helm: while the right mouse button (or the touch layer's input.aimHeld) is held, the guns follow
+	// the camera look (aimInfo: side, bearing inside the traverse, the range under the look, the elevation for it) and the
+	// left button fires that side. Not while the rod is out (its buttons are the rod's) or a panel has the mouse.
+	_updateAim() {
+
+		const app = this.app, inp = app.input, p = app.player, b = app.boatCtl, cam = app.camera, f = this.features;
+		const held = !! ( inp && ( inp.rightDown || inp.aimHeld ) );
+		const lmb = !! ( inp && inp.mouseDown );
+		const edgeR = held && ! this._rmbPrev, edgeL = lmb && ! this._lmbPrev;
+		this._rmbPrev = held;
+		this._lmbPrev = lmb;
+		let can = held && !! p && p.mode === 'boat' && inp.enabled !== false && ! this.playerHull.sunk && ! this.sinking
+			&& !! b && !! b.position && !! b.quaternion && !! cam && !! cam.position && !! cam.quaternion;
+		if ( can && f && ( ( f.panelOpen && f.panelOpen() ) || ( f.wantsMouse && f.wantsMouse() ) ) ) can = false;
+		const rod = app.game && app.game.rod;
+		if ( can && rod && rod.equipped ) can = false;
+		// a boarding fight has the buttons (the right one is the guard there)
+		const bo = f && f.get ? f.get( 'boarding' ) : null;
+		if ( can && bo && ( ( bo.phase && bo.phase !== 'idle' ) || ( bo.hostile && bo.hostile.phase && bo.hostile.phase !== 'idle' ) ) ) can = false;
+		// a drawn hand weapon (the firearms feature) owns the buttons too
+		const fa = f && f.get ? f.get( 'firearms' ) : null;
+		if ( can && fa && fa.drawn ) can = false;
+		if ( can && ! this.playerGun.owned ) {
+
+			if ( edgeR || edgeL ) this._noGun();
+			can = false;
+
+		}
+
+		this.aiming = can;
+		if ( ! can ) {
+
+			this.aimInfo = null;
+			return;
+
+		}
+
+		const look = rotateByQuat( cam.quaternion, { x: 0, y: 0, z: - 1 } );
+		const L = GUN_LEVELS[ clamp( Math.round( this.playerGun.level ) || 1, 1, 3 ) ];
+		this.aimInfo = lookAim( look, cam.position, ( side ) => {
+
+			const plan = this._gunPlan( side );
+			const m = this._muzzleWorld( plan.mounts[ Math.floor( ( plan.mounts.length - 1 ) / 2 ) ], b, { x: 0, y: 0, z: 0 } );
+			const n = rotateByQuat( b.quaternion, { x: plan.sg, y: 0, z: 0 } ), nl = Math.hypot( n.x, n.z ) || 1;
+			return { m, n: { x: n.x / nl, z: n.z / nl } };
+
+		}, { traverse: L.traverse, maxRange: GUN_RANGE * this.mods.range, minRange: 20, speed: MUZZLE_SPEED } );
+		if ( edgeL ) this.fire( this.aimInfo.side, { aimed: true } );
 
 	}
 
@@ -1277,6 +1400,7 @@ export class Naval {
 		if ( byPlayer ) {
 
 			this.stats.hits ++;
+			this.hudTarget = ship.id;
 			if ( this.hud ) this.hud.hitMarker( sunk ? 'sunk' : 'hit' );
 
 		}
@@ -1301,6 +1425,7 @@ export class Naval {
 
 		// she lists, settles and goes down over SINK_TIME (Ship.finalPose); the vfx feature adds bubbles and foam from shipSunk
 		if ( ! this._vfx() ) this.fx.splash( ship.x, 0, ship.z, 3.2 );
+		this._wreckage( ship.x, ship.pose.y + cls.deck, ship.z, cls.length, cls.beam, ship.yaw );
 		this.audio.impact( ship.x, 2, ship.z, 1 );
 		if ( f && f.emit ) {
 
@@ -1363,6 +1488,8 @@ export class Naval {
 
 				if ( v ) v.splash( b.position.x, 0, b.position.z, 2.5 );
 				else this.fx.splash( b.position.x, 0, b.position.z, 2.5 );
+				const d = this._dims();
+				this._wreckage( b.position.x, b.position.y + d.free, b.position.z, d.length, d.beam, typeof b.getYaw === 'function' ? b.getYaw() : 0 );
 
 			}
 			const info = this._beginSinking( cause );
@@ -1582,6 +1709,300 @@ export class Naval {
 
 	}
 
+	// ------------------------------------------------------------------ collisions (wave 9, Collisions.js)
+
+	// the player's boat as a collision body (null while she is sinking, a wreck or parked)
+	_playerBody() {
+
+		const b = this.app.boatCtl, h = this.playerHull;
+		if ( h.sunk || this.sinking || ! b || ! b.position || ! b.quaternion || b.enabled === false || b.position.y < PARK_Y / 2 ) return null;
+		const d = this._dims(), spec = BOATS[ h.boat ] || BOATS.lobster;
+		const f = rotateByQuat( b.quaternion, { x: 0, y: 0, z: 1 } );
+		const r = this._pb || ( this._pb = this._makePlayerBody() );
+		r._b = b;
+		r.x = b.position.x;
+		r.z = b.position.z;
+		r.yaw = Math.atan2( f.x, f.z );
+		r.hx = d.beam / 2;
+		r.hz = d.length / 2;
+		r.mass = b.mass || spec.mass;
+		r.invMass = 1 / r.mass;
+		r.invI = 1 / ( ( b.inertia && b.inertia.y ) || yawInertia( r.mass, r.hx, r.hz ) );
+		r.vx = b.velocity ? b.velocity.x : 0;
+		r.vz = b.velocity ? b.velocity.z : 0;
+		r.w = b.angular ? b.angular.y : 0;
+		r.maxHp = h.max;
+		return r;
+
+	}
+
+	// the controller takes the push and the impulse (BoatController.applyCollision); a bare stand-in gets them directly
+	_makePlayerBody() {
+
+		const r = { id: 'player', player: true, gentle: false, _b: null };
+		const sync = () => {
+
+			const b = r._b;
+			r.x = b.position.x;
+			r.z = b.position.z;
+			if ( b.velocity ) { r.vx = b.velocity.x; r.vz = b.velocity.z; }
+			if ( b.angular ) r.w = b.angular.y;
+
+		};
+
+		r.push = ( dx, dz ) => {
+
+			const b = r._b;
+			if ( typeof b.applyCollision === 'function' ) b.applyCollision( dx, dz, 0, 0 );
+			else { b.position.x += dx; b.position.z += dz; }
+			sync();
+
+		};
+
+		r.impulse = ( jx, jz, px, pz ) => {
+
+			const b = r._b;
+			if ( typeof b.applyCollision === 'function' ) b.applyCollision( 0, 0, jx, jz, px, b.position.y + 0.4, pz );
+			else {
+
+				if ( b.velocity ) { b.velocity.x += jx * r.invMass; b.velocity.z += jz * r.invMass; }
+				r.w += ( ( pz - r.z ) * jx - ( px - r.x ) * jz ) * r.invI;
+				if ( b.angular ) b.angular.y = r.w;
+
+			}
+
+			sync();
+
+		};
+
+		return r;
+
+	}
+
+	// a ship as a collision body: grounded or moored she does not move (but still blocks), mirrored puppets neither
+	_shipBody( s ) {
+
+		const c = s.cls, r = s._body || ( s._body = this._makeShipBody( s ) );
+		const fixed = s.grounded > 0 || s.state === 'moored' || !! s.puppet;
+		r.x = s.x;
+		r.z = s.z;
+		r.yaw = s.yaw;
+		r.hx = c.beam / 2;
+		r.hz = c.length / 2 * 0.97;
+		r.mass = c.mass || c.hp * 200;
+		r.invMass = fixed ? 0 : 1 / r.mass;
+		r.invI = fixed ? 0 : 1 / yawInertia( r.mass, r.hx, r.hz );
+		const v = s.velocity( this._sv || ( this._sv = {} ) );
+		r.vx = v.x;
+		r.vz = v.z;
+		r.w = s.yawRate;
+		r.maxHp = s.maxHp;
+		r.gentle = GENTLE.has( s.state );
+		return r;
+
+	}
+
+	_makeShipBody( s ) {
+
+		const r = { id: s.id, ship: s };
+		const v = {};
+		const sync = () => {
+
+			r.x = s.x;
+			r.z = s.z;
+			s.velocity( v );
+			r.vx = v.x;
+			r.vz = v.z;
+			r.w = s.yawRate;
+
+		};
+
+		r.push = ( dx, dz ) => { s.shift( dx, dz ); sync(); };
+		r.impulse = ( jx, jz, px, pz ) => { s.applyImpulse( jx, jz, px, pz, r.invMass, r.invI ); sync(); };
+		return r;
+
+	}
+
+	_bodies() {
+
+		const list = this._bodyList || ( this._bodyList = [] );
+		list.length = 0;
+		const pb = this._playerBody();
+		if ( pb ) list.push( pb );
+		for ( const s of this.ships ) if ( s.alive ) list.push( this._shipBody( s ) );
+		return list;
+
+	}
+
+	// every hull against every other: separate, bounce, and on a new blow the damage and the show
+	_collide() {
+
+		this.contacts = this.collisions.step( this.time, this._bodies() );
+		for ( const c of this.contacts ) this._onContact( c );
+
+	}
+
+	_onContact( c ) {
+
+		const a = c.a, b = c.b, player = !! ( a.player || b.player );
+		// a ramming pirate breaks off after the blow (Brains: s.mem.ram)
+		for ( const r of [ a, b ] ) {
+
+			const m = r.ship && r.ship.mem;
+			if ( m && m.ram ) { m.ram = false; m.ramCool = RAM.cool; }
+
+		}
+
+		if ( ! c.damage ) {
+
+			// grinding alongside: the timbers creak now and then
+			if ( player && this.time > this._creakT ) {
+
+				this._creakT = this.time + 1.4;
+				this.audio.creak( c.x, 1, c.z, 0.45 );
+
+			}
+
+			return;
+
+		}
+
+		const v = c.vClose, k = clamp( v / 4, 0.3, 3 ), y = 1;
+		const vfx = this._vfx();
+		if ( vfx ) {
+
+			if ( vfx.splinters ) vfx.splinters( c.x, y + 0.4, c.z, k );
+			if ( vfx.debris ) vfx.debris( c.x, y, c.z, k * 0.8, 'wood' );
+			if ( vfx.splash ) vfx.splash( c.x, 0, c.z, k * 0.8 );
+
+		} else {
+
+			this.fx.hit( c.x, y, c.z );
+			this.fx.splash( c.x, 0, c.z, k * 0.8 );
+
+		}
+
+		this.audio.crunch( c.x, y, c.z, clamp( 0.45 + v / 10, 0.45, 1 ) );
+		const mu = a.mass * b.mass / Math.max( 1, a.mass + b.mass ), energy = 0.5 * mu * v * v;
+		// dock props near the crash fly (the destruction feature)
+		const de = this.features && this.features.get ? this.features.get( 'destruction' ) : null;
+		if ( de && typeof de.impulse === 'function' ) {
+
+			try { de.impulse( c.x, y, c.z, 4 + v, energy ); } catch ( e ) { /* decoration */ }
+
+		}
+
+		for ( const [ self, other, d ] of [ [ a, b, c.damage.a ], [ b, a, c.damage.b ] ] ) {
+
+			if ( ! ( d > 0 ) ) continue;
+			if ( self.player ) this.damagePlayer( d, 'ramming', { x: other.x, z: other.z } );
+			else if ( self.ship && self.ship.alive ) {
+
+				const s = self.ship;
+				const sunk = s.damage( d, { part: 'hull', by: other.player ? 'player' : other.id } );
+				if ( other.player ) {
+
+					this.hudTarget = s.id;
+					if ( this.hud ) this.hud.hitMarker( sunk ? 'sunk' : 'hit' );
+
+				}
+
+				if ( sunk ) this._onSunk( s, !! other.player );
+
+			}
+
+			// stove in: planks off the side
+			if ( d > 0.04 * ( self.maxHp || 100 ) ) this.planks.burst( c.x, c.z, 2, 1.5 );
+
+		}
+
+		if ( player ) {
+
+			const cf = this.app.cameraFeel;
+			if ( cf && cf.kick ) cf.kick( v > 4 ? 'broadside' : 'hit', { scale: clamp( v / 5, 0.4, 1.6 ) } );
+
+		}
+
+		this._emit( 'hullsCollided', {
+			a: a.id, b: b.id, x: c.x, z: c.z, speed: Math.round( v * 10 ) / 10,
+			damage: { a: Math.round( c.damage.a * 10 ) / 10, b: Math.round( c.damage.b * 10 ) / 10 }, byPlayer: player,
+		} );
+
+	}
+
+	// a hull breaking up: wood debris along her length, splinters, and floating planks
+	_wreckage( x, y, z, length = 8, beam = 3, yaw = 0 ) {
+
+		const v = this._vfx(), fx = Math.sin( yaw ), fz = Math.cos( yaw );
+		if ( v && v.debris ) {
+
+			for ( let i = 0; i < 6; i ++ ) {
+
+				const k = ( i / 5 - 0.5 ) * length * 0.8, sd = ( i % 2 ? 1 : - 1 ) * beam * 0.3;
+				v.debris( x + fx * k + fz * sd, y, z + fz * k - fx * sd, 1.2, 'wood' );
+
+			}
+
+		}
+
+		if ( v && v.splinters ) v.splinters( x, y, z, 2 );
+		else if ( ! v ) this.fx.hit( x, y, z );
+		this.planks.burst( x, z, 6 + Math.round( length / 4 ), Math.max( 2, length * 0.3 ) );
+
+	}
+
+	// merchants look 3 s ahead and turn away from a hull they would hit (Brains: s.mem.avoidT / avoidDir)
+	_avoidance( dt ) {
+
+		this._avoidT -= dt;
+		if ( this._avoidT > 0 ) return;
+		this._avoidT = 0.25;
+		const list = this._bodies();
+		for ( const s of this.ships ) {
+
+			if ( s.faction !== 'merchant' || ! s.alive || ( s.state !== 'sail' && s.state !== 'flee' ) ) continue;
+			const me = this._shipBody( s );
+			let best = null;
+			for ( const o of list ) {
+
+				if ( o === me ) continue;
+				const p = predictContact( me, o, AVOID.horizon );
+				if ( p && ( ! best || p.t < best.t ) ) best = p;
+
+			}
+
+			if ( best ) {
+
+				s.mem.avoidT = AVOID.hold;
+				s.mem.avoidDir = - best.side; // the other passes to port: turn to starboard, and the other way round
+
+			}
+
+		}
+
+	}
+
+	// a pirate whose hull falls below CRIPPLE: shipCrippled once (boarding strikes her colours; her guns go quiet)
+	_checkCripple() {
+
+		for ( const s of this.ships ) {
+
+			if ( s.faction !== 'pirate' ) continue;
+			const f = s.alive ? s.hpFraction : 0;
+			const prev = s._cripSeen ?? f;
+			s._cripSeen = f;
+			if ( ! s.alive || s.crippled || ! ( prev >= CRIPPLE && f < CRIPPLE ) ) continue;
+			s.crippled = true;
+			// with the boarding feature installed it announces the crossing itself (she strikes her colours: one event)
+			const bo = this.features && this.features.get ? this.features.get( 'boarding' ) : null;
+			if ( bo ) continue;
+			this._emit( 'shipCrippled', { id: s.id, name: s.name, by: s.lastHitBy, x: s.x, z: s.z } );
+			if ( s.lastHitBy === 'player' ) this._say( `The ${ s.name } is crippled: her guns are silent` );
+
+		}
+
+	}
+
 	// ------------------------------------------------------------------ loot
 
 	_updateLoot() {
@@ -1734,10 +2155,14 @@ export class Naval {
 			this._refreshTarget();
 			this._gatherTargets( dt );
 			this._readKeys();
+			this._updateAim();
 			this.reloadLeft.port = Math.max( 0, this.reloadLeft.port - dt );
 			this.reloadLeft.starboard = Math.max( 0, this.reloadLeft.starboard - dt );
 			if ( this.settings.autoSpawn ) this._manage( dt );
 			this._sail( dt );
+			this._avoidance( dt );
+			this._collide();
+			this._checkCripple();
 			this._updateShots( dt );
 			this._updatePlayerShots( dt );
 			this._updateBalls( dt );
@@ -1751,6 +2176,7 @@ export class Naval {
 		this.wrecks.update( dt );
 
 		this.fx.update( dt );
+		this.planks.update( dt, this.time );
 		if ( this.modMeshes ) {
 
 			try {
@@ -1771,6 +2197,10 @@ export class Naval {
 		this.shots.length = 0;
 		this.balls.clear();
 		this.loot.clear();
+		this.planks.clear();
+		this.collisions.clear();
+		this.aiming = false;
+		this.aimInfo = null;
 
 	}
 
@@ -1864,6 +2294,7 @@ export class Naval {
 		this.balls.dispose();
 		this.fx.dispose();
 		this.loot.dispose();
+		this.planks.dispose();
 		this.wrecks.dispose();
 		this.audio.dispose();
 		if ( this.models ) this.models.dispose();

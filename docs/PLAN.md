@@ -383,8 +383,16 @@ pirate ramming, RMB-aimed cannons + LMB fire, sandbox swivel gun, target hull ba
 event); 9B firearms feature (flintlock pistol + musket, cartridges at the chandlery, G draw, LMB fire, RMB aim, R reload,
 hitscan through the melee enemy API, peace zone); 9C settings panel as a fixed flex column with a wrapping tab strip and
 the pages as the only scroll region, touch light buttons (boat L, plane N / ;).
-Still open from the user's list: "improve fighting and combat per total" beyond these (next wave once 9A/9B land and
-are played), iOS constant lag (needs a profile with the pane visible), Low-quality clouds (resolution decoupled; judge
-on the phone).
+Landed (2026-10-13): 9A src/features/naval/Collisions.js + Planks.js, Ship.shift / applyImpulse, BoatController.applyCollision,
+ShipClasses masses, Brains ramming / avoidance, Naval aiming (naval.aiming / aimInfo, input.rightDown or aimHeld),
+Hud crosshair + range + target hull bar, hullsCollided event; played: the launch stops against a sloop instead of
+passing through, a ram at ~8 m/s cost the launch 18 hull and the sloop 2, the aim overlay reads "STBD · 28 m" and a
+shot reports "WIDE 94 m". 9B src/features/firearms/* (index, Firearms, FirearmsData, Hitscan, GunAudio, WeaponMesh):
+registered after death in install.js; Game.js routes R to the reload and the player action to the gun; melee yields
+the mouse while a gun is drawn; chandlery rows via firearms.shopRows(); touch Gun / Fire / Aim buttons. Played: buy,
+draw, the pistol in hand. 9C landed (see above). Boat swaps / remote boats do not collide yet (local boat + AI ships).
+Still open from the user's list: "improve fighting and combat per total" beyond these (next wave, after the user plays
+9A / 9B), iOS constant lag (needs a profile with the pane visible), Low-quality clouds (resolution decoupled; judge on
+the phone).
 
 

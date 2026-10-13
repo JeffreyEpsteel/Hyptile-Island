@@ -9,6 +9,12 @@ import { clamp, normaliseSide } from './util.js';
 //   aimPlan( naval, side ) -> { side, target: { id, name } | null, range, inArc, points: [ { x, y, z } ], impact: { x, y, z },
 //                              lead: { x, z } | null, t, ready, left }  | null        (pure: node tests call it)
 //   missReport( impact, target, from ) -> { kind: 'short' | 'long' | 'wide', by: m }    (pure)
+//   lookAim( look, eye, gunFor, { traverse, maxRange, minRange, speed } ) -> { side, dir, el, az, lookAz, inArc, range, point, from }
+//                              direct aiming (wave 9, right mouse held at the helm): the side whose beam the camera looks
+//                              over, the azimuth clamped to the carriage's traverse, the range where the look ray meets the
+//                              water (clamped to the gun's reach: looking at or above the horizon is full range) and the
+//                              elevation that drops the ball there. gunFor( side ) -> { m: muzzle { x, y, z }, n: beam normal
+//                              { x, z } (unit, horizontal) }. While Naval aims, aimPlan draws only that side's arc.
 //   const a = new AimAssist( { doc } );  a.update( model, camera, project, dt );  a.bind( features );  a.dispose()
 //   (Hud.js owns one: NavalHud.update feeds it hudModel's model.aim)
 
@@ -35,11 +41,66 @@ function pickTarget( naval, m, normal, traverse, reach ) {
 
 }
 
+export function lookAim( look, eye, gunFor, { traverse = 0.4, maxRange = 320, minRange = 20, speed = MUZZLE_SPEED } = {} ) {
+
+	let lx = look.x, lz = look.z;
+	const ll = Math.hypot( lx, lz );
+	const port = gunFor( 'port' );
+	if ( ll < 1e-4 ) { lx = port.n.x; lz = port.n.z; } else { lx /= ll; lz /= ll; }
+	const side = lx * port.n.x + lz * port.n.z >= 0 ? 'port' : 'starboard';
+	const g = side === 'port' ? port : gunFor( 'starboard' );
+	const nx = g.n.x, nz = g.n.z, m = g.m;
+	// the look's azimuth off the beam, then held inside the traverse
+	const lookAz = Math.atan2( nx * lz - nz * lx, nx * lx + nz * lz );
+	const az = clamp( lookAz, - traverse, traverse );
+	const c = Math.cos( az ), s = Math.sin( az );
+	const hx = nx * c - nz * s, hz = nx * s + nz * c;
+	// where the look ray meets the sea (y = 0), measured from the muzzle along the aimed bearing
+	let range = maxRange;
+	if ( look.y < - 1e-4 ) {
+
+		const t = - eye.y / look.y;
+		const px = eye.x + look.x * t, pz = eye.z + look.z * t;
+		range = ( px - m.x ) * hx + ( pz - m.z ) * hz;
+
+	}
+
+	range = clamp( range, minRange, maxRange );
+	const el = solveElevation( speed, range, - m.y ) ?? Math.PI / 4;
+	const ce = Math.cos( el );
+	return {
+		side, dir: { x: hx * ce, y: Math.sin( el ), z: hz * ce }, el, az, lookAz, inArc: Math.abs( lookAz ) <= traverse, range,
+		point: { x: m.x + hx * range, y: 0, z: m.z + hz * range }, from: { x: m.x, y: m.y, z: m.z },
+	};
+
+}
+
+// the arc of the side being aimed by hand (Naval.aimInfo): drawn whatever is in front of it
+function aimedPlan( naval, sd, b ) {
+
+	const ai = naval.aimInfo;
+	if ( ! ai || ai.side !== sd ) return null;
+	const bvel = b.velocity ? { x: b.velocity.x, y: b.velocity.y || 0, z: b.velocity.z } : { x: 0, y: 0, z: 0 };
+	const m = ai.from;
+	const V = { x: ai.dir.x * MUZZLE_SPEED + bvel.x, y: ai.dir.y * MUZZLE_SPEED + bvel.y, z: ai.dir.z * MUZZLE_SPEED + bvel.z };
+	const t = impactTime( m, V, 0 ) ?? 1;
+	const points = arcPoints( m, V, { maxT: t, max: AIM.dots, floor: 0 } );
+	const total = typeof naval.reloadTime === 'function' ? naval.reloadTime( naval.playerGun ? naval.playerGun.level : 1 ) : 1;
+	const left = naval.reloadLeft ? Math.max( 0, naval.reloadLeft[ sd ] || 0 ) : 0;
+	return {
+		side: sd, aimed: true, outOfArc: ! ai.inArc, target: null, range: Math.round( ai.range ), inArc: true, points,
+		impact: points[ points.length - 1 ], lead: null, t, ready: left <= 0, left, frac: left <= 0 ? 1 : clamp( 1 - left / total, 0, 1 ),
+		from: { x: m.x, z: m.z },
+	};
+
+}
+
 export function aimPlan( naval, side ) {
 
 	const sd = normaliseSide( side );
 	const app = naval && naval.app, b = app && app.boatCtl;
 	if ( ! sd || ! b || ! b.position || ! b.quaternion || typeof naval._gunPlan !== 'function' || typeof naval._muzzleWorld !== 'function' ) return null;
+	if ( naval.aiming ) return aimedPlan( naval, sd, b ); // aiming by hand: only that side's arc, no auto-lead
 	const plan = naval._gunPlan( sd );
 	if ( ! plan || ! plan.mounts || ! plan.mounts.length ) return null;
 	const m = naval._muzzleWorld( plan.mounts[ Math.floor( ( plan.mounts.length - 1 ) / 2 ) ], b, { x: 0, y: 0, z: 0 } );

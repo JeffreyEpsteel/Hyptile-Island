@@ -18,6 +18,14 @@
 //     side when the other battery is still reloading (at most every BROADSIDE.wear s)
 //   - outgunned, she runs: losing OUTGUNNED.share of her hull inside OUTGUNNED.window s while below OUTGUNNED.below of it
 //     sends her to 'flee' before her class's fleeAt (s.mem.outgunned = true)
+//
+// Wave 9 (hull collisions, Collisions.js):
+//   - ramming: in a broadside, a pirate heavier than her target (RAM.heavier x its mass, target.mass) whose engaged battery
+//     has more than RAM.reload s to go and whose other one can't be brought round (reloading, or she just wore) drives her
+//     bow into him at full speed (s.mem.ram); she breaks off when a battery is nearly ready, the target opens out, or
+//     after the blow (Naval sets s.mem.ramCool = RAM.cool). Crippled pirates (below the boarding threshold) never ram.
+//   - merchants turn away (AVOID.turn rad for AVOID.hold s) from a hull Naval predicts they would hit within AVOID.horizon
+//     s (s.mem.avoidT / s.mem.avoidDir)
 
 import { angleDiff, clamp, sideSign } from './util.js';
 import { advance, nearestIndex } from './Routes.js';
@@ -26,6 +34,8 @@ import { inPeace, peaceExit, PEACE } from '../melee/Peace.js';
 export const BROADSIDE = { wear: 14, reloadLead: 1.5 };
 export const OUTGUNNED = { window: 20, share: 0.35, below: 0.65, sample: 2.5 };
 export const KEEP_OUT = { look: 140 };
+export const RAM = { heavier: 1.2, reload: 1.5, ready: 0.6, cool: 12, cripple: 0.25 };
+export const AVOID = { horizon: 3, hold: 1.2, turn: 0.6 };
 const FIGHTING = new Set( [ 'patrol', 'chase', 'broadside' ] );
 const NO_STEER = new Set( [ 'close', 'grapple', 'boarding', 'boarded', 'adrift', 'moored', 'sinking', 'gone' ] );
 
@@ -209,6 +219,22 @@ export function thinkPirate( s, w, dt ) {
 
 			}
 
+			// ramming: her guns are reloading and she outweighs him - put the bow into him instead of waiting
+			s.mem.ramCool = Math.max( 0, ( s.mem.ramCool || 0 ) - dt );
+			const eng = s.mem.side > 0 ? 'port' : 'starboard', oth = eng === 'port' ? 'starboard' : 'port';
+			const reloading = s.reload[ eng ] > RAM.reload && ( s.reload[ oth ] > 0 || s.mem.wearT > 0 );
+			if ( ! s.mem.ram && aggro && reloading && s.mem.ramCool <= 0 && ( c.mass || 0 ) > ( t.mass || Infinity ) * RAM.heavier
+				&& d < c.engage && s.hpFraction >= RAM.cripple ) s.mem.ram = true;
+			else if ( s.mem.ram && ( ! aggro || s.reload.port <= RAM.ready || s.reload.starboard <= RAM.ready || d > c.engage * 1.2 ) ) s.mem.ram = false;
+			if ( s.mem.ram ) {
+
+				const lead = clamp( d / Math.max( s.speed, 3 ), 0, 4 ) * 0.8;
+				s.want = Math.atan2( t.x + ( t.vx || 0 ) * lead - s.x, t.z + ( t.vz || 0 ) * lead - s.z );
+				s.wantSpeed = 1;
+				break;
+
+			}
+
 			// keep the target abeam: heading = bearing -+ 90 deg, closed in / opened out to hold 60-120 m, at the target's
 			// own speed so the bearing holds instead of her overrunning him
 			const bias = clamp( ( d - 90 ) / 70, - 1, 1 );
@@ -299,6 +325,14 @@ export function thinkMerchant( s, w, dt ) {
 
 		default:
 			break;
+
+	}
+
+	// a hull ahead on a collision course (Naval._avoidance): a short turn away
+	if ( s.mem.avoidT > 0 ) {
+
+		s.mem.avoidT -= dt;
+		if ( s.state === 'sail' || s.state === 'flee' ) s.want += ( s.mem.avoidDir || 1 ) * AVOID.turn;
 
 	}
 

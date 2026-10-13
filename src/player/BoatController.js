@@ -565,6 +565,35 @@ export class BoatController {
 
 	}
 
+	// Collision response (naval/Collisions.js, wave 9): another hull pushed us out by ( dx, dz ) and struck with the
+	// impulse ( jx, jz ) (N s, world, horizontal) at the world point ( px, py, pz ). The velocity changes by J / m; the
+	// lever of the point about the centre of mass kicks the yaw rate (and heels her a little: the blow lands above it).
+	applyCollision( dx = 0, dz = 0, jx = 0, jz = 0, px = this.position.x, py = this.position.y, pz = this.position.z ) {
+
+		if ( ! [ dx, dz, jx, jz, px, py, pz ].every( Number.isFinite ) ) return false;
+		this.position.x += dx;
+		this.position.z += dz;
+		const m = this.mass || 3200;
+		this.velocity.x += jx / m;
+		this.velocity.z += jz / m;
+		if ( jx !== 0 || jz !== 0 ) {
+
+			// angular impulse r x J ( J has no vertical part ), in the boat frame over the (wet) inertia
+			const comW = this.toWorld( this.com, _c1 );
+			const rx = px - comW.x, ry = py - comW.y, rz = pz - comW.z;
+			const L = _c2.set( ry * jz, rz * jx - rx * jz, - ry * jx ).applyQuaternion( _invQ.copy( this.quaternion ).invert() );
+			const I = this.inertia, ai = this.addedInertia, wet = clamp( this.wetFraction || 1, 0, 1 );
+			L.set( L.x / ( I.x * ( 1 + ai.x * wet ) ), L.y / ( I.y * ( 1 + ai.y * wet ) ), L.z / ( I.z * ( 1 + ai.z * wet ) ) );
+			L.set( clamp( L.x, - 0.4, 0.4 ), clamp( L.y, - 1.2, 1.2 ), clamp( L.z, - 0.6, 0.6 ) ).applyQuaternion( this.quaternion );
+			this.angular.add( L );
+
+		}
+
+		if ( this.model && this.model.group ) this.apply();
+		return true;
+
+	}
+
 	apply() {
 
 		const g = this.model.group;

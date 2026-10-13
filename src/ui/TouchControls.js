@@ -43,7 +43,10 @@ const BUTTONS = {
 	fireL: { label: 'Port', code: 'KeyZ' },
 	fireR: { label: 'Starboard', code: 'KeyX' },
 	camera: { label: 'View', code: 'KeyV' },
-	deck: { label: 'Deck', code: 'KeyQ' }, // at the helm next to land: E steps ashore, this one keeps the deck
+	deck: { label: 'Deck', code: 'KeyQ' },
+	fire: { label: 'Fire', button: 'left', big: true }, // a drawn pistol / musket
+	aim: { label: 'Aim', button: 'right' },
+	draw: { label: 'Gun', code: 'KeyG' }, // at the helm next to land: E steps ashore, this one keeps the deck
 	cockpit: { label: 'Cockpit', code: 'Digit3' },
 	lights: { label: 'Lights', code: 'KeyL' }, // boat: root's L toggles every hull's lights
 	navLights: { label: 'Nav', code: 'KeyN' }, // seaplane cockpit keys (Seaplane.js COCKPIT_KEYS)
@@ -169,8 +172,8 @@ export class TouchControls {
 		this.interactText = this.interactEl.firstChild;
 		this.btns = {};
 		const rowA = el( 'div', 'tc-row tc-row-a' ), rowB = el( 'div', 'tc-row tc-row-b' );
-		for ( const id of [ 'choice1', 'choice2', 'board', 'reel', 'guard', 'dodge', 'rod', 'camera', 'deck', 'cockpit', 'lights', 'navLights', 'landing', 'fireL', 'fireR' ] ) rowA.append( this._btn( id ) );
-		for ( const id of [ 'dive', 'jump', 'cast' ] ) rowB.append( this._btn( id ) );
+		for ( const id of [ 'choice1', 'choice2', 'board', 'reel', 'guard', 'dodge', 'rod', 'camera', 'deck', 'cockpit', 'lights', 'navLights', 'landing', 'fireL', 'fireR', 'draw', 'aim' ] ) rowA.append( this._btn( id ) );
+		for ( const id of [ 'dive', 'jump', 'cast', 'fire' ] ) rowB.append( this._btn( id ) );
 		this.actions.append( this.interactEl, rowA, rowB );
 		// the lever (boat: astern / stop / ahead / full; seaplane: 0..100 %)
 		this.leverEl = el( 'div', 'tc-lever', '<span class="tc-lever-track"><i data-n="1"></i><i data-n="0.7"></i><i data-n="0"></i><i data-n="-0.6"></i></span><span class="tc-lever-thumb"></span><span class="tc-lever-val"></span>' );
@@ -674,6 +677,7 @@ export class TouchControls {
 			choices: ph === 'surrender' || !! ( boarding && boarding.hostile && boarding.hostile.phase === 'boarded' ),
 			melee: meleeOn,
 			helmAshore: !! ( app.player && app.player.helmAshore ),
+			gunOwned: !! ( get( 'firearms' ) && get( 'firearms' ).anyOwned && get( 'firearms' ).anyOwned() ), gunDrawn: !! ( get( 'firearms' ) && get( 'firearms' ).drawn ),
 			boatLights: !! app.boatLightsOn,
 			planeNav: !! get( 'seaplane' )?.systems?.nav,
 			planeLanding: !! get( 'seaplane' )?.systems?.landing,

@@ -6,6 +6,8 @@
 //   const audio = new NavalAudio( app );
 //   audio.cannon( x, y, z, gain )     a shot at that world position (heard `distance / 343` seconds later, capped)
 //   audio.impact( x, y, z, gain )     a ball into a hull
+//   audio.crunch( x, y, z, gain )     two hulls colliding (wave 9): synthesised - a low thump and a burst of splintering noise
+//   audio.creak( x, y, z, gain )      timber straining as hulls grind together: a wobbling, filtered saw (synthesised)
 //   audio.dispose();   audio.played   [ { name, x, y, z, delay } ] log of requests (tests)
 
 const FILES = { cannon: 'audio/naval/CannonShot_V01.mp3', impact: 'audio/naval/ShipImpact_V01.mp3' };
@@ -145,6 +147,133 @@ export class NavalAudio {
 	impact( x, y, z, gain = 0.8 ) {
 
 		this._play( 'impact', x, y, z, gain );
+
+	}
+
+	// a synthesised cue at a world position: build( ctx, out, t0, gain ) wires its nodes into `out` (the panner) and returns
+	// how long it lasts (s)
+	_synth( name, x, y, z, gain, build ) {
+
+		const a = this.app && this.app.audio;
+		const ctx = this.ctx;
+		const L = a && a.env ? a.env : null;
+		const d = L ? Math.hypot( x - L.lx, y - L.ly, z - L.lz ) : 0;
+		const delay = Math.min( d / 343, 1.6 );
+		this.played.push( { name, x, y, z, delay, gain } );
+		if ( this.played.length > 64 ) this.played.shift();
+		if ( ! ctx || a._muted ) return;
+		try {
+
+			const pan = ctx.createPanner();
+			pan.panningModel = 'HRTF';
+			pan.distanceModel = 'inverse';
+			pan.refDistance = 18;
+			pan.rolloffFactor = 1.1;
+			pan.maxDistance = 3000;
+			if ( pan.positionX ) {
+
+				pan.positionX.value = x;
+				pan.positionY.value = y;
+				pan.positionZ.value = z;
+
+			} else pan.setPosition( x, y, z );
+
+			pan.connect( a.sfxAbove || a.master || ctx.destination );
+			const t0 = ctx.currentTime + delay;
+			const len = build( ctx, pan, t0, gain );
+			setTimeout( () => {
+
+				try { pan.disconnect(); } catch ( e ) { /* ignore */ }
+
+			}, ( delay + len + 0.3 ) * 1000 );
+
+		} catch ( e ) { /* audio is decoration */ }
+
+	}
+
+	_noise( ctx ) {
+
+		const key = '_noiseBuf';
+		if ( ! this[ key ] || this[ key ].sampleRate !== ctx.sampleRate ) {
+
+			const n = Math.ceil( ctx.sampleRate * 1.5 ), buf = ctx.createBuffer( 1, n, ctx.sampleRate ), ch = buf.getChannelData( 0 );
+			for ( let i = 0; i < n; i ++ ) ch[ i ] = Math.random() * 2 - 1;
+			this[ key ] = buf;
+
+		}
+
+		const src = ctx.createBufferSource();
+		src.buffer = this[ key ];
+		src.playbackRate.value = 0.8 + Math.random() * 0.4;
+		return src;
+
+	}
+
+	crunch( x, y, z, gain = 0.9 ) {
+
+		this._synth( 'crunch', x, y, z, gain, ( ctx, out, t0, g0 ) => {
+
+			// the thump: a sine dropping from 90 to 38 Hz
+			const o = ctx.createOscillator(), og = ctx.createGain();
+			o.type = 'sine';
+			o.frequency.setValueAtTime( 90, t0 );
+			o.frequency.exponentialRampToValueAtTime( 38, t0 + 0.35 );
+			og.gain.setValueAtTime( 0.0001, t0 );
+			og.gain.exponentialRampToValueAtTime( g0, t0 + 0.012 );
+			og.gain.exponentialRampToValueAtTime( 0.0001, t0 + 0.5 );
+			o.connect( og ).connect( out );
+			o.start( t0 );
+			o.stop( t0 + 0.55 );
+			// the splintering: band-passed noise in a few cracks
+			const n = this._noise( ctx ), bp = ctx.createBiquadFilter(), ng = ctx.createGain();
+			bp.type = 'bandpass';
+			bp.frequency.value = 900 + Math.random() * 500;
+			bp.Q.value = 0.9;
+			ng.gain.setValueAtTime( 0.0001, t0 );
+			for ( let i = 0; i < 4; i ++ ) {
+
+				const t = t0 + i * ( 0.05 + Math.random() * 0.06 );
+				ng.gain.exponentialRampToValueAtTime( g0 * ( 0.7 - i * 0.12 ), t + 0.01 );
+				ng.gain.exponentialRampToValueAtTime( 0.02, t + 0.05 );
+
+			}
+
+			ng.gain.exponentialRampToValueAtTime( 0.0001, t0 + 0.6 );
+			n.connect( bp ).connect( ng ).connect( out );
+			n.start( t0 );
+			n.stop( t0 + 0.65 );
+			return 0.7;
+
+		} );
+
+	}
+
+	creak( x, y, z, gain = 0.5 ) {
+
+		this._synth( 'creak', x, y, z, gain, ( ctx, out, t0, g0 ) => {
+
+			const o = ctx.createOscillator(), lfo = ctx.createOscillator(), lg = ctx.createGain(), bp = ctx.createBiquadFilter(), g = ctx.createGain();
+			const f = 70 + Math.random() * 40, len = 0.6 + Math.random() * 0.5;
+			o.type = 'sawtooth';
+			o.frequency.setValueAtTime( f, t0 );
+			o.frequency.linearRampToValueAtTime( f * 0.7, t0 + len );
+			lfo.frequency.value = 11 + Math.random() * 6; // the stick-slip of timber on timber
+			lg.gain.value = f * 0.25;
+			lfo.connect( lg ).connect( o.frequency );
+			bp.type = 'bandpass';
+			bp.frequency.value = 520;
+			bp.Q.value = 4;
+			g.gain.setValueAtTime( 0.0001, t0 );
+			g.gain.exponentialRampToValueAtTime( g0 * 0.6, t0 + 0.08 );
+			g.gain.exponentialRampToValueAtTime( 0.0001, t0 + len );
+			o.connect( bp ).connect( g ).connect( out );
+			o.start( t0 );
+			lfo.start( t0 );
+			o.stop( t0 + len + 0.05 );
+			lfo.stop( t0 + len + 0.05 );
+			return len;
+
+		} );
 
 	}
 

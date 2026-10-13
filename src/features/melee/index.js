@@ -826,7 +826,8 @@ export class Melee {
 
 		const a = this.app, inp = a.input, c = this.combat;
 		const can = !! inp && this._canAct();
-		const lmb = can && !! inp.mouseDown, rmb = can && !! inp.rightDown;
+		const gun = !! ( this.features && this.features.get && this.features.get( 'firearms' ) && this.features.get( 'firearms' ).drawn ); // (a drawn gun owns the mouse)
+		const lmb = can && ! gun && !! inp.mouseDown, rmb = can && ! gun && !! inp.rightDown;
 		const lDown = lmb && ! this._lmb, rDown = rmb && ! this._rmb;
 		this._lmb = lmb;
 		this._rmb = rmb;

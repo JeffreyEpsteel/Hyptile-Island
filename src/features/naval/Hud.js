@@ -12,11 +12,18 @@
 // Wave 4: the battery rows say plainly what each side can do - READY or the seconds left, the gun count, and the range to
 // the target the side would fire at ("142 m", "no target") - and the aim assist (AimAssist.js) draws each loaded side's
 // arc, the lead marker, and the hit / short / long / wide line after a broadside. model.aim carries the two aim plans.
+//
+// Wave 9: while aiming by hand (right mouse, naval.aiming) a centre crosshair with a ranging readout ("PORT · 214 m",
+// "out of arc", the reload); the target's hull bar (the pirate last hit, else the nearest within gun range) with a mark at
+// the cripple line (25 %: below it she strikes and can be boarded); and, for a few seconds after trying to fire or aim
+// without a gun, "No gun - Captain Roid sells a swivel gun" (model.noGun).
 
 import { rotateByQuat } from './Ballistics.js';
 import { AimAssist, aimPlan, AIM_CSS } from './AimAssist.js';
 
 export const ARROW_RANGE = 400;
+export const TARGET_RANGE = 320; // m (x the long-gun module's range): the target bar shows a pirate this close
+export const NO_GUN_TEXT = 'No gun - Captain Roid sells a swivel gun';
 const EDGE = 0.07; // screen fraction kept free around the arrows
 
 // Where a world point is on screen. camera: { position, quaternion, fov (deg), aspect }.
@@ -60,6 +67,34 @@ export function arrowFor( camera, p, out = {} ) {
 
 }
 
+// The hull bar of the pirate in front of the guns: the one the player last hit (naval.hudTarget) while within gun range,
+// else the nearest within it. { id, name, frac, mark (the cripple line), crippled, dist } | null
+export function targetBar( naval ) {
+
+	const b = naval.app && naval.app.boatCtl;
+	if ( ! b || ! b.position || ! naval.ships ) return null;
+	const reach = TARGET_RANGE * ( naval.mods && Number.isFinite( naval.mods.range ) ? naval.mods.range : 1 );
+	const mark = Number.isFinite( naval.crippleAt ) ? naval.crippleAt : 0.25;
+	let best = null, bd = Infinity;
+	for ( const s of naval.ships ) {
+
+		if ( s.faction !== 'pirate' || ! s.alive ) continue;
+		const d = Math.hypot( s.x - b.position.x, s.z - b.position.z );
+		if ( d > reach ) continue;
+		const score = s.id === naval.hudTarget ? - 1 : d;
+		if ( score < bd ) { bd = score; best = s; }
+
+	}
+
+	if ( ! best ) return null;
+	const frac = Math.max( 0, Math.min( 1, best.hp / best.maxHp ) );
+	return {
+		id: best.id, name: best.bounty ? best.captain : best.name, frac, mark, crippled: frac < mark,
+		dist: Math.round( Math.hypot( best.x - b.position.x, best.z - b.position.z ) ),
+	};
+
+}
+
 // What the HUD shows this frame, from the naval instance.
 export function hudModel( naval ) {
 
@@ -86,12 +121,16 @@ export function hudModel( naval ) {
 		};
 
 	} );
+	const ai = naval.aiming ? naval.aimInfo : null;
 	const model = {
 		visible,
 		hull: { hp: Math.ceil( h.hp ), max: h.max, frac: h.max > 0 ? h.hp / h.max : 0, low: h.hp / h.max < 0.34, sunk: h.sunk },
 		guns,
 		arrows: [],
 		aim,
+		aiming: ai ? { side: ai.side, range: Math.round( ai.range ), inArc: !! ai.inArc, ready: ( naval.reloadLeft[ ai.side ] || 0 ) <= 0, left: Math.max( 0, naval.reloadLeft[ ai.side ] || 0 ) } : null,
+		target: visible ? targetBar( naval ) : null,
+		noGun: visible && Number.isFinite( naval._noGunUntil ) && naval._noGunUntil > ( naval.time || 0 ),
 		camera: app.camera || null,
 		features: naval.features || null,
 	};
@@ -147,6 +186,23 @@ const CSS = `
 .nv-hit.is-sunk::before, .nv-hit.is-sunk::after { background: #ffd24a; }
 .nv-dmg { position: fixed; inset: 0; z-index: 21; pointer-events: none; opacity: 0; }
 .nv-dmg > b { position: absolute; left: 50%; top: 5%; width: 38vmin; height: 12px; margin-left: -19vmin; border-radius: 99px; background: radial-gradient(closest-side, rgba(224, 40, 28, 0.95), rgba(224, 40, 28, 0)); transform-origin: 50% 45vh; }
+.nv-tgt { display: none; align-items: center; gap: 8px; }
+.nv-tgt.is-on { display: flex; }
+.nv-tgt .nv-label { color: #ffb4a6; max-width: 92px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-transform: none; letter-spacing: 0.02em; }
+.nv-tgt .nv-bar { position: relative; overflow: visible; }
+.nv-tgt .nv-bar > span { background: #d9553f; border-radius: 99px; }
+.nv-tgt.is-crippled .nv-bar > span { background: #f0b44a; }
+.nv-tgt .nv-bar > i { position: absolute; top: -3px; bottom: -3px; width: 2px; margin-left: -1px; background: #fff; box-shadow: 0 0 2px rgba(0, 0, 0, 0.8); }
+.nv-nogun { display: none; color: #ffd9a8; font-weight: 600; }
+.nv-nogun.is-on { display: block; }
+.nv-xhair { position: fixed; left: 50%; top: 50%; width: 26px; height: 26px; margin: -13px 0 0 -13px; z-index: 21; pointer-events: none; display: none; border: 2px solid rgba(255, 255, 255, 0.85); border-radius: 50%; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.4); }
+.nv-xhair::before, .nv-xhair::after { content: ''; position: absolute; left: 50%; top: 50%; background: rgba(255, 255, 255, 0.9); }
+.nv-xhair::before { width: 2px; height: 8px; margin: -4px 0 0 -1px; }
+.nv-xhair::after { width: 8px; height: 2px; margin: -1px 0 0 -4px; }
+.nv-xhair.is-on { display: block; }
+.nv-xhair.is-out { border-color: rgba(255, 150, 120, 0.8); }
+.nv-xread { position: fixed; left: 50%; top: calc(50% + 22px); transform: translateX(-50%); z-index: 21; pointer-events: none; display: none; font: 600 12px var(--tw-mono, ui-monospace, monospace); color: #fff; text-shadow: 0 1px 3px rgba(0, 0, 0, 0.85); white-space: nowrap; }
+.nv-xread.is-on { display: block; }
 @media (prefers-reduced-motion: reduce) { .nv-bar > span { transition: none; } }
 ${ AIM_CSS }`;
 
@@ -203,12 +259,22 @@ export class NavalHud {
 
 		}
 
+		// the target's hull, with the cripple mark (below the guns)
+		this.tgtRow = make( 'div', 'nv-tgt', this.root );
+		this.tgtName = make( 'span', 'nv-label', this.tgtRow, '' );
+		const tbar = make( 'span', 'nv-bar', this.tgtRow );
+		this.tgtFill = make( 'span', '', tbar );
+		this.tgtMark = make( 'i', '', tbar );
+		this.tgtNum = make( 'b', 'nv-num', this.tgtRow, '' );
+		this.noGunEl = make( 'div', 'nv-nogun', this.root, NO_GUN_TEXT );
+		this.xhair = make( 'div', 'nv-xhair' );
+		this.xread = make( 'div', 'nv-xread' );
 		this.arrowLayer = make( 'div', 'nv-arrows' );
 		this.hitEl = make( 'div', 'nv-hit' );
 		this.dmgEl = make( 'div', 'nv-dmg' );
 		this.dmgWedge = make( 'b', '', this.dmgEl );
 		const body = doc.body;
-		body.append( this.root, this.arrowLayer, this.hitEl, this.dmgEl );
+		body.append( this.root, this.arrowLayer, this.hitEl, this.dmgEl, this.xhair, this.xread );
 		this.aim = new AimAssist( { doc, css: false } );
 
 	}
@@ -254,6 +320,22 @@ export class NavalHud {
 
 			}
 
+			// the target's hull bar and the cripple line
+			const tg = model.target;
+			this.tgtRow.classList.toggle( 'is-on', !! tg );
+			if ( tg ) {
+
+				if ( this.tgtName.textContent !== tg.name ) this.tgtName.textContent = tg.name;
+				this.tgtFill.style.width = ( tg.frac * 100 ).toFixed( 1 ) + '%';
+				this.tgtMark.style.left = ( tg.mark * 100 ).toFixed( 1 ) + '%';
+				this.tgtRow.classList.toggle( 'is-crippled', tg.crippled );
+				const num = tg.crippled ? 'BOARD' : `${ Math.round( tg.frac * 100 ) }%`;
+				if ( this.tgtNum.textContent !== num ) this.tgtNum.textContent = num;
+
+			}
+
+			this.noGunEl.classList.toggle( 'is-on', !! model.noGun );
+
 			const seen = new Set();
 			for ( const a of model.arrows ) {
 
@@ -282,6 +364,18 @@ export class NavalHud {
 				this.arrows.delete( id );
 
 			}
+
+		}
+
+		// aiming by hand: the crosshair and the ranging readout
+		const am = on ? model.aiming : null;
+		this.xhair.classList.toggle( 'is-on', !! am );
+		this.xread.classList.toggle( 'is-on', !! am );
+		if ( am ) {
+
+			this.xhair.classList.toggle( 'is-out', ! am.inArc );
+			const t = `${ am.side === 'port' ? 'PORT' : 'STBD' } · ${ am.inArc ? am.range + ' m' : 'out of arc' }${ am.ready ? '' : ` · ${ am.left.toFixed( 1 ) } s` }`;
+			if ( this.xread.textContent !== t ) this.xread.textContent = t;
 
 		}
 
@@ -314,7 +408,7 @@ export class NavalHud {
 
 		if ( ! this.root ) return;
 		if ( this.aim ) this.aim.dispose();
-		for ( const el of [ this.root, this.arrowLayer, this.hitEl, this.dmgEl ] ) el.remove();
+		for ( const el of [ this.root, this.arrowLayer, this.hitEl, this.dmgEl, this.xhair, this.xread ] ) el.remove();
 		this.arrows.clear();
 		this.root = null;
 

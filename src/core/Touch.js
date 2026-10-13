@@ -205,9 +205,13 @@ export function contextButtons( s = {} ) {
 	if ( mode === 'walk' && s.melee ) {
 
 		out.add( 'dodge' );
-		if ( ! s.rod ) out.add( 'guard' );
+		if ( ! s.rod && ! s.gunDrawn ) out.add( 'guard' );
 
 	}
+
+	// a pistol / musket: Gun draws it on foot, then Fire and Aim replace the melee swing
+	if ( onFoot && s.gunOwned && ! s.fight ) out.add( 'draw' );
+	if ( s.gunDrawn ) { out.add( 'fire' ); out.add( 'aim' ); }
 
 	if ( mode === 'boat' ) {
 

@@ -2209,7 +2209,7 @@ export class UI {
 						${ row( k( 'I' ), 'Cooler and fish log' ) }
 						${ row( k( 'F' ), 'Free camera' ) }
 						${ row( k( 'T' ), 'Pause time' ) }
-						${ row( k( 'L' ), 'Flashlight' ) }
+						${ row( k( 'L' ), 'Flashlight · boat lights at the helm' ) }
 						${ row( k( 'M' ), 'Mute' ) }
 					</section>
 					<section>

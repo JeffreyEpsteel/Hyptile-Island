@@ -6,7 +6,11 @@
 //   ship.integrate( dt, terrain )     turn rate and way limited, steers round shoals ( terrain.heightAt( x, z ) )
 //   ship.damage( amount, { part: 'hull' | 'rigging', by } ) -> true when this hit sank her
 //   ship.finalPose( out )             y (water + heave), pitch (bow up +), roll (port up +), with turn heel,
-//                                     list and the sinking roll / sink folded in
+//                                     list (past 50 % damage) and the sinking roll / sink folded in
+//   ship.shift( dx, dz )              moved out of another hull (Collisions.js)
+//   ship.applyImpulse( jx, jz, px, pz, invMass, invI )   a collision impulse (N s) at world ( px, pz ): the part along her
+//                                     heading changes her way, the rest is a sideways drift (ship.push, decays in the water),
+//                                     the lever arm kicks her yaw rate
 //
 // Frame: the boat frame (+Z forward, +X port, yaw about +Y: positive yaw turns to port).
 // States: merchants 'sail' | 'dock' | 'flee'; pirates 'patrol' | 'chase' | 'broadside' | 'flee';
@@ -49,6 +53,7 @@ export class Ship {
 		this.yaw = o.yaw ?? 0;
 		this.speed = o.speed ?? 0;
 		this.yawRate = 0;
+		this.push = { x: 0, z: 0 }; // sideways drift from collisions (m/s, world), decays
 		this.want = this.yaw;
 		this.wantSpeed = 0;
 
@@ -131,13 +136,40 @@ export class Ship {
 
 	}
 
-	// world velocity of the hull
+	// world velocity of the hull (her way plus any collision drift)
 	velocity( out = {} ) {
 
-		out.x = Math.sin( this.yaw ) * this.speed;
+		out.x = Math.sin( this.yaw ) * this.speed + this.push.x;
 		out.y = 0;
-		out.z = Math.cos( this.yaw ) * this.speed;
+		out.z = Math.cos( this.yaw ) * this.speed + this.push.z;
 		return out;
+
+	}
+
+	// moved out of another hull
+	shift( dx, dz ) {
+
+		if ( Number.isFinite( dx ) && Number.isFinite( dz ) ) {
+
+			this.x += dx;
+			this.z += dz;
+
+		}
+
+	}
+
+	// a collision impulse ( N s, world ) at ( px, pz ): way along the heading, drift across it, a yaw kick from the lever
+	applyImpulse( jx, jz, px, pz, invMass, invI = 0 ) {
+
+		if ( ! ( invMass > 0 ) || ! Number.isFinite( jx ) || ! Number.isFinite( jz ) ) return;
+		const dvx = jx * invMass, dvz = jz * invMass;
+		const fx = Math.sin( this.yaw ), fz = Math.cos( this.yaw );
+		const along = dvx * fx + dvz * fz;
+		this.speed = clamp( this.speed + along, - 2, this.cls.speed * 1.3 );
+		this.push.x += dvx - along * fx;
+		this.push.z += dvz - along * fz;
+		const rx = px - this.x, rz = pz - this.z;
+		this.yawRate = clamp( this.yawRate + ( rz * jx - rx * jz ) * invI, - 0.8, 0.8 );
 
 	}
 
@@ -260,8 +292,12 @@ export class Ship {
 
 	_move( dt, terrain, sinking ) {
 
-		const nx = this.x + Math.sin( this.yaw ) * this.speed * dt;
-		const nz = this.z + Math.cos( this.yaw ) * this.speed * dt;
+		// collision drift fades in the water (a few seconds)
+		const pd = Math.exp( - dt * 0.7 );
+		this.push.x *= pd;
+		this.push.z *= pd;
+		const nx = this.x + ( Math.sin( this.yaw ) * this.speed + this.push.x ) * dt;
+		const nz = this.z + ( Math.cos( this.yaw ) * this.speed + this.push.z ) * dt;
 		if ( terrain && ! sinking && terrain.heightAt( nx, nz ) > - ( this.cls.draft + 0.3 ) ) {
 
 			// aground (a hard stop; the steering normally keeps her off the shoals long before)
@@ -338,9 +374,9 @@ export class Ship {
 		out.y = p.y;
 		out.pitch = p.pitch;
 		out.roll = p.roll + p.heel;
-		// a shot-up hull lists
+		// a shot-up hull lists: from half her points down (the smoke comes from Naval)
 		const f = this.hpFraction;
-		if ( this.alive && f < 0.4 ) out.roll += this.listSign * 0.1 * ( 1 - f / 0.4 );
+		if ( this.alive && f < 0.5 ) out.roll += this.listSign * 0.12 * ( 1 - f / 0.5 );
 		if ( this.state === 'sinking' || this.state === 'gone' ) {
 
 			const k = sinkPose( this.sinkT / SINK_TIME, this.listSign, c.draft + c.sheer + 2.5, this._sink || ( this._sink = {} ) );

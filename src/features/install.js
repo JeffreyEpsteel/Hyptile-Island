@@ -27,6 +27,7 @@ import * as exploration from './exploration/index.js';
 import * as seaplane from './seaplane/index.js';
 import * as customs from './customs/index.js';
 import * as death from './death/index.js';
+import * as firearms from './firearms/index.js';
 import * as start from '../world/start/index.js';
 
 export const MODULES = [
@@ -51,6 +52,7 @@ export const MODULES = [
 	[ 'night', night ],
 	[ 'seaplane', seaplane ], // the floatplane and its hangar west of the pier
 	[ 'death', death ], // respawn at Jade Landing, the sea chest, wreck / death markers
+	[ 'firearms', firearms ], // flintlock pistol and musket (G draws, LMB fires, RMB aims, R reloads; cartridges at the chandlery)
 	[ 'inverted', inverted ], // the upside-down sky layer (off until ?inverted or the Inverted Isles)
 	[ 'life', life ],
 	[ 'exploration', exploration ], // after inverted and naval (the spyglass labels their things)

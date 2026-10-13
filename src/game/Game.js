@@ -283,6 +283,8 @@ export class Game {
 
 		if ( act ) return act;
 		if ( p.launched > 0 ) return 'tumble';
+		const gun = this.app.features && this.app.features.get( 'firearms' ) ? this.app.features.get( 'firearms' ).playerAction : null;
+		if ( gun ) return gun;
 		if ( p.mode === 'boat' ) return this.helmAction();
 		if ( this.landing ) return this.landing.kg >= 2 ? 'celebrate' : 'inspect';
 		if ( p.mode === 'seat' && ! rod.equipped ) return p.action === 'sitDown' ? 'sitDown' : 'seated';
@@ -415,8 +417,9 @@ export class Game {
 
 		const can = this.canFish;
 		this._dt = dt;
-		if ( inp.hit( 'KeyR' ) && this.state.rodBroken && ! this.fight ) this.toast( 'Your rod is broken: Ethena Prosper repairs rods at the chandlery', 2600 );
-		if ( inp.hit( 'KeyR' ) && can && ! this.fight ) {
+		const gunDrawn = !! ( app.features && app.features.get( 'firearms' ) && app.features.get( 'firearms' ).drawn ); // (R reloads the gun then)
+		if ( inp.hit( 'KeyR' ) && ! gunDrawn && this.state.rodBroken && ! this.fight ) this.toast( 'Your rod is broken: Ethena Prosper repairs rods at the chandlery', 2600 );
+		if ( inp.hit( 'KeyR' ) && ! gunDrawn && can && ! this.fight ) {
 
 			this._rodUsed = true;
 			rod.equip( ! rod.equipped );

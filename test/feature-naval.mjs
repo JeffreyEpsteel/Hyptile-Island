@@ -474,7 +474,7 @@ section( '7. combat: the player\'s gun' );
 	const fired = [];
 	features.on( 'cannonFired', ( e ) => fired.push( e ) );
 	ok( naval.fire( 'port' ) === false, 'no swivel gun yet: fire() refuses' );
-	ok( app.toasts.some( ( t ) => /no swivel gun/.test( t ) ), 'and says so' );
+	ok( app.toasts.some( ( t ) => /No gun - Captain Roid sells a swivel gun/.test( t ) ), 'and says so (where to get one)' );
 	naval.playerGun.owned = true;
 	const hp0 = sloop.hp;
 	ok( naval.fire( 'port' ) === true && naval.balls.count === 1, 'with the gun owned a port shot leaves the muzzle' );

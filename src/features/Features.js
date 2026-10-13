@@ -41,6 +41,8 @@
 //   storyItem { id }   residentPrank { id }   moduleBought { id, tier, price } / moduleFitted { id, slot } / moduleRemoved { id }   nightPhase { phase, previous, night }
 //   waypointChanged { waypoint }                             (worldmap: a map click, null when cleared)
 //   explosion { x, y, z, radius, energy }                    (destruction listens to impacts and explosions)
+//   hullsCollided { a, b, x, z, speed, damage: { a, b }, byPlayer }   shipCrippled { id, name, by?, x?, z? } (naval / boarding)
+//   gunshot { ... }                                          (firearms: a pistol / musket shot, synced as a world event)
 //
 // Mode rules (Sandbox / Campaign / Multiplayer): features.mode is app.mode or 'campaign'; features.sandbox.
 // Money and the save stay in GameState: features.state is app.game.state (money, earn, spend, career...).
