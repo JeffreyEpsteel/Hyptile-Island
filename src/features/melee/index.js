@@ -297,11 +297,9 @@ export class Melee {
 	// may a left click start a swing now: on foot, the rod away, a raider within engage range
 	canSwing() {
 
-		if ( ! ( this.enabled && this._canAct() && this.rodStowed() ) ) return false;
-		if ( this._raiderWithin( PLAYER.engageRange ) !== null ) return true;
-		// a breakable prop in reach (src/features/destruction) can be hit too
-		const d = this.features && this.features.get( 'destruction' ), p = this.player;
-		return !! ( d && d.nearProp && p && d.nearProp( p.position.x, p.position.z, PLAYER.attackRange ) );
+		// a swing is always allowed with the rod away (the peaceful home island only stops NPCs attacking you): it lands on
+		// a raider, the training post or a breakable prop when one is in reach, else it is a swing at the air
+		return !! ( this.enabled && this._canAct() && this.rodStowed() );
 
 	}
 

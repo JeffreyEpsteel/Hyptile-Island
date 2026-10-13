@@ -20,6 +20,16 @@ const CSS = /* css */`
 .gm-guide-card { width: min(calc(480 * var(--tw-u)), calc(100vw - 2 * var(--tw-edge))); padding: var(--tw-5) var(--tw-5) var(--tw-4); border-radius: var(--tw-r-lg);
 	color: var(--tw-ink); font: 500 var(--tw-fs-md) var(--tw-font); transform: translateY(calc(10 * var(--tw-u))); transition: transform 520ms var(--tw-ease); }
 .gm-guide.is-on .gm-guide-card { transform: none; }
+/* a phone in landscape: the card fits the height, the body scrolls, the buttons stay in view */
+.gm-guide-card { display: flex; flex-direction: column; max-height: calc(100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 2 * var(--tw-edge)); box-sizing: border-box; }
+.gm-guide-body { overflow-y: auto; min-height: 0; -webkit-overflow-scrolling: touch; }
+@media (max-height: 480px) {
+	.gm-guide-card { padding: var(--tw-3) var(--tw-4) var(--tw-3); width: min(calc(560 * var(--tw-u)), calc(100vw - 2 * var(--tw-edge))); }
+	.gm-guide-card h2 { font-size: calc(17 * var(--tw-u)); margin: var(--tw-1) 0 var(--tw-2); }
+	.gm-guide-body { font-size: var(--tw-fs-sm); line-height: 1.4; }
+	.gm-guide-foot { margin-top: var(--tw-2); }
+	.gm-guide-hint { display: none; }
+}
 .gm-guide-eyebrow { font-size: var(--tw-fs-xs); font-weight: 600; letter-spacing: 0.22em; text-transform: uppercase; color: var(--tw-sun); }
 .gm-guide-card h2 { margin: var(--tw-2) 0 var(--tw-3); font-size: calc(24 * var(--tw-u)); font-weight: 600; letter-spacing: -0.01em; line-height: 1.2; }
 .gm-guide-body { color: var(--tw-ink-2); line-height: 1.55; }

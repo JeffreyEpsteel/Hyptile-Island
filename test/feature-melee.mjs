@@ -497,7 +497,7 @@ function faceOff( w, r, d ) {
 	w.player.stamina = 1;
 	// a click with a raider 10 m away does nothing for melee
 	placePlayer( w, r.x, r.z + 10 );
-	ok( ! m.wantsMouse(), 'wantsMouse: false with no raider within 6 m' );
+	ok( m.wantsMouse(), 'wantsMouse: true with the rod stowed even with no raider near (a swing at the air; a click never casts a stowed rod)' );
 	placePlayer( w, r.x, r.z + 5.5 );
 	ok( m.wantsMouse(), 'wantsMouse: true with a raider inside 6 m and the rod away' );
 	w.rod.equipped = true;

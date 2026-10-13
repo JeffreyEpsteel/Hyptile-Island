@@ -19,6 +19,7 @@ const PATHS = {
 	'chevron-left': '<path d="m15 6-6 6 6 6"/>',
 	'chevrons-right': '<path d="m6 7 5 5-5 5M13 7l5 5-5 5"/>',
 	close: '<path d="M6 6l12 12M18 6 6 18"/>',
+	expand: '<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>',
 	reset: '<path d="M3.5 12a8.5 8.5 0 1 0 2.6-6.1L3.5 8.5"/><path d="M3.5 3.5v5h5"/>',
 	panel: '<rect x="3" y="4.5" width="18" height="15" rx="2.5"/><path d="M14.5 4.5v15M17 8.5h1.5M17 11.5h1.5"/>',
 	help: '<circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6v.4"/><path d="M12 17h.01"/>',

@@ -51,9 +51,29 @@ const TOP = [
 	{ id: 'journal', code: 'KeyJ', icon: 'grid', label: 'Journal' },
 	{ id: 'cooler', code: 'KeyI', icon: 'droplet', label: 'Cooler' },
 	{ id: 'crew', code: 'KeyK', icon: 'walk', label: 'Crew' },
+	{ id: 'fullscreen', icon: 'expand', label: 'Fullscreen' }, // no key: _fullscreen()
 	{ id: 'menu', code: 'Escape', icon: 'pause', label: 'Menu' },
 ];
 const KEY_NAMES = { Space: ' ', Escape: 'Escape', Digit1: '1', Digit2: '2' };
+
+// iOS plays Web Audio through the ringer's silent switch only while a media element is playing: a silent looping
+// <audio> started inside the first touch switches the audio session to playback. (Harmless elsewhere; once per page.)
+let _mediaUnlocked = false;
+function unlockMediaSession() {
+
+	if ( _mediaUnlocked || typeof document === 'undefined' || typeof Audio !== 'function' ) return;
+	_mediaUnlocked = true;
+	try {
+
+		// 0.05 s of silence, 8 kHz mono 8-bit PCM
+		const a = new Audio( 'data:audio/wav;base64,UklGRk4BAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YSoBAAB' + 'gICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIA=' );
+		a.loop = true; a.volume = 0.01; a.setAttribute( 'playsinline', '' ); a.playsInline = true;
+		const p = a.play();
+		if ( p && p.catch ) p.catch( () => { _mediaUnlocked = false; } );
+
+	} catch ( e ) { _mediaUnlocked = false; }
+
+}
 
 const clamp = ( v, a, b ) => ( v < a ? a : v > b ? b : v );
 const el = ( tag, cls, html ) => {
@@ -164,6 +184,8 @@ export class TouchControls {
 
 		}
 
+		// installed on the home screen (iOS standalone) the page already fills the screen
+		if ( this.topBtns.fullscreen && typeof navigator !== 'undefined' && navigator.standalone ) this.topBtns.fullscreen.hidden = true;
 		this.photoEl = el( 'button', 'tc-tbtn tc-photo', icon( 'close' ) );
 		this.photoEl.type = 'button';
 		this.rotateEl = el( 'div', 'tc-rotate', `<div class="tc-rotate-card"><svg viewBox="0 0 48 48" aria-hidden="true"><rect x="15" y="6" width="18" height="30" rx="3" fill="none" stroke="currentColor" stroke-width="2.4"/><path d="M8 30a16 16 0 0 0 16 12M40 18A16 16 0 0 0 24 6" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/><path d="M24 42l-4-3M24 42l-3 4" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg><span>${ t( 'touch.rotate', 'Turn your device sideways to play' ) }</span></div>` );
@@ -260,6 +282,7 @@ export class TouchControls {
 
 			const a = this.app && this.app.audio;
 			if ( a && ! a.enabled && a.resume ) a.resume();
+			unlockMediaSession();
 
 		};
 
@@ -414,6 +437,14 @@ export class TouchControls {
 
 		}
 
+		if ( id === 'fullscreen' ) {
+
+			this._fullscreen();
+			this._held.set( pointerId, { el: b } );
+			return;
+
+		}
+
 		let def = null;
 		if ( b === this.interactEl ) {
 
@@ -426,6 +457,24 @@ export class TouchControls {
 		if ( def && def.button ) this.input && this.input.setTouchButton( def.button, true );
 		else if ( def && def.code ) this._key( def.code, 'keydown' );
 		this._held.set( pointerId, { el: b, def } );
+
+	}
+
+	// the Fullscreen button: the page goes fullscreen where the browser allows it (Android Chrome); an iPhone's Safari has
+	// no fullscreen API, there the way is Share > Add to Home Screen (standalone: no browser bars)
+	_fullscreen() {
+
+		const doc = typeof document !== 'undefined' ? document : null;
+		const can = doc && doc.documentElement && typeof doc.documentElement.requestFullscreen === 'function';
+		if ( can && this.input && this.input.toggleFullscreen ) {
+
+			const p = this.input.toggleFullscreen();
+			if ( p && p.then ) p.then( () => { if ( ! doc.fullscreenElement && this.ui && this.ui.toast ) this.ui.toast( t( 'touch.fs_denied', 'Fullscreen is not allowed here: add the game to your home screen instead' ), 4200 ); } );
+			return;
+
+		}
+
+		if ( this.ui && this.ui.toast ) this.ui.toast( t( 'touch.fs_ios', 'For fullscreen on iPhone / iPad: tap Share, then "Add to Home Screen", and open Hyptile Island from there' ), 6000 );
 
 	}
 
