@@ -1,5 +1,6 @@
 import { leadAim, solveElevation, rotateByQuat, MUZZLE_SPEED, arcPoints, impactTime } from './Ballistics.js';
 import { clamp, normaliseSide } from './util.js';
+import { pitchToRange } from './AimCamera.js';
 
 // Naval aim assist (wave 4): at the helm, each loaded battery shows where its broadside would go - a faint line of dots
 // along the ball's arc to where it meets the target (or the water), a small lead marker where the target will be, and a
@@ -9,12 +10,16 @@ import { clamp, normaliseSide } from './util.js';
 //   aimPlan( naval, side ) -> { side, target: { id, name } | null, range, inArc, points: [ { x, y, z } ], impact: { x, y, z },
 //                              lead: { x, z } | null, t, ready, left }  | null        (pure: node tests call it)
 //   missReport( impact, target, from ) -> { kind: 'short' | 'long' | 'wide', by: m }    (pure)
-//   lookAim( look, eye, gunFor, { traverse, maxRange, minRange, speed } ) -> { side, dir, el, az, lookAz, inArc, range, point, from }
+//   lookAim( look, eye, gunFor, { traverse, maxRange, minRange, speed, pitchMap } ) -> { side, dir, el, az, lookAz, inArc, range, point, from, pitch }
 //                              direct aiming (wave 9, right mouse held at the helm): the side whose beam the camera looks
 //                              over, the azimuth clamped to the carriage's traverse, the range where the look ray meets the
 //                              water (clamped to the gun's reach: looking at or above the horizon is full range) and the
 //                              elevation that drops the ball there. gunFor( side ) -> { m: muzzle { x, y, z }, n: beam normal
 //                              { x, z } (unit, horizontal) }. While Naval aims, aimPlan draws only that side's arc.
+//                              pitchMap (wave 10, the third-person aim camera): the range comes from the look's pitch instead
+//                              (AimCamera.pitchToRange: a band from 0.40 rad down to just above the horizon), since the chase
+//                              camera's ray meets the water far too close to the hull to range by
+//   the aimed plan carries outOfArc: its dots draw dim while the look is past the swing
 //   const a = new AimAssist( { doc } );  a.update( model, camera, project, dt );  a.bind( features );  a.dispose()
 //   (Hud.js owns one: NavalHud.update feeds it hudModel's model.aim)
 
@@ -41,7 +46,7 @@ function pickTarget( naval, m, normal, traverse, reach ) {
 
 }
 
-export function lookAim( look, eye, gunFor, { traverse = 0.4, maxRange = 320, minRange = 20, speed = MUZZLE_SPEED } = {} ) {
+export function lookAim( look, eye, gunFor, { traverse = 0.4, maxRange = 320, minRange = 20, speed = MUZZLE_SPEED, pitchMap = false } = {} ) {
 
 	let lx = look.x, lz = look.z;
 	const ll = Math.hypot( lx, lz );
@@ -55,9 +60,12 @@ export function lookAim( look, eye, gunFor, { traverse = 0.4, maxRange = 320, mi
 	const az = clamp( lookAz, - traverse, traverse );
 	const c = Math.cos( az ), s = Math.sin( az );
 	const hx = nx * c - nz * s, hz = nx * s + nz * c;
-	// where the look ray meets the sea (y = 0), measured from the muzzle along the aimed bearing
+	const pitch = Math.asin( clamp( look.y / ( Math.hypot( look.x, look.y, look.z ) || 1 ), - 1, 1 ) );
+	// where the look ray meets the sea (y = 0), measured from the muzzle along the aimed bearing; or (third person) the
+	// look's pitch mapped onto the gun's reach
 	let range = maxRange;
-	if ( look.y < - 1e-4 ) {
+	if ( pitchMap ) range = pitchToRange( pitch, minRange, maxRange );
+	else if ( look.y < - 1e-4 ) {
 
 		const t = - eye.y / look.y;
 		const px = eye.x + look.x * t, pz = eye.z + look.z * t;
@@ -70,7 +78,7 @@ export function lookAim( look, eye, gunFor, { traverse = 0.4, maxRange = 320, mi
 	const ce = Math.cos( el );
 	return {
 		side, dir: { x: hx * ce, y: Math.sin( el ), z: hz * ce }, el, az, lookAz, inArc: Math.abs( lookAz ) <= traverse, range,
-		point: { x: m.x + hx * range, y: 0, z: m.z + hz * range }, from: { x: m.x, y: m.y, z: m.z },
+		point: { x: m.x + hx * range, y: 0, z: m.z + hz * range }, from: { x: m.x, y: m.y, z: m.z }, pitch,
 	};
 
 }
@@ -309,7 +317,8 @@ export class AimAssist {
 				if ( ! p ) continue;
 				// only a battery with something to shoot at draws (the other side stays quiet)
 				if ( ! p.inArc ) continue;
-				const cls = p.ready ? '' : 'is-reload';
+				// out of the swing the aimed arc stays (where the guns can still go) but dim
+				const cls = p.outOfArc ? 'is-dim' : p.ready ? '' : 'is-reload';
 				for ( let i = 1; i < p.points.length; i ++ ) {
 
 					const q = project( camera, p.points[ i ] );

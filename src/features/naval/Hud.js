@@ -17,6 +17,10 @@
 // "out of arc", the reload); the target's hull bar (the pirate last hit, else the nearest within gun range) with a mark at
 // the cripple line (25 %: below it she strikes and can be boarded); and, for a few seconds after trying to fire or aim
 // without a gun, "No gun - Captain Roid sells a swivel gun" (model.noGun).
+//
+// Wave 10: in the third-person aim rig (naval.aimCamera) the crosshair sits on the projected impact of the aimed arc
+// (model.aiming.screen from arrowFor, the readout beside it) and dims "out of arc" past the swing; first person keeps the
+// centred crosshair. The gun rows' reload bars run over naval.reloadTotal (a crew gunner's reload is longer).
 
 import { rotateByQuat } from './Ballistics.js';
 import { AimAssist, aimPlan, AIM_CSS } from './AimAssist.js';
@@ -112,23 +116,38 @@ export function hudModel( naval ) {
 
 	const guns = [ 'port', 'starboard' ].map( ( side, i ) => {
 
-		const total = naval.reloadTime( naval.playerGun.level );
+		const total = ( naval.reloadTotal && naval.reloadTotal[ side ] > 0 ? naval.reloadTotal[ side ] : 0 ) || naval.reloadTime( naval.playerGun.level );
 		const left = naval.reloadLeft[ side ];
 		const p = aim && aim[ i ];
 		return {
-			side, key: side === 'port' ? 'Z' : 'X', owned: naval.playerGun.owned, count: Math.max( 1, naval.playerGun.guns | 0 ), ready: left <= 0, frac: left <= 0 ? 1 : 1 - left / total,
+			side, key: side === 'port' ? 'Z' : 'X', owned: naval.playerGun.owned, count: Math.max( 1, naval.playerGun.guns | 0 ), ready: left <= 0, frac: left <= 0 ? 1 : Math.max( 0, 1 - left / total ),
 			left: Math.max( 0, left ), range: p && p.inArc ? p.range : null, target: p && p.inArc && p.target ? p.target.name : null,
 		};
 
 	} );
 	const ai = naval.aiming ? naval.aimInfo : null;
+	let aiming = null;
+	if ( ai ) {
+
+		// third person: the crosshair on the projected impact of the aimed arc (the dots end there)
+		const third = typeof naval._thirdPerson === 'function' && naval._thirdPerson();
+		const plan = aim ? aim.find( ( p ) => p && p.aimed && p.side === ai.side ) : null;
+		const point = plan && plan.impact ? plan.impact : ai.point;
+		const cam = app.camera;
+		aiming = {
+			side: ai.side, range: Math.round( ai.range ), inArc: !! ai.inArc, ready: ( naval.reloadLeft[ ai.side ] || 0 ) <= 0, left: Math.max( 0, naval.reloadLeft[ ai.side ] || 0 ),
+			third, point: point || null, screen: third && point && cam && cam.position && cam.quaternion ? arrowFor( cam, point ) : null,
+		};
+
+	}
+
 	const model = {
 		visible,
 		hull: { hp: Math.ceil( h.hp ), max: h.max, frac: h.max > 0 ? h.hp / h.max : 0, low: h.hp / h.max < 0.34, sunk: h.sunk },
 		guns,
 		arrows: [],
 		aim,
-		aiming: ai ? { side: ai.side, range: Math.round( ai.range ), inArc: !! ai.inArc, ready: ( naval.reloadLeft[ ai.side ] || 0 ) <= 0, left: Math.max( 0, naval.reloadLeft[ ai.side ] || 0 ) } : null,
+		aiming,
 		target: visible ? targetBar( naval ) : null,
 		noGun: visible && Number.isFinite( naval._noGunUntil ) && naval._noGunUntil > ( naval.time || 0 ),
 		camera: app.camera || null,
@@ -200,7 +219,7 @@ const CSS = `
 .nv-xhair::before { width: 2px; height: 8px; margin: -4px 0 0 -1px; }
 .nv-xhair::after { width: 8px; height: 2px; margin: -1px 0 0 -4px; }
 .nv-xhair.is-on { display: block; }
-.nv-xhair.is-out { border-color: rgba(255, 150, 120, 0.8); }
+.nv-xhair.is-out { border-color: rgba(255, 150, 120, 0.8); opacity: 0.45; }
 .nv-xread { position: fixed; left: 50%; top: calc(50% + 22px); transform: translateX(-50%); z-index: 21; pointer-events: none; display: none; font: 600 12px var(--tw-mono, ui-monospace, monospace); color: #fff; text-shadow: 0 1px 3px rgba(0, 0, 0, 0.85); white-space: nowrap; }
 .nv-xread.is-on { display: block; }
 @media (prefers-reduced-motion: reduce) { .nv-bar > span { transition: none; } }
@@ -374,6 +393,23 @@ export class NavalHud {
 		if ( am ) {
 
 			this.xhair.classList.toggle( 'is-out', ! am.inArc );
+			// third person: on the impact point (the readout just under it); first person: the CSS centre
+			const sc = am.screen;
+			const x = sc ? ( sc.x * 100 ).toFixed( 2 ) + '%' : '', y = sc ? ( sc.y * 100 ).toFixed( 2 ) + '%' : '';
+			if ( this.xhair.style.left !== x ) {
+
+				this.xhair.style.left = x;
+				this.xread.style.left = x;
+
+			}
+
+			if ( this.xhair.style.top !== y ) {
+
+				this.xhair.style.top = y;
+				this.xread.style.top = sc ? `calc(${ y } + 22px)` : '';
+
+			}
+
 			const t = `${ am.side === 'port' ? 'PORT' : 'STBD' } · ${ am.inArc ? am.range + ' m' : 'out of arc' }${ am.ready ? '' : ` · ${ am.left.toFixed( 1 ) } s` }`;
 			if ( this.xread.textContent !== t ) this.xread.textContent = t;
 

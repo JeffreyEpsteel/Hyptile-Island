@@ -1312,11 +1312,21 @@ export class Player {
 
 		} else {
 
-			this.orbitYaw -= look.x * 0.003;
-			this.orbitPitch = THREE.MathUtils.clamp( this.orbitPitch + look.y * 0.003, - 0.05, 1.2 );
-			this.orbitDist = THREE.MathUtils.clamp( this.orbitDist * ( 1 + wheel * 0.08 ), 6, 40 );
-			// gently swing behind the boat when moving
-			if ( b.speed > 2 && Math.abs( look.x ) < 0.5 ) {
+			// aiming the guns (naval: right mouse at the helm) swings this chase camera to an over-the-shoulder rig on the aimed
+			// side: naval.aimCamera() through the hook naval sets (src/features/naval/AimCamera.js) - the pivot out to that side
+			// and up, the arm shorter, the look pitch held in the band that ranges the guns; eased in / out by naval (blend), which
+			// also narrows the fov. Without naval (or in first person) ac is null and this is the plain chase camera.
+			const ac = typeof this.aimCamera === 'function' ? this.aimCamera( { dist: this.orbitDist } ) : null;
+			const k = ac ? ac.blend : 0;
+			const sens = 0.003 * ( 1 - 0.3 * k ); // a finer hand while laying the guns
+			this.orbitYaw -= look.x * sens;
+			// orbitPitch is the camera's elevation (the look pitch is its negative): while aiming it moves into the ranging band
+			const lo = ac ? - 0.05 + ( - ac.pitchMax + 0.05 ) * k : - 0.05;
+			const hi = ac ? 1.2 + ( - ac.pitchMin - 1.2 ) * k : 1.2;
+			this.orbitPitch = THREE.MathUtils.clamp( this.orbitPitch + look.y * sens, lo, hi );
+			if ( ! ac ) this.orbitDist = THREE.MathUtils.clamp( this.orbitDist * ( 1 + wheel * 0.08 ), 6, 40 );
+			// gently swing behind the boat when moving (not while aiming: the look is the guns' bearing)
+			if ( ! ac && b.speed > 2 && Math.abs( look.x ) < 0.5 ) {
 
 				const behind = b.getYaw() + Math.PI;
 				let d = behind - this.orbitYaw;
@@ -1326,11 +1336,13 @@ export class Player {
 			}
 
 			const target = b.toWorld( new THREE.Vector3( 0, 1.4, 0 ), new THREE.Vector3() );
+			// the shoulder offset in the boat's heading frame (not her roll: the aim stays steady on the swell)
+			if ( ac ) target.add( _v2.set( ac.shoulder.x, ac.shoulder.y, 0 ).applyAxisAngle( _yAxis, b.getYaw() ) );
 			const off = new THREE.Vector3(
 				Math.sin( this.orbitYaw ) * Math.cos( this.orbitPitch ),
 				Math.sin( this.orbitPitch ),
 				Math.cos( this.orbitYaw ) * Math.cos( this.orbitPitch )
-			).multiplyScalar( this.orbitDist );
+			).multiplyScalar( ac ? ac.dist : this.orbitDist );
 			const want = target.clone().add( off );
 			want.y = Math.max( want.y, this.waterH + 0.7 );
 			if ( ! this.camInit ) {
@@ -1340,7 +1352,8 @@ export class Player {
 
 			}
 
-			this.camPos.lerp( want, 1 - Math.exp( - dt * 6 ) );
+			// a tighter follow while aiming, so the crosshair holds on the water
+			this.camPos.lerp( want, 1 - Math.exp( - dt * ( 6 + 10 * k ) ) );
 			this.camera.position.copy( this.camPos );
 			this.camera.lookAt( target );
 

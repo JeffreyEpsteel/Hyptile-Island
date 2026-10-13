@@ -48,6 +48,22 @@
 //                               shooting; the HUD shows the nearest pirate's hull bar with that mark. With the boarding
 //                               feature installed, boarding emits it (when she strikes her colours) and naval does not
 //
+// Wave 10 (third-person aiming, the crew's guns):
+//   naval.aimCamera( { dist, fov } ) -> { side, sign, blend, yawOffset, pitch, pitchMin, pitchMax, dist, fov, fovDelta, shoulder } | null
+//                               while aiming at the helm in the chase view (Player.camMode 'third') the helm camera swings to an
+//                               over-the-shoulder rig on the aimed side (AimCamera.js: 2.5 m out, 1.2 m up, 30 % closer, fov
+//                               -8 deg, eased over 0.25 s in and out); Player.updateBoat reads it through app.player.aimCamera
+//                               (naval sets that hook). Naval narrows the fov itself after the camera feel (restored on release).
+//                               In that view the look's pitch sets the range (AimCamera.pitchToRange) and the HUD crosshair sits
+//                               on the projected impact; first person keeps wave 9's look-ray ranging and centred crosshair
+//   naval.crewTarget( side ) -> Ship | null      what a crew gunner would shoot from that side: a pirate afloat, not crippled /
+//                               struck (the boarding prize), not alongside on purpose, inside reach and swing, nowhere in or
+//                               from the peaceful waters (Routes SAFE_ZONES)
+//   naval.crewFire( side, { reloadMul = 1.6, spreadMul = 1.5, crew } ) -> Ship | null   a gunner works that side's guns through
+//                               the player's fire path (the player's balls, loot and bounties): the side's reload x reloadMul,
+//                               the spread x spreadMul; never the side the skipper is aiming by hand. cannonFired carries crew
+//   naval.reloadTotal { port, starboard }    the reload last started per side (the HUD's bar: a gunner's is longer)
+//
 // Ship modules (Modules.js; slots per hull in Boats.js `slots`):
 //   naval.fitting               the Fitting (tiers owned, the fit of every hull); naval.mods = fitting.stats() of this hull
 //   naval.moduleRows( state? ) -> [ { id, label, desc, price, owned, fitted, canBuy, canFit, tier, maxTier, next, slot, kind,
@@ -104,6 +120,7 @@ import { NavalHud, hudModel, ARROW_RANGE, NO_GUN_TEXT } from './Hud.js';
 import { CollisionWorld, predictContact, yawInertia } from './Collisions.js';
 import { Planks } from './Planks.js';
 import { lookAim } from './AimAssist.js';
+import { AIM_CAM, easeAimCam, aimRig } from './AimCamera.js';
 import { RULES as BOARDING_RULES } from '../boarding/BoardingData.js';
 import { Fitting, SLOT_LABELS, moduleLabel } from './Modules.js';
 import { ModuleMeshes } from './ModuleModels.js';
@@ -273,6 +290,11 @@ export class Naval {
 		this._avoidT = 0;
 		this.crippleAt = CRIPPLE;
 		this.hudTarget = null; // id of the pirate whose hull bar shows (the last one the player hit, while in range)
+		// wave 10: the third-person aim rig (AimCamera.js) and the crew's guns
+		this.aimCam = { blend: 0, shoulder: 1, side: 'port' };
+		this._aimFovBase = null;
+		this.reloadTotal = { port: 0, starboard: 0 };
+		this.crewShots = 0;
 		if ( this.hud && ! this.hud.root ) this.hud = null;
 
 		if ( this.features && this.features.claimKey ) {
@@ -293,6 +315,15 @@ export class Naval {
 		}
 
 		this._syncBoat( true );
+
+		// the helm camera (Player.updateBoat, third person) reads the aim rig through this hook
+		const pl = app2.player;
+		if ( pl && typeof pl === 'object' && ! pl.aimCamera ) {
+
+			this._aimHook = ( o ) => this.aimCamera( o );
+			pl.aimCamera = this._aimHook;
+
+		}
 
 	}
 
@@ -991,7 +1022,7 @@ export class Naval {
 	}
 
 	// spawn a ball from `m` along `dir` with gaussian spread (sigma, rad); returns the ball
-	_launch( m, dir, sigma, { damage, owner, faction, vel, big = false, level = 1, side = null } ) {
+	_launch( m, dir, sigma, { damage, owner, faction, vel, big = false, level = 1, side = null, crew = null } ) {
 
 		const r = this.rng;
 		// two perpendiculars: horizontal and the other one up-ish
@@ -1008,7 +1039,9 @@ export class Naval {
 		this.stats.shots += owner === 'player' ? 1 : 0;
 		this._muzzle( m.x, m.y, m.z, dx, dy, dz, big );
 		this.audio.cannon( m.x, m.y, m.z, owner === 'player' ? 0.9 : 0.8 );
-		this._emit( 'cannonFired', { x: m.x, y: m.y, z: m.z, dir: { x: dx, y: dy, z: dz }, side, by: owner === 'player' ? 'player' : 'pirate', owner } );
+		const ev = { x: m.x, y: m.y, z: m.z, dir: { x: dx, y: dy, z: dz }, side, by: owner === 'player' ? 'player' : 'pirate', owner };
+		if ( crew ) ev.crew = crew;
+		this._emit( 'cannonFired', ev );
 		return this.balls.spawn( {
 			x: m.x, y: m.y, z: m.z,
 			vx: dx * speed + ( vel ? vel.x : 0 ), vy: dy * speed + ( vel ? vel.y : 0 ), vz: dz * speed + ( vel ? vel.z : 0 ),
@@ -1084,7 +1117,7 @@ export class Naval {
 		const ai = this.aimInfo;
 		if ( ( aimed || this.aiming ) && ai && ai.side === sd ) {
 
-			this.reloadLeft[ sd ] = this.reloadTime( gun.level );
+			this.reloadLeft[ sd ] = this.reloadTotal[ sd ] = this.reloadTime( gun.level );
 			const dir = { ...ai.dir };
 			this._fireMount( sd, plan, 0, null, dir );
 			let t = 0;
@@ -1116,7 +1149,7 @@ export class Naval {
 
 		}
 
-		this.reloadLeft[ sd ] = this.reloadTime( gun.level );
+		this.reloadLeft[ sd ] = this.reloadTotal[ sd ] = this.reloadTime( gun.level );
 		this._fireMount( sd, plan, 0, best );
 		if ( plan.mounts.length > 1 ) {
 
@@ -1168,8 +1201,8 @@ export class Naval {
 	}
 
 	// one gun of a broadside: along `aimDir` (aimed by hand), else at `target` if it is still in the arc, else level for
-	// ~90 m; recoil along the beam
-	_fireMount( sd, plan, index, target, aimDir = null ) {
+	// ~90 m; recoil along the beam. opt { spreadMul, crew }: a crew gunner's shot (wider, named on cannonFired)
+	_fireMount( sd, plan, index, target, aimDir = null, opt = null ) {
 
 		const b = this.app.boatCtl;
 		if ( ! b || ! b.position || ! b.quaternion ) return;
@@ -1199,7 +1232,8 @@ export class Naval {
 
 		}
 
-		this._launch( m, dir, plan.L.spread, { damage: plan.L.damage * this.mods.dmg, owner: 'player', faction: 'player', vel: bvel, level: this.playerGun.level, big: plan.big, side: sd } );
+		const spread = plan.L.spread * ( opt && opt.spreadMul > 0 ? opt.spreadMul : 1 );
+		this._launch( m, dir, spread, { damage: plan.L.damage * this.mods.dmg, owner: 'player', faction: 'player', vel: bvel, level: this.playerGun.level, big: plan.big, side: sd, crew: opt ? opt.crew : null } );
 		// recoil along the beam: a 2.5 kg ball at 120 m/s, shared by the boat's mass
 		const mass = ( BOATS[ this.playerHull.boat ] || BOATS.lobster ).mass;
 		const dv = clamp( 300 / mass, 0, 0.9 );
@@ -1223,7 +1257,7 @@ export class Naval {
 			if ( this.playerHull.sunk ) continue;
 			// a hand-aimed ripple follows the look while the side is still aimed
 			const dir = sh.dir ? ( this.aiming && this.aimInfo && this.aimInfo.side === sh.side ? this.aimInfo.dir : sh.dir ) : null;
-			this._fireMount( sh.side, sh.plan, sh.index, sh.target, dir );
+			this._fireMount( sh.side, sh.plan, sh.index, sh.target, dir, sh.opt || null );
 
 		}
 
@@ -1297,8 +1331,120 @@ export class Naval {
 			const n = rotateByQuat( b.quaternion, { x: plan.sg, y: 0, z: 0 } ), nl = Math.hypot( n.x, n.z ) || 1;
 			return { m, n: { x: n.x / nl, z: n.z / nl } };
 
-		}, { traverse: L.traverse, maxRange: GUN_RANGE * this.mods.range, minRange: 20, speed: MUZZLE_SPEED } );
+		}, { traverse: L.traverse, maxRange: GUN_RANGE * this.mods.range, minRange: 20, speed: MUZZLE_SPEED, pitchMap: this._thirdPerson() } );
 		if ( edgeL ) this.fire( this.aimInfo.side, { aimed: true } );
+
+	}
+
+	// at the helm in the chase view (Player.camMode 'third'): the over-the-shoulder rig and pitch ranging apply
+	_thirdPerson() {
+
+		const p = this.app.player;
+		return !! p && p.mode === 'boat' && p.camMode === 'third';
+
+	}
+
+	// The aim rig for the helm camera (AimCamera.aimRig): null in first person and while the rig is fully eased out.
+	// dist: the chase arm's length now; fov: the field to narrow (the result's fov), if the caller wants it absolute.
+	aimCamera( { dist = 13, fov = null } = {} ) {
+
+		if ( ! this._thirdPerson() ) return null;
+		const ai = this.aiming ? this.aimInfo : null;
+		return aimRig( this.aimCam, { dist, fov, pitch: ai ? ai.pitch : 0, az: ai ? ai.az : 0 } );
+
+	}
+
+	// eases the rig in / out (0.25 s) and narrows the fov with it
+	_updateAimCam( dt ) {
+
+		const third = this._thirdPerson();
+		easeAimCam( this.aimCam, { aiming: this.aiming && third, side: this.aimInfo ? this.aimInfo.side : null }, dt );
+		this._aimFov( third ? this.aimCam.blend : 0 );
+
+	}
+
+	// the rig's narrower field, on top of what the camera feel set this frame (it runs before the features; the firearms' zoom
+	// works the same way), handed back to the slider's value on release
+	_aimFov( blend ) {
+
+		const cam = this.app.camera;
+		if ( ! cam || ! Number.isFinite( cam.fov ) ) return;
+		const cf = this.app.cameraFeel, ui = this.app.ui;
+		const kick = cf && Number.isFinite( cf.fovKick ) ? cf.fovKick : 0;
+		const slider = ui && ui.s && Number.isFinite( ui.s.fov ) ? ui.s.fov : null;
+		const b = Math.max( 0, Math.min( 1, blend ) );
+		const d = AIM_CAM.fov * b * b * ( 3 - 2 * b );
+		if ( d !== 0 ) {
+
+			if ( this._aimFovBase === null ) this._aimFovBase = slider ?? ( cf && cf.baseFov ? cf.baseFov() : cam.fov - kick );
+			cam.fov = ( slider ?? this._aimFovBase ) + kick + d;
+			if ( typeof cam.updateProjectionMatrix === 'function' ) cam.updateProjectionMatrix();
+
+		} else if ( this._aimFovBase !== null ) {
+
+			cam.fov = ( slider ?? this._aimFovBase ) + kick;
+			if ( typeof cam.updateProjectionMatrix === 'function' ) cam.updateProjectionMatrix();
+			this._aimFovBase = null;
+
+		}
+
+	}
+
+	// ------------------------------------------------------------------ the crew's guns (src/features/crew)
+
+	// what a gunner would fire at from `side`: a pirate afloat, neither crippled nor struck (she is the boarding prize), not
+	// alongside on purpose (a grapple, a boarding), inside the gun's reach and swing, nearest first; nothing while either of us
+	// is in the peaceful waters
+	crewTarget( side ) {
+
+		const sd = normaliseSide( side ), b = this.app.boatCtl;
+		if ( ! sd || ! b || ! b.position || ! b.quaternion ) return null;
+		if ( inSafeZone( b.position.x, b.position.z ) ) return null;
+		const plan = this._gunPlan( sd );
+		const m = this._muzzleWorld( plan.mounts[ Math.floor( ( plan.mounts.length - 1 ) / 2 ) ], b, { x: 0, y: 0, z: 0 } );
+		const n = rotateByQuat( b.quaternion, { x: plan.sg, y: 0, z: 0 } ), nl = Math.hypot( n.x, n.z ) || 1;
+		const reach = GUN_RANGE * this.mods.range;
+		let best = null, bd = Infinity;
+		for ( const s of this.ships ) {
+
+			if ( ! s.alive || s.faction !== 'pirate' || isCrippled( s ) || s.boarding || GENTLE.has( s.state ) ) continue;
+			if ( inSafeZone( s.x, s.z ) ) continue;
+			const dx = s.x - m.x, dz = s.z - m.z, r = Math.hypot( dx, dz );
+			if ( r < 15 || r > reach ) continue;
+			if ( Math.acos( clamp( ( dx * n.x + dz * n.z ) / ( r * nl ), - 1, 1 ) ) > plan.L.traverse ) continue;
+			if ( r < bd ) { bd = r; best = s; }
+
+		}
+
+		return best;
+
+	}
+
+	// a crew gunner fires `side` at crewTarget( side ) through the player's own fire path (the same muzzles, balls, hits, loot
+	// and bounties), with a longer reload and a wider spread; returns the target or null (no gun, reloading, the skipper
+	// aiming that side by hand, nothing legal to shoot)
+	crewFire( side, { reloadMul = 1.6, spreadMul = 1.5, crew = null } = {} ) {
+
+		const sd = normaliseSide( side ), b = this.app.boatCtl;
+		if ( ! sd || ! this.active || ! b || ! b.position || ! b.quaternion ) return null;
+		if ( ! this.playerGun.owned || this.playerHull.sunk || this.sinking || this.reloadLeft[ sd ] > 0 ) return null;
+		if ( this.aiming && this.aimInfo && this.aimInfo.side === sd ) return null;
+		const target = this.crewTarget( sd );
+		if ( ! target ) return null;
+		const plan = this._gunPlan( sd );
+		this.reloadLeft[ sd ] = this.reloadTotal[ sd ] = this.reloadTime( this.playerGun.level ) * reloadMul;
+		const opt = { spreadMul, crew };
+		this._fireMount( sd, plan, 0, target, null, opt );
+		let t = 0;
+		for ( let i = 1; i < plan.mounts.length; i ++ ) {
+
+			t += this.rng.range( RIPPLE[ 0 ], RIPPLE[ 1 ] );
+			this.playerShots.push( { t, side: sd, index: i, plan, target, opt } );
+
+		}
+
+		this.crewShots ++;
+		return target;
 
 	}
 
@@ -2170,6 +2316,8 @@ export class Naval {
 
 		}
 
+		this._updateAimCam( dt );
+
 		// her own hull: sinking, then a wreck (runs for every role: the hits on our boat land on our machine)
 		if ( this.sinking ) this._updateSinking( dt );
 		else this._holdWreck();
@@ -2201,6 +2349,8 @@ export class Naval {
 		this.collisions.clear();
 		this.aiming = false;
 		this.aimInfo = null;
+		this.aimCam.blend = 0;
+		this._aimFov( 0 );
 
 	}
 
@@ -2273,6 +2423,7 @@ export class Naval {
 		this.playerGun.owned = false;
 		this.playerGun.level = 1;
 		this.reloadLeft.port = this.reloadLeft.starboard = 0;
+		this.reloadTotal.port = this.reloadTotal.starboard = 0;
 		this.stats = { shipsSunk: 0, piratesSunk: 0, shots: 0, hits: 0, looted: 0 };
 		this._merchantRespawn.length = 0;
 		this.bounties.clear();
@@ -2300,6 +2451,8 @@ export class Naval {
 		if ( this.models ) this.models.dispose();
 		if ( this.modMeshes ) this.modMeshes.dispose();
 		if ( this.hud ) this.hud.dispose();
+		const pl = this.app.player;
+		if ( this._aimHook && pl && pl.aimCamera === this._aimHook ) pl.aimCamera = null;
 
 	}
 

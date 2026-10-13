@@ -28,6 +28,7 @@ import * as seaplane from './seaplane/index.js';
 import * as customs from './customs/index.js';
 import * as death from './death/index.js';
 import * as firearms from './firearms/index.js';
+import * as crew from './crew/index.js';
 import * as start from '../world/start/index.js';
 
 export const MODULES = [
@@ -45,6 +46,7 @@ export const MODULES = [
 	[ 'sfx', sfx ],
 	[ 'boarding', boarding ],
 	[ 'pirates', pirates ], // named captains, dens, notoriety (spawns through naval)
+	[ 'crew', crew ], // hired characters posted aboard: gunners and anglers
 	[ 'netsync', netsync ],
 	[ 'dressing', dressing ],
 	[ 'worldmap', worldmap ],

@@ -48,7 +48,7 @@ export class Crafting {
 		this._off = [];
 		if ( features && features.on ) {
 
-			this._off.push( features.on( 'fishCaught', () => this._used( true ) ) );
+			this._off.push( features.on( 'fishCaught', ( e ) => { if ( ! ( e && e.crew ) ) this._used( true ); } ) ); // (a crew angler's catch wears the crew's own gear, not the player's lure)
 			this._off.push( features.on( 'strikeMissed', () => this._used( false ) ) );
 
 		}

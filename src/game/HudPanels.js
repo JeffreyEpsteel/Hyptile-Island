@@ -131,7 +131,7 @@ export function installHudPanels( GameHUD ) {
 		const sub = s.free ? 'Free in sandbox' : `You have $${ s.money.toLocaleString() }`;
 		if ( tab === 'crew' ) {
 
-			body = crewCards( s, s.free ? 'Free in sandbox: the whole crew is unlocked' : 'Ethena hires out the crew; PoorGoat\'s quests earn the rest' );
+			body = crewCards( s, this.game.app && this.game.app.features ? this.game.app.features.get( 'crew' ) : null, s.free ? 'Free in sandbox: the whole crew is unlocked' : 'Ethena hires out the crew; PoorGoat\'s quests earn the rest' );
 			foot = `${ s.unlocked.length } of ${ Object.keys( CHARACTERS ).length } in the crew`;
 
 		} else {
@@ -433,7 +433,7 @@ export function installHudPanels( GameHUD ) {
 		this.roster.innerHTML = `
 			<h2>Crew</h2>
 			<p class="gm-sub">Playing as ${ c ? c.name : s.character } · ${ s.unlocked.length } of ${ Object.keys( CHARACTERS ).length } unlocked</p>
-			<div class="gm-list">${ crewCards( s, s.free ? 'Free in sandbox: every crew member is unlocked' : 'Hire at Ethena\'s or finish PoorGoat\'s quests to unlock the rest' ) }</div>
+			<div class="gm-list">${ crewCards( s, this.game.app && this.game.app.features ? this.game.app.features.get( 'crew' ) : null, s.free ? 'Free in sandbox: every crew member is unlocked' : 'Hire at Ethena\'s or finish PoorGoat\'s quests to unlock the rest' ) }</div>
 			<div class="gm-foot"><span class="gm-sub">Change takes effect at once</span><button class="gm-btn is-ghost" data-close>Close (K)</button></div>`;
 		this.roster.querySelector( '[data-close]' ).onclick = () => this.toggleRoster( false );
 		bindCrew( this, this.roster );
@@ -560,7 +560,7 @@ function bindTabs( root, pick ) {
 }
 
 // one card per character: playing / unlocked (Play as) / hire / locked by a quest
-function crewCards( s, note ) {
+function crewCards( s, crew, note ) {
 
 	const cards = Object.entries( CHARACTERS ).map( ( [ id, c ] ) => {
 
@@ -574,11 +574,12 @@ function crewCards( s, note ) {
 			<div class="gm-crew-face"><img src="${ portraitUrl( id ) }" alt="" draggable="false"></div>
 			<div class="gm-crew-name"><span>${ c.name }</span>${ state }</div>
 			<div class="gm-crew-tag">${ c.tagline }</div>
+			${ crew && unlocked && ! playing ? crew.postHtml( id ) : '' }
 			${ action }
 		</div>`;
 
 	} ).join( '' );
-	return `<div class="gm-crew">${ cards }</div>${ note ? `<p class="gm-sub">${ note }</p>` : '' }`;
+	return `<div class="gm-crew">${ cards }</div>${ crew ? `<p class="gm-sub">${ crew.berthNote() }</p>` : '' }${ note ? `<p class="gm-sub">${ note }</p>` : '' }`;
 
 }
 
@@ -586,6 +587,8 @@ function bindCrew( hud, root ) {
 
 	for ( const b of root.querySelectorAll( '[data-play]' ) ) b.onclick = () => hud.game.setCharacter( b.dataset.play );
 	for ( const b of root.querySelectorAll( '[data-hire]' ) ) b.onclick = () => hud.game.unlockCharacter( b.dataset.hire );
+	const crewF = hud.game.app && hud.game.app.features ? hud.game.app.features.get( 'crew' ) : null;
+	if ( crewF && crewF.bindPosts ) crewF.bindPosts( root, () => ( root === hud.roster ? hud.renderRoster() : hud._keepScroll( () => hud.renderShop() ) ) );
 
 }
 
