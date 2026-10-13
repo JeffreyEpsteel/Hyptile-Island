@@ -430,6 +430,14 @@ export class SoundScape {
 
 	}
 
+	// a gull's call at a point (the life cues: a thief on a landed catch)
+	gullCall( p ) {
+
+		if ( ! p ) return;
+		this._shotAt( 'gull', 'gull', p.x, p.y, p.z, MIX.gull + 4, 0.95 + Math.random() * 0.12, 0, 10 );
+
+	}
+
 	// a hooked fish thrashing at p (strength 0..1)
 	fishSplash( p, strength = 0.5 ) {
 

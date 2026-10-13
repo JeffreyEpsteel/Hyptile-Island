@@ -1,5 +1,6 @@
 // Life cues feature (docs/UNREAL_PARITY.md F8, W6, W10): small signs that the world notices you.
-//   gulls       a reactive flock: follows the cast, scatters at the strike, gives up on a miss, swoops on a catch (GullCues.js)
+//   gulls       a reactive flock: scatters from a cast's splash, wheels in at a bite, dives at a miss, one steals a catch (GullCues.js)
+//   castFx      the lure's splash + one ripple ring, a strike ripple, a big catch burst, a small miss plop (CastFx.js, via the VFX set)
 //   puddles     gather on flat open ground in the rain and dry out after it (Decals.js)
 //   footprints  your steps on the sand, fading, washed out by the swash and the rain (Decals.js)
 //   chimneys    smoke from every stack through the VFX set, a firelight glow at night and in fog (Chimneys.js)
@@ -8,13 +9,14 @@
 //
 //   features.add( 'life', life );                 // import * as life from './features/life/index.js'
 //   const L = features.get( 'life' );
-//   L.gulls (GullCues)  L.puddles  L.footprints  L.chimneys  L.laundry  L.lights (chimney glows)  L.stats()
+//   L.gulls (GullCues)  L.castFx (CastFx)  L.puddles  L.footprints  L.chimneys  L.laundry  L.lights (chimney glows)  L.stats()
 //
 // Built on the third update (the world and the other features exist by then); each part skips what is missing.
 // `?noLife` in the URL turns it all off. Nothing is saved. Hooks the root needs: the MODULES entry (its lights are
 // picked up by installFeatures like every feature's).
 
 import { GullCues } from './GullCues.js';
+import { CastFx } from './CastFx.js';
 import { Puddles, Footprints, puddleSites } from './Decals.js';
 import { Chimneys, chimneySites, makeGlowLights } from './Chimneys.js';
 import { Laundry, laundrySites } from './Laundry.js';
@@ -37,6 +39,8 @@ export class Life {
 		} catch ( e ) { /* no location */ }
 
 		this.gulls = this.disabled ? null : new GullCues( app, features, { rng } );
+		this.castFx = this.disabled ? null : new CastFx( features );
+		if ( this.gulls && this.castFx ) this.gulls.onCue = ( kind, at, water ) => this.castFx.cue( kind, water || at );
 		this.puddles = null;
 		this.footprints = null;
 		this.chimneys = null;
@@ -103,6 +107,7 @@ export class Life {
 		const app = this.app || {};
 		const w = this._weather();
 		if ( this.gulls ) this.gulls.update( dt );
+		if ( this.castFx ) this.castFx.update( dt );
 		if ( this.puddles ) this.puddles.update( dt, w.rain );
 		if ( this.footprints ) this.footprints.update( dt, { player: app.player, terrain: app.terrainData, colliders: app.colliders, rain: w.rain } );
 		if ( this.chimneys ) {
@@ -120,6 +125,7 @@ export class Life {
 
 		return {
 			gulls: this.gulls ? this.gulls.flock.counts() : null,
+			castFx: this.castFx ? this.castFx.stats() : null,
 			puddles: this.puddles ? { sites: this.puddles.sites.length, wet: this.puddles.wet } : null,
 			footprints: this.footprints ? { laid: this.footprints.count, alive: this.footprints.alive() } : null,
 			chimneys: this.chimneys ? { sites: this.chimneys.sites.length, puffs: this.chimneys.puffs } : null,
@@ -150,6 +156,7 @@ export function install( app, features, opts = {} ) {
 }
 
 export { GullFlock, GullCues } from './GullCues.js';
+export { CastFx } from './CastFx.js';
 export { Puddles, Footprints, puddleSites, onSand } from './Decals.js';
 export { Chimneys, chimneySites, smokeRate } from './Chimneys.js';
 export { Laundry, laundrySites } from './Laundry.js';

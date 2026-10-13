@@ -204,6 +204,7 @@ export function contextButtons( s = {} ) {
 	}
 
 	if ( mode === 'walk' || mode === 'swim' ) out.add( 'jump' );
+	if ( mode === 'walk' || mode === 'deck' ) out.add( 'emote' );
 	if ( mode === 'swim' ) out.add( 'dive' );
 	if ( mode === 'walk' && s.melee ) {
 
@@ -266,7 +267,7 @@ export function buttonIsOn( id, s = {} ) {
 // ---- the fold (wave 10E): on touch only the primary controls stay on screen, the rest sits in a tray under a handle
 
 // what folds away, in tray order (the interact button, the lever, cast / fire / reel, board and the 1 / 2 choices stay)
-export const TRAY_ORDER = [ 'rod', 'jump', 'dive', 'draw', 'aim', 'dodge', 'guard', 'camera', 'deck', 'cockpit', 'lights', 'navLights', 'landing', 'fireL', 'fireR' ];
+export const TRAY_ORDER = [ 'rod', 'jump', 'dive', 'draw', 'aim', 'dodge', 'guard', 'emote', 'camera', 'deck', 'cockpit', 'lights', 'navLights', 'landing', 'fireL', 'fireR' ];
 const TRAY_SET = new Set( TRAY_ORDER );
 // in a fight these come up beside the primary buttons so the fight stays playable (the rest is dropped: the handle is gone)
 const FIGHT_PRIMARY = new Set( [ 'dodge', 'guard', 'aim' ] );

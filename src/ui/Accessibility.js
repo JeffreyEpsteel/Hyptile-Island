@@ -55,6 +55,7 @@ export const ACTIONS = [
 	{ id: 'view', code: 'KeyV', group: 'act', name: 'Camera view', tip: 'First or third person' },
 	{ id: 'rod', code: 'KeyR', group: 'act', name: 'Fishing rod', tip: 'Take it out or put it away' },
 	{ id: 'light', code: 'KeyL', group: 'act', name: 'Flashlight' },
+	{ id: 'emote', code: 'Digit5', group: 'act', name: 'Emotes', tip: '1-4: wave, dance, point, cheer' },
 	{ id: 'mute', code: 'KeyM', group: 'act', name: 'Mute sound' },
 	{ id: 'cooler', code: 'KeyI', group: 'ui', name: 'Cooler and fish log' },
 	{ id: 'crew', code: 'KeyK', group: 'ui', name: 'Crew' },

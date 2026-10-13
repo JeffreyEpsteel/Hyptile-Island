@@ -51,7 +51,8 @@ const BUTTONS = {
 	deck: { label: 'Deck', code: 'KeyQ' },
 	fire: { label: 'Fire', button: 'left', big: true }, // a drawn pistol / musket
 	aim: { label: 'Aim', button: 'right' },
-	draw: { label: 'Gun', code: 'KeyG' }, // at the helm next to land: E steps ashore, this one keeps the deck
+	draw: { label: 'Gun', code: 'KeyG' },
+	emote: { label: 'Emote', code: 'Digit5' }, // at the helm next to land: E steps ashore, this one keeps the deck
 	cockpit: { label: 'Cockpit', code: 'Digit3' },
 	lights: { label: 'Lights', code: 'KeyL' }, // boat: root's L toggles every hull's lights
 	navLights: { label: 'Nav', code: 'KeyN' }, // seaplane cockpit keys (Seaplane.js COCKPIT_KEYS)

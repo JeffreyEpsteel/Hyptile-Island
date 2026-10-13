@@ -29,6 +29,7 @@ import * as customs from './customs/index.js';
 import * as death from './death/index.js';
 import * as firearms from './firearms/index.js';
 import * as crew from './crew/index.js';
+import * as emotes from './emotes/index.js';
 import * as start from '../world/start/index.js';
 
 export const MODULES = [
@@ -47,6 +48,7 @@ export const MODULES = [
 	[ 'boarding', boarding ],
 	[ 'pirates', pirates ], // named captains, dens, notoriety (spawns through naval)
 	[ 'crew', crew ], // hired characters posted aboard: gunners and anglers
+	[ 'emotes', emotes ], // 5 opens the emote row (wave, dance, point, cheer), synced as a world event
 	[ 'netsync', netsync ],
 	[ 'dressing', dressing ],
 	[ 'worldmap', worldmap ],
