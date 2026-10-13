@@ -11,7 +11,7 @@ tablets: Chrome on Android, Safari on iOS / iPadOS 26+, in landscape, with touch
 installs it.
 
 **Host a universe or play offline:** download the alpha from [Releases](https://github.com/JeffreyEpsteel/Hyptile-Island/releases),
-install [Node.js 22](https://nodejs.org/), then run `PLAY_HYPTILE_ISLAND_3.0-alpha.cmd` or `HOST_UNIVERSE.cmd`
+install [Node.js 22](https://nodejs.org/), then run `PLAY_HYPTILE_ISLAND_3.0-alpha.2.cmd` or `HOST_UNIVERSE.cmd`
 (see `HOSTING.md` in the download).
 
 ![Fishing off the pier at golden hour](docs/screenshot.jpg)
