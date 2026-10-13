@@ -1,3 +1,4 @@
+import { GPU } from '../engine/gpu/GPU.js';
 import { ShaderModule, UniformBlock } from '../engine/gpu/Shader.js';
 import { ComputeKernel } from '../engine/gpu/Compute.js';
 import { Texture, StorageBuffer } from '../engine/gpu/Texture.js';
@@ -170,18 +171,20 @@ ${ m === 0 ? /* wgsl */`
 
 		// ---- irradiance: SH9 of the radiance (one workgroup reduction), convolved with the clamped cosine
 		const srcMip = Math.max( 0, Math.log2( size / SH_RES ) );
+		// 128 threads x 9 vec3f = 18 KiB of workgroup memory: over the spec default 16 KiB (iOS), 64 threads there
+		const SH_WG = ( ( GPU.limits && GPU.limits.maxComputeWorkgroupStorageSize ) || 16384 ) >= 128 * 9 * 16 ? 128 : 64;
 		this.shKernels = [ 0, 1 ].map( ( t ) => new ComputeKernel( {
 			label: 'Env SH',
 			modules: [ commonModule ],
 			bindings: { srcCube: { texture: this.source, viewDimension: '2d-array' }, shOut: { storage: this.sh[ t ], access: 'read_write' } },
-			workgroupSize: [ 128, 1, 1 ],
+			workgroupSize: [ SH_WG, 1, 1 ],
 			code: /* wgsl */`${ CUBE_DIR }
-var<workgroup> acc: array<array<vec3f, 9>, 128>;
-@compute @workgroup_size( 128 ) fn main( @builtin( local_invocation_index ) li: u32 ) {
+var<workgroup> acc: array<array<vec3f, 9>, ${ SH_WG }>;
+@compute @workgroup_size( ${ SH_WG } ) fn main( @builtin( local_invocation_index ) li: u32 ) {
 	var c: array<vec3f, 9>;
 	for ( var k = 0; k < 9; k++ ) { c[ k ] = vec3f( 0.0 ); }
 	let total = ${ 6 * SH_RES * SH_RES }u;
-	for ( var idx = li; idx < total; idx += 128u ) {
+	for ( var idx = li; idx < total; idx += ${ SH_WG }u ) {
 		let face = idx / ${ SH_RES * SH_RES }u;
 		let r = idx % ${ SH_RES * SH_RES }u;
 		let x = r % ${ SH_RES }u; let y = r / ${ SH_RES }u;
@@ -204,7 +207,7 @@ var<workgroup> acc: array<array<vec3f, 9>, 128>;
 	}
 	acc[ li ] = c;
 	workgroupBarrier();
-	for ( var s = 64u; s > 0u; s >>= 1u ) {
+	for ( var s = ${ SH_WG / 2 }u; s > 0u; s >>= 1u ) {
 		if ( li < s ) { for ( var k = 0; k < 9; k++ ) { acc[ li ][ k ] += acc[ li + s ][ k ]; } }
 		workgroupBarrier();
 	}

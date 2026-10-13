@@ -8,6 +8,10 @@
 //                                [--baseline]   (wave 4's culls off: the 'before' numbers)
 //                                [--search="&noVeg"]   (extra query string switches for the App)
 //                                [--dawn=<dir with dawn.node + dxcompiler.dll + dxil.dll>] [--backend=d3d12|vulkan]
+//                                [--limits=default]   (the spec's default limits only, as WebKit / iOS reports them;
+//                                                      the device refuses anything above them) [--features=none] (no optional features)
+//                                [--boot[=frames]]   (no perf run: boot, start a sandbox session, run frames, print the GPU memory
+//                                                     and every GPU error; exit 1 on any error: test/engine-smoke.mjs --limits=default)
 //                                [--nan-check[=frames]]   (no perf run: Jade Landing in rain at a few headings; exit 1 when a
 //                                                          NaN / Inf reaches the scene colour or the TAA input)
 //   node tools/perf/report.mjs <out>/perf-<tag>.json
@@ -31,7 +35,8 @@ const [ W, H ] = ( arg( 'size', '2560x1267' ) ).split( 'x' ).map( Number );
 const quality = arg( 'quality', 'off' );
 const tag = arg( 'tag', 'headless' );
 const out = resolve( arg( 'out', join( import.meta.dirname, 'out' ) ) );
-const search = '?bench&noAudio' + ( quality !== 'off' ? '&quality=' + quality : '&quality=off' ) + ( arg( 'search', '' ) || '' );
+const limitsDefault = arg( 'limits' ) === 'default', noFeatures = arg( 'features' ) === 'none';
+const search = '?bench&noAudio' + ( quality !== 'off' ? '&quality=' + quality : '&quality=off' ) + ( limitsDefault ? '&limits=default' : '' ) + ( noFeatures ? '&features=none' : '' ) + ( arg( 'search', '' ) || '' );
 // Chrome compiles WGSL through DXC on D3D12; Dawn for Node ships only FXC (tens of minutes for this game's
 // pipelines). --dawn=<dir>: a copy of node_modules/webgpu/dist/win32-x64 plus Chrome's dxcompiler.dll and dxil.dll
 // (from C:/Program Files/Google/Chrome/Application/<version>/): DXC like the browser (this Dawn build refused that
@@ -49,6 +54,55 @@ function dawnFlags() {
 
 const env = await installEnv( { search, width: W, height: H, power: arg( 'power', 'high-performance' ), flags: dawnFlags(), dawnDir: arg( 'dawn' ) } );
 if ( process.argv.includes( '--baseline' ) ) globalThis.__perfBaseline = true; // (read by the engine as it is built)
+if ( process.argv.includes( '--mem-top' ) ) globalThis.__gpuMemTrack = true; // (GPU._memTop(): live allocations by label)
+// --real-sizes: decoded images keep their real width / height (grey pixels; --mobile caps them at the phone's 512 px like
+// core/Quality.js installTextureCap) so GPU.memory counts the textures a browser would upload, not 2x2 stand-ins
+if ( process.argv.includes( '--real-sizes' ) ) {
+
+	const cap = process.argv.includes( '--mobile' ) ? 512 : Infinity;
+	if ( cap < Infinity ) globalThis.__assetImageCap = cap; // (the phone's decode queue and foam size too)
+	const dims = ( b ) => {
+
+		const u = b instanceof Uint8Array ? b : new Uint8Array( b );
+		const dv = new DataView( u.buffer, u.byteOffset, u.byteLength );
+		if ( u[ 0 ] === 0x89 && u[ 1 ] === 0x50 ) return [ dv.getUint32( 16 ), dv.getUint32( 20 ) ];
+		if ( u[ 0 ] === 0xff && u[ 1 ] === 0xd8 ) {
+
+			for ( let p = 2; p + 9 < u.length; ) {
+
+				if ( u[ p ] !== 0xff ) { p ++; continue; }
+				const m = u[ p + 1 ], len = dv.getUint16( p + 2 );
+				if ( m >= 0xc0 && m <= 0xcf && m !== 0xc4 && m !== 0xc8 && m !== 0xcc ) return [ dv.getUint16( p + 7 ), dv.getUint16( p + 5 ) ];
+				p += 2 + len;
+
+			}
+
+		}
+
+		if ( u[ 8 ] === 0x57 && u[ 9 ] === 0x45 && u[ 12 ] === 0x56 ) { // WEBP VP8 / VP8L / VP8X
+
+			const k = String.fromCharCode( u[ 15 ] );
+			if ( k === ' ' ) return [ dv.getUint16( 26, true ) & 0x3fff, dv.getUint16( 28, true ) & 0x3fff ];
+			if ( k === 'L' ) { const v = dv.getUint32( 21, true ); return [ ( v & 0x3fff ) + 1, ( ( v >> 14 ) & 0x3fff ) + 1 ]; }
+			if ( k === 'X' ) return [ 1 + ( u[ 24 ] | u[ 25 ] << 8 | u[ 26 ] << 16 ), 1 + ( u[ 27 ] | u[ 28 ] << 8 | u[ 29 ] << 16 ) ];
+
+		}
+
+		return [ 2, 2 ];
+
+	};
+	globalThis.__realSizes = ( bytes ) => {
+
+		let [ w, h ] = dims( bytes );
+		const k = Math.min( 1, cap / Math.max( w, h, 1 ) );
+		w = Math.max( 1, Math.round( w * k ) );
+		h = Math.max( 1, Math.round( h * k ) );
+		return { data: new Uint8Array( w * h * 4 ).fill( 128 ), width: w, height: h };
+
+	};
+	globalThis.__assetImage = async ( bytes ) => globalThis.__realSizes( bytes );
+
+}
 await import( '../../src/core/BenchSeed.js' );
 const { App } = await import( '../../src/App.js' );
 const { Bench } = await import( '../../src/core/Bench.js' );
@@ -56,14 +110,58 @@ const { runPerf } = await import( './runner.js' );
 const { GPU } = await import( '../../src/engine/gpu/GPU.js' );
 
 const t0 = performance.now();
+// every GPU error (validation, out-of-memory, device lost, pipeline / WGSL failures) with the stage it happened in
+const gpuErrors = [];
+let stage = 'starting';
+GPU.onError( ( e ) => gpuErrors.push( { ...e, stage } ) );
+const mb = ( n ) => ( n / 1048576 ).toFixed( 1 ) + ' MB';
+const memLine = ( what ) => console.log( `  GPU memory ${ what }: ${ mb( GPU.memory.total ) } (buffers ${ mb( GPU.memory.buffers ) }, textures ${ mb( GPU.memory.textures ) }, peak ${ mb( GPU.memory.peak ) })` );
 // pipeline compiles left (the precompile stage waits for them)
 const tick = setInterval( () => { if ( GPU._pending && GPU._pending.size ) console.log( `  ${ ( ( performance.now() - t0 ) / 1000 ).toFixed( 0 ) } s: ${ GPU._pending.size } pipelines compiling` ); }, 15000 );
 const app = new App();
 let last = '';
-await app.init( ( p, text ) => { if ( text !== last ) { last = text; process.stdout.write( `  ${ ( p * 100 ).toFixed( 0 ).padStart( 3 ) } % ${ text }\n` ); } } );
+await app.init( ( p, text ) => { if ( text !== last ) { last = stage = text; process.stdout.write( `  ${ ( p * 100 ).toFixed( 0 ).padStart( 3 ) } % ${ text }\n` ); } } );
 console.log( `init ${ ( ( performance.now() - t0 ) / 1000 ).toFixed( 1 ) } s` );
 clearInterval( tick );
+if ( limitsDefault || noFeatures ) console.log( '  ' + GPU.describe().split( '\n' ).slice( 1, 3 ).join( '\n  ' ) );
+memLine( 'after init' );
+// --mobile: the phone profile applied like AppUI does once the loader is gone (Quality with MOBILE.phone)
+if ( process.argv.includes( '--mobile' ) ) {
+
+	stage = 'quality (phone)';
+	const { Quality, MOBILE } = await import( '../../src/core/Quality.js' );
+	app.quality = new Quality( app, { storage: null, query: new URLSearchParams( quality !== 'off' ? '?quality=' + quality : '' ), mobile: MOBILE.phone } );
+	console.log( '  quality: ' + app.quality.describe() );
+	memLine( 'after the phone tier' );
+
+}
+stage = 'start session';
 app.startSession( null, { mode: 'sandbox', restore: false, session: false } );
+// --boot[=frames]: the start path and the first frames only; GPU memory and errors; exit 1 on any GPU error
+const bootArg = process.argv.find( ( a ) => a === '--boot' || a.startsWith( '--boot=' ) );
+if ( bootArg ) {
+
+	const frames = Number( bootArg.split( '=' )[ 1 ] ) || 30;
+	stage = 'first frames';
+	for ( let i = 0; i < frames; i ++ ) {
+
+		app.frame( 1 / 60 );
+		if ( i % 10 === 9 ) await GPU.queue.onSubmittedWorkDone();
+
+	}
+
+	await GPU.queue.onSubmittedWorkDone();
+	await new Promise( ( r ) => setTimeout( r, 300 ) ); // late uncapturederror events
+	memLine( `after ${ frames } frames` );
+	const out = app.sceneRenderer && app.sceneRenderer.sceneRT;
+	console.log( `  canvas ${ app.engine.width }x${ app.engine.height } · scene ${ out ? out.width + 'x' + out.height : '?' } · render scale ${ app.settings.renderScale }` );
+	// the biggest allocations still alive (labels), for the phone budget
+	if ( process.argv.includes( '--mem-top' ) && GPU._memTop ) console.log( GPU._memTop() );
+	for ( const e of gpuErrors.slice( 0, 12 ) ) console.log( `GPU ${ e.kind } [${ e.stage }]${ e.label ? ' ' + e.label : '' }: ${ e.message.split( '\n' )[ 0 ] }` );
+	console.log( gpuErrors.length ? `boot FAILED: ${ gpuErrors.length } GPU errors` : 'boot ok: no GPU errors' );
+	process.exit( gpuErrors.length ? 1 : 0 );
+
+}
 // --baseline: the perf work of wave 4 switched off (the 'before' column of docs/PERF.md)
 if ( process.argv.includes( '--baseline' ) ) {
 

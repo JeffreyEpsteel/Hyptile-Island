@@ -30,7 +30,7 @@ import { detectDevice } from './Touch.js';
 // reach, the far cascades re-rendered every 6th / 12th frame), particles, lamps, draw distances and the residents'
 // radii. A saved choice from before (a desktop-style probe) is not reused on a phone. The canvas is sized in CSS
 // pixels times the render scale (engine/Engine.js), so a 3x phone screen never renders at its device pixel ratio.
-// Phones also decode big textures at 1024 px at most (installTextureCap below: the roster characters' 2048 px
+// Phones also decode big textures at 512 px at most (tablets 2048) (installTextureCap below: the roster characters' 2048 px
 // textures are ~21 MB each on the GPU with mips, ~5 MB at 1024); ?tex=full keeps them whole.
 
 export const TIER_IDS = [ 'low', 'medium', 'high', 'ultra' ];
@@ -56,7 +56,9 @@ export const TIERS = {
 
 // the mobile trims, applied over the tier (mobileTier); null on a desktop or a touch laptop
 export const MOBILE = {
-	phone: { tier: 'low', ceiling: 'medium', maxScale: 0.75, shadowSize: 1024, shadowReach: 0.6, periods: [ 1, 6, 12 ], particles: 0.6, lights: 3, draw: 0.8, residents: 0.7, fx: 'low', textureMax: 1024 },
+	// textureMax 512 on phones: the roster's 56 character maps were 299 MB of GPU memory at 1024 (75 MB at 512; a
+	// character fills a few hundred pixels of a phone's internal resolution); the whole game measured ~1.07 GB at 1024
+	phone: { tier: 'low', ceiling: 'medium', maxScale: 0.75, shadowSize: 1024, shadowReach: 0.6, periods: [ 1, 6, 12 ], particles: 0.6, lights: 3, draw: 0.8, residents: 0.7, fx: 'low', textureMax: 512 },
 	tablet: { tier: 'low', ceiling: 'high', maxScale: 0.85, shadowSize: 1024, shadowReach: 0.8, periods: [ 1, 4, 8 ], particles: 0.8, lights: 4, draw: 0.9, residents: 0.85, fx: null, textureMax: 2048 },
 	tabletM: { tier: 'medium', ceiling: 'high', maxScale: 0.85, shadowSize: 1024, shadowReach: 0.8, periods: [ 1, 4, 8 ], particles: 0.8, lights: 4, draw: 0.9, residents: 0.85, fx: null, textureMax: 2048 },
 };

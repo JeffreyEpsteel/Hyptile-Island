@@ -122,15 +122,19 @@ ${ T ? '	h *= smoothstep( 0.0, 3.0, frame.seaLevel - terrainHeightAt( xz ) );' :
 
 	};
 	const origins = [ mapParams.fields.origin0, mapParams.fields.origin1 ];
-	const make = ( name ) => new Texture( { label: name, width: MAP_N, height: MAP_N, format: 'rgba16float', usage: [ 'sample', 'storage' ] } );
+	// both levels in one 2-layer array per map: 2 sampled textures instead of 4 in every lit shader (the spec default is
+	// 16 per stage, what iOS reports; the terrain and stall materials were over it)
+	const make = ( name ) => new Texture( { label: name, width: MAP_N, height: MAP_N, depth: MAP_EXTENTS.length, dimension: '2d-array', format: 'rgba16float', usage: [ 'sample', 'storage' ] } );
+	const mapA = make( 'uwWaves' ), mapB = make( 'uwLevel' );
+	const layer = ( tex, l ) => ( { storageTexture: tex, access: 'write', view: { dimension: '2d', baseArrayLayer: l, arrayLayerCount: 1, mipLevelCount: 1 } } );
 	const levels = MAP_EXTENTS.map( ( extent, l ) => {
 
 		const texel = extent / MAP_N;
-		const A = make( 'uwWaves' + l ), B = make( 'uwLevel' + l );
+		const A = mapA, B = mapB;
 		const kernel = new ComputeKernel( {
 			label: 'Underwater Light Map ' + l,
 			modules: [ helpers, ...( caustics && caustics.module ? [ caustics.module ] : [] ) ],
-			bindings: { uwMapParams: { uniform: mapParams }, uwOutA: { storageTexture: A, access: 'write' }, uwOutB: { storageTexture: B, access: 'write' } },
+			bindings: { uwMapParams: { uniform: mapParams }, uwOutA: layer( mapA, l ), uwOutB: layer( mapB, l ) },
 			workgroupSize: [ 8, 8, 1 ],
 			code: /* wgsl */`
 @compute @workgroup_size( WG_X, WG_Y, WG_Z )
@@ -153,7 +157,7 @@ fn main( @builtin( global_invocation_id ) gid: vec3u ) {
 		deps: [ commonModule ],
 		uniforms: mapParams,
 		uniformName: 'uwMapParams',
-		bindings: { uwWaves0: { texture: L0.A }, uwLevel0: { texture: L0.B }, uwWaves1: { texture: L1.A }, uwLevel1: { texture: L1.B } },
+		bindings: { uwWaves: { texture: mapA, viewDimension: '2d-array' }, uwLevel: { texture: mapB, viewDimension: '2d-array' } },
 		code: /* wgsl */`
 struct UwMapSample { height: f32, slope: vec2f, foam: f32, mean: f32, detailK: f32 };
 
@@ -180,12 +184,12 @@ fn _uwMapLookup( xz: vec2f, waves: bool ) -> UwMapSample {
 	let st1 = ( xz - uwMapParams.origin1 ) / ${ L1.texel };
 	if ( all( st0 > vec2f( 0.5 ) ) && all( st0 < vec2f( ${ MAP_N }.0 - 0.5 ) ) ) {
 		let uv = st0 / ${ MAP_N }.0;
-		if ( waves ) { a = textureSampleLevel( uwWaves0, smpLinearClamp, uv, 0.0 ); }
-		b = textureSampleLevel( uwLevel0, smpLinearClamp, uv, 0.0 );
+		if ( waves ) { a = textureSampleLevel( uwWaves, smpLinearClamp, uv, 0, 0.0 ); }
+		b = textureSampleLevel( uwLevel, smpLinearClamp, uv, 0, 0.0 );
 	} else if ( all( st1 > vec2f( 0.5 ) ) && all( st1 < vec2f( ${ MAP_N }.0 - 0.5 ) ) ) {
 		let uv = st1 / ${ MAP_N }.0;
-		if ( waves ) { a = textureSampleLevel( uwWaves1, smpLinearClamp, uv, 0.0 ); }
-		b = textureSampleLevel( uwLevel1, smpLinearClamp, uv, 0.0 );
+		if ( waves ) { a = textureSampleLevel( uwWaves, smpLinearClamp, uv, 1, 0.0 ); }
+		b = textureSampleLevel( uwLevel, smpLinearClamp, uv, 1, 0.0 );
 	}
 	return UwMapSample( frame.seaLevel + a.x, a.yz, a.w, frame.seaLevel + b.x, b.y );
 }

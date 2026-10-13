@@ -1,4 +1,4 @@
-import { Texture } from '../../engine/gpu/Texture.js';
+import { Texture, capImage } from '../../engine/gpu/Texture.js';
 import { generateMipmaps } from '../../engine/gpu/Mipmaps.js';
 
 // Minimal PNG decoder (8-bit RGBA, non-interlaced, all five filters) built on DecompressionStream,
@@ -71,7 +71,7 @@ export async function decodePNG( buffer ) {
 export async function loadTexture( url, srgb ) {
 
 	const buf = await fetch( url ).then( ( r ) => r.arrayBuffer() );
-	const img = await decodePNG( buf );
+	const img = capImage( await decodePNG( buf ), globalThis.__assetImageCap ? 1024 : 0 ); // phones: 1024 px at most (~80 MB saved)
 	// sampled with the shared anisotropic clamp sampler (was ClampToEdge, trilinear, anisotropy 8)
 	const tex = new Texture( {
 		label: url.split( '/' ).pop(),

@@ -319,12 +319,52 @@ export function getBindGroupLayout( entries, label ) {
 
 }
 
+// Group 1 over a per-stage device limit (group 0 adds 9 samplers and 1 uniform buffer to every stage): a warning that
+// names the bindings, so the device's own 'exceeds the maximum per-stage limit' error is attributable.
+const STAGE_LIMITS = [
+	[ 'sampled textures', 'maxSampledTexturesPerShaderStage', ( l ) => l.texture, 0 ],
+	[ 'storage textures', 'maxStorageTexturesPerShaderStage', ( l ) => l.storageTexture, 0 ],
+	[ 'storage buffers', 'maxStorageBuffersPerShaderStage', ( l ) => l.buffer && l.buffer.type !== 'uniform', 0 ],
+	[ 'uniform buffers', 'maxUniformBuffersPerShaderStage', ( l ) => l.buffer && l.buffer.type === 'uniform', 1 ],
+	[ 'samplers', 'maxSamplersPerShaderStage', ( l ) => l.sampler, 9 ],
+];
+
+export function stageOverruns( entries, limits = GPU.limits ) {
+
+	const out = [];
+	if ( ! limits || typeof GPUShaderStage === 'undefined' ) return out;
+	for ( const [ stageName, bit ] of [ [ 'vertex', GPUShaderStage.VERTEX ], [ 'fragment', GPUShaderStage.FRAGMENT ], [ 'compute', GPUShaderStage.COMPUTE ] ] ) {
+
+		for ( const [ what, key, test, base ] of STAGE_LIMITS ) {
+
+			const max = limits[ key ];
+			if ( ! max ) continue;
+			const names = entries.filter( ( [ , l ] ) => ( l.visibility & bit ) && test( l ) ).map( ( [ n ] ) => n );
+			if ( names.length && names.length + base > max ) out.push( { stage: stageName, what, count: names.length + base, max, names } );
+
+		}
+
+	}
+
+	return out;
+
+}
+
+function checkStageLimits( entries, label ) {
+
+	if ( /^group0/.test( label ) ) return; // (group 0 itself: the base counts above)
+	for ( const o of stageOverruns( entries ) ) console.warn( `${ label }: ${ o.count } ${ o.what } in the ${ o.stage } stage (device limit ${ o.max }): ${ o.names.join( ', ' ) }` );
+
+}
+
 // A composed set of group-1 bindings: layout + a bind group rebuilt when a resource changes.
 export class BindingSet {
 
 	// stageOf: { name: 'vertex' | 'fragment' } for render bindings only one stage reads (keeps the
-	// per-stage uniform buffer / texture counts down); demote: uniform blocks bound as read-only storage
-	constructor( specs, stage, label = 'bindings', stageOf = null, demote = null ) {
+	// per-stage uniform buffer / texture counts down); demote: uniform blocks bound as read-only storage;
+	// unused: names no entry point reaches: declared in the WGSL (unreached functions still name them) but
+	// left out of the layout and the bind group, so they count against no per-stage limit (iOS: the defaults)
+	constructor( specs, stage, label = 'bindings', stageOf = null, demote = null, unused = null ) {
 
 		this.label = label;
 		this.stage = stage;
@@ -349,10 +389,15 @@ export class BindingSet {
 
 		}
 
-		this.layout = getBindGroupLayout( this.described.map( ( d, i ) => ( { binding: i, ...d.layout } ) ), label );
+		// binding numbers stay the declaration order; only the reached ones are in the layout
+		this.slots = [];
+		for ( let i = 0; i < this.names.length; i ++ ) if ( ! unused || ! unused.has( this.names[ i ] ) ) this.slots.push( i );
+		this.unused = unused && unused.size ? this.names.filter( ( k ) => unused.has( k ) ) : [];
+		checkStageLimits( this.slots.map( ( i ) => [ this.names[ i ], this.described[ i ].layout ] ), label );
+		this.layout = getBindGroupLayout( this.slots.map( ( i ) => ( { binding: i, ...this.described[ i ].layout } ) ), label );
 		this.group = null;
-		const n = this.names.length;
-		this._specs = this.names.map( ( k ) => specs[ k ] );
+		const n = this.slots.length;
+		this._specs = this.slots.map( ( i ) => specs[ this.names[ i ] ] );
 		this._kinds = this._specs.map( kindOf );
 		this._blocks = this._specs.filter( ( sp ) => sp.uniform ).map( ( sp ) => sp.uniform );
 		this._objs = new Array( n ).fill( null ); // scratch: resolved resources of this call
@@ -438,7 +483,7 @@ export class BindingSet {
 		}
 
 		const entries = new Array( n );
-		for ( let i = 0; i < n; i ++ ) entries[ i ] = { binding: i, resource: resourceOf( specs[ i ] ) };
+		for ( let i = 0; i < n; i ++ ) entries[ i ] = { binding: this.slots[ i ], resource: resourceOf( specs[ i ] ) };
 		this.group = GPU.device.createBindGroup( { label: this.label, layout: this.layout, entries } );
 		this._entry = { objs: objs.slice(), vers: vers.slice(), group: this.group };
 		cache.unshift( this._entry );
@@ -530,13 +575,24 @@ export function composeShader( { modules = [], bindings = {}, code = '', defines
 	for ( const k in bindings ) specs[ k ] = bindings[ k ];
 	let stageOf = null;
 	let demote = null;
+	let unused = null;
+	let all = '';
+	for ( const m of mods ) all += m.code + '\n';
+	const full = preprocess( all + code, defines );
+	const entries = entryPoints( full );
+	if ( entries.length ) {
+
+		// bindings no entry point reaches (a module's other functions): out of the layout
+		const reached = new Set();
+		for ( const e of entries ) for ( const id of reachableIdentifiers( full, e.name ) ) reached.add( id );
+		unused = new Set( Object.keys( specs ).filter( ( k ) => ! reached.has( k ) ) );
+
+	}
+
 	if ( stage === 'render' && /@vertex\s+fn\s+vs\b/.test( code ) ) {
 
 		// bindings only one entry point can reach are declared for that stage only (per-stage limits:
 		// 12 uniform buffers, 16 sampled textures on some adapters)
-		let all = '';
-		for ( const m of mods ) all += m.code + '\n';
-		const full = preprocess( all + code, defines );
 		const usedV = reachableIdentifiers( full, 'vs' );
 		const usedF = /@fragment\s+fn\s+fs\b/.test( full ) ? reachableIdentifiers( full, 'fs' ) : null;
 		stageOf = {};
@@ -575,7 +631,7 @@ export function composeShader( { modules = [], bindings = {}, code = '', defines
 
 	}
 
-	const set = new BindingSet( specs, stage, label + '.g1', stageOf, demote );
+	const set = new BindingSet( specs, stage, label + '.g1', stageOf, demote, unused );
 	const g0 = group0( stage );
 	const structs = [ ...new Set( [ ...g0.structs(), ...set.structs() ] ) ];
 	let src = '';
@@ -591,6 +647,17 @@ export function composeShader( { modules = [], bindings = {}, code = '', defines
 	for ( const m of mods ) src += `// ---- ${ m.name }\n${ m.code }\n`;
 	src += code;
 	return { code: preprocess( src, defines ), bindings: set, group0: g0, modules: mods };
+
+}
+
+// the entry points of a WGSL source: [ { stage: 'vertex' | 'fragment' | 'compute', name } ]
+export function entryPoints( code ) {
+
+	const out = [];
+	const re = /@(vertex|fragment|compute)\b[^{};]*?\bfn\s+([A-Za-z_]\w*)\s*\(/g;
+	let m;
+	while ( ( m = re.exec( code ) ) ) out.push( { stage: m[ 1 ], name: m[ 2 ] } );
+	return out;
 
 }
 
@@ -670,7 +737,9 @@ export function createShaderModule( code, label ) {
 
 		}
 
-	} );
+		GPU.reportError( 'shader', errs.map( ( e ) => `${ e.lineNum }:${ e.linePos } ${ e.message }` ).join( '\n' ), label );
+
+	} ).catch( () => { /* compilation info is diagnostics only */ } );
 	return m;
 
 }

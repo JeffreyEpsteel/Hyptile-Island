@@ -8,66 +8,197 @@
 // range written twice in one frame keeps only the last value for every pass. Anything that changes
 // between passes of a frame needs its own buffer (or its own offset).
 
+// The WebGPU spec's default limits: what every adapter offers and what Safari / Chrome on iOS
+// (WebKit) often report as adapter.limits. ?limits=default (and tools/perf/headless.mjs --limits=default)
+// requests a device with exactly these, so a desktop run fails where a phone would.
+export const DEFAULT_LIMITS = {
+	maxTextureDimension1D: 8192, maxTextureDimension2D: 8192, maxTextureDimension3D: 2048, maxTextureArrayLayers: 256,
+	maxBindGroups: 4, maxBindGroupsPlusVertexBuffers: 24, maxBindingsPerBindGroup: 1000,
+	maxDynamicUniformBuffersPerPipelineLayout: 8, maxDynamicStorageBuffersPerPipelineLayout: 4,
+	maxSampledTexturesPerShaderStage: 16, maxSamplersPerShaderStage: 16, maxStorageBuffersPerShaderStage: 8,
+	maxStorageTexturesPerShaderStage: 4, maxUniformBuffersPerShaderStage: 12,
+	maxUniformBufferBindingSize: 65536, maxStorageBufferBindingSize: 134217728,
+	minUniformBufferOffsetAlignment: 256, minStorageBufferOffsetAlignment: 256,
+	maxVertexBuffers: 8, maxBufferSize: 268435456, maxVertexAttributes: 16, maxVertexBufferArrayStride: 2048,
+	maxInterStageShaderVariables: 16, maxColorAttachments: 8, maxColorAttachmentBytesPerSample: 32,
+	maxComputeWorkgroupStorageSize: 16384, maxComputeInvocationsPerWorkgroup: 256,
+	maxComputeWorkgroupSizeX: 256, maxComputeWorkgroupSizeY: 256, maxComputeWorkgroupSizeZ: 64, maxComputeWorkgroupsPerDimension: 65535,
+};
+
+// what the engine asks for above the defaults (each clamped to the adapter: requestDevice rejects anything higher);
+// every system must still work with the defaults (test/feature-ios.mjs, engine-smoke --limits=default)
+export const WANT_LIMITS = {
+	maxSampledTexturesPerShaderStage: 32,
+	maxSamplersPerShaderStage: 16,
+	maxStorageBuffersPerShaderStage: 10,
+	maxStorageTexturesPerShaderStage: 8,
+	maxComputeWorkgroupStorageSize: 32768,
+	maxColorAttachmentBytesPerSample: 64,
+	maxStorageBuffersInVertexStage: 4,
+	maxStorageBuffersInFragmentStage: 8,
+	maxStorageTexturesInFragmentStage: 4,
+	maxBindingsPerBindGroup: 1000,
+	maxBufferSize: 1024 * 1024 * 1024,
+	maxStorageBufferBindingSize: 512 * 1024 * 1024,
+};
+
+export const OPTIONAL_FEATURES = [ 'float32-filterable', 'timestamp-query', 'rg11b10ufloat-renderable', 'float32-blendable', 'shader-f16', 'clip-distances' ];
+
+const _search = () => ( typeof location !== 'undefined' && location && location.search ) || '';
+
+// the device limits to request: WANT_LIMITS (plus extra) clamped to the adapter, only those above the defaults
+export function clampLimits( adapterLimits, extra = {} ) {
+
+	const want = { ...WANT_LIMITS, ...extra };
+	const out = {};
+	for ( const k in want ) {
+
+		const have = adapterLimits[ k ];
+		if ( typeof have !== 'number' ) continue;
+		const v = Math.min( want[ k ], have );
+		if ( DEFAULT_LIMITS[ k ] === undefined || v > DEFAULT_LIMITS[ k ] ) out[ k ] = v;
+
+	}
+
+	return out;
+
+}
+
+// bytes of a texture descriptor (all mips and layers; formats not in the table count 4 bytes a texel)
+export function textureBytes( d ) {
+
+	const s = d.size || {};
+	const arr = Array.isArray( s ) || ( s && typeof s.length === 'number' );
+	const w = ( arr ? s[ 0 ] : s.width ) || 1, h = ( arr ? s[ 1 ] : s.height ) || 1;
+	const z = ( arr ? s[ 2 ] : s.depthOrArrayLayers ) || 1;
+	const bpp = ( FORMAT_INFO[ d.format ] || { bytes: 4 } ).bytes * ( d.sampleCount || 1 );
+	const is3d = d.dimension === '3d';
+	let total = 0;
+	for ( let m = 0; m < ( d.mipLevelCount || 1 ); m ++ ) total += Math.max( 1, w >> m ) * Math.max( 1, h >> m ) * ( is3d ? Math.max( 1, z >> m ) : z ) * bpp;
+	return total;
+
+}
+
 export const GPU = {
 
 	device: null,
 	queue: null,
 	adapter: null,
+	adapterInfo: null,
 	context: null,
 	canvas: null,
 	format: 'bgra8unorm',
 	features: new Set(),
 	limits: null,
+	requestedLimits: null, // the clamped set asked of requestDevice
+	limitsMode: 'adapter', // 'default': the spec defaults only (?limits=default)
 	hasTimestamp: false,
 	hasFloat32Filterable: false,
 	encoder: null,
 	frame: 0,
 	samplers: null,
 	_submitHooks: [],
+	// GPU allocation totals (createBuffer / createTexture sizes minus destroyed ones; the canvas is not counted)
+	memory: { buffers: 0, textures: 0, bufferCount: 0, textureCount: 0, peak: 0, get total() { return this.buffers + this.textures; } },
+	// device / pipeline / shader / validation errors for the on-screen error card (main.js): fn( { kind, message, label } )
+	_errorFns: new Set(),
+	errors: [],
 
-	async init( { canvas = null, requiredLimits = {}, headless = false } = {} ) {
+	onError( fn ) {
 
-		if ( ! navigator.gpu ) throw new Error( 'WebGPU is not available in this browser.' );
-		const adapter = await navigator.gpu.requestAdapter( { powerPreference: 'high-performance' } );
+		this._errorFns.add( fn );
+		return () => this._errorFns.delete( fn );
+
+	},
+
+	reportError( kind, message, label = '' ) {
+
+		const e = { kind, message: String( message || '' ), label, frame: this.frame, t: Date.now() };
+		this.errors.push( e );
+		if ( this.errors.length > 40 ) this.errors.shift();
+		for ( const fn of this._errorFns ) {
+
+			try { fn( e ); } catch ( err ) { /* the reporter must never throw into the GPU path */ }
+
+		}
+
+	},
+
+	// limits: 'adapter' | 'default' (null: ?limits=default in the URL picks it); features: 'auto' | 'none' (?features=none)
+	async init( { canvas = null, requiredLimits = {}, headless = false, limits: limitsMode = null, features: featureMode = null } = {} ) {
+
+		if ( typeof navigator === 'undefined' || ! navigator.gpu ) throw new Error( 'WebGPU is not available in this browser.' );
+		// Safari may return null (or throw) for 'high-performance': retry without options
+		let adapter = null;
+		try { adapter = await navigator.gpu.requestAdapter( { powerPreference: 'high-performance' } ); } catch ( e ) { adapter = null; }
+		if ( ! adapter ) {
+
+			try { adapter = await navigator.gpu.requestAdapter(); } catch ( e ) { adapter = null; }
+
+		}
+
 		if ( ! adapter ) throw new Error( 'No WebGPU adapter found.' );
 		this.adapter = adapter;
+		this.adapterInfo = adapter.info || null;
+		if ( ! this.adapterInfo && typeof adapter.requestAdapterInfo === 'function' ) {
 
-		const L = adapter.limits;
-		const want = {
-			maxSampledTexturesPerShaderStage: 32,
-			maxSamplersPerShaderStage: 16,
-			maxStorageBuffersPerShaderStage: 10,
-			maxStorageTexturesPerShaderStage: 8,
-			maxComputeWorkgroupStorageSize: 32768,
-			maxColorAttachmentBytesPerSample: 64,
-			maxStorageBuffersInVertexStage: 4,
-			maxStorageBuffersInFragmentStage: 8,
-			maxStorageTexturesInFragmentStage: 4,
-			maxBindingsPerBindGroup: 1000,
-			maxBufferSize: 1024 * 1024 * 1024,
-			maxStorageBufferBindingSize: 512 * 1024 * 1024,
-			...requiredLimits,
-		};
-		const limits = {};
-		for ( const k in want ) if ( L[ k ] !== undefined ) limits[ k ] = Math.min( want[ k ], L[ k ] );
+			try { this.adapterInfo = await adapter.requestAdapterInfo(); } catch ( e ) { /* older browsers only */ }
 
-		const optional = [ 'float32-filterable', 'timestamp-query', 'rg11b10ufloat-renderable', 'float32-blendable', 'shader-f16', 'clip-distances' ];
-		const requiredFeatures = optional.filter( ( f ) => adapter.features.has( f ) );
+		}
+
+		const search = _search();
+		this.limitsMode = limitsMode || ( /[?&]limits=default\b/.test( search ) ? 'default' : 'adapter' );
+		const limits = this.limitsMode === 'default' ? {} : clampLimits( adapter.limits, requiredLimits );
+		this.requestedLimits = limits;
+
+		const noFeatures = ( featureMode || ( /[?&]features=none\b/.test( search ) ? 'none' : 'auto' ) ) === 'none';
+		const requiredFeatures = noFeatures ? [] : OPTIONAL_FEATURES.filter( ( f ) => adapter.features.has( f ) );
 		this.features = new Set( requiredFeatures );
 		this.hasTimestamp = this.features.has( 'timestamp-query' );
 		this.hasFloat32Filterable = this.features.has( 'float32-filterable' );
 
-		const device = await adapter.requestDevice( { requiredFeatures, requiredLimits: limits } );
+		let device;
+		try {
+
+			device = await adapter.requestDevice( { requiredFeatures, requiredLimits: limits } );
+
+		} catch ( e ) {
+
+			// a limit the adapter lists but the device refuses: the spec defaults always work
+			console.warn( 'requestDevice with limits failed, retrying with the defaults:', e && e.message );
+			this.requestedLimits = {};
+			device = await adapter.requestDevice( { requiredFeatures } );
+
+		}
+
 		this.device = device;
 		this.queue = device.queue;
 		this.limits = device.limits;
-		device.lost.then( ( info ) => console.error( 'WebGPU device lost:', info.message ) );
-		device.addEventListener && device.addEventListener( 'uncapturederror', ( e ) => console.error( 'WebGPU:', e.error.message.split( '\n' ).slice( 0, 6 ).join( '\n' ) ) );
+		this._countAllocations( device );
+		device.lost.then( ( info ) => {
+
+			console.error( 'WebGPU device lost:', info.reason || '', info.message );
+			// 'destroyed' is an own device.destroy() (the game never calls it): anything else ends the game
+			if ( info.reason !== 'destroyed' ) this.reportError( 'lost', `The GPU device was lost (${ info.reason || 'unknown' }): ${ info.message || '' }` );
+
+		} );
+		if ( device.addEventListener ) device.addEventListener( 'uncapturederror', ( e ) => {
+
+			const err = e.error || {};
+			const kind = typeof GPUOutOfMemoryError !== 'undefined' && err instanceof GPUOutOfMemoryError ? 'out-of-memory'
+				: typeof GPUValidationError !== 'undefined' && err instanceof GPUValidationError ? 'validation'
+					: typeof GPUInternalError !== 'undefined' && err instanceof GPUInternalError ? 'internal' : 'error';
+			const msg = String( err.message || err ).split( '\n' ).slice( 0, 6 ).join( '\n' );
+			console.error( 'WebGPU:', msg );
+			this.reportError( kind, msg );
+
+		} );
 
 		if ( canvas && ! headless ) {
 
 			this.canvas = canvas;
 			this.context = canvas.getContext( 'webgpu' );
+			if ( ! this.context ) throw new Error( 'The canvas has no WebGPU context.' );
 			this.format = navigator.gpu.getPreferredCanvasFormat();
 			this.context.configure( { device, format: this.format, alphaMode: 'opaque', usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_DST } );
 
@@ -75,6 +206,111 @@ export const GPU = {
 
 		this._createSamplers();
 		return this;
+
+	},
+
+	// Sum what createBuffer / createTexture allocate (destroy() subtracts): GPU.memory, the phone budget.
+	_countAllocations( device ) {
+
+		const mem = this.memory;
+		const sizes = this._sizes = new WeakMap();
+		const cb = device.createBuffer, ct = device.createTexture;
+		// globalThis.__gpuMemTrack (headless runs): every live allocation by label, GPU._memTop() lists the biggest
+		const live = globalThis.__gpuMemTrack ? new Map() : null;
+		const add = ( key, n, obj, label ) => {
+
+			mem[ key ] += n;
+			if ( mem.total > mem.peak ) mem.peak = mem.total;
+			if ( live ) live.set( obj, { label: label || '(no label)', n } );
+
+		};
+		if ( live ) this._memTop = ( count = 25 ) => {
+
+			const by = new Map();
+			for ( const { label, n } of live.values() ) {
+
+				const k = label.replace( /\d+/g, '#' );
+				const e = by.get( k ) || { n: 0, c: 0 };
+				e.n += n;
+				e.c ++;
+				by.set( k, e );
+
+			}
+
+			return [ ...by ].sort( ( a, b ) => b[ 1 ].n - a[ 1 ].n ).slice( 0, count ).map( ( [ k, e ] ) => `  ${ ( e.n / 1048576 ).toFixed( 1 ).padStart( 7 ) } MB  x${ e.c }  ${ k }` ).join( '\n' );
+
+		};
+
+		try {
+
+			device.createBuffer = function ( d ) {
+
+				const b = cb.call( this, d );
+				const n = ( d && d.size ) || 0;
+				sizes.set( b, { key: 'buffers', n } );
+				add( 'buffers', n, b, d && d.label );
+				mem.bufferCount ++;
+				return b;
+
+			};
+
+			device.createTexture = function ( d ) {
+
+				const t = ct.call( this, d );
+				const n = textureBytes( d || {} );
+				sizes.set( t, { key: 'textures', n } );
+				add( 'textures', n, t, d && d.label );
+				mem.textureCount ++;
+				return t;
+
+			};
+
+			for ( const C of [ globalThis.GPUBuffer, globalThis.GPUTexture ] ) {
+
+				if ( ! C || ! C.prototype || C.prototype.__hiCounted ) continue;
+				const destroy = C.prototype.destroy;
+				C.prototype.destroy = function () {
+
+					const s = sizes.get( this );
+					if ( s ) {
+
+						sizes.delete( this );
+						if ( live ) live.delete( this );
+						mem[ s.key ] -= s.n;
+						mem[ s.key === 'buffers' ? 'bufferCount' : 'textureCount' ] --;
+
+					}
+
+					return destroy.call( this );
+
+				};
+
+				C.prototype.__hiCounted = true;
+
+			}
+
+		} catch ( e ) {
+
+			console.warn( 'GPU allocation counter unavailable', e );
+
+		}
+
+	},
+
+	// adapter, features, limits and memory as text (the error card and ?diag)
+	describe() {
+
+		const i = this.adapterInfo || {};
+		const mb = ( n ) => ( n / 1048576 ).toFixed( 1 ) + ' MB';
+		const m = this.memory;
+		const lines = [
+			`adapter: ${ [ i.vendor, i.architecture, i.device, i.description ].filter( Boolean ).join( ' · ' ) || 'unknown' }`,
+			`features: ${ [ ...this.features ].join( ', ' ) || 'none' }`,
+			`limits: ${ this.limitsMode }${ this.requestedLimits ? ' · asked ' + JSON.stringify( this.requestedLimits ) : '' }`,
+			`GPU memory: ${ mb( m.total ) } (buffers ${ mb( m.buffers ) } in ${ m.bufferCount }, textures ${ mb( m.textures ) } in ${ m.textureCount }; peak ${ mb( m.peak ) })`,
+		];
+		if ( this.canvas ) lines.push( `canvas: ${ this.canvas.width }x${ this.canvas.height } ${ this.format }` );
+		return lines.join( '\n' );
 
 	},
 
@@ -140,6 +376,8 @@ export const GPU = {
 	// run this frame (compute, post) call ready( handle ), which falls back to a synchronous create.
 	_pending: new Set(),
 	syncCompiles: [], // labels of pipelines needed before their async compile finished (diagnostics)
+	// compile progress for the loader and the error card ('compiling shaders 32 / 400: water main')
+	pipelineStats: { requested: 0, done: 0, failed: 0, last: '' },
 
 	renderPipeline( desc ) {
 
@@ -156,21 +394,30 @@ export const GPU = {
 	_async( desc, kind ) {
 
 		const h = { pipeline: null, label: desc.label, desc, kind, failed: false };
+		const st = this.pipelineStats;
+		st.requested ++;
 		// started after the current task: a kernel dispatched right after it was made (a one-off bake)
 		// compiles once, synchronously, instead of twice
 		const p = Promise.resolve().then( () => {
 
-			if ( h.pipeline ) return;
+			if ( h.pipeline ) { st.done ++; return; }
 			const create = kind === 'render' ? this.device.createRenderPipelineAsync : this.device.createComputePipelineAsync;
 			return create.call( this.device, desc ).then( ( pipeline ) => {
 
 				if ( ! h.pipeline ) h.pipeline = pipeline;
 				h.desc = null;
+				st.done ++;
+				st.last = desc.label || '';
 
 			}, ( e ) => {
 
 				h.failed = true;
-				console.error( `WebGPU: pipeline "${ desc.label }" failed: ${ e.message.split( '\n' ).slice( 0, 6 ).join( '\n' ) }` );
+				st.done ++;
+				st.failed ++;
+				st.last = desc.label || '';
+				const msg = String( ( e && e.message ) || e ).split( '\n' ).slice( 0, 6 ).join( '\n' );
+				console.error( `WebGPU: pipeline "${ desc.label }" failed: ${ msg }` );
+				this.reportError( 'pipeline', msg, desc.label );
 
 			} );
 
@@ -185,7 +432,17 @@ export const GPU = {
 
 		if ( h.pipeline || h.failed ) return h.pipeline;
 		this.syncCompiles.push( h.label );
-		h.pipeline = h.kind === 'render' ? this.device.createRenderPipeline( h.desc ) : this.device.createComputePipeline( h.desc );
+		try {
+
+			h.pipeline = h.kind === 'render' ? this.device.createRenderPipeline( h.desc ) : this.device.createComputePipeline( h.desc );
+
+		} catch ( e ) {
+
+			h.failed = true;
+			this.reportError( 'pipeline', String( ( e && e.message ) || e ), h.label );
+
+		}
+
 		return h.pipeline;
 
 	},

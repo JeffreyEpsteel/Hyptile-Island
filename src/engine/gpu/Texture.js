@@ -317,3 +317,31 @@ export class StorageBuffer {
 	}
 
 }
+
+// RGBA8 pixels { data, width, height } box-filtered down by halves until the long side is at most `max` (default: the
+// phone cap of core/Quality.js, globalThis.__assetImageCap; none: the image as it is). For data textures decoded by
+// hand (the whale's 4096 x 2048 maps were 85 MB of GPU memory on a phone).
+export function capImage( img, max = globalThis.__assetImageCap ) {
+
+	if ( ! max || ! img || Math.max( img.width, img.height ) <= max ) return img;
+	let { data, width: w, height: h } = img;
+	while ( Math.max( w, h ) > max && w > 1 && h > 1 ) {
+
+		const nw = w >> 1, nh = h >> 1;
+		const out = new Uint8Array( nw * nh * 4 );
+		for ( let y = 0; y < nh; y ++ ) for ( let x = 0; x < nw; x ++ ) {
+
+			const a = ( ( 2 * y ) * w + 2 * x ) * 4, b = a + w * 4, o = ( y * nw + x ) * 4;
+			for ( let c = 0; c < 4; c ++ ) out[ o + c ] = ( data[ a + c ] + data[ a + 4 + c ] + data[ b + c ] + data[ b + 4 + c ] + 2 ) >> 2;
+
+		}
+
+		data = out;
+		w = nw;
+		h = nh;
+
+	}
+
+	return { data, width: w, height: h };
+
+}

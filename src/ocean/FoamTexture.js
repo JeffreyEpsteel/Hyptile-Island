@@ -10,7 +10,8 @@ import { Texture, ComputeKernel, generateMipmaps } from '../engine/webgpu.js';
 //   B: soft large-scale mottling
 //   A: streaks
 // Sample it with smpAnisoRepeat / smpLinearRepeat (mipmapped rgba16float).
-export function createFoamTexture( renderer, size = 1024 ) {
+// (phones, which cap decoded textures under 1024 px: 512, 2.7 MB instead of 10.7)
+export function createFoamTexture( renderer, size = globalThis.__assetImageCap && globalThis.__assetImageCap < 1024 ? 512 : 1024 ) {
 
 	const tex = new Texture( {
 		label: 'foamPattern', width: size, height: size, format: 'rgba16float', mips: true,

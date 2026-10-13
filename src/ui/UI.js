@@ -3470,6 +3470,74 @@ export class UI {
 
 	}
 
+	// ── the error card (phones have no console) ─────────────────────────────
+	//
+	// showFatal( { title, message, stage, details, fatal } ): a card over everything with the message, the loading stage
+	// that was running, the details (adapter / device / memory / recent log: what Copy copies) and Copy / Reload buttons.
+	// fatal false: also a Continue button (a pipeline that failed, a GPU validation error: the game may still run).
+	// One card at a time: a second call while one is open appends its message to it.
+
+	showFatal( { title = 'Hyptile Island hit a problem', message = '', stage = '', details = '', fatal = true } = {} ) {
+
+		if ( typeof document === 'undefined' || ! document.body ) return null;
+		installFatalStyle();
+		const text = [ message, stage ? 'Stage: ' + stage : '', details ].filter( Boolean ).join( '\n\n' );
+		if ( this._fatal && this._fatal.isConnected ) {
+
+			const pre = this._fatal.querySelector( 'pre' );
+			if ( pre && pre.textContent.length < 20000 ) pre.textContent += '\n\n---\n' + text;
+			if ( fatal ) {
+
+				const c = this._fatal.querySelector( '[data-a="continue"]' );
+				if ( c ) c.remove();
+
+			}
+
+			return this._fatal;
+
+		}
+
+		const el = this._fatal = document.createElement( 'div' );
+		el.className = 'tw-fatal';
+		el.setAttribute( 'role', 'alert' );
+		el.innerHTML = `<div class="tw-fatal-card">
+			<h1>${ esc( title ) }</h1>
+			<p class="tw-fatal-msg">${ esc( message ) }</p>
+			${ stage ? `<p class="tw-fatal-stage">${ esc( t( 'fatal.stage', 'While' ) ) }: <b>${ esc( stage ) }</b></p>` : '' }
+			<p class="tw-fatal-hint">${ esc( t( 'fatal.hint', 'Copy this and send it to us (a screenshot works too).' ) ) }</p>
+			<pre></pre>
+			<div class="tw-fatal-btns">
+				<button type="button" data-a="copy">${ esc( t( 'fatal.copy', 'Copy' ) ) }</button>
+				<button type="button" data-a="reload">${ esc( t( 'fatal.reload', 'Reload' ) ) }</button>
+				${ fatal ? '' : `<button type="button" data-a="continue">${ esc( t( 'fatal.continue', 'Continue' ) ) }</button>` }
+			</div>
+			<p class="tw-fatal-note" aria-live="polite"></p>
+		</div>`;
+		el.querySelector( 'pre' ).textContent = text;
+		el.addEventListener( 'click', ( e ) => {
+
+			const a = e.target && e.target.getAttribute && e.target.getAttribute( 'data-a' );
+			if ( a === 'copy' ) copyText( el.querySelector( 'pre' ).textContent, el.querySelector( '.tw-fatal-note' ) );
+			else if ( a === 'reload' ) location.reload();
+			else if ( a === 'continue' ) el.remove();
+
+		} );
+		// keys and pointer lock must not reach the game behind it
+		for ( const k of [ 'keydown', 'pointerdown', 'touchstart', 'wheel' ] ) el.addEventListener( k, ( e ) => e.stopPropagation() );
+		document.body.append( el );
+		try { if ( document.exitPointerLock && document.pointerLockElement ) document.exitPointerLock(); } catch ( e ) { /* none */ }
+		const L = document.getElementById( 'loader' );
+		if ( L && fatal ) {
+
+			L.classList.remove( 'is-compiling' );
+			if ( this._ld ) this._ld.stopped = true;
+
+		}
+
+		return el;
+
+	}
+
 	// ── state ───────────────────────────────────────────────────────────────
 
 	// True while the cursor is over the panel, rail, menus or a modal overlay,
@@ -3695,5 +3763,193 @@ export class UI {
 		};
 
 	}
+
+}
+
+// ── the error card's look and the ?diag page (plain DOM: they must work when nothing else does) ──
+
+const FATAL_CSS = `
+.tw-fatal { position: fixed; inset: 0; z-index: 2147483000; display: flex; align-items: center; justify-content: center; padding: 16px;
+	background: rgba(4, 10, 16, 0.86); color: #eef6f8; font: 500 14px/1.45 system-ui, -apple-system, sans-serif; -webkit-text-size-adjust: 100%; }
+.tw-fatal-card { width: min(680px, 100%); max-height: calc(100% - 16px); overflow: auto; padding: 18px 20px; border-radius: 14px;
+	background: #0b1a24; box-shadow: 0 12px 48px rgba(0, 0, 0, 0.6); border: 1px solid rgba(255, 255, 255, 0.12); }
+.tw-fatal h1 { margin: 0 0 8px; font-size: 18px; letter-spacing: 0.04em; }
+.tw-fatal p { margin: 6px 0; }
+.tw-fatal-msg { color: #ffb3ba; white-space: pre-wrap; word-break: break-word; }
+.tw-fatal-hint, .tw-fatal-note { color: #9fb3bd; font-size: 12px; }
+.tw-fatal pre { margin: 8px 0; padding: 10px; max-height: 42vh; overflow: auto; white-space: pre-wrap; word-break: break-word; border-radius: 8px;
+	background: rgba(255, 255, 255, 0.05); font: 11px/1.4 ui-monospace, Menlo, monospace; color: #cfe0e6; user-select: text; -webkit-user-select: text; }
+.tw-fatal-btns { display: flex; gap: 8px; flex-wrap: wrap; }
+.tw-fatal button { font: inherit; color: inherit; min-height: 40px; padding: 6px 16px; border-radius: 10px; cursor: pointer;
+	background: rgba(95, 227, 212, 0.16); border: 1px solid rgba(95, 227, 212, 0.45); }
+.tw-diag { position: fixed; inset: 0; overflow: auto; z-index: 2147483000; background: #08141c; }
+.tw-diag .tw-fatal-card { margin: 16px auto; max-height: none; }
+.tw-diag pre { max-height: none; }
+`;
+
+function installFatalStyle() {
+
+	if ( typeof document === 'undefined' || document.getElementById( 'tw-fatal-style' ) ) return;
+	const s = document.createElement( 'style' );
+	s.id = 'tw-fatal-style';
+	s.textContent = FATAL_CSS;
+	( document.head || document.body ).append( s );
+
+}
+
+// clipboard where allowed (a secure page with a gesture), else the old select + execCommand (older iOS)
+function copyText( text, note ) {
+
+	const done = ( ok ) => { if ( note ) note.textContent = ok ? 'Copied.' : 'Copy failed: select the text and copy it by hand.'; };
+	const fallback = () => {
+
+		try {
+
+			const ta = document.createElement( 'textarea' );
+			ta.value = text;
+			ta.setAttribute( 'readonly', '' );
+			ta.style.cssText = 'position:fixed;top:0;left:0;opacity:0;';
+			document.body.append( ta );
+			ta.select();
+			ta.setSelectionRange( 0, text.length );
+			const ok = document.execCommand && document.execCommand( 'copy' );
+			ta.remove();
+			done( !! ok );
+
+		} catch ( e ) { done( false ); }
+
+	};
+
+	try {
+
+		if ( navigator.clipboard && navigator.clipboard.writeText ) navigator.clipboard.writeText( text ).then( () => done( true ), fallback );
+		else fallback();
+
+	} catch ( e ) { fallback(); }
+
+}
+
+// the device in text: browser, screen, memory hints (the error card and ?diag)
+export function deviceReport() {
+
+	const lines = [];
+	try {
+
+		const n = typeof navigator !== 'undefined' ? navigator : {};
+		lines.push( `user agent: ${ n.userAgent || '?' }` );
+		if ( n.userAgentData && n.userAgentData.platform ) lines.push( `platform: ${ n.userAgentData.platform }${ n.userAgentData.mobile ? ' (mobile)' : '' }` );
+		lines.push( `screen: ${ screen.width }x${ screen.height } CSS px · window ${ innerWidth }x${ innerHeight } · devicePixelRatio ${ devicePixelRatio }` );
+		lines.push( `memory: deviceMemory ${ n.deviceMemory ?? 'n/a' } GB · cores ${ n.hardwareConcurrency ?? 'n/a' } · touch points ${ n.maxTouchPoints ?? 0 }` );
+		const pm = typeof performance !== 'undefined' && performance.memory;
+		if ( pm ) lines.push( `JS heap: ${ ( pm.usedJSHeapSize / 1048576 ).toFixed( 0 ) } / ${ ( pm.jsHeapSizeLimit / 1048576 ).toFixed( 0 ) } MB` );
+		lines.push( `url: ${ location.href }` );
+
+	} catch ( e ) { lines.push( 'device info failed: ' + e.message ); }
+
+	return lines.join( '\n' );
+
+}
+
+// ?diag: no game. What this browser's WebGPU offers, with a Copy button, so a phone can send us a screenshot.
+export async function showDiagPage() {
+
+	installFatalStyle();
+	const el = document.createElement( 'div' );
+	el.className = 'tw-diag tw-fatal';
+	el.innerHTML = `<div class="tw-fatal-card">
+		<h1>Hyptile Island · WebGPU check</h1>
+		<p class="tw-fatal-hint">Send us a screenshot of this page (or Copy and paste it). Nothing is sent anywhere by this page.</p>
+		<div class="tw-fatal-btns"><button type="button" data-a="copy">Copy</button><button type="button" data-a="game">Start the game</button></div>
+		<p class="tw-fatal-note" aria-live="polite"></p>
+		<pre>checking…</pre>
+	</div>`;
+	document.body.append( el );
+	const L = document.getElementById( 'loader' );
+	if ( L ) L.style.display = 'none';
+	const pre = el.querySelector( 'pre' );
+	el.addEventListener( 'click', ( e ) => {
+
+		const a = e.target && e.target.getAttribute && e.target.getAttribute( 'data-a' );
+		if ( a === 'copy' ) copyText( pre.textContent, el.querySelector( '.tw-fatal-note' ) );
+		if ( a === 'game' ) location.search = location.search.replace( /([?&])diag(=[^&]*)?&?/, '$1' ).replace( /[?&]$/, '' );
+
+	} );
+	const out = [ deviceReport(), '' ];
+	const show = () => { pre.textContent = out.join( '\n' ); };
+	show();
+	try {
+
+		const gpu = navigator.gpu;
+		out.push( `navigator.gpu: ${ gpu ? 'present' : 'MISSING (no WebGPU in this browser)' }` );
+		if ( gpu ) {
+
+			out.push( `preferred canvas format: ${ gpu.getPreferredCanvasFormat ? gpu.getPreferredCanvasFormat() : '?' }` );
+			if ( gpu.wgslLanguageFeatures ) out.push( `WGSL language features: ${ [ ...gpu.wgslLanguageFeatures ].join( ', ' ) || 'none' }` );
+			let adapter = null, how = 'high-performance';
+			try { adapter = await gpu.requestAdapter( { powerPreference: 'high-performance' } ); } catch ( e ) { out.push( `requestAdapter(high-performance) threw: ${ e.message }` ); }
+			if ( ! adapter ) {
+
+				how = 'no options';
+				try { adapter = await gpu.requestAdapter(); } catch ( e ) { out.push( `requestAdapter() threw: ${ e.message }` ); }
+
+			}
+
+			out.push( `adapter: ${ adapter ? 'yes (' + how + ')' : 'NONE' }` );
+			if ( adapter ) {
+
+				let info = adapter.info;
+				if ( ! info && adapter.requestAdapterInfo ) try { info = await adapter.requestAdapterInfo(); } catch ( e ) { /* old API */ }
+				if ( info ) out.push( `adapter info: vendor "${ info.vendor || '' }" · architecture "${ info.architecture || '' }" · device "${ info.device || '' }" · description "${ info.description || '' }"${ info.isFallbackAdapter ? ' · FALLBACK' : '' }` );
+				if ( 'isFallbackAdapter' in adapter ) out.push( `fallback adapter: ${ adapter.isFallbackAdapter }` );
+				out.push( `features: ${ [ ...adapter.features ].sort().join( ', ' ) || 'none' }` );
+				out.push( 'limits:' );
+				const keys = [];
+				for ( const k in adapter.limits ) keys.push( k );
+				for ( const k of keys.sort() ) out.push( `  ${ k }: ${ adapter.limits[ k ] }` );
+				show();
+				// the device the game would ask for (GPU.js clampLimits), then a canvas configured like the game's
+				try {
+
+					const { clampLimits, OPTIONAL_FEATURES } = await import( '../engine/gpu/GPU.js' );
+					const requiredLimits = clampLimits( adapter.limits );
+					const requiredFeatures = OPTIONAL_FEATURES.filter( ( f ) => adapter.features.has( f ) );
+					out.push( `game device request: features [${ requiredFeatures.join( ', ' ) }] limits ${ JSON.stringify( requiredLimits ) }` );
+					const device = await adapter.requestDevice( { requiredFeatures, requiredLimits } );
+					out.push( 'requestDevice: ok' );
+					try {
+
+						const cv = document.createElement( 'canvas' );
+						cv.width = 64; cv.height = 64;
+						const ctx = cv.getContext( 'webgpu' );
+						ctx.configure( { device, format: gpu.getPreferredCanvasFormat(), alphaMode: 'opaque', usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_DST } );
+						ctx.getCurrentTexture();
+						out.push( 'canvas configure (opaque, preferred format): ok' );
+
+					} catch ( e ) { out.push( `canvas configure FAILED: ${ e.message }` ); }
+
+					device.destroy();
+
+				} catch ( e ) { out.push( `requestDevice FAILED: ${ e.message }` ); }
+
+			}
+
+		}
+
+	} catch ( e ) {
+
+		out.push( `check failed: ${ e && e.message }` );
+
+	}
+
+	// the last start's breadcrumb (main.js): where a start that killed the tab stopped
+	try {
+
+		const b = localStorage.getItem( 'hyptile-island.boot' );
+		if ( b ) out.push( '', `last start: ${ b }` );
+
+	} catch ( e ) { /* no storage */ }
+
+	show();
+	return el;
 
 }

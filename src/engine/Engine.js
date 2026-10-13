@@ -85,7 +85,28 @@ export class Engine {
 			let dt = this.clock.getDelta();
 			if ( dt > 0.1 ) dt = 0.1;
 			this.frame ++;
-			update( dt, this.clock.getElapsed() );
+			// an exception must not end the loop silently (a frozen picture and no console on a phone): it goes to
+			// onFrameError (main.js: the error card) and the next frame is still requested
+			try {
+
+				update( dt, this.clock.getElapsed() );
+				this.frameErrors = 0;
+
+			} catch ( e ) {
+
+				this.frameErrors = ( this.frameErrors || 0 ) + 1;
+				// the frame's encoder may hold an open pass: drop it, the next frame records into a fresh one
+				GPU.encoder = null;
+				if ( this.onFrameError ) {
+
+					try { this.onFrameError( e, this.frameErrors ); } catch ( e2 ) { /* the reporter must not throw */ }
+
+				} else console.error( e );
+				// a broken frame that keeps failing: stop after a while instead of throwing 60 times a second forever
+				if ( this.frameErrors > 600 ) return;
+
+			}
+
 			this._raf = requestAnimationFrame( loop );
 
 		};

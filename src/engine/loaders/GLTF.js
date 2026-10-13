@@ -209,8 +209,34 @@ function identities( n ) {
 
 }
 
+// Phones (globalThis.__assetImageCap, core/Quality.js): at most two images decode at once. A character GLB holds 2048 px
+// maps; several vendors loading together decoded a dozen at once (an ImageBitmap of 16 MB each, plus canvases), a
+// memory spike right as the game starts that iOS answers by ending the tab.
+let _decoding = 0;
+const _decodeQueue = [];
+async function decodeSlot( fn ) {
+
+	const max = globalThis.__assetImageCap ? 2 : Infinity;
+	if ( _decoding >= max ) await new Promise( ( r ) => _decodeQueue.push( r ) );
+	_decoding ++;
+	try { return await fn(); } finally {
+
+		_decoding --;
+		const next = _decodeQueue.shift();
+		if ( next ) next();
+
+	}
+
+}
+
 // Decoded RGBA8 pixels (top row first) of an embedded image.
-export async function decodeImage( bytes, mimeType ) {
+export function decodeImage( bytes, mimeType ) {
+
+	return decodeSlot( () => decodeImageNow( bytes, mimeType ) );
+
+}
+
+async function decodeImageNow( bytes, mimeType ) {
 
 	if ( globalThis.__assetImage ) return globalThis.__assetImage( bytes, mimeType );
 	const bmp = await createImageBitmap( new Blob( [ bytes ], { type: mimeType } ), { colorSpaceConversion: 'none', premultiplyAlpha: 'none' } );
