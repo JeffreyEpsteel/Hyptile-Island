@@ -1061,6 +1061,7 @@ export class Avatar {
 		c.seat = pose.seat || null;
 		c.loopClip = loopClip;
 		c.action = pose.action || null;
+		c.crouch = !! pose.crouch; c.tired = !! pose.tired; c.carry = !! pose.carry; // wave 18E blend spaces
 		return c;
 
 	}

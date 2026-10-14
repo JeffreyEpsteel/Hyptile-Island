@@ -9,3 +9,8 @@ releases/
 server-data/
 *.tmp
 tools/*/logs/
+
+# wave 18E: mocap sources are re-fetched (tools/roster/fetch-rocketbox.ps1) and re-derived (retarget.py); the clips live in the GLBs
+tools/roster/rocketbox/*.fbx
+tools/roster/retargeted/*.fbx
+tools/roster/__pycache__/

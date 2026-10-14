@@ -5,7 +5,7 @@
 # Locomotion / idle / gesture clips come from Microsoft Rocketbox mocap, retargeted onto the rig first (retarget.py,
 # clip list in tools/roster/rocketbox/clips.json, files fetched by fetch-rocketbox.ps1); the rest stay authored.
 param( [int] $Budget = 100000, [string[]] $Only = @(), [switch] $Boats, [switch] $NoCharacters, [switch] $SkipRetarget, [switch] $RetargetOnly, [string[]] $Override = @(),
-	[string] $OutDir = '', [string] $PortraitDir = '' )
+	[string] $OutDir = '', [string] $PortraitDir = '', [switch] $NoPost )
 # -Override "Name=clip.fbx",... replaces (or adds) clips by name after the Rocketbox substitution, e.g. Kimodo clips
 # retargeted with retarget.py (D:\fishing game\Assets\HyptileMotion\kimodo_bip01\retargeted).
 $ErrorActionPreference = 'Continue'
@@ -83,6 +83,10 @@ $Clips = @($Clips | ForEach-Object {
 	$n = ($_ -split '=', 2)[0]
 	if ($RbClips | Where-Object { $_.name -eq $n }) { if (Test-Path "$RtDir\$n.fbx") { "$n=$RtDir\$n.fbx" } else { Write-Host "no retargeted $n, keeping the authored clip"; $_ } } else { $_ }
 })
+# manifest clips the authored list does not have (wave 18E: the way-of-life, chair, walk and turn takes) are added
+foreach ($c in $RbClips) {
+	if (-not ($Clips | Where-Object { ($_ -split '=', 2)[0] -eq $c.name }) -and (Test-Path "$RtDir\$($c.name).fbx")) { $Clips += "$($c.name)=$RtDir\$($c.name).fbx" }
+}
 foreach ($o in @($Override | ForEach-Object { $_ -split ',' } | Where-Object { $_ })) {   # -File passes a list as one comma-joined string
 	$n, $p = $o -split '=', 2
 	if (-not (Test-Path $p)) { Write-Host "override $n missing: $p"; exit 1 }
@@ -114,8 +118,14 @@ if (-not $NoCharacters) {
 		if ($Only.Count -gt 0 -and $Only -notcontains $id) { continue }
 		$log = "$Root\tools\roster\logs\$id.log"
 		Write-Host "== $id"
-		& $Blender -b --python "$PSScriptRoot\convert-character.py" -- $Chars[$id] "$OutDir\$id.glb" "$PortraitDir\$id.png" $Budget @Clips 2>&1 | Out-File -Encoding utf8 $log
+		# per-character takes (wave 18E): Sit_Ground is the Kimodo floor sit (kimodo_roster Seated_Idle v2, rejected as a seat)
+		$own = @($Clips)
+		$sg = "$A\HyptileMotion\kimodo_roster\Seated_Idle\v2\chars\$id.fbx"
+		if ((Test-Path $sg) -and -not ($own | Where-Object { ($_ -split '=', 2)[0] -eq 'Sit_Ground' })) { $own += "Sit_Ground=$sg" }
+		& $Blender -b --python "$PSScriptRoot\convert-character.py" -- $Chars[$id] "$OutDir\$id.glb" "$PortraitDir\$id.png" $Budget @own 2>&1 | Out-File -Encoding utf8 $log
 		Select-String -Path $log -Pattern 'EXPORTED|PORTRAIT|DECIMATED|DETAIL_SPLIT|KEPT|NO ACTION|REBASE|WARNING decimation|Error|Traceback' | ForEach-Object { $_.Line }
+		# the leg fix, the seat chaining and the baked pose clips (tools/roster/post-clips.mjs; once per fresh GLB)
+		if (-not $NoPost -and (Test-Path "$OutDir\$id.glb")) { & node "$PSScriptRoot\post-clips.mjs" "$OutDir\$id.glb" "$OutDir\$id.glb" 2>&1 | Select-String -Pattern 'POSTED|LEGS|Error' | ForEach-Object { "  " + $_.Line } }
 	}
 }
 if ($Boats) {

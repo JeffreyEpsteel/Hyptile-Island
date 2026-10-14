@@ -418,6 +418,9 @@ export class Player {
 		out.action = this.action;
 		out.frame = null;
 		out.diving = this.mode === 'swim' && ! this.floating;
+		out.tired = this.mode === 'walk' && this.stamina < 0.2; // wave 18E: the tired / crouch / carry locomotion
+		out.crouch = this.mode === 'walk' && !! this.crouching;
+		out.carry = !! this.carrying;
 		out.seat = null; out.forward = out.strafe = undefined; // the animation graph's seat kind and the deck strafe
 		if ( this.mode === 'boat' ) {
 
@@ -533,11 +536,16 @@ export class Player {
 		const sprintHeld = inp.down( 'ShiftLeft' ) || inp.down( 'ShiftRight' );
 		// a jog by default; Caps Lock: walk; Shift: sprint (stamina). Speeds follow the mocap strides
 		// (walk clip ~0.76 m/s, run ~2.17 m/s at rate 1) so the feet do not slide
+		// C crouches on foot (wave 18E: the crouch walk); jumping, swimming or sprinting stands up again
+		if ( inp.hit( 'KeyC' ) && this.grounded && wade < 0.5 ) this.crouching = ! this.crouching;
+		if ( sprintHeld && moving ) this.crouching = false;
 		const sprint = sprintHeld && this.stamina > 0.02 && moving;
 		const walk = this.runToggle && ! sprint;
 		// (user tuning 2026-10-13: a sprint lasts ~80 s and runs 3.5x the mocap stride; the refill stays)
 		this.stamina = THREE.MathUtils.clamp( this.stamina + ( sprint ? - dt / 80 : dt / 6 ), 0, 1 );
-		const speed = ( sprint ? 8.5 : walk ? 1.25 : 2.7 ) * THREE.MathUtils.lerp( 1, 0.42, wade ); // (16 was uncontrollable: user 2026-10-13)
+		let speed = ( sprint ? 8.5 : walk ? 1.25 : 2.7 ) * THREE.MathUtils.lerp( 1, 0.42, wade ); // (16 was uncontrollable: user 2026-10-13)
+		if ( this.crouching ) speed = Math.min( speed, 1.1 ); // the crouch walk's stride
+		else if ( ! sprint && this.stamina < 0.2 ) speed = Math.min( speed, 1.4 ); // winded after a long sprint: the tired walk
 		const accel = this.grounded ? 14 : 2.5;
 		const k = 1 - Math.exp( - accel * dt );
 		if ( this.launched > 0 ) this.launched -= dt;
@@ -549,6 +557,8 @@ export class Player {
 		}
 
 		if ( this.grounded && inp.hit( 'Space' ) && depth < 0.9 ) {
+
+			this.crouching = false; // a jump stands up
 
 			this.velocity.y = 4.6;
 			this.grounded = false;

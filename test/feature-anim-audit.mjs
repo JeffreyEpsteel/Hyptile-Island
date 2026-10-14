@@ -27,10 +27,8 @@ const ROSTER = join( ROOT, 'public', 'models', 'roster' );
 const ID = process.argv[ 2 ] || 'hyptile';
 const BIND_DEG = 10;
 const ARMS = [ 'upperarm_l', 'upperarm_r', 'lowerarm_l', 'lowerarm_r' ];
-// the Kimodo batch root is replacing (docs/briefs/w17-anim-audit.md); GetUp_Back is new in that batch
-const KNOWN = new Set( [ 'Jump', 'Land_Soft', 'Stumble', 'Airborne_Tumble', 'Hit_Reaction', 'Knockdown', 'GetUp_Front', 'GetUp_Back',
-	'Swim_Idle', 'Swim_Forward', 'Swim_Fast', 'Board_Low', 'Disembark_Low', 'Catch_Celebrate', 'Catch_Disappointed', 'Inspect_Catch',
-	'Sweep_Work', 'Offer_Finger', 'Prank_Laugh', 'Sit_Down', 'Stand_Up', 'Seated_Idle', 'Helm_Idle' ] );
+// the Kimodo batch root was replacing (docs/briefs/w17-anim-audit.md): emptied once the audit reported them all fine
+const KNOWN = new Set( [] ); // wave 18E: every clip of that batch (and the Sit_Down / Stand_Up replaced by Rocketbox takes) now passes
 // found by this audit, not in that batch: the rowing / paddling loops start and end on the bind pose (an A flash every stroke).
 // The AnimDef patch in the wave 17B report swaps them for pose clips (Row_Stroke ...); listed until it lands
 const KNOWN_17B = new Set( [ 'Row_Forward', 'Row_Backward', 'Paddle_Left', 'Paddle_Right' ] );

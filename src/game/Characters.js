@@ -20,6 +20,13 @@ export const CLIPS = {
 	rowForward: 'Row_Forward', rowBackward: 'Row_Backward', paddleLeft: 'Paddle_Left', paddleRight: 'Paddle_Right',
 	sitDown: 'Sit_Down', standUp: 'Stand_Up', steerLeft: 'Steer_Left', steerRight: 'Steer_Right', boardLow: 'Board_Low', disembarkLow: 'Disembark_Low',
 	fall: 'Fall_Loop', landSoft: 'Land_Soft', stumble: 'Stumble', knockdown: 'Knockdown', getUp: 'GetUp_Back', getUpFront: 'GetUp_Front', hit: 'Hit_Reaction', swing: 'Melee_Paddle',
+	// wave 18E, the animation library (tools/roster/README.md "Animation library"): way of life (Rocketbox mocap; the chair clips sit on
+	// a 0.45 m seat at the root, Sit_Chair ends on Sit_Chair_Idle's first frame, Stand_From_Chair starts on it), pose clips baked into
+	// the GLBs (Lean_Wall: a wall 0.25 m behind the root; Carry_Box / Crouch_Walk loop with the walk), locomotion and emote takes
+	sitChair: 'Sit_Chair', sitChairIdle: 'Sit_Chair_Idle', standFromChair: 'Stand_From_Chair', leanWall: 'Lean_Wall', drink: 'Drink', eat: 'Eat',
+	carryBox: 'Carry_Box', kneelWork: 'Kneel_Work', crouch: 'Crouch', talkGroup: 'Talk_Group', clap: 'Clap', pointOut: 'Point_Out', hammer: 'Hammer',
+	fishNet: 'Fish_Net', drunkWalk: 'Drunk_Walk', lampLight: 'Lamp_Light', crouchWalk: 'Crouch_Walk', walkTired: 'Walk_Tired',
+	turnLeft: 'Turn_Left', turnRight: 'Turn_Right', dance2: 'Dance_2', sitGround: 'Sit_Ground',
 };
 // the clips every roster GLB had in phase 1 (tests check these; the phase 2 ones are optional per build)
 export const CORE_CLIPS = [ 'Idle_Breathe', 'Walk_InPlace', 'Run_InPlace', 'Jump', 'Wave', 'Fishing_Cast', 'Fishing_Hold', 'Fishing_Reel', 'Fishing_Strike', 'Swim_Idle', 'Swim_Forward', 'Swim_Fast', 'Helm_Idle', 'Seated_Idle', 'Catch_Celebrate', 'Catch_Disappointed', 'Talk', 'Dance', 'Look_Around', 'Cheer_Clap' ];
@@ -28,7 +35,7 @@ export const CORE_CLIPS = [ 'Idle_Breathe', 'Walk_InPlace', 'Run_InPlace', 'Jump
 // walk / run: the planted foot's speed measured on the GLB (src/player/anim/ClipTools.js strideSpeed, test/feature-anim.mjs):
 // walk 1.12 (the Kimodo-derived take; the pelvis-ratio estimate was 0.92), run 2.03 (was 2.17, which slid the feet).
 // The player avatar does not use these: its blend space measures every sample itself (src/player/anim/AnimGraph.js).
-export const CLIP_SPEED = { walk: 1.1, run: 2.0, swim: 1.0, swimFast: 1.8 };
+export const CLIP_SPEED = { walk: 1.1, run: 2.0, swim: 1.0, swimFast: 1.8, carry: 1.1, crouchWalk: 0.67, walkTired: 0.5, drunkWalk: 0.6 }; // (wave 18E takes: strideSpeed on the GLB, test/feature-anim-library.mjs)
 
 export const CHARACTERS = {
 	hyptile: { name: 'Hyptile', tagline: 'The island\'s own fisher. Calm hands, long cast.', height: 1.6, unlock: { kind: 'start' } },

@@ -49,7 +49,7 @@ const mkAvatar = ( known ) => {
 	return a;
 
 };
-const ALL = [ 'wave', 'dance', 'point', 'cheer', 'friendlyWave', 'celebrate', 'beckon' ];
+const ALL = [ 'wave', 'dance', 'point', 'cheer', 'friendlyWave', 'celebrate', 'beckon', 'laugh', 'bow', 'salute', 'flex', 'facepalm', 'thumbsUp', 'sitGround', 'dance2' ];
 
 const mkWorld = ( { known = ALL, claimed = [] } = {} ) => {
 
@@ -86,7 +86,8 @@ const mkWorld = ( { known = ALL, claimed = [] } = {} ) => {
 	ok( w2.em.key === KEY_CANDIDATES[ 2 ], 'a taken key: the next free candidate' );
 	const w3 = mkWorld( { claimed: KEY_CANDIDATES } );
 	ok( w3.em.key === null, 'none free: no key (the touch button still works through play())' );
-	ok( ! KEY_CANDIDATES.includes( 'KeyX' ) && PICK_KEYS.length === 4 && EMOTES.map( ( e ) => e.id ).join() === 'wave,dance,point,cheer', 'four emotes: wave, dance, point, cheer' );
+	ok( ! KEY_CANDIDATES.includes( 'KeyX' ) && EMOTES.map( ( e ) => e.id ).join() === 'wave,dance,point,cheer,laugh,bow,salute,flex,facepalm,thumbsUp,sit,dance2', 'twelve emotes: wave, dance, point, cheer first, then laugh, bow, salute, flex, facepalm, thumbs up, sit, dance 2 (wave 18E)' );
+	ok( w.em.pickKeys.length >= EMOTES.length && ! w.em.pickKeys.includes( w.em.key ) && w.em.pickKeys.slice( 0, 4 ).join() === 'Digit1,Digit2,Digit3,Digit4', `a pick key per emote, never the row's own key (${ w.em.pickKeys.slice( 0, EMOTES.length ).join( ' ' ) })` );
 
 }
 
@@ -117,6 +118,12 @@ const mkWorld = ( { known = ALL, claimed = [] } = {} ) => {
 	w.step( RATE_LIMIT + 0.1 );
 	ok( w.em.play( 'wave' ) && w.em.last.clip === 'wave', 'wave plays its own montage' );
 	ok( ! w.em.play( 'moonwalk' ), 'an unknown emote is refused' );
+	// wave 18E: the last emote through the row's last pick key, and the bow through its montage
+	w.step( RATE_LIMIT + 0.1 );
+	w.press( w.em.key ); w.press( w.em.pickKeys[ EMOTES.length - 1 ] );
+	ok( w.em.last.id === 'dance2' && w.em.last.clip === 'dance2' && ! w.em.rowOpen, `the 12th key (${ w.em.pickKeys[ EMOTES.length - 1 ] }) plays dance 2 and closes the row` );
+	w.step( RATE_LIMIT + 0.1 );
+	ok( w.em.play( 'bow' ) && w.em.last.clip === 'bow', 'bow plays its own montage' );
 
 }
 
@@ -146,6 +153,19 @@ const mkWorld = ( { known = ALL, claimed = [] } = {} ) => {
 	ok( d.playing, 'the dance is still going at 4.5 s' );
 	w.step( 1 );
 	ok( ! d.playing, 'and stops after its five seconds' );
+	// wave 18E: sitting on the ground is whole-body only and lasts until you move
+	w.step( RATE_LIMIT + 0.1 );
+	w.app.player.velocity.x = 2;
+	ok( ! w.em.play( 'sit' ), 'sit while walking: refused (no sitting with the legs walking)' );
+	w.app.player.velocity.x = 0;
+	ok( w.em.play( 'sit' ) && w.em.last.clip === 'sitGround' && w.em.last.slot === 'full', 'standing: sit plays the Sit_Ground montage on the whole body' );
+	const sit = w.app.avatar.last;
+	w.step( 8 );
+	ok( sit.playing, 'still sitting after 8 s (held, not timed like the dance)' );
+	w.app.player.velocity.x = 3;
+	w.step( 0.2 );
+	ok( ! sit.playing, 'and up again when you walk' );
+	w.app.player.velocity.x = 0;
 
 }
 
@@ -251,14 +271,15 @@ const mkWorld = ( { known = ALL, claimed = [] } = {} ) => {
 	const av = new Avatar( { scene, character: 'hyptile' } );
 	await av.ready;
 	const m = av.model;
-	for ( const c of [ 'Wave', 'Dance', 'Point', 'Cheer_Clap' ] ) ok( m.clips.has( c ), `the roster GLB has ${ c }` );
+	for ( const c of [ 'Wave', 'Dance', 'Point', 'Cheer_Clap', 'Laugh', 'Dance_2', 'Sit_Ground' ] ) ok( m.clips.has( c ), `the roster GLB has ${ c }` );
 	const world = mkWorld();
 	world.app.avatar = av;
 	const pose = { position: new E.Vector3( 0, 0, 0 ), yaw: 0, mode: 'walk', speed: 0, vy: 0, grounded: true, diving: false, frame: null, action: null };
 	const tick = ( s ) => { for ( let t = 0; t < s - 1e-9; t += 1 / 30 ) { av.update( 1 / 30, pose ); world.em.update( 1 / 30 ); } };
 	tick( 0.5 );
 	const playing = ( slot ) => { const q = av.graph._montages.find( ( x ) => x.slot === slot && x.target === 1 && ! x.ended ); return q ? q.clip.name : null; };
-	const clipOf = { wave: 'Wave', dance: 'Dance', point: 'Point', cheer: 'Cheer_Clap' };
+	const clipOf = { wave: 'Wave', dance: 'Dance', point: 'Point', cheer: 'Cheer_Clap', laugh: 'Laugh', bow: 'Emote_Bow', salute: 'Emote_Salute', flex: 'Emote_Flex',
+		facepalm: 'Emote_Facepalm', thumbsUp: 'Emote_ThumbsUp', sit: 'Sit_Ground', dance2: 'Dance_2' };
 	for ( const e of EMOTES ) {
 
 		tick( RATE_LIMIT + 0.2 );

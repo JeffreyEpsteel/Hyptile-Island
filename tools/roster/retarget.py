@@ -6,6 +6,14 @@
 #                    keepz = no foot-ground correction (the offset is only measured, not applied)
 #                    nocap = keep a clip longer than CAP_SEC as it is
 #                    fingers=<fbx> = hold the hand pose of that clip on this rig (see FINGERS_FROM)
+#                    sit=<m> = sitting on a seat <m> high (wave 18E): the seated frames are lifted so the lowest buttock
+#                              point (pelvis / upper-thigh vertices) lands on the seat, blended in by how far the pelvis has
+#                              dropped (the standing frames keep the feet on the floor); the Rocketbox chair scaled to
+#                              this rig is lower than the game's seats. `sit` alone = 0.45 m
+#                    travel=end | travel=start = keep the take's ground travel, ending | starting over the root (sit / stand)
+#                    unyaw = remove the pelvis heading change (turn-in-place takes: the feet step, the game turns the body)
+#                    noclamp = with sit: no floor clamp (a seat lower than the take's: post-clips.mjs re-solves the legs)
+#                    cap=<s> = cut long clips at <s> seconds instead of CAP_SEC (smaller GLBs for ambient loops)
 # Method (see tools/roster/README.md): the importer's rest pose of a Rocketbox clip is its first frame (arms down),
 # not the T-pose, and the rig's A-pose differs again, so a plain world-rotation copy or a delta from "rest" would twist
 # the limbs. Each target bone is therefore matched to the clip's rest pose by DIRECTION (the minimal swing F that turns
@@ -214,9 +222,23 @@ def retarget(name, path, opts):
         w = {tn: Ms3 @ rot3(sp[SRC[tn]].matrix) for tn in MAP}
         worlds.append(w)
         ppos.append((Ms @ sp['Bip01 Pelvis'].matrix).translation.copy())
+    # unyaw: every frame turned back about the vertical by the pelvis heading change since the first frame
+    if 'unyaw' in opts:
+        def heading(w):
+            f = (w['pelvis'] @ Rs0_inv['pelvis']) @ Vector((0.0, -1.0, 0.0))
+            return math.atan2(f.x, -f.y)
+        h0 = heading(worlds[0])
+        turned = math.degrees(math.atan2(math.sin(heading(worlds[-1]) - h0), math.cos(heading(worlds[-1]) - h0)))
+        for i, w in enumerate(worlds):
+            R = Matrix.Rotation(-(heading(w) - h0), 3, 'Z')
+            for tn in MAP: w[tn] = R @ w[tn]
+            c = ppos[i] - ppos[0]
+            ppos[i] = ppos[0] + (R @ c)
+        print('UNYAW', name, 'heading change removed: %.1f deg' % turned)
     # long clips are cut to CAP_SEC and closed into a loop: the last K frames cross-fade to the K frames that precede
     # the start, so the cut cannot pop (keeps the GLBs small: the talk / idle takes run 30+ seconds)
-    L, K = int(CAP_SEC * 30), 15
+    cap = next((float(o.split('=', 1)[1]) for o in opts if o.startswith('cap=')), CAP_SEC)
+    L, K = int(cap * 30), 15
     capped = False
     if 'nocap' not in opts and len(worlds) >= L + K + 2:
         nw, npos = [], []
@@ -246,10 +268,15 @@ def retarget(name, path, opts):
         else:
             print('LOOPKEEP', name, 'last frame differs by %.1f deg' % diff)
     p0 = ppos[0]
+    print('TRAVEL', name, 'pelvis xy start->end %.3f %.3f m (clip scale)' % ((ppos[-1].x - p0.x) * k, (ppos[-1].y - p0.y) * k))
     xy = []
     for i, p in enumerate(ppos):
         if 'zero' in opts:
             d = Vector((0.0, 0.0))
+        elif 'travel=end' in opts:   # the real travel, ending over the root (sit down: start in front of the seat)
+            d = Vector((p.x - ppos[-1].x, p.y - ppos[-1].y))
+        elif 'travel=start' in opts:   # the real travel, starting over the root (stand up: step off the seat)
+            d = Vector((p.x - p0.x, p.y - p0.y))
         else:
             d = Vector((p.x - p0.x, p.y - p0.y)) - drift * (i / denom)
         xy.append(d * k)
@@ -282,6 +309,26 @@ def retarget(name, path, opts):
             sole += [(nm, pos) for _, pos, _ in lst[:120]]
     if not sole:
         raise SystemExit('no foot vertices found for the ground measurement')
+    # sit=<m>: the buttocks, the lowest pelvis-dominated vertices and the upper thighs (within 12 cm of the hip joints)
+    sit_h = None
+    for o in opts:
+        if o == 'sit': sit_h = 0.45
+        elif o.startswith('sit='): sit_h = float(o.split('=', 1)[1])
+    seat = []
+    if sit_h is not None:
+        for m in [o for o in robjs if o.type == 'MESH']:
+            gname = {g.index: g.name for g in m.vertex_groups}
+            for v in m.data.vertices:
+                best, bw = None, 0.0
+                for g in v.groups:
+                    if g.weight > bw: best, bw = gname.get(g.group), g.weight
+                if best not in ('pelvis', 'thigh_l', 'thigh_r') or bw < 0.5: continue
+                p = (m.matrix_world @ v.co).copy()
+                if best != 'pelvis' and (p - rest_head[best]).length > 0.12: continue
+                seat.append((best, p))
+        seat.sort(key=lambda t: t[1].z)
+        seat = seat[:600]
+    seat_lows = []
     # how much each upper arm hangs per frame (1 = straight down, 0 = at or above horizontal): scales the arm fixes
     hang = {}
     for sd in ('l', 'r'):
@@ -341,9 +388,20 @@ def retarget(name, path, opts):
         shift = pelvis_pos - rest_head['pelvis']
         lowz = min((head[nm] + Pa[nm] @ Rt[nm].inverted() @ (pos - rest_head[nm])).z for nm, pos in sole) + shift.z
         lows.append(lowz)
+        if seat:
+            seat_lows.append(min((head[nm] + Pa[nm] @ Rt[nm].inverted() @ (pos - rest_head[nm])).z for nm, pos in seat) + shift.z)
         samples.append((loc_q, shift))
     print('PENETRATION', name, 'max %.3f m (%s) limb-into-torso depth (belly ellipse + limb radius)' % (pen['max'], pen['where']))
     rest_low = min(pos.z for nm, pos in sole)
+    # sitting: the floor is measured on the standing frames only (a take's seated legs are not a floor reference)
+    sw = None
+    all_lows = list(lows)
+    if seat:
+        zmax, zmin = max(zs), min(zs)
+        span = zmax - zmin
+        sw = [1.0 if span < 0.08 else max(0.0, min(1.0, (zmax - z) / span)) for z in zs]
+        standing = [lows[i] for i in range(len(lows)) if sw[i] < 0.1]
+        if len(standing) >= 3: lows = standing
     sorted_lows = sorted(lows)
     ref_low = sorted_lows[max(0, int(len(sorted_lows) * 0.1))]
     ground = rest_low - ref_low
@@ -352,6 +410,19 @@ def retarget(name, path, opts):
         ground = 0.0
     else:
         print('GROUND', name, 'foot offset applied %.3f m' % ground)
+    # per-frame extra height: the seated frames lifted onto the seat (blend by the pelvis drop: 0 standing, 1 seated)
+    lift = [0.0] * len(samples)
+    if seat:
+        deep = [seat_lows[i] for i in range(len(zs)) if sw[i] > 0.95] or seat_lows
+        deep = sorted(deep)[len(deep) // 2]
+        need = sit_h - (deep + ground)
+        lift = [w * need for w in sw]
+        # and no frame pushes a foot through the floor (the take's knees bend on longer shins than this rig's)
+        under = [0.0 if 'noclamp' in opts else max(0.0, rest_low - (all_lows[i] + ground + lift[i])) for i in range(len(lift))]
+        lift = [lift[i] + under[i] for i in range(len(lift))]
+        if max(under) > 0.002: print('SIT', name, 'floor clamp up to %.3f m' % max(under))
+        pel = rest_head['pelvis'].z + samples[sw.index(max(sw))][1].z + ground + need
+        print('SIT', name, 'seat %.3f m -> %.3f m (lift %.3f), seated pelvis %.3f m (drop %.3f from rest)' % (deep + ground, sit_h, need, pel, rest_head['pelvis'].z - pel))
 
     # bake: keyframe every frame (basis rotation of every bone but root, basis location of the pelvis)
     tgt.animation_data_create()
@@ -372,7 +443,7 @@ def retarget(name, path, opts):
             pb.rotation_mode = 'QUATERNION'
             pb.rotation_quaternion = loc_q[nm]
             pb.keyframe_insert('rotation_quaternion', frame=fr, group=nm)
-        d = Vector((shift.x, shift.y, shift.z + ground))
+        d = Vector((shift.x, shift.y, shift.z + ground + lift[i]))
         # pelvis basis location lives in its rest frame; its parent (root) stays at rest
         pb = tpb['pelvis']
         pb.location = Rpel.inverted() @ d
@@ -392,7 +463,8 @@ def retarget(name, path, opts):
     scene.frame_start, scene.frame_end = start, start + len(samples) - 1
     scene.frame_set(0)
     expected = {nm: samples[len(samples) // 2][0][nm].copy() for nm in ('upperarm_l', 'thigh_r', 'head')}
-    expected_loc = Rpel.inverted() @ Vector((samples[len(samples) // 2][1].x, samples[len(samples) // 2][1].y, samples[len(samples) // 2][1].z + ground))
+    mi = len(samples) // 2
+    expected_loc = Rpel.inverted() @ Vector((samples[mi][1].x, samples[mi][1].y, samples[mi][1].z + ground + lift[mi]))
     mid_frame = start + len(samples) // 2
 
     return tgt, src, act, (scene.frame_start, scene.frame_end), (expected, expected_loc, mid_frame), robjs, cobjs

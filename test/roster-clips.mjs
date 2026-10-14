@@ -10,6 +10,7 @@ import { join, basename } from 'node:path';
 import { parseGLB } from '../src/engine/loaders/GLTF.js';
 import { bindLike, clipRestDeviation } from '../src/player/ik/ProcPose.js';
 import { CLIPS, CHARACTER_IDS } from '../src/game/Characters.js';
+import { makeRig, localsAt, fk } from '../src/player/anim/ClipTools.js';
 
 const ROOT = fileURLToPath( new URL( '..', import.meta.url ) );
 const ROSTER = join( ROOT, 'public', 'models', 'roster' );
@@ -56,6 +57,41 @@ for ( const id of ids ) {
 		const r = gltf.nodes[ pi ].t;
 		const drop = ch ? Math.hypot( ch.values[ 0 ] - r[ 0 ], ch.values[ 1 ] - r[ 1 ], ch.values[ 2 ] - r[ 2 ] ) : 0;
 		ok( drop > 0.2 && drop < 0.4, `${ id }: ${ n } lowers the pelvis into the seat (${ drop.toFixed( 3 ) } m)` );
+
+	}
+
+	// wave 18E seats: the chain clips meet frame for frame, the pelvis stays over the root (the seats line up), the feet stay on
+	// the floor, and the chair clips sit on a 0.45 m seat (pelvis about 0.1 m above the seat surface)
+	const rig = makeRig( gltf );
+	const at = ( n, t ) => localsAt( rig, clips.get( n ), t === 'end' ? clips.get( n ).duration : t );
+	const maxDeg = ( A, B ) => { let m = 0; for ( let i = 0; i < A.length; i ++ ) { const d = Math.abs( A[ i ].r[ 0 ] * B[ i ].r[ 0 ] + A[ i ].r[ 1 ] * B[ i ].r[ 1 ] + A[ i ].r[ 2 ] * B[ i ].r[ 2 ] + A[ i ].r[ 3 ] * B[ i ].r[ 3 ] ); m = Math.max( m, 2 * Math.acos( Math.min( 1, d ) ) * 180 / Math.PI ); } return m; };
+	const t0 = ( n ) => clips.get( n ).channels[ 0 ].times[ 0 ];
+	for ( const [ a, ta, b ] of [ [ 'Sit_Down', 'end', 'Seated_Idle' ], [ 'Stand_Up', 0, 'Seated_Idle' ], [ 'Sit_Chair', 'end', 'Sit_Chair_Idle' ], [ 'Stand_From_Chair', 0, 'Sit_Chair_Idle' ] ] ) {
+
+		if ( ! clips.has( a ) || ! clips.has( b ) ) { ok( false, `${ id }: ${ a } and ${ b } present` ); continue; }
+		const d = maxDeg( at( a, ta === 'end' ? 'end' : t0( a ) ), at( b, t0( b ) ) );
+		ok( d < 1.5, `${ id }: ${ a } ${ ta === 'end' ? 'ends' : 'starts' } on ${ b }'s first frame (${ d.toFixed( 2 ) } deg)` );
+
+	}
+
+	const restP = fk( rig, rig.rest.map( ( r ) => ( { t: r.t.slice(), r: r.r.slice() } ) ) ).P;
+	const floor = Math.min( restP[ rig.index.foot_l ][ 1 ], restP[ rig.index.foot_r ][ 1 ] );
+	for ( const n of [ 'Sit_Down', 'Stand_Up', 'Sit_Chair', 'Stand_From_Chair', 'Sit_Chair_Idle' ] ) {
+
+		const c = clips.get( n );
+		if ( ! c ) continue;
+		let drift = 0, sink = 0, pelY = Infinity;
+		for ( let t = 0; t <= c.duration + 1e-6; t += 1 / 15 ) {
+
+			const P = fk( rig, localsAt( rig, c, t ) ).P, pp = P[ rig.index.pelvis ], rp = restP[ rig.index.pelvis ];
+			drift = Math.max( drift, Math.hypot( pp[ 0 ] - rp[ 0 ], pp[ 2 ] - rp[ 2 ] ) );
+			sink = Math.max( sink, floor - Math.min( P[ rig.index.foot_l ][ 1 ], P[ rig.index.foot_r ][ 1 ] ) );
+			pelY = Math.min( pelY, pp[ 1 ] );
+
+		}
+
+		ok( drift < 0.12 && sink < 0.02, `${ id }: ${ n } stays over its seat and on the floor (pelvis drift ${ drift.toFixed( 3 ) } m, foot sink ${ sink.toFixed( 3 ) } m)` );
+		if ( n === 'Sit_Chair_Idle' ) ok( pelY > 0.5 && pelY < 0.62, `${ id }: Sit_Chair_Idle sits on the 0.45 m seat (pelvis ${ pelY.toFixed( 3 ) } m)` );
 
 	}
 

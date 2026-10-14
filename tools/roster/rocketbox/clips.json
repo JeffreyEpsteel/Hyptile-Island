@@ -1,6 +1,6 @@
 {
   "source": "https://github.com/microsoft/Microsoft-Rocketbox (MIT, Assets/Animations/all_animations_max_motextr_<set>)",
-  "note": "set = static (in place), xy (travels on the ground), xyz (travels, sit/stand/turn). opts: loop zero sit keepz (see retarget.py)",
+  "note": "set = static (in place), xy (travels on the ground), xyz (travels, sit/stand/turn). opts: loop zero sit[=m] noclamp travel=end|start unyaw cap=<s> keepz nocap (see retarget.py); wave 18E added the way-of-life, seat, walk and turn clips",
   "clips": [
     {
       "name": "Idle_Breathe",
@@ -91,6 +91,114 @@
       "set": "static",
       "file": "m_idle_neutral_03",
       "opts": "loop"
+    },
+    {
+      "name": "Sit_Chair",
+      "set": "xyz",
+      "file": "m_sit_down_chair_01",
+      "opts": "zero,sit"
+    },
+    {
+      "name": "Sit_Chair_Idle",
+      "set": "static",
+      "file": "m_sit_chair_idle_neutral_01",
+      "opts": "loop,sit,cap=5"
+    },
+    {
+      "name": "Stand_From_Chair",
+      "set": "xyz",
+      "file": "m_sit_stand_up_chair_01",
+      "opts": "zero,sit"
+    },
+    {
+      "name": "Sit_Down",
+      "set": "xyz",
+      "file": "m_sit_down_chair_01",
+      "opts": "zero,sit=0.28,noclamp"
+    },
+    {
+      "name": "Stand_Up",
+      "set": "xyz",
+      "file": "m_sit_stand_up_chair_01",
+      "opts": "zero,sit=0.28,noclamp"
+    },
+    {
+      "name": "Drink",
+      "set": "static",
+      "file": "m_drink_drinking",
+      "opts": "cap=5"
+    },
+    {
+      "name": "Eat",
+      "set": "static",
+      "file": "m_idle_touch_face_01",
+      "opts": "cap=4"
+    },
+    {
+      "name": "Crouch",
+      "set": "static",
+      "file": "m_crouch_idle",
+      "opts": "loop,cap=4"
+    },
+    {
+      "name": "Kneel_Work",
+      "set": "static",
+      "file": "m_crouch_gestic",
+      "opts": "cap=5"
+    },
+    {
+      "name": "Talk_Group",
+      "set": "static",
+      "file": "m_gestic_talk_excited_01",
+      "opts": "cap=6"
+    },
+    {
+      "name": "Clap",
+      "set": "static",
+      "file": "m_claphands_01",
+      "opts": "cap=4"
+    },
+    {
+      "name": "Point_Out",
+      "set": "static",
+      "file": "m_gestic_presentation_left_01",
+      "opts": "cap=5"
+    },
+    {
+      "name": "Fish_Net",
+      "set": "static",
+      "file": "m_work_mid",
+      "opts": "cap=5"
+    },
+    {
+      "name": "Drunk_Walk",
+      "set": "xy",
+      "file": "m_walk_drunk",
+      "opts": "loop"
+    },
+    {
+      "name": "Walk_Tired",
+      "set": "xy",
+      "file": "m_walk_bruised",
+      "opts": "loop"
+    },
+    {
+      "name": "Turn_Left",
+      "set": "xyz",
+      "file": "m_turn_left_90",
+      "opts": "zero,unyaw"
+    },
+    {
+      "name": "Turn_Right",
+      "set": "xyz",
+      "file": "m_turn_right_90",
+      "opts": "zero,unyaw"
+    },
+    {
+      "name": "Dance_2",
+      "set": "static",
+      "file": "m_dancing_cool",
+      "opts": "cap=6"
     }
   ]
 }

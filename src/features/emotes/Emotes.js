@@ -1,7 +1,7 @@
 import { proceduralWave } from './Procedural.js';
 
-// Emotes (docs/UNREAL_PARITY.md C8): a key opens a tiny row of four (wave, dance, point, cheer); 1 - 4 (or a tap on a
-// button) plays one on the local avatar through the animation graph (Avatar.playMontage): the arms only while walking or
+// Emotes (docs/UNREAL_PARITY.md C8): a key opens a row of twelve (wave, dance, point, cheer, then wave 18E's laugh, bow, salute,
+// flex, facepalm, thumbs up, sit on the ground, dance 2); 1 - 9, 0, -, = (or a tap on a button) plays one on the local avatar through the animation graph (Avatar.playMontage): the arms only while walking or
 // with the rod out (the 'upper' slot over the locomotion), the whole body when standing still. Everyone else sees it:
 // the emote goes out as a world event ('emote' { id }) and the other clients play it on that player's avatar.
 //
@@ -11,9 +11,10 @@ import { proceduralWave } from './Procedural.js';
 //   em.last                   { id, clip, slot, procedural } of the last local emote, or null
 //   em.canEmote()             on foot, nothing modal up, not knocked down, not in a rod fight
 //
-// Which clip: the roster takes Wave, Dance, Point and Cheer_Clap (AnimDef.montages wave / dance / point / cheer). A
-// character without one falls back to its montage's neighbour (friendlyWave, celebrate, beckon), then to a procedural arm
-// wave built on its own rig (Procedural.js). Rate limit: one emote per RATE_LIMIT seconds per player (the sender's and,
+// Which clip: the roster takes Wave, Dance, Point, Cheer_Clap, Laugh, Dance_2 (Rocketbox) and Sit_Ground (Kimodo), and AnimDef's
+// pose clips Emote_Bow / _Salute / _Flex / _Facepalm / _ThumbsUp (AnimDef.montages of the emote's name). A character without one
+// falls back to its montage's neighbour (friendlyWave, celebrate, beckon ...), then, for the wave only, to a procedural arm wave
+// built on its own rig (Procedural.js). `hold`: plays until you move (sit); `still`: whole body only, refused while moving. Rate limit: one emote per RATE_LIMIT seconds per player (the sender's and,
 // again, each remote player's: a flooding client cannot spam the others). Residents within RESIDENT_R answer a wave.
 //
 // Events: emote { id, local?, from? }  (features.emit, after it started)   world event 'emote' { id } (netsync)
@@ -23,21 +24,31 @@ export const EMOTES = [
 	{ id: 'dance', label: 'Dance', montage: 'dance', fallbacks: [ 'celebrate' ], loop: true },
 	{ id: 'point', label: 'Point', montage: 'point', fallbacks: [ 'beckon' ], loop: false },
 	{ id: 'cheer', label: 'Cheer', montage: 'cheer', fallbacks: [ 'celebrate' ], loop: false },
+	{ id: 'laugh', label: 'Laugh', montage: 'laugh', fallbacks: [ 'prankLaugh' ], loop: false },
+	{ id: 'bow', label: 'Bow', montage: 'bow', fallbacks: [], loop: false },
+	{ id: 'salute', label: 'Salute', montage: 'salute', fallbacks: [], loop: false },
+	{ id: 'flex', label: 'Flex', montage: 'flex', fallbacks: [ 'cheer' ], loop: false },
+	{ id: 'facepalm', label: 'Facepalm', montage: 'facepalm', fallbacks: [ 'disappointed' ], loop: false },
+	{ id: 'thumbsUp', label: 'Thumbs up', montage: 'thumbsUp', fallbacks: [], loop: false },
+	{ id: 'sit', label: 'Sit', montage: 'sitGround', fallbacks: [], loop: true, hold: true, still: true },
+	{ id: 'dance2', label: 'Dance 2', montage: 'dance2', fallbacks: [ 'dance' ], loop: true },
 ];
 export const EMOTE_IDS = EMOTES.map( ( e ) => e.id );
 export const RATE_LIMIT = 2; // s between emotes (per player)
 export const LOOP_SECONDS = 5; // a dance runs this long
+export const HOLD_SECONDS = 30; // a held emote (sit) on another player's avatar: until their next pose moves them, at most this
 export const ROW_IDLE = 4; // s: the row closes by itself
 export const RESIDENT_R = 10; // m: residents this close answer a wave
 export const MOVING = 0.8; // m/s: a full-body emote ends when you walk off
 // no free letter exists (every one is used or claimed), so the first free of these is taken
 export const KEY_CANDIDATES = [ 'Digit5', 'Digit6', 'Digit7', 'Digit8', 'Digit9' ];
-export const PICK_KEYS = [ 'Digit1', 'Digit2', 'Digit3', 'Digit4' ]; // while the row is open: the emotes in order
+export const PICK_KEYS = [ 'Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5', 'Digit6', 'Digit7', 'Digit8', 'Digit9', 'Digit0', 'Minus', 'Equal', 'BracketLeft' ]; // while the row is open: the emotes in order (without the row's own key)
+const KEY_LABEL = ( code ) => ( { Minus: '-', Equal: '=' } )[ code ] || code.replace( 'Digit', '' );
 
 const ON_FOOT = new Set( [ 'walk', 'deck' ] );
 const speedOf = ( p ) => ( p && p.velocity ? Math.hypot( p.velocity.x, p.velocity.z ) : p && Number.isFinite( p.speed ) ? p.speed : 0 );
 
-const CSS = `.em-row{position:fixed;left:50%;bottom:calc(88 * var(--tw-u, 1px));transform:translateX(-50%);display:flex;gap:calc(8 * var(--tw-u, 1px));padding:calc(8 * var(--tw-u, 1px));
+const CSS = `.em-row{position:fixed;left:50%;bottom:calc(88 * var(--tw-u, 1px));transform:translateX(-50%);display:flex;flex-wrap:wrap;justify-content:center;max-width:min(92vw,calc(560 * var(--tw-u, 1px)));gap:calc(8 * var(--tw-u, 1px));padding:calc(8 * var(--tw-u, 1px));
 border-radius:calc(14 * var(--tw-u, 1px));background:var(--tw-glass, rgba(12,18,26,.62));backdrop-filter:blur(8px);z-index:30;font:500 calc(12.5 * var(--tw-u, 1px)) var(--tw-font, system-ui);color:var(--tw-ink, #eef6f8)}
 .em-row[hidden]{display:none}
 .em-row button{all:unset;cursor:pointer;min-width:calc(64 * var(--tw-u, 1px));min-height:44px;padding:calc(6 * var(--tw-u, 1px)) calc(10 * var(--tw-u, 1px));text-align:center;border-radius:calc(10 * var(--tw-u, 1px));background:var(--tw-fill, rgba(170,215,235,.07))}
@@ -58,6 +69,7 @@ export class Emotes {
 
 		}
 
+		this.pickKeys = PICK_KEYS.filter( ( k ) => k !== this.key ); // the row's key toggles it, so it never picks
 		this.rowOpen = false;
 		this._rowT = 0;
 		this.el = null;
@@ -149,7 +161,7 @@ export class Emotes {
 
 					const b = document.createElement( 'button' );
 					b.type = 'button';
-					b.innerHTML = `${ e.label }<kbd>${ i + 1 }</kbd>`;
+					b.innerHTML = `${ e.label }<kbd>${ this.pickKeys[ i ] ? KEY_LABEL( this.pickKeys[ i ] ) : '' }</kbd>`;
 					b.addEventListener( 'click', () => { this.play( e.id ); this.close(); } );
 					el.append( b );
 
@@ -186,6 +198,7 @@ export class Emotes {
 
 		}
 
+		if ( em.id !== 'wave' ) return null; // the procedural arm wave only stands in for a wave
 		const proc = proceduralWave( avatar );
 		if ( proc ) {
 
@@ -214,11 +227,12 @@ export class Emotes {
 		if ( ! em || ! this.canEmote() ) return false;
 		if ( this.t - this._lastAt < RATE_LIMIT ) { this.blocked ++; return false; }
 		const slot = this._slot();
+		if ( em.still && slot !== 'full' ) return false; // sitting down while walking or with the rod out: no
 		const r = this._start( this.app.avatar, em, slot );
 		if ( ! r ) return false;
 		this._lastAt = this.t;
 		if ( this._cur && this._cur.handle && this._cur.handle.playing ) try { this._cur.handle.stop( 0.15 ); } catch ( e ) { /* gone */ }
-		this._cur = { handle: r.handle, slot, t: 0, dur: em.loop ? LOOP_SECONDS : Infinity };
+		this._cur = { handle: r.handle, slot, t: 0, dur: em.loop && ! em.hold ? LOOP_SECONDS : Infinity };
 		this.last = { id, clip: r.clip, slot, procedural: r.procedural };
 		this.sent ++;
 		const ns = this.app.netsync;
@@ -241,11 +255,12 @@ export class Emotes {
 		const peer = this.app && this.app.remotePlayers && this.app.remotePlayers.peers ? this.app.remotePlayers.peers.get( from ) : null;
 		if ( ! peer || ! peer.avatar ) return false;
 		const slot = peer.pose && peer.pose.speed > 0.5 ? 'upper' : 'full';
+		if ( em.still && slot !== 'full' ) return false;
 		const r = this._start( peer.avatar, em, slot );
 		if ( ! r ) return false;
 		this._remoteAt.set( from, this.t );
 		if ( this._remoteAt.size > 64 ) for ( const [ k, v ] of this._remoteAt ) if ( this.t - v > RATE_LIMIT ) this._remoteAt.delete( k );
-		if ( em.loop && r.handle && typeof r.handle.stop === 'function' ) peer.emoteStop = { handle: r.handle, due: this.t + LOOP_SECONDS };
+		if ( em.loop && r.handle && typeof r.handle.stop === 'function' ) peer.emoteStop = { handle: r.handle, due: this.t + ( em.hold ? HOLD_SECONDS : LOOP_SECONDS ) };
 		this.received ++;
 		if ( this.features && this.features.emit ) this.features.emit( 'emote', { id: em.id, from } );
 		return true;
@@ -288,7 +303,8 @@ export class Emotes {
 			if ( inp.hit( this.key ) ) this.toggle();
 			else if ( this.rowOpen ) {
 
-				for ( let i = 0; i < PICK_KEYS.length; i ++ ) if ( inp.hit( PICK_KEYS[ i ] ) ) { this.play( EMOTES[ i ].id ); this.close(); break; }
+				const K = this.pickKeys;
+				for ( let i = 0; i < K.length && i < EMOTES.length; i ++ ) if ( inp.hit( K[ i ] ) ) { this.play( EMOTES[ i ].id ); this.close(); break; }
 
 			}
 
@@ -324,9 +340,9 @@ export class Emotes {
 
 		}
 
-		// a remote dance runs its seconds, then blends out
+		// a remote dance (or sit) runs its seconds, or until that player moves, then blends out
 		const rp = a && a.remotePlayers && a.remotePlayers.peers;
-		if ( rp ) for ( const peer of rp.values() ) if ( peer.emoteStop && this.t >= peer.emoteStop.due ) {
+		if ( rp ) for ( const peer of rp.values() ) if ( peer.emoteStop && ( this.t >= peer.emoteStop.due || ( peer.pose && peer.pose.speed > MOVING ) ) ) {
 
 			try { peer.emoteStop.handle.stop( 0.25 ); } catch ( e ) { /* gone */ }
 			peer.emoteStop = null;

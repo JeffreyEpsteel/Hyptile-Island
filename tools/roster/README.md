@@ -232,3 +232,31 @@ headlessly (`CLIP=Jump CLIP_T=1.0 node test/clip-frame.mjs hyptile` -> `test/out
 - `retarget.py` prints `PENETRATION <clip> max ... m`: the deepest hand / forearm / fingers point (with limb radius) inside the
   torso cross-section taken from the mesh. Fixes: `ARM_ABDUCT` 18 deg and `ELBOW_BEND` 10 deg scaled by how much the upper arm
   hangs, neck and head keep half of the source rotation (`NECK_KEEP`).
+
+## Animation library (wave 18E)
+
+Thirty-odd new clips without an A-pose, in all eight GLBs (spliced; meshes and every other clip byte-for-byte the same):
+
+- **Rocketbox mocap** (MIT; `rocketbox/clips.json`, retargeted into `retargeted/` by `retarget.py`): the chair set Sit_Chair / Sit_Chair_Idle /
+  Stand_From_Chair (`sit`: a 0.45 m seat at the root, pelvis 0.55 m), Sit_Down / Stand_Up (replacing the authored ones, which started in
+  the bind pose; `sit=0.28,noclamp` for the game's 0.29 m pelvis drop), Drink, Eat, Crouch, Kneel_Work, Talk_Group, Clap, Point_Out,
+  Fish_Net, Drunk_Walk, Walk_Tired, Turn_Left / Turn_Right (`unyaw`: the feet step, the body keeps its heading), Dance_2.
+- **Kimodo**: Sit_Ground, the floor sit of `kimodo_roster/Seated_Idle/v2` (rejected as a seat in wave 17, right for the emote); build.ps1
+  adds it per character.
+- **Pose clips baked into the GLBs** (`pose-clips.mjs`, residents play GLB clips without the AnimGraph): Lean_Wall (a wall 0.25 m behind
+  the root), Carry_Box and Crouch_Walk (loop with Walk_InPlace), Hammer, Lamp_Light. The emote pose clips (Emote_Bow / _Salute / _Flex /
+  _Facepalm / _ThumbsUp) and Carry_Idle are AnimDef clips (player avatars only).
+
+New `retarget.py` options: `sit[=m]` (lift the seated frames so the buttocks land on the seat; the floor is measured on the standing
+frames and no frame pushes a foot through it unless `noclamp`), `travel=end|start`, `unyaw`, `cap=<s>`.
+
+`post-clips.mjs` (after a splice, once): `legs` re-solves the knees of Sit_Down / Stand_Up wherever an ankle sinks below the floor, `tail` /
+`head` blend Sit_Down into Seated_Idle's first frame and Stand_Up out of it (Sit_Chair / Stand_From_Chair the same with Sit_Chair_Idle), `bake`
+the pose clips. `anim-splice.ps1` runs the whole thing per character (build into `$env:TEMP`, splice the named clips, post-process):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools/roster/anim-splice.ps1            # all eight; -Only hyptile,clown; -Clips A,B
+node test/roster-clips.mjs; node test/feature-anim-library.mjs; node test/feature-anim-audit.mjs
+```
+
+Review: `CLIP=Sit_Chair CLIP_T=2.9 node test/clip-frame.mjs hyptile clown`. Each GLB grew by about 2.3 MB of clips (hyptile 7.6 -> 9.9 MB).

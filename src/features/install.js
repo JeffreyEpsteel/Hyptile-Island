@@ -55,7 +55,7 @@ export const MODULES = [
 	[ 'pirates', pirates ], // named captains, dens, notoriety (spawns through naval)
 	[ 'stronghold', stronghold ], // Blackwater: the fort's batteries, alarm, guards, claim and black market
 	[ 'crew', crew ], // hired characters posted aboard: gunners and anglers
-	[ 'emotes', emotes ], // 5 opens the emote row (wave, dance, point, cheer), synced as a world event
+	[ 'emotes', emotes ], // 5 opens the emote row (12 emotes), synced as a world event
 	[ 'netsync', netsync ],
 	[ 'dressing', dressing ],
 	[ 'worldmap', worldmap ],

@@ -13,7 +13,8 @@
 //
 // ctx (built by the Avatar each frame): mode, speed, forward, strafe (m/s, + = right), turn (rad/s, + = left), grounded,
 // vy, airTime (s off the ground), lastAir (the last airborne stretch), rod (a rod action on the overlay), seat ('ride' |
-// 'plane' | null), loopClip (the clip of a looping full-body action, or null), diving.
+// 'plane' | null), loopClip (the clip of a looping full-body action, or null), diving; wave 18E (optional, false when the Avatar
+// does not pass them): crouch (sneaking), tired (low stamina), carry (a crate in the arms).
 
 const G = [ 1.25, 2.7 ]; // the walker's walk (Caps Lock) and jog speeds (Player.updateWalk); sprint 4.6
 const crouchPose = ( drop, extra = {} ) => {
@@ -46,6 +47,24 @@ const mix = ( a, b ) => {
 	return o;
 
 };
+
+// wave 18E emotes (the Digit5 row): pose clips on the idle like the combat ones (the roster has no bow / salute / flex takes)
+const BOW = { spine_01: [ [ 'x', 32 ] ], spine_02: [ [ 'x', 14 ] ], head: [ [ 'x', 12 ] ], upperarm_l: [ [ 'x', - 12 ] ], reach: { r: [ - 0.02, 0.84, 0.2, - 1, - 0.6, 0 ] } };
+const SALUTE = { spine_01: [ [ 'x', - 4 ] ], head: [ [ 'x', - 4 ] ], reach: { r: [ - 0.11, 1.3, 0.14, - 1, 0.1, 0.2 ] } };
+const FIST = ( s ) => {
+
+	const o = {}, k = s === 'r' ? 1 : - 1;
+	for ( const f of [ 'index', 'middle', 'ring' ] ) { o[ f + '_01_' + s ] = [ [ 'y', 70 * k ] ]; o[ f + '_02_' + s ] = [ [ 'y', 80 * k ] ]; o[ f + '_03_' + s ] = [ [ 'y', 50 * k ] ]; }
+	return o;
+
+};
+const FLEX = ( k ) => ( { spine_01: [ [ 'x', - 4 ], [ 'y', k * 8 ] ], spine_02: [ [ 'x', - 4 ] ], head: [ [ 'x', - 6 ], [ 'y', - k * 10 ] ], pelvis: [ 0, - 0.02, 0 ], ...FIST( 'l' ), ...FIST( 'r' ),
+	reach: { l: [ 0.36, 1.16, 0.0, 1, - 0.6, - 0.2 ], r: [ - 0.36, 1.16, 0.0, - 1, - 0.6, - 0.2 ] } } );
+const PALM = ( s ) => ( { spine_01: [ [ 'x', 10 ] ], spine_02: [ [ 'x', 6 ] ], head: [ [ 'x', 16 ], [ 'y', s ] ], reach: { r: [ - 0.02, 1.2, 0.2, - 1, - 0.7, 0 ] } } );
+// standing with a crate (the arms of tools/roster/pose-clips.mjs Carry_Box, which loops with the walk)
+const CARRY = { spine_01: [ [ 'x', - 6 ] ], spine_02: [ [ 'x', - 3 ] ], head: [ [ 'x', - 4 ] ],
+	reach: { l: [ 0.19, 0.9, 0.2, 1, - 0.8, - 0.1 ], r: [ - 0.19, 0.9, 0.2, - 1, - 0.8, - 0.1 ] } };
+const THUMB = { spine_01: [ [ 'x', - 3 ] ], head: [ [ 'y', - 6 ] ], ...FIST( 'r' ), reach: { r: [ - 0.14, 1.02, 0.3, - 1, - 0.8, 0 ] } };
 
 export default {
 
@@ -125,6 +144,12 @@ export default {
 		Row_Stroke_Back: { base: 'Seated_Idle', keys: [ { t: 0, pose: FINISH }, { t: 0.8, pose: CATCH }, { t: 2, pose: FINISH } ] },
 		Paddle_Stroke_L: { base: 'Seated_Idle', keys: [ { t: 0, pose: PAD( 1, 0 ) }, { t: 0.7, pose: PAD( 1, 1 ) }, { t: 1.4, pose: PAD( 1, 0 ) } ] },
 		Paddle_Stroke_R: { base: 'Seated_Idle', keys: [ { t: 0, pose: PAD( - 1, 0 ) }, { t: 0.7, pose: PAD( - 1, 1 ) }, { t: 1.4, pose: PAD( - 1, 0 ) } ] },
+		Carry_Idle: { base: 'Idle_Breathe', loopBase: true, keys: [ { t: 0, pose: CARRY }, { t: 1.97, pose: CARRY } ] },
+		Emote_Bow: { base: 'Idle_Breathe', keys: [ { t: 0, pose: {} }, { t: 0.55, pose: BOW }, { t: 1.2, pose: BOW }, { t: 1.8, pose: {} } ] },
+		Emote_Salute: { base: 'Idle_Breathe', keys: [ { t: 0, pose: {} }, { t: 0.35, ease: 'out', pose: SALUTE }, { t: 1.5, pose: SALUTE }, { t: 2.0, pose: {} } ] },
+		Emote_Flex: { base: 'Idle_Breathe', keys: [ { t: 0, pose: {} }, { t: 0.4, ease: 'out', pose: FLEX( 0 ) }, { t: 0.9, pose: FLEX( 1 ) }, { t: 1.4, pose: FLEX( - 1 ) }, { t: 1.8, pose: FLEX( 0 ) }, { t: 2.3, pose: {} } ] },
+		Emote_Facepalm: { base: 'Idle_Breathe', keys: [ { t: 0, pose: {} }, { t: 0.35, ease: 'out', pose: PALM( 0 ) }, { t: 0.8, pose: PALM( 8 ) }, { t: 1.2, pose: PALM( - 8 ) }, { t: 1.6, pose: PALM( 0 ) }, { t: 2.1, pose: {} } ] },
+		Emote_ThumbsUp: { base: 'Idle_Breathe', keys: [ { t: 0, pose: {} }, { t: 0.35, ease: 'out', pose: THUMB }, { t: 1.4, pose: THUMB }, { t: 1.9, pose: {} } ] },
 		Climb_Pull: { base: 'Idle_Breathe', keys: [
 			{ t: 0, pose: { spine_01: [ [ 'x', 10 ] ], reach: { l: [ 0.28, 1.5, 0.32, 1, - 0.3, - 0.5 ], r: [ - 0.28, 1.5, 0.32, - 1, - 0.3, - 0.5 ] } } },
 			{ t: 0.35, ease: 'out', pose: { spine_01: [ [ 'x', 26 ] ], head: [ [ 'x', - 14 ] ], thigh_r: [ [ 'x', - 75 ] ], calf_r: [ [ 'x', 105 ] ], reach: { l: [ 0.26, 0.92, 0.3, 1, 0.3, - 1 ], r: [ - 0.26, 0.92, 0.3, - 1, 0.3, - 1 ] } } },
@@ -151,6 +176,10 @@ export default {
 			labels: [ [ 0.25, 'idle' ], [ 1.9, 'walk' ], [ 3.4, 'jog' ], [ 4.2, 'run' ], [ Infinity, 'sprint' ] ],
 		},
 		swim: { kind: '1d', samples: [ [ 'Swim_Idle', 0 ], [ 'Swim_Forward', 1.0 ], [ 'Swim_Fast', 1.8 ] ], minRate: 0.5, maxRate: 2 },
+		// wave 18E: sneaking (Rocketbox crouch idle, the walk crouched), the low-stamina walk (Rocketbox bruised walk), carrying a crate
+		crouch: { kind: '1d', samples: [ [ 'Crouch', 0 ], [ 'Crouch_Walk', 0.67 ] ], minRate: 0.5, maxRate: 1.8 },
+		tired: { kind: '1d', samples: [ [ 'Idle_Breathe', 0 ], [ 'Walk_Tired', 0.5 ] ], minRate: 0.5, maxRate: 2.2 },
+		carry: { kind: '1d', samples: [ [ 'Carry_Idle', 0 ], [ 'Carry_Box', 1.1 ] ], minRate: 0.5, maxRate: 2 },
 	},
 
 	states: {
@@ -169,6 +198,12 @@ export default {
 		rowStroke: { clip: 'Row_Stroke', loop: true }, rowBack: { clip: 'Row_Stroke_Back', loop: true },
 		paddleL: { clip: 'Paddle_Stroke_L', loop: true }, paddleR: { clip: 'Paddle_Stroke_R', loop: true },
 		action: { loopClip: true },
+		crouch: { space: 'crouch', label: 'crouch' },
+		tired: { space: 'tired', label: 'tired' },
+		carry: { space: 'carry', label: 'carry' },
+		// standing and turning on the spot (the Rocketbox turns with the heading taken out: the feet step, the game turns the body)
+		turnL: { clip: 'Turn_Left', loop: true, rate: 1.4, label: 'turn' },
+		turnR: { clip: 'Turn_Right', loop: true, rate: 1.4, label: 'turn' },
 	},
 
 	rules: [
@@ -188,6 +223,12 @@ export default {
 		[ 'land', ( c, s ) => s.name === 'land' ? ! s.done && ! ( c.speed > 1.2 && s.time > 0.12 ) : ( s.name === 'fall' || s.name === 'jump' ) && c.grounded && c.lastAir > 0.45 && c.speed < 1.5 ],
 		[ 'deck', ( c ) => c.mode === 'deck' ],
 		[ 'fishing', ( c ) => c.rod ],
+		// wave 18E on foot: sneaking, carrying, worn out, a turn on the spot (only with the ctx flags the Avatar passes)
+		[ 'crouch', ( c ) => c.crouch && c.grounded && ( c.mode === 'walk' || c.mode === 'deck' ) ],
+		[ 'carry', ( c ) => c.carry && c.grounded && c.mode === 'walk' ],
+		[ 'tired', ( c ) => c.tired && c.grounded && c.mode === 'walk' && c.speed > 0.25 && c.speed < 1.6 ],
+		[ 'turnL', ( c, s ) => c.mode === 'walk' && c.grounded && c.speed < 0.2 && ( s.name === 'turnL' ? c.turn > 0.4 || s.time < 0.3 : c.turn > 1.2 ) ],
+		[ 'turnR', ( c, s ) => c.mode === 'walk' && c.grounded && c.speed < 0.2 && ( s.name === 'turnR' ? c.turn < - 0.4 || s.time < 0.3 : c.turn < - 1.2 ) ],
 		[ 'locomotion', () => true ],
 	],
 
@@ -207,6 +248,8 @@ export default {
 		'action>*': [ 0.3, 'crossfade' ],
 		'*>helm': [ 0.3, 'inertial' ],
 		'*>seated': [ 0.3, 'inertial' ],
+		'*>crouch': [ 0.3, 'crossfade' ], 'crouch>*': [ 0.3, 'crossfade' ],
+		'*>turnL': [ 0.2, 'crossfade' ], '*>turnR': [ 0.2, 'crossfade' ], 'turnL>*': [ 0.25, 'crossfade' ], 'turnR>*': [ 0.25, 'crossfade' ],
 	},
 
 	montages: {
@@ -259,6 +302,29 @@ export default {
 		boarding: { clip: 'Board_Low', slot: 'full', blendIn: 0.1, blendOut: 0.2, rootMotion: true },
 		// out of the water onto a float / a low deck (Player's swim pull-up, Game.avatarAction 'climbUp')
 		climbUp: { clip: 'Climb_Pull', slot: 'full', blendIn: 0.06, blendOut: 0.25 },
+		// wave 18E emotes (src/features/emotes) and the way-of-life clips for callers (residents play them as GLB clips directly)
+		bow: { clip: 'Emote_Bow', slot: 'full', blendIn: 0.2, blendOut: 0.3 },
+		salute: { clip: 'Emote_Salute', slot: 'full', blendIn: 0.15, blendOut: 0.3 },
+		flex: { clip: 'Emote_Flex', slot: 'full', blendIn: 0.15, blendOut: 0.3 },
+		facepalm: { clip: 'Emote_Facepalm', slot: 'full', blendIn: 0.15, blendOut: 0.3 },
+		thumbsUp: { clip: 'Emote_ThumbsUp', slot: 'full', blendIn: 0.15, blendOut: 0.3 },
+		sitGround: { clip: 'Sit_Ground', slot: 'full', loop: true, blendIn: 0.5, blendOut: 0.5 },
+		dance2: { clip: 'Dance_2', slot: 'full', loop: true, blendIn: 0.3, blendOut: 0.3 },
+		sitChair: { clip: 'Sit_Chair', slot: 'full', hold: true, blendIn: 0.2, blendOut: 0.25 },
+		sitChairIdle: { clip: 'Sit_Chair_Idle', slot: 'full', loop: true, blendIn: 0.2, blendOut: 0.25 },
+		standFromChair: { clip: 'Stand_From_Chair', slot: 'full', blendIn: 0.1, blendOut: 0.25 },
+		drink: { clip: 'Drink', slot: 'upper', blendIn: 0.2, blendOut: 0.3 },
+		eat: { clip: 'Eat', slot: 'upper', blendIn: 0.2, blendOut: 0.3 },
+		clap: { clip: 'Clap', slot: 'full', blendIn: 0.2, blendOut: 0.3 },
+		pointOut: { clip: 'Point_Out', slot: 'full', blendIn: 0.2, blendOut: 0.3 },
+		talkGroup: { clip: 'Talk_Group', slot: 'full', loop: true, blendIn: 0.3, blendOut: 0.3 },
+		hammer: { clip: 'Hammer', slot: 'full', loop: true, blendIn: 0.2, blendOut: 0.25 },
+		fishNet: { clip: 'Fish_Net', slot: 'full', loop: true, blendIn: 0.3, blendOut: 0.3 },
+		kneelWork: { clip: 'Kneel_Work', slot: 'full', loop: true, blendIn: 0.4, blendOut: 0.4 },
+		leanWall: { clip: 'Lean_Wall', slot: 'full', loop: true, blendIn: 0.4, blendOut: 0.4 },
+		lampLight: { clip: 'Lamp_Light', slot: 'full', blendIn: 0.2, blendOut: 0.3 },
+		turnLeft: { clip: 'Turn_Left', slot: 'full', blendIn: 0.15, blendOut: 0.2 },
+		turnRight: { clip: 'Turn_Right', slot: 'full', blendIn: 0.15, blendOut: 0.2 },
 		// other names callers may use
 		attack: { clip: 'Melee_Paddle', slot: 'full', from: 0.45, rate: 1.93, blendIn: 0.06, blendOut: 0.2, notifies: [ [ 1.03, 'contact' ] ] },
 		guard: { clip: 'Block_Guard', slot: 'upper', loop: true, blendIn: 0.1, blendOut: 0.18 },
