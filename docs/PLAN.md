@@ -433,6 +433,17 @@ the chute, stray and parked planes), StrongholdLink (host-authoritative Blackwat
 hostRequest / askHost), server messages plane / fort / ask with rate limits; the fort state does not survive a universe
 server restart yet.
 
+### Wave 16 (2026-10-14/15, root + 4 workers): polish, onboarding, perf, saves
+Root verified wave 15 in the browser first (a merchant taken with her cargo, a calm-zone pirate turning back, a flare
+answered by a trawler and the ride to the dock on her deck, the mail Petrel's schedule). 16B onboarding
+(w16-onboarding.md, 779b2de): eleven guide pages as data with binding-aware glyphs and touch names, the F1 sheet from the
+a11y model, seven one-time tips (src/game/Tips.js, feature 'tips'), ~220 en / ro strings. 16D saves + quests
+(w16-saves-quests.md, 0d1299e): test/save-roundtrip.mjs over every feature and a universe profile; fixed a slot switch
+writing the previous game's features into the new slot (App.startSession), career flags failing the vault's validation
+(every load fell back to a backup), destruction's pending list, market event ids, the universe's career booleans and
+fence-sale budget; quests Mayday, Letters of marque, The salt road (W16_NOTICES). npm test now runs the wave 13-16
+suites. 16A launch / mail plane / sync polish (w16-polish.md) and 16C perf pass 2 (w16-perf2.md): in progress.
+
 ### Wave 15 (2026-10-14, root + 4 workers): a shared universe, economy, hijacking, rescue
 Asked for: a persistent server as the default for Multiplayer; better trades / economy; pirates placed further from the
 start; NPC ships / planes / every transport hijackable; climbing onto objects from the water; flares that bring an ally
