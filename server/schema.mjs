@@ -272,3 +272,38 @@ export function readFort( f ) {
 	};
 
 }
+
+// a stored Fort (Universe.state.fort, written by readFort) back into the room's schema after a restart: the holder, the
+// claim and the batteries; the watch starts calm and `by` empty (session ids do not survive). The next host's stronghold
+// adopts the claim (StrongholdLink: claims > seen), its snapshots carry on from there.
+export function restoreFort( f, s ) {
+
+	if ( ! s || typeof s !== 'object' ) return false;
+	const str = ( v, d = '' ) => ( typeof v === 'string' ? v.slice( 0, 64 ) : d );
+	const num = ( v, d ) => ( typeof v === 'number' && Number.isFinite( v ) ? v : d );
+	f.holder = s.holder === 'player' ? 'player' : 'pirates';
+	f.by = '';
+	f.byName = f.holder === 'player' ? str( s.byName ) : '';
+	f.claims = num( s.claims, 0 ) & 0xffff;
+	f.claimedAt = f.holder === 'player' ? num( s.claimedAt, - 1 ) : - 1;
+	f.until = f.holder === 'player' ? num( s.until, - 1 ) : - 1;
+	f.alarm = 'calm';
+	f.why = '';
+	f.guards = Math.max( - 1, Math.min( 30, num( s.guards, - 1 ) | 0 ) );
+	f.shipsDown = num( s.shipsDown, 0 ) & 0xff;
+	f.castOff = 0; // (the ships are back at their moorings)
+	f.open = false;
+	f.batteries.clear();
+	const bats = s.batteries && typeof s.batteries === 'object' ? s.batteries : {};
+	for ( const id of Object.keys( bats ).slice( 0, 32 ) ) {
+
+		const b = bats[ id ] || {}, e = new FortBattery();
+		e.silenced = b.silenced === true; e.why = str( b.why ); e.platform = b.platform === true; e.powder = b.powder === true;
+		f.batteries.set( id, e );
+
+	}
+
+	f.seq = Math.max( 1, num( s.seq, 1 ) >>> 0 ); // (> 0: the guests apply it before a host runs the stronghold again)
+	return true;
+
+}

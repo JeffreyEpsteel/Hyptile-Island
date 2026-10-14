@@ -39,7 +39,7 @@ import {
 	sanitizeState, stateChanged, helloMessage, cleanName, cleanCharacter, cleanBoat,
 	sanitizeCrewCode, isCrewRoom, crewUrl, isUniverseUrl, MAX_SAVE, MAX_MARKET,
 } from './Protocol.js';
-import { universeToken, universeError } from './Universe.js';
+import { universeToken, universeError, isDefaultUniverse } from './Universe.js';
 import { ColyseusLink } from './ColyseusLink.js';
 
 // refusals after which reconnecting cannot help
@@ -97,7 +97,7 @@ export function crewCodeFromLocation( loc = typeof location !== 'undefined' ? lo
 
 }
 
-// accepts "host", "host:port", "host:port/room", "ws://...", "wss://..."
+// accepts "host", "host:port", "host:port/room", "ws://...", "wss://..." (?server=wss://hyptile-universe.fly.dev/universe keeps 443)
 export function normalizeServerUrl( s, loc = null ) {
 
 	s = String( s || '' ).trim().replace( /^https:\/\//i, 'wss://' ).replace( /^http:\/\//i, 'ws://' ); // a tunnel's https address
@@ -112,7 +112,8 @@ export function normalizeServerUrl( s, loc = null ) {
 	try {
 
 		const u = new URL( s );
-		if ( ! u.port ) u.port = String( DEFAULT_PORT );
+		// plain ws gets the server's port; wss without one is a TLS front on 443 (the shared universe on Fly.io, a tunnel, Caddy)
+		if ( ! u.port && u.protocol === 'ws:' ) u.port = String( DEFAULT_PORT );
 		if ( ! u.pathname || u.pathname === '/' ) u.pathname = '/' + DEFAULT_ROOM;
 		return u.toString();
 
@@ -271,7 +272,8 @@ export class NetClient {
 		}
 
 		// a server restart or a seat that could not be got back: a fresh join after a pause
-		this._setStatus( 'offline', code === 4001 ? 'the server restarted' : `connection lost (${ code })` );
+		// (the shared universe restarts on every deploy: Fly sends SIGTERM, the server saves and says 4001)
+		this._setStatus( 'offline', code === 4001 ? ( this.universe && isDefaultUniverse( this.url ) ? 'the universe is updating: back in a minute' : 'the server restarted' ) : `connection lost (${ code })` );
 		this._scheduleReconnect();
 
 	}

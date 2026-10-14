@@ -3,7 +3,7 @@
 // boats, the shared trade market, the bounty and weather seeds, the chat log and the pirate ships. Plain JSON on disk:
 //
 //   <dir>/universe.json            { schema, name, createdAt, epoch, weatherSeed, bountySeed, captains, events, moored,
-//                                    market, chat, ships, savedAt }
+//                                    market, chat, ships, fort, savedAt }   (fort: the Blackwater stronghold, wave 15)
 //   <dir>/profiles/<hash>.json     { schema, captain, savedAt, profile }   one per captain (the GameState JSON)
 //   <dir>/backups/<YYYY-MM-DD>/    a copy of both, made once a day; the newest `backupDays` are kept
 //
@@ -18,7 +18,7 @@
 //   u.ban( name, reason ) / u.unban( name ) / u.release( name ) (the next token to use the name owns it) / u.captainList()
 //   u.loadProfile( key ) / u.storeProfile( key, raw, session ) -> { ok, fix?, reason? }
 //   u.recordEvent( key, from, kind, data, now ) / u.expire( now ) -> [ expired events ]
-//   u.moor( key, name, boat ) / u.unmoor( key ) / u.setMarket( sim ) / u.pushChat( line ) / u.setShips( list )
+//   u.moor( key, name, boat ) / u.unmoor( key ) / u.setMarket( sim ) / u.pushChat( line ) / u.setShips( list ) / u.setFort( snap )
 //   u.info( now ) / u.worldFor( key, onlineKeys )
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync, copyFileSync, readdirSync, rmSync, unlinkSync, statSync } from 'node:fs';
@@ -203,7 +203,7 @@ export class Universe {
 		if ( s && s.schema !== SCHEMA && existsSync( this.file ) ) copyFileSync( this.file, join( this.dir, 'universe.old.json' ) );
 		this.state = {
 			schema: SCHEMA, name: this.name, createdAt: t, epoch: t, weatherSeed: randomInt( 1, 2 ** 31 ), bountySeed: randomInt( 1, 2 ** 31 ),
-			captains: {}, events: {}, moored: {}, market: null, chat: [], ships: [], savedAt: 0,
+			captains: {}, events: {}, moored: {}, market: null, chat: [], ships: [], fort: null, savedAt: 0,
 			...( fresh ? {} : s ),
 		};
 		const st = this.state;
@@ -211,6 +211,7 @@ export class Universe {
 		if ( ! Array.isArray( st.chat ) ) st.chat = [];
 		if ( ! Array.isArray( st.ships ) ) st.ships = [];
 		if ( ! fin( st.epoch ) ) st.epoch = t;
+		if ( ! st.fort || typeof st.fort !== 'object' || Array.isArray( st.fort ) ) st.fort = null; // (a universe from before wave 15)
 		this.dirty = fresh;
 		this.lastBackupDay = ( this._backupDays().pop() || '' ).slice( 0, 10 ) || null;
 		this.log( `universe '${ this.name }' ${ fresh ? 'created' : 'loaded' } in ${ this.dir }: ${ Object.keys( st.captains ).length } captains, ${ Object.keys( st.events ).length } world events` );
@@ -555,6 +556,22 @@ export class Universe {
 		this.state.ships = Array.isArray( ships ) ? ships.slice( 0, 12 ) : [];
 		this.state.shipsAt = this.now();
 		this.dirty = true;
+
+	}
+
+	// the Blackwater stronghold (schema.readFort of the room's `fort`), kept like the moored boats so a restart does not hand
+	// a claimed island back to the pirates; written only when it changed (the host's heartbeat repeats itself)
+	setFort( snap ) {
+
+		if ( ! snap || typeof snap !== 'object' || Array.isArray( snap ) ) return false;
+		const { by, ...keep } = snap; // (`by` is a session id: meaningless after a restart; byName stays)
+		const text = JSON.stringify( keep );
+		if ( text.length > 8192 ) return false;
+		if ( this._fortText === text ) return false;
+		this._fortText = text;
+		this.state.fort = { ...keep, at: this.now() };
+		this.dirty = true;
+		return true;
 
 	}
 

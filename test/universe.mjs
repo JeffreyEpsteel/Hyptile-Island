@@ -2,7 +2,9 @@
 // a temp data dir, @colyseus/sdk clients (server/testkit.mjs) and the browser's own NetClient + UniverseSession. Checks join,
 // probe, the stored profile and its anti-cheat clamp, world events relayed and persisted, extras passed through, the market,
 // moored boats, name theft refused, oversized saves refused, admin commands, a restart (profile, destroyed prop, ships,
-// chat and boats survive), the respawn timer and the atomic writes. Exits 0 on success, 1 on failure.
+// chat and boats survive), the respawn timer and the atomic writes. Wave 15 (the shared universe): the Blackwater fort over a
+// restart, /health's build, the admin HTTP routes behind a token, the client's default address and its health probe.
+// Exits 0 on success, 1 on failure.
 //
 //   node test/universe.mjs [--data <dir>]     (default: a fresh folder under the OS temp dir, removed at the end)
 
@@ -14,6 +16,7 @@ import { wireClient } from '../server/testkit.mjs';
 import { Universe, sanitizeProfile, writeAtomic, SCHEMA, MONEY_BURST, MONEY_RATE } from '../server/universe.mjs';
 import { MAX_SAVE, REFUSAL, captainKey, sanitizeCaptainName, isUniverseUrl } from '../src/net/Protocol.js';
 import { normalizeUniverseUrl, universeToken, probeUniverse, UniverseSession, universeError } from '../src/net/Universe.js';
+import * as UniverseW15 from '../src/net/Universe.js';
 import { NetClient } from '../src/net/NetClient.js';
 import { GameState } from '../src/game/GameState.js';
 import { NetSync } from '../src/features/netsync/NetSync.js';
@@ -381,6 +384,121 @@ try {
 
 	fails ++;
 	console.log( 'FAIL exception', e && e.stack ? e.stack : e );
+
+}
+
+// ---- wave 15: the shared universe
+
+{
+
+	const { DEFAULT_UNIVERSE, SHARED_UNIVERSE, BUILD_HASH, defaultUniverseAddress, isDefaultUniverse, buildsDiffer, universeHealthUrl, probeHealth, healthText, UPDATING_TEXT } = UniverseW15;
+	ok( DEFAULT_UNIVERSE === SHARED_UNIVERSE && DEFAULT_UNIVERSE === 'wss://hyptile-universe.fly.dev/universe' && BUILD_HASH === 'dev', 'the default universe is the shared one on Fly.io (no VITE_UNIVERSE_URL here; no build hash outside vite)' );
+	ok( normalizeUniverseUrl( DEFAULT_UNIVERSE, { protocol: 'https:' } ) === DEFAULT_UNIVERSE && isUniverseUrl( DEFAULT_UNIVERSE ) && isDefaultUniverse( 'hyptile-universe.fly.dev' ), 'it normalizes to itself (wss, port 443, /universe); the bare host name is the same address' );
+	ok( defaultUniverseAddress( { hostname: 'jeffreyepsteel.github.io', protocol: 'https:' } ) === DEFAULT_UNIVERSE && defaultUniverseAddress( null ) === DEFAULT_UNIVERSE, 'the Pages site (and no page at all) offers the shared universe' );
+	ok( defaultUniverseAddress( { hostname: '192.168.1.20', protocol: 'http:' } ) === '192.168.1.20:8765', 'a game page a PC serves over http offers that PC\'s own universe' );
+	const { normalizeServerUrl } = await import( '../src/net/NetClient.js' );
+	ok( normalizeServerUrl( DEFAULT_UNIVERSE ) === DEFAULT_UNIVERSE && normalizeServerUrl( 'ws://h/island' ) === 'ws://h:8765/island', '?server=wss://... keeps port 443; plain ws still gets 8765' );
+	ok( universeHealthUrl( DEFAULT_UNIVERSE ) === 'https://hyptile-universe.fly.dev/health' && universeHealthUrl( 'ws://h:9000/net/universe' ) === 'http://h:9000/net/health', 'the health address sits beside the socket (a proxy prefix kept)' );
+	ok( buildsDiffer( 'abc1234', 'def5678' ) && ! buildsDiffer( 'abc1234', 'abc1234def' ) && ! buildsDiffer( 'dev', 'abc1234' ) && ! buildsDiffer( 'abc1234', '' ), 'builds differ only when both are known commits (a short hash matches its long one)' );
+	ok( universeError( 'version', '', DEFAULT_UNIVERSE ) === UPDATING_TEXT && /updating, try again in a minute/.test( UPDATING_TEXT ), 'a version refusal from the shared universe reads "the universe is updating, try again in a minute"' );
+	ok( /another version/.test( universeError( 'version', '', 'ws://friend:8765/universe' ) ), 'a friend\'s server still says it runs another version' );
+	ok( /shared universe does not answer/.test( universeError( 'down', '', DEFAULT_UNIVERSE ) ), 'the shared universe down: a readable sentence' );
+	const fake = ( body, status = 200 ) => async () => ( { ok: status === 200, status, json: async () => body } );
+	const hp1 = await probeHealth( DEFAULT_UNIVERSE, { build: 'abc1234', fetchImpl: fake( { ok: true, version: 2, build: 'abc1234', universe: { name: 'hyptile', players: 3, cap: 24, captains: 40 } } ) } );
+	ok( hp1.online && hp1.players === 3 && ! hp1.updating && healthText( hp1 ) === 'Online · 3 captains aboard (of 24)', `the panel's line: "${ healthText( hp1 ) }"` );
+	const hp2 = await probeHealth( DEFAULT_UNIVERSE, { build: 'abc1234', fetchImpl: fake( { ok: true, version: 2, build: 'fff0000', universe: { name: 'hyptile', players: 0, cap: 24 } } ) } );
+	ok( hp2.online && hp2.updating && /Updating/.test( healthText( hp2 ) ), 'another commit on the server: "Updating"' );
+	const hp3 = await probeHealth( DEFAULT_UNIVERSE, { fetchImpl: async () => { throw new TypeError( 'fetch failed' ); } } );
+	ok( ! hp3.online && hp3.code === 'down' && /^Offline · /.test( healthText( hp3 ) ), `no answer: "${ healthText( hp3 ) }"` );
+	const hp4 = await probeHealth( 'ws://h:8765/universe', { fetchImpl: fake( { ok: true, version: 2, rooms: {} } ) } );
+	ok( ! hp4.online && hp4.code === 'nouniverse', 'a server without a universe says so' );
+
+}
+
+try {
+
+	// the fort, /health's build and the admin routes on a fresh universe
+	await srv.close();
+	const dir15 = join( root, 'w15' );
+	const ADMIN = 'sesame-' + hex( '9' );
+	const OPTS15 = { ...SERVER_OPTS, universe: 'w15', data: dir15, build: 'abc1234def', adminToken: ADMIN };
+	srv = startServer( OPTS15 );
+	port = await srv.ready;
+	const U15 = `ws://127.0.0.1:${ port }/universe`;
+	const h15 = await ( await fetch( `http://127.0.0.1:${ port }/health` ) ).json();
+	ok( h15.build === 'abc1234def' && h15.version === 2 && h15.universe.name === 'w15', '/health carries the deployed commit (build) next to the protocol version' );
+	const hpLive = await UniverseW15.probeHealth( U15, { build: 'abc1234' } );
+	ok( hpLive.online && ! hpLive.updating && hpLive.cap > 0, 'probeHealth against the real server: online, same commit' );
+	const hpOld = await UniverseW15.probeHealth( U15, { build: '1111111' } );
+	ok( hpOld.online && hpOld.updating, 'and "updating" for a page of another commit' );
+
+	// admin routes: none without the token, 401 with a wrong one, answers with the right one
+	const adm = ( path, method = 'GET', token = ADMIN, body ) => fetch( `http://127.0.0.1:${ port }${ path }`, { method, headers: { ...( token ? { authorization: `Bearer ${ token }` } : {} ), ...( body ? { 'content-type': 'application/json' } : {} ) }, body: body ? JSON.stringify( body ) : undefined } );
+	const r401 = await adm( '/admin/stats', 'GET', 'wrong' );
+	const r401b = await adm( '/admin/save', 'POST', null );
+	ok( r401.status === 401 && r401b.status === 401, 'an admin route refuses a wrong or missing token' );
+	const st = await ( await adm( '/admin/stats' ) ).json();
+	ok( st.ok && st.universe && st.universe.name === 'w15' && Array.isArray( st.online ) && st.data && st.data.dir, 'GET /admin/stats with the token' );
+	const sv = await ( await adm( '/admin/save', 'POST' ) ).json();
+	ok( sv.ok && /saved to/.test( sv.answer ) && existsSync( join( dir15, 'universe.json' ) ), 'POST /admin/save writes the universe' );
+	const cm = await ( await adm( '/admin/command', 'POST', ADMIN, { line: 'captains' } ) ).json();
+	const cmStop = await ( await adm( '/admin/command', 'POST', ADMIN, { line: 'stop' } ) ).json();
+	ok( cm.ok && cm.answer === 'no captains yet' && /not an HTTP command/.test( cmStop.answer ), 'POST /admin/command runs a console command (but not stop)' );
+
+	// the stronghold: the host's snapshot, a claim, the host's clock; all of it in universe.json
+	const H = client( U15 ), G = client( U15 );
+	H.send( hello( 'Fort Host', TOKEN_A ) );
+	const wh = await H.next( 'welcome' );
+	G.send( hello( 'Fort Guest', TOKEN_B ) );
+	await G.next( 'welcome' );
+	ok( wh.id && wh.host === wh.id, 'the first captain hosts the stronghold' );
+	const snap = ( extra = {} ) => ( { t: 'fort', op: 'set', holder: 'pirates', claimedAt: - 1, until: - 1, alarm: 'calm', why: '', guards: 0, shipsDown: 3, castOff: 0, open: true, seen: 0,
+		batteries: [ { id: 'seaward', silenced: true, why: 'cannon', platform: true, powder: false }, { id: 'channel', silenced: false, why: '', platform: false, powder: true } ], ...extra } );
+	H.send( snap() );
+	await sleep( 150 );
+	G.send( { t: 'fort', op: 'claim' } );
+	const gc = await G.next( 'fortClaim' );
+	ok( gc.ok && gc.claims === 1, 'the guest claims the undefended island' );
+	H.send( snap( { holder: 'player', claimedAt: 100, until: 196, seen: 1, open: false, alarm: 'alarm', why: 'cannon' } ) );
+	await sleep( 600 ); // (a flush)
+	const disk = JSON.parse( readFileSync( join( dir15, 'universe.json' ), 'utf8' ) );
+	ok( disk.fort && disk.fort.holder === 'player' && disk.fort.byName === 'Fort Guest' && disk.fort.claims === 1 && disk.fort.claimedAt === 100 && disk.fort.batteries.seaward.silenced && disk.fort.by === undefined, 'universe.json keeps the fort like the moored boats (holder, claimant\'s name, claim, game hours, batteries; no session id)' );
+	H.ws.close();
+	G.ws.close();
+	await sleep( 100 );
+	await srv.close();
+
+	srv = startServer( OPTS15 );
+	port = await srv.ready;
+	const U15b = `ws://127.0.0.1:${ port }/universe`;
+	const R = client( U15b );
+	R.send( hello( 'Fort Host', TOKEN_A ) );
+	const wr = await R.next( 'welcome' );
+	await sleep( 100 );
+	const f = R.link.room.state.fort;
+	ok( f.holder === 'player' && f.byName === 'Fort Guest' && f.by === '' && f.claims === 1 && f.claimedAt === 100 && f.until === 196 && f.seq > 0, 'after a restart Blackwater is still the claimant\'s (by name; the session id is gone)' );
+	ok( f.alarm === 'calm' && f.batteries.get( 'seaward' ).silenced && f.batteries.get( 'seaward' ).platform && f.batteries.get( 'channel' ).powder && f.shipsDown === 3, 'its batteries, platforms, powder stores and sunk ships too; the watch starts calm' );
+	ok( wr.host === wr.id, 'the returning captain hosts' );
+	R.send( snap( { seen: 0 } ) ); // a fresh host that has not seen the stored claim cannot hand the island back
+	await sleep( 200 );
+	ok( R.link.room.state.fort.holder === 'player', 'a new host\'s snapshot that has not seen the stored claim leaves it standing' );
+	R.send( snap( { holder: 'player', claimedAt: 100, until: 196, seen: 1, open: false } ) );
+	await sleep( 200 );
+	ok( R.link.room.state.fort.holder === 'player' && R.link.room.state.fort.claims === 1, 'the host adopts it and carries on' );
+	R.ws.close();
+	await sleep( 100 );
+
+	// without a token the admin routes do not exist
+	await srv.close();
+	srv = startServer( { ...OPTS15, adminToken: null } );
+	port = await srv.ready;
+	const r404 = await fetch( `http://127.0.0.1:${ port }/admin/stats`, { headers: { authorization: `Bearer ${ ADMIN }` } } );
+	ok( r404.status === 404, 'no ADMIN_TOKEN: the admin routes answer 404' );
+
+} catch ( e ) {
+
+	fails ++;
+	console.log( 'FAIL exception (wave 15)', e && e.stack ? e.stack : e );
 
 }
 

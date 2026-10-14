@@ -1,0 +1,71 @@
+# Deploys the shared universe server (Dockerfile + fly.toml) to Fly.io after every successful game build on main, from
+# the same commit, so the game on GitHub Pages and the server always come from one release. The commit goes into the
+# image (BUILD_HASH) and /health; the game compares it with its own (__BUILD_HASH__, vite.config.js) and says "the
+# universe is updating, try again in a minute" while the two differ (a minute or two per push).
+# Needs the repository secret FLY_API_TOKEN (`fly tokens create deploy`, docs/HOSTING.md); without it this job only
+# leaves a notice. The saves live on the Fly volume and survive every deploy (SIGTERM: the server writes them first).
+name: Deploy the universe to Fly.io
+
+on:
+  workflow_run:
+    workflows: [ "Deploy to GitHub Pages" ]
+    types: [ completed ]
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# one deploy at a time, the newest last (never cancelled half-way: a machine mid-update keeps its old image)
+concurrency:
+  group: universe-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Is Fly set up?
+        id: gate
+        run: |
+          if [ -z "$FLY_API_TOKEN" ]; then
+            echo "::notice::FLY_API_TOKEN is not set: the universe is not deployed (docs/HOSTING.md, The shared universe)"
+            echo "go=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "go=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: The game's commit
+        id: build
+        if: steps.gate.outputs.go == 'true'
+        run: |
+          echo "hash=$(git rev-parse --short=7 HEAD)" >> "$GITHUB_OUTPUT"
+          echo "app=$(sed -n "s/^app *= *['\"]\([^'\"]*\)['\"].*/\1/p" fly.toml)" >> "$GITHUB_OUTPUT"
+
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+        if: steps.gate.outputs.go == 'true'
+
+      - name: Deploy
+        if: steps.gate.outputs.go == 'true'
+        run: flyctl deploy --remote-only --build-arg BUILD_HASH=${{ steps.build.outputs.hash }} --wait-timeout 300
+
+      - name: /health serves this commit
+        if: steps.gate.outputs.go == 'true'
+        run: |
+          url="https://${{ steps.build.outputs.app }}.fly.dev/health"
+          for i in $(seq 1 20); do
+            body="$(curl -fsS --max-time 10 "$url" || true)"
+            echo "$body"
+            case "$body" in *"\"build\":\"${{ steps.build.outputs.hash }}\""*) exit 0 ;; esac
+            sleep 6
+          done
+          echo "::error::$url does not report build ${{ steps.build.outputs.hash }}"
+          exit 1

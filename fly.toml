@@ -1,0 +1,49 @@
+# The shared Hyptile Island universe on Fly.io (docs/HOSTING.md, "The shared universe").
+# One always-on shared-cpu-1x machine in Frankfurt with a 1 GB volume for the saves; wss://hyptile-universe.fly.dev/universe
+# (Fly terminates TLS and hands the plain WebSocket / HTTP to port 8080 inside). One machine only: the universe keeps its
+# world in files for one process (never `fly scale count 2`).
+#
+# First time (once): fly launch --copy-config --yes --no-deploy ; fly volumes create universe_data --size 1 --region fra ;
+# fly deploy. After that .github/workflows/deploy-universe.yml deploys every push to main (FLY_API_TOKEN secret).
+# Another app name (the one here is taken): change `app` and build the game with VITE_UNIVERSE_URL=wss://<app>.fly.dev/universe
+
+app = 'hyptile-universe'
+primary_region = 'fra'
+kill_signal = 'SIGTERM'
+kill_timeout = '30s'
+swap_size_mb = 512
+
+[build]
+  dockerfile = 'Dockerfile'
+
+[env]
+  PORT = '8080'
+  NODE_ENV = 'production'
+
+[[mounts]]
+  source = 'universe_data'
+  destination = '/data'
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+
+  # every captain holds one WebSocket: Fly's default limit (25 connections) would turn the 26th away
+  [http_service.concurrency]
+    type = 'connections'
+    soft_limit = 150
+    hard_limit = 200
+
+  [[http_service.checks]]
+    grace_period = '15s'
+    interval = '30s'
+    method = 'GET'
+    timeout = '5s'
+    path = '/health'
+
+[[vm]]
+  size = 'shared-cpu-1x'
+  memory = '256mb'

@@ -31,8 +31,21 @@ PORT=8765 node server/index.mjs           # env fallback for the port
 ```
 
 `npm run server` does the first. One TCP port carries everything: `POST /matchmake/...` (Colyseus picks or creates the
-room), the room WebSocket and `GET /health` (`{ ok, version, transport: 'colyseus', uptime, players, rooms, universe? }`).
-The log prints joins, drops, reconnects and leaves; Ctrl-C / `stop` saves and closes every room.
+room), the room WebSocket and `GET /health` (`{ ok, version, build, transport: 'colyseus', uptime, players, rooms, universe? }`;
+`version` is the protocol, `build` the game commit from `BUILD_HASH`, 'dev' without one).
+The log prints joins, drops, reconnects and leaves; Ctrl-C / `stop` / SIGTERM saves and closes every room. The console
+reads stdin only when it is a terminal (`--console` forces it, `--no-console` turns it off).
+
+## The shared universe (wave 15)
+
+`Dockerfile`, `fly.toml` and `.github/workflows/deploy-universe.yml` run this server on Fly.io as the game's default
+universe (`wss://hyptile-universe.fly.dev/universe`, docs/HOSTING.md): `--universe hyptile --data /data --max-players 24
+--reconnect-seconds 120`, PORT 8080 behind Fly's TLS, the saves on a volume, one deploy per push to main with the commit in
+`BUILD_HASH` (the game says "the universe is updating" while its own commit differs). With `--admin-token` / `ADMIN_TOKEN`
+the HTTP routes `GET /admin/stats`, `POST /admin/save`, `POST /admin/backup` and `POST /admin/command { line }` (a console
+command, not `stop`) answer `Authorization: Bearer <token>`; without one they are 404. The Blackwater `fort` is stored in
+universe.json (`fort`, like `moored`) and put back into the room after a restart (`schema.restoreFort`: holder, claimant's
+name, claims, game hours, batteries; the watch calm, `by` empty).
 
 ## Rooms
 

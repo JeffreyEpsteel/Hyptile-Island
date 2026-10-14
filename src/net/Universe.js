@@ -1,6 +1,17 @@
 // The persistent universe on the browser side (server/index.mjs --universe <name>): the captain's token, the menu's
 // probe, and the session that keeps the captain's game on the server instead of in a local save slot.
 //
+//   DEFAULT_UNIVERSE                    the shared universe everybody joins by default (wave 15: Fly.io, docs/HOSTING.md):
+//                                       wss://hyptile-universe.fly.dev/universe, or VITE_UNIVERSE_URL at build time; a page
+//                                       address's ?server= still wins (App.pendingServer)
+//   defaultUniverseAddress( loc )       what the menu offers: the shared universe, or <page host>:8765 for a game page a PC
+//                                       serves over plain http (tools/host/serve-universe.mjs, LAN, dev)
+//   BUILD_HASH                          this game's commit (vite.config.js defines __BUILD_HASH__; 'dev' without one)
+//   await probeHealth( url )            GET <server>/health: { online, players, cap, captains, name, build, updating } or
+//                                       { online: false, code, reason } (never rejects); updating = the server runs another
+//                                       commit of the game (a deploy is under way: one side is newer for a minute)
+//   universeHealthUrl( url )            wss://h/net/universe -> https://h/net/health
+//
 //   normalizeUniverseUrl( 'my.host' )   'ws://my.host:8765/universe' ('wss://my.host/universe' from an https page: a TLS proxy;
 //                                       'my.host/net' -> 'wss://my.host/net/universe' for a proxy that serves the server under /net)
 //   universeToken( url )                32 hex chars (128 random bits), made once per server (host:port), kept in localStorage;
@@ -27,6 +38,26 @@ import { helloMessage, sanitizeToken, sanitizeCaptainName, isUniverseUrl, MAX_SA
 import { ColyseusLink } from './ColyseusLink.js';
 
 export const DEFAULT_UNIVERSE_PORT = 8765;
+// the shared universe (fly.toml: app hyptile-universe); a fork or a renamed Fly app sets VITE_UNIVERSE_URL when it builds
+export const SHARED_UNIVERSE = 'wss://hyptile-universe.fly.dev/universe';
+const ENV_UNIVERSE = ( () => {
+
+	try {
+
+		return import.meta.env && import.meta.env.VITE_UNIVERSE_URL ? String( import.meta.env.VITE_UNIVERSE_URL ) : '';
+
+	} catch ( e ) {
+
+		return '';
+
+	}
+
+} )();
+export const DEFAULT_UNIVERSE = ( ENV_UNIVERSE && normalizeUniverseUrl( ENV_UNIVERSE, { protocol: 'https:' } ) ) || SHARED_UNIVERSE;
+// the game's commit (vite.config.js `define`); the server's /health says which commit it runs
+// eslint-disable-next-line no-undef
+export const BUILD_HASH = typeof __BUILD_HASH__ !== 'undefined' && __BUILD_HASH__ ? String( __BUILD_HASH__ ) : 'dev';
+export const UPDATING_TEXT = 'The universe is updating, try again in a minute (reload the page if it keeps saying this).';
 export const SERVER_KEY = 'hyptile-island.universe.server'; // the address typed last
 export const NAME_KEY = 'hyptile-island.universe.name'; // the captain name used last
 const TOKENS_KEY = 'hyptile-island.universe.tokens'; // { 'host:port': token }
@@ -112,14 +143,106 @@ export function normalizeUniverseUrl( s, loc = typeof location !== 'undefined' ?
 
 }
 
-// what the menu offers first: the address typed last, else the page's own host
+// what the menu offers first: the shared universe; a game page served over plain http by a PC (serve-universe.mjs on
+// :5190, a LAN address, the dev server) offers that PC's own universe on :8765 instead
 export function defaultUniverseAddress( loc = typeof location !== 'undefined' ? location : null ) {
 
+	const h = loc && loc.hostname ? loc.hostname : '';
+	if ( h && loc.protocol === 'http:' && ! isStaticHost( h ) ) return `${ h }:${ DEFAULT_UNIVERSE_PORT }`;
+	return DEFAULT_UNIVERSE;
+
+}
+
+// the address typed last when it is not the default (the menu offers it as "last used"), else ''
+export function lastUniverseAddress( loc = typeof location !== 'undefined' ? location : null ) {
+
 	const r = recall( SERVER_KEY, '' );
-	if ( r ) return r;
-	const h = loc && loc.hostname ? loc.hostname : 'localhost';
-	if ( isStaticHost( h ) ) return ''; // GitHub Pages serves the game only: a universe is a server somebody hosts
-	return loc && loc.protocol === 'https:' ? h : `${ h }:${ DEFAULT_UNIVERSE_PORT }`;
+	if ( ! r ) return '';
+	const a = normalizeUniverseUrl( r, loc ), d = normalizeUniverseUrl( defaultUniverseAddress( loc ), loc );
+	return a && a !== d ? r : '';
+
+}
+
+export function isDefaultUniverse( url ) {
+
+	const u = normalizeUniverseUrl( url, { protocol: 'https:' } );
+	return !! u && u === DEFAULT_UNIVERSE;
+
+}
+
+// two commits of the game: both known and neither a prefix of the other (a short and a long hash of one commit agree)
+export function buildsDiffer( a, b ) {
+
+	a = String( a || '' ).toLowerCase();
+	b = String( b || '' ).toLowerCase();
+	if ( ! a || ! b || a === 'dev' || b === 'dev' ) return false;
+	return ! a.startsWith( b ) && ! b.startsWith( a );
+
+}
+
+// the server's /health beside the universe's socket: ws -> http, wss -> https, the room segment -> health
+export function universeHealthUrl( url ) {
+
+	try {
+
+		const u = new URL( url );
+		if ( u.protocol !== 'ws:' && u.protocol !== 'wss:' ) return null;
+		u.protocol = u.protocol === 'wss:' ? 'https:' : 'http:';
+		u.pathname = u.pathname.replace( /\/[^/]*\/?$/, '' ) + '/health';
+		u.search = '';
+		u.hash = '';
+		return u.toString();
+
+	} catch ( e ) {
+
+		return null;
+
+	}
+
+}
+
+// GET /health: is the universe up, how many are aboard, does it run this game's commit? Never rejects.
+export async function probeHealth( url, { timeout = 6000, build = BUILD_HASH, fetchImpl = globalThis.fetch } = {} ) {
+
+	const where = url ? serverKey( url ) : '';
+	const h = universeHealthUrl( url );
+	if ( ! h ) return { online: false, code: 'address', reason: universeError( 'address', '', url ) };
+	if ( typeof fetchImpl !== 'function' ) return { online: false, code: 'down', reason: 'This browser cannot ask the server (no fetch)' };
+	const ctl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+	const timer = setTimeout( () => ctl && ctl.abort(), timeout );
+	try {
+
+		const r = await fetchImpl( h, { cache: 'no-store', signal: ctl ? ctl.signal : undefined } );
+		if ( ! r || ! r.ok ) return { online: false, code: 'down', reason: `${ where } answered ${ r ? r.status : 'nothing' }: not a universe server` };
+		const j = await r.json();
+		if ( ! j || j.ok !== true ) return { online: false, code: 'down', reason: `${ where } is not a Hyptile Island server` };
+		if ( ! j.universe ) return { online: false, code: 'nouniverse', reason: universeError( 'nouniverse', '', url ), build: j.build || null };
+		const u = j.universe;
+		return {
+			online: true, name: u.name || '', players: u.players | 0, cap: u.cap | 0, captains: u.captains | 0, day: u.day | 0,
+			build: j.build || null, version: j.version, updating: buildsDiffer( j.build, build ),
+		};
+
+	} catch ( e ) {
+
+		const aborted = e && ( e.name === 'AbortError' || e.code === 20 );
+		return { online: false, code: aborted ? 'timeout' : 'down', reason: universeError( aborted ? 'timeout' : 'down', '', url ) };
+
+	} finally {
+
+		clearTimeout( timer );
+
+	}
+
+}
+
+// the menu's one-line status for a probeHealth answer
+export function healthText( hp ) {
+
+	if ( ! hp ) return 'Checking the universe ...';
+	if ( hp.online && hp.updating ) return 'Updating · back in a minute';
+	if ( hp.online ) return `Online · ${ hp.players } captain${ hp.players === 1 ? '' : 's' } aboard${ hp.cap ? ` (of ${ hp.cap })` : '' }`;
+	return `Offline · ${ hp.reason || 'no answer' }`;
 
 }
 
@@ -188,14 +311,16 @@ export function universeError( code, text = '', url = '' ) {
 	switch ( code ) {
 
 		case 'down': return isStaticHost( where ) ? `${ where } only serves the game: a universe is a server someone hosts. Run HOST_UNIVERSE_TUNNEL.cmd from the download (it prints an https address) or ask the host for theirs.`
-			: `No universe server answers at ${ where }. Is it running, and is its port open? (HOSTING.md)`;
+			: url && isDefaultUniverse( url ) ? 'The shared universe does not answer right now (it may be restarting after an update). Try again in a minute.'
+				: `No universe server answers at ${ where }. Is it running, and is its port open? (HOSTING.md)`;
+		case 'updating': return UPDATING_TEXT;
 		case 'timeout': return `${ where } did not answer in time. Check the address and the firewall.`;
 		case 'address': return 'Type the server address: the https://....trycloudflare.com line HOST_UNIVERSE_TUNNEL.cmd prints, or 192.168.1.20 on your network';
 		case 'badname': return text || 'Pick a captain name of 2 to 24 letters or numbers.';
 		case 'name': return text || 'That captain name belongs to someone else on this server. Pick another one.';
 		case 'banned': return text || 'This captain is banned from that universe.';
 		case 'full': return text || 'The universe is full right now. Try again later.';
-		case 'version': return 'That server runs another version of the game. Update the game or the server.';
+		case 'version': return url && isDefaultUniverse( url ) ? UPDATING_TEXT : 'That server runs another version of the game. Update the game or the server.';
 		case 'nouniverse': return `${ where } hosts islands and crews but no universe (the host starts it with --universe).`;
 		case 'replaced': return 'You joined the universe from another window.';
 		case 'kicked': return text || 'The server admin disconnected you.';

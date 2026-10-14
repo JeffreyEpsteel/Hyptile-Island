@@ -1,0 +1,14 @@
+# An allow-list: the universe image needs only these (Dockerfile COPY lines; test/deploy-config.mjs checks both agree).
+# Everything else (the game's assets, releases, tests, node_modules, saves) stays out of the build context.
+*
+!package.json
+!package-lock.json
+!server/
+!src/net/
+!src/game/Boats.js
+!src/game/Characters.js
+!src/features/firearms/FirearmsData.js
+!tools/host/pack-server-deps.mjs
+**/server-data
+**/*.log
+**/*.tmp

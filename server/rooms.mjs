@@ -37,7 +37,7 @@ import {
 } from '../src/net/Protocol.js';
 import { BOATS } from '../src/game/Boats.js';
 import { WEAPONS } from '../src/features/firearms/FirearmsData.js';
-import { HyptileState, Player, writePlayerState, writeShips, writeMoored, writeWreck, writePlane, writeFort } from './schema.mjs';
+import { HyptileState, Player, writePlayerState, writeShips, writeMoored, writeWreck, writePlane, writeFort, readFort, restoreFort } from './schema.mjs';
 
 const SHIP_GATE = { ...CANNON_GATE, reload: CANNON_GATE.shipReload };
 const PROP_EVENTS = new Set( [ 'propDestroyed', 'propRespawned', 'propsRespawned' ] );
@@ -141,6 +141,8 @@ export function makeRooms( ctx ) {
 				}
 
 				for ( const m of Object.values( this.uni.state.moored ) ) writeMoored( st.moored, m );
+				// Blackwater as it was left (wave 15: the fort outlives a restart, like the moored boats)
+				if ( this.uni.state.fort && restoreFort( st.fort, this.uni.state.fort ) ) log( `fort  ${ name } restored: ${ st.fort.holder }${ st.fort.byName ? ' (' + st.fort.byName + ')' : '' }` );
 
 			}
 
@@ -927,6 +929,7 @@ export function makeRooms( ctx ) {
 
 				if ( hid !== c.id || ! this.allow( c, 'fort', 10, 1000 ) ) return;
 				writeFort( fort, f );
+				if ( this.uni ) this.uni.setFort( readFort( fort ) );
 				return;
 
 			}
@@ -952,6 +955,7 @@ export function makeRooms( ctx ) {
 			fort.until = - 1;
 			fort.open = false;
 			log( `fort  ${ this.label } claimed by ${ c.id } "${ c.name }"` );
+			if ( this.uni ) this.uni.setFort( readFort( fort ) );
 			this.tell( c, 'fortClaim', { ok: true, by: c.id, claims: fort.claims } );
 
 		}

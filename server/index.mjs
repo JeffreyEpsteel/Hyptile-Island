@@ -17,6 +17,12 @@
 // A dropped client keeps its seat --reconnect-seconds. The console (stdin) takes admin commands: help, list, captains, kick,
 // ban, unban, release, save, backup, announce, stop. The message vocabulary lives in src/net/Protocol.js.
 //
+// A public host (the shared universe on Fly.io, docs/HOSTING.md) has no console: with --admin-token (or ADMIN_TOKEN) the
+// HTTP routes GET /admin/stats, POST /admin/save, POST /admin/backup and POST /admin/command { line } (any console command
+// but stop) answer a request carrying `Authorization: Bearer <token>`; without a token they do not exist (404). The console
+// itself is only read from a terminal (a container's stdin is not one). /health carries `build`: the game's commit
+// (BUILD_HASH, written by the deploy) so a browser can tell a server that is still updating from one that refuses it.
+//
 // One server per process (Colyseus' matchmaker is a module singleton). `startServer( opts )` is exported for tests (close()
 // it before starting the next); `attachConsole` / `stopOnSignals` for launchers. One PC needs no Colyseus presence / Redis
 // driver (docs/HOSTING.md has the note on scaling).
@@ -24,6 +30,7 @@
 import http from 'node:http';
 import readline from 'node:readline';
 import { pathToFileURL } from 'node:url';
+import { createHash, timingSafeEqual } from 'node:crypto';
 import { defineServer, defineRoom, unregisterRoomDefinitions, matchMaker, createRouter, createEndpoint } from '@colyseus/core';
 import { WebSocketTransport } from '@colyseus/ws-transport';
 import {
@@ -43,6 +50,8 @@ export function startServer( options = {} ) {
 		maxRooms: 64, emptyMs: 30000, crewHoldMs: 120000, crewPerAddress: 4, crewEveryMs: 3000,
 		universe: null, data: null, universeCap: MAX_PLAYERS, flushMs: 10000, backupDays: 14, saveEveryMs: 2000, marketEveryMs: 5000,
 		newCaptainsPerHour: 5, reconnectSeconds: RECONNECT_SECONDS,
+		build: process.env.BUILD_HASH || 'dev', // the game commit this server was deployed with (deploy-universe.yml)
+		adminToken: null, // the admin HTTP routes' bearer token (null: no admin routes)
 		log: ( ...a ) => console.log( new Date().toISOString(), ...a ),
 		...options,
 	};
@@ -60,7 +69,7 @@ export function startServer( options = {} ) {
 	const uniRoom = () => ctx.rooms.get( UNIVERSE_PATH ) || null;
 	const health = () => {
 
-		const body = { ok: true, version: PROTOCOL_VERSION, transport: 'colyseus', uptime: Math.round( process.uptime() ), players: 0, rooms: {} };
+		const body = { ok: true, version: PROTOCOL_VERSION, build: String( opts.build || 'dev' ).slice( 0, 40 ), transport: 'colyseus', uptime: Math.round( process.uptime() ), players: 0, rooms: {} };
 		for ( const r of ctx.rooms.values() ) {
 
 			const n = r.connected().length;
@@ -74,7 +83,40 @@ export function startServer( options = {} ) {
 
 	};
 
-	const json = ( body ) => new Response( JSON.stringify( body ), { status: 200, headers: { 'content-type': 'application/json', 'cache-control': 'no-store' } } ); // (CORS: Colyseus adds it)
+	const json = ( body, status = 200 ) => new Response( JSON.stringify( body ), { status, headers: { 'content-type': 'application/json', 'cache-control': 'no-store' } } ); // (CORS: Colyseus adds it)
+	// the admin routes: only with a token, only with that token (compared in constant time); a wrong one costs half a second
+	const digest = ( v ) => createHash( 'sha256' ).update( String( v ) ).digest();
+	const adminRoute = ( fn ) => async ( c ) => {
+
+		if ( ! opts.adminToken ) return json( { ok: false, error: 'not found' }, 404 );
+		const m = /^Bearer\s+(\S+)\s*$/i.exec( String( ( c.getHeader && c.getHeader( 'authorization' ) ) || '' ) );
+		if ( ! m || ! timingSafeEqual( digest( m[ 1 ] ), digest( opts.adminToken ) ) ) {
+
+			await new Promise( ( r ) => setTimeout( r, 500 ) );
+			return json( { ok: false, error: 'unauthorized' }, 401 );
+
+		}
+
+		try {
+
+			return json( { ok: true, ...( await fn( c ) ) } );
+
+		} catch ( e ) {
+
+			return json( { ok: false, error: e && e.message || String( e ) }, 500 );
+
+		}
+
+	};
+	const adminStats = () => {
+
+		const mem = process.memoryUsage();
+		const body = { ...health(), memoryMB: Math.round( mem.rss / 1048576 ), online: [] };
+		for ( const r of ctx.rooms.values() ) for ( const m of r.order.values() ) body.online.push( { room: r.label, id: m.id, name: m.name, captain: !! m.captainKey, dropped: !! m.dropped } );
+		if ( universe ) body.data = { dir: universe.dir, savedAt: universe.state.savedAt, fort: universe.state.fort ? universe.state.fort.holder : null };
+		return body;
+
+	};
 	const quiet = () => {};
 	const warn = ( ...a ) => opts.log( 'colyseus:', ...a );
 	const server = http.createServer();
@@ -89,6 +131,23 @@ export function startServer( options = {} ) {
 		routes: createRouter( {
 			health: createEndpoint( '/health', { method: 'GET' }, async () => json( health() ) ),
 			root: createEndpoint( '/', { method: 'GET' }, async () => json( health() ) ),
+			adminStats: createEndpoint( '/admin/stats', { method: 'GET' }, adminRoute( () => adminStats() ) ),
+			adminSave: createEndpoint( '/admin/save', { method: 'POST' }, adminRoute( () => ( { answer: admin( 'save' ) } ) ) ),
+			adminBackup: createEndpoint( '/admin/backup', { method: 'POST' }, adminRoute( () => ( { answer: admin( 'backup' ) } ) ) ),
+			adminCommand: createEndpoint( '/admin/command', { method: 'POST' }, adminRoute( ( c ) => {
+
+				let b = c.body;
+				if ( typeof b === 'string' ) {
+
+					try { b = JSON.parse( b ); } catch ( e ) { b = { line: b }; }
+
+				}
+
+				const line = String( b && b.line || '' ).slice( 0, 400 );
+				if ( /^\s*(stop|quit|exit)\b/i.test( line ) ) return { answer: 'stop is not an HTTP command: a deploy or a machine restart saves and restarts the server' };
+				return { answer: admin( line ) };
+
+			} ) ),
 		} ),
 		transport, greet: false, gracefullyShutdown: false,
 		logger: { debug: quiet, trace: quiet, info: quiet, log: quiet, warn, error: warn },
@@ -356,9 +415,11 @@ export function startServer( options = {} ) {
 // ---- the console and shutdown (the CLI below and tools/host/serve-universe.mjs)
 
 // admin commands typed into the server window; `stop` (or Ctrl-C) saves and exits
-export function attachConsole( srv, { input = process.stdin, output = process.stdout, onStop = null } = {} ) {
+// (a container or a service has no terminal: stdin is /dev/null or a pipe, and the console stays off unless `force`)
+export function attachConsole( srv, { input = process.stdin, output = process.stdout, onStop = null, force = false } = {} ) {
 
 	if ( ! input || ! input.readable ) return null;
+	if ( input === process.stdin && ! input.isTTY && ! force ) return null;
 	const rl = readline.createInterface( { input, output, terminal: !! input.isTTY, prompt: '> ' } );
 	rl.on( 'line', ( line ) => {
 
@@ -392,7 +453,8 @@ export function stopOnSignals( srv, log = console.log ) {
 		stopping = true;
 		log( `\n${ sig }: saving and closing` );
 		srv.close().then( () => process.exit( 0 ) );
-		setTimeout( () => process.exit( 0 ), 3000 ).unref();
+		// the rooms get 3 s to say goodbye, then the universe is written; this is the last resort (fly.toml: kill_timeout 30 s)
+		setTimeout( () => process.exit( 0 ), 8000 ).unref();
 
 	};
 
@@ -412,7 +474,7 @@ export function stopOnSignals( srv, log = console.log ) {
 
 function parseArgs( argv ) {
 
-	const o = { port: Number( process.env.PORT ) || 8765, host: process.env.HOST || '0.0.0.0', roomCap: MAX_PLAYERS, console: true };
+	const o = { port: Number( process.env.PORT ) || 8765, host: process.env.HOST || '0.0.0.0', roomCap: MAX_PLAYERS, console: true, forceConsole: false, adminToken: process.env.ADMIN_TOKEN || null };
 	for ( let i = 0; i < argv.length; i ++ ) {
 
 		const a = argv[ i ], v = argv[ i + 1 ];
@@ -426,10 +488,13 @@ function parseArgs( argv ) {
 		else if ( a === '--backup-days' ) o.backupDays = Math.max( 1, Number( v ) | 0 ), i ++;
 		else if ( a === '--reconnect-seconds' ) o.reconnectSeconds = Math.max( 0, Math.min( 600, Number( v ) | 0 ) ), i ++;
 		else if ( a === '--no-console' ) o.console = false;
+		else if ( a === '--console' ) o.forceConsole = true; // (read stdin even when it is not a terminal)
+		else if ( a === '--admin-token' ) o.adminToken = v || null, i ++;
 		else if ( a === '--help' || a === '-h' ) {
 
 			console.log( 'usage: node server/index.mjs [--port 8765] [--host 0.0.0.0] [--room-cap 16] [--max-rooms 64]\n' +
-				'                            [--universe <name> [--data <dir>] [--max-players 16] [--backup-days 14]] [--reconnect-seconds 60] [--no-console]' );
+				'                            [--universe <name> [--data <dir>] [--max-players 16] [--backup-days 14]] [--reconnect-seconds 60]\n' +
+				'                            [--no-console | --console] [--admin-token <token> (or ADMIN_TOKEN)]   env: PORT, HOST, BUILD_HASH' );
 			process.exit( 0 );
 
 		}
@@ -450,7 +515,8 @@ if ( isMain ) {
 
 		console.log( `Hyptile Island server (Colyseus) listening on ws://${ o.host }:${ port }/<room> (default room 'island', cap ${ o.roomCap }); health: http://${ o.host }:${ port }/health` );
 		if ( srv.universe ) console.log( `Universe '${ srv.universe.name }' at ws://${ o.host }:${ port }/${ UNIVERSE_PATH } (data: ${ srv.universe.dir }); type help for admin commands` );
-		if ( o.console ) attachConsole( srv, { onStop: stop } );
+		if ( o.adminToken ) console.log( 'Admin HTTP routes on: /admin/stats, /admin/save, /admin/backup, /admin/command (Authorization: Bearer <token>)' );
+		if ( o.console && ! attachConsole( srv, { onStop: stop, force: o.forceConsole } ) ) console.log( 'No terminal: the admin console is off (SIGTERM / Ctrl-C saves and stops)' );
 
 	}, ( e ) => {
 

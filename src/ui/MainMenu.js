@@ -5,7 +5,10 @@ import { rankTitle } from '../game/Progression.js';
 import { MODES, MODE_IDS, DEFAULT_MODE, isMode, modeLabel } from '../game/GameMode.js';
 import { icon, brandMark } from './icons.js';
 import { Credits } from './Credits.js';
-import { probeUniverse, normalizeUniverseUrl, defaultUniverseAddress, UniverseSession, remember, recall, SERVER_KEY, NAME_KEY } from '../net/Universe.js';
+import {
+	probeUniverse, normalizeUniverseUrl, defaultUniverseAddress, lastUniverseAddress, isDefaultUniverse, probeHealth, healthText, UPDATING_TEXT,
+	UniverseSession, remember, recall, SERVER_KEY, NAME_KEY,
+} from '../net/Universe.js';
 import { isUniverseUrl } from '../net/Protocol.js';
 import { crewCodeFromLocation, defaultServerUrl } from '../net/NetClient.js';
 
@@ -33,6 +36,11 @@ import { crewCodeFromLocation, defaultServerUrl } from '../net/NetClient.js';
 // { mode: 'multiplayer', slot: 0, name: captain, server: <ws url>, newGame: no stored game, online: true, universe: session }
 // after attaching the UniverseSession to the app, so GameState reads and writes the captain's game on the server instead of
 // a local slot. Choosing anything else detaches it again. Island / crew is the slot list with a server field, as before.
+// Wave 15: the Multiplayer card always opens the Universe tab (a crew code or an island ?server= in the page address picks
+// Island / crew instead) with the shared universe's address filled in (Universe.defaultUniverseAddress: wss on Fly.io, or a
+// PC's own universe for a page that PC serves); the panel asks its /health at once and on every address change and shows
+// "Online · 3 captains aboard", "Updating" (the server runs another commit of the game: Join waits) or "Offline" and why.
+// The address stays editable for friends' servers; "default" puts the shared one back, "last used" the one typed before.
 
 // The backdrop is the illustrated key art (public/ui/menu, from the Unreal game's T_HyptileMenu): Hyptile on the dock at
 // the right, calm open sea on the left 42% where the card sits. A 2560 and a 1280 wide JPEG; the page picks by its
@@ -134,6 +142,11 @@ const CSS = /* css */`
 .mm-uni b { color: var(--tw-ink); }
 .mm-uni-status { font-family: var(--tw-mono); font-size: var(--tw-fs-xs); color: var(--tw-ink-3); }
 .mm-uni-status.is-ok { color: var(--tw-aqua); }
+.mm-uni-status.is-warn { color: var(--tw-coral); }
+.mm-field-head { display: flex; align-items: baseline; gap: var(--tw-2); }
+.mm-field-head > span { flex: 1; }
+.mm-field-head button { font-size: var(--tw-fs-xs); color: var(--tw-ink-3); text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--tw-line-2); cursor: pointer; }
+.mm-field-head button:hover { color: var(--tw-ink); }
 .tw-root.is-photo .mm { display: none; }
 `;
 
@@ -422,7 +435,17 @@ export class MainMenu {
 		if ( ! isMode( id ) ) return;
 		this.mode = id;
 		this.step = 'slots';
+		// Multiplayer opens on the universe (the shared one is the default way in) unless the page address names a crew / room
+		if ( id === 'multiplayer' && ! this._pageWantsCrew() ) this.netWay = 'universe';
 		this._renderMain();
+
+	}
+
+	_pageWantsCrew() {
+
+		const ps = this.app && this.app.pendingServer;
+		if ( ps ) return ! isUniverseUrl( ps );
+		return !! crewCodeFromLocation();
 
 	}
 
@@ -519,8 +542,11 @@ export class MainMenu {
 		this._rows = [];
 		const ps = this.app && this.app.pendingServer;
 		const current = this.app && this.app.universe;
-		const address = ps && isUniverseUrl( ps ) ? ps : current && current.url ? current.url : defaultUniverseAddress();
+		const def = defaultUniverseAddress();
+		const address = ps && isUniverseUrl( ps ) ? ps : current && current.url ? current.url : def;
+		const last = lastUniverseAddress();
 		const name = recall( NAME_KEY, '' ) || ( st && st.name ) || '';
+		const shared = isDefaultUniverse( normalizeUniverseUrl( address ) );
 		this.el.innerHTML = `
 			<div aria-hidden="true" class="mm-art"></div>
 			<div class="mm-card tw-glass" role="dialog" aria-modal="true" aria-label="Hyptile Island">
@@ -530,13 +556,17 @@ export class MainMenu {
 					<section>
 						<h3>The universe</h3>
 						<div class="mm-uni">
-							<div>A <b>universe</b> is an island world somebody hosts that keeps running when nobody is on: destroyed docks stay broken until they respawn, boats stay where their captains left them, the market and the pirates carry on.</div>
+							<div>A <b>universe</b> is an island world that keeps running when nobody is on: destroyed docks stay broken until they respawn, boats stay where their captains left them, the market and the pirates carry on. The <b>shared universe</b> is always on; a friend's own server works too (type its address).</div>
 							<div>The server keeps your captain's game. Your name is yours on that server from the first join, tied to this browser (no password), so use the same browser to come back.</div>
 							<div class="mm-uni-status" data-status>${ current && current.captain ? `Playing as ${ esc( current.captain ) } on ${ esc( current.url ) }` : 'Not joined' }</div>
 						</div>
 					</section>
 					<section class="mm-side">
-						<label class="mm-field"><span>Server address</span><input type="text" class="is-mono" autocomplete="off" spellcheck="false" data-server value="${ esc( address ) }" placeholder="https://....trycloudflare.com or 192.168.1.20"></label>
+						<div class="mm-field">
+							<div class="mm-field-head"><span>Server address</span><button type="button" data-last title="${ esc( last ) }" ${ last ? '' : 'hidden' }>last used</button><button type="button" data-default title="${ esc( def ) }" ${ shared || address === def ? 'hidden' : '' }>default</button></div>
+							<input type="text" class="is-mono" autocomplete="off" spellcheck="false" aria-label="Server address" data-server value="${ esc( address ) }" placeholder="${ esc( def ) }">
+							<div class="mm-uni-status" data-health aria-live="polite">${ esc( healthText( null ) ) }</div>
+						</div>
 						<label class="mm-field"><span>Captain name</span><input type="text" maxlength="24" autocomplete="off" spellcheck="false" data-name value="${ esc( name ) }" placeholder="Captain"></label>
 						<div class="mm-actions">
 							<button type="button" class="tw-btn tw-btn-primary" data-join>${ icon( 'play' ) }<span>Join the universe</span></button>
@@ -559,12 +589,60 @@ export class MainMenu {
 		this.statusEl = q( '[data-status]' );
 		this.joinBtn = q( '[data-join]' );
 		this.newBtn = null;
+		this.healthEl = q( '[data-health]' );
 		this.joinBtn.addEventListener( 'click', () => this._join() );
 		q( '[data-modes]' ).addEventListener( 'click', () => this._toModes() );
+		// the address: a new one is asked about (after a pause in the typing); "default" / "last used" put one back
+		const setAddress = ( v ) => {
+
+			this.serverEl.value = v;
+			this._addressChanged( true );
+
+		};
+		q( '[data-default]' ).addEventListener( 'click', () => setAddress( def ) );
+		q( '[data-last]' ).addEventListener( 'click', () => setAddress( last ) );
+		this.serverEl.addEventListener( 'input', () => this._addressChanged( false ) );
+		this.serverEl.addEventListener( 'change', () => this._addressChanged( true ) );
 		this._bindSeg();
 		this._bindLinks();
-		this._uniNote( 'Join asks the server first: nothing starts until it answers.' );
+		this._health = null;
+		this._uniNote( shared ? 'One click: the shared universe keeps your captain\'s game.' : 'Join asks the server first: nothing starts until it answers.' );
+		this._checkHealth();
 		( name ? this.joinBtn : this.nameEl ).focus( { preventScroll: true } );
+
+	}
+
+	// the address box changed: the default link shows when it is not the default, the health is asked again
+	_addressChanged( now ) {
+
+		const def = defaultUniverseAddress();
+		const url = normalizeUniverseUrl( this.serverEl ? this.serverEl.value : '' );
+		const d = this.el.querySelector( '[data-default]' );
+		if ( d ) d.hidden = !! url && url === normalizeUniverseUrl( def );
+		clearTimeout( this._healthTimer );
+		if ( now ) this._checkHealth();
+		else this._healthTimer = setTimeout( () => this._checkHealth(), 700 );
+
+	}
+
+	// GET /health of the address in the box: online and how many aboard, updating (another commit of the game), offline and why
+	async _checkHealth() {
+
+		const el = this.healthEl;
+		if ( ! el || this.view !== 'main' ) return null;
+		const url = normalizeUniverseUrl( this.serverEl ? this.serverEl.value : '' );
+		const n = this._healthSeq = ( this._healthSeq || 0 ) + 1;
+		this._health = null;
+		el.textContent = url ? healthText( null ) : 'Type a server address';
+		el.classList.remove( 'is-ok', 'is-warn' );
+		if ( ! url ) return null;
+		const hp = await probeHealth( url );
+		if ( n !== this._healthSeq || ! this.open || el !== this.healthEl ) return null;
+		this._health = { url, ...hp };
+		el.textContent = healthText( hp );
+		el.classList.toggle( 'is-ok', !! hp.online && ! hp.updating );
+		el.classList.toggle( 'is-warn', ! hp.online || !! hp.updating );
+		return this._health;
 
 	}
 
@@ -583,6 +661,14 @@ export class MainMenu {
 		const url = normalizeUniverseUrl( this.serverEl ? this.serverEl.value : '' );
 		const name = this.nameEl ? this.nameEl.value.trim() : '';
 		if ( ! url ) return this._uniNote( 'Type the server address, e.g. 192.168.1.20 or myisland.example.com', true );
+		// a server on another commit of the game is being deployed (or this page is older): say so instead of a refusal
+		if ( this._health && this._health.url === url && this._health.online && this._health.updating ) {
+
+			this._checkHealth();
+			return this._uniNote( UPDATING_TEXT, true );
+
+		}
+
 		const n = this._joining = performance.now();
 		this.joinBtn.disabled = true;
 		this._uniNote( `Asking ${ url } ...` );

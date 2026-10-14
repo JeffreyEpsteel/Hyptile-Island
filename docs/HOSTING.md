@@ -1,8 +1,74 @@
-# Hosting a Hyptile Island universe (Windows)
+# Hosting a Hyptile Island universe
 
-A **universe** is one island world that keeps running on your PC: destroyed docks stay broken until they respawn, boats
-stay where their captains left them, the market and the pirates carry on, and every captain's game is kept by your PC
-instead of in their browser. Friends join from their own browser (Chrome or Edge, for WebGPU).
+A **universe** is one island world that keeps running: destroyed docks stay broken until they respawn, boats stay where
+their captains left them, the market and the pirates carry on, and every captain's game is kept by the server instead of
+in their browser. Players join from their own browser (Chrome or Edge, for WebGPU).
+
+## The shared universe
+
+**Multiplayer** in the game opens the **Universe** tab with the shared universe filled in:
+`wss://hyptile-universe.fly.dev/universe`, one always-on server for everybody, deployed from the same commit as the game
+on GitHub Pages. The panel asks the server's `/health` as it opens: *Online · 3 captains aboard*, *Updating · back in a
+minute* (the server and the page are from different commits while a deploy runs; Join waits) or *Offline* and why. Type
+a captain name and press **Join the universe**: that is all.
+
+- **Your own universe instead:** type its address in the box (a friend's PC, a tunnel, a VPS: the sections below); the
+  **default** link puts the shared one back, **last used** the one you typed before. `?server=<address>` in the page
+  address picks one too. A game page that a PC serves over plain http (HOST_UNIVERSE.cmd) offers that PC's universe.
+- **A fork or another Fly app name:** build the game with `VITE_UNIVERSE_URL=wss://<app>.fly.dev/universe` (a GitHub
+  Actions variable on the Pages build, or `.env.local`) and set `app` in `fly.toml`.
+
+### Where it runs (Fly.io)
+
+`Dockerfile` + `fly.toml`: one `shared-cpu-1x` machine (256 MB) in Frankfurt (`fra`, the closest region to Bucharest) that
+never sleeps (`auto_stop_machines = false`, `min_machines_running = 1`: the island clock and the respawn timers keep
+running with nobody on), a 1 GB volume `universe_data` at `/data` for `universe.json`, `profiles\` and the daily
+`backups\` (14 days kept), Fly's TLS in front (`wss://` and `https://` outside, plain WebSocket / HTTP on port 8080 inside),
+a health check on `/health`. The server runs `--universe hyptile --data /data --max-players 24 --reconnect-seconds 120`.
+A deploy or a restart sends SIGTERM: the server tells everyone it is going (the game rejoins by itself), moors the
+captains' boats and writes everything before it stops. The Blackwater stronghold (who holds it) survives restarts too.
+
+`.github/workflows/deploy-universe.yml` deploys the server after every successful Pages build of `main`, from the same
+commit, and writes that commit into the image; `/health` reports it as `build` and the game compares it with its own.
+
+**Cost (estimate, check https://fly.io/pricing):** the machine about US$2 a month, the 1 GB volume about $0.15,
+traffic for a few dozen players a few cents to a dollar (outbound from Europe is about $0.02 per GB). Fly needs a card
+on the account. Around $2 to $3 a month in all; `memory = '512mb'` in fly.toml (about $1.30 more) if it ever runs short.
+
+### The owner's one-time steps
+
+Easiest: double-click **`deploy\SETUP_FLY.cmd`** in the repository. It runs the steps below, skips any that are done,
+keeps a random admin token in your user folder and sets the GitHub secret when the `gh` CLI is installed (otherwise it
+prints the token and where to paste it). By hand, in the repository folder:
+
+1. Install flyctl: `powershell -Command "iwr https://fly.io/install.ps1 -useb | iex"` (or see fly.io/docs/flyctl/install).
+2. `fly auth signup` (or `fly auth login`): a browser opens; add a card under Billing.
+3. `fly launch --copy-config --yes --no-deploy` (creates the app `hyptile-universe` from fly.toml; if the name is taken,
+   put another in fly.toml and see the fork note above).
+4. `fly volumes create universe_data --size 1 --region fra`
+5. `fly secrets set ADMIN_TOKEN=<a long random string>` (keep it: the admin routes below need it)
+6. `fly deploy` (Fly builds the image remotely; the first one takes a few minutes). Check
+   https://hyptile-universe.fly.dev/health answers `{"ok":true,...}`.
+7. `fly tokens create deploy`, then on GitHub: the repository > Settings > Secrets and variables > Actions > New
+   repository secret, name `FLY_API_TOKEN`, the token as the value. From now on every push to `main` updates both.
+
+### Running it (no console on Fly)
+
+With `ADMIN_TOKEN` set, these answer `Authorization: Bearer <token>` (without a token they do not exist):
+
+```
+curl -H "Authorization: Bearer %TOKEN%" https://hyptile-universe.fly.dev/admin/stats
+curl -X POST -H "Authorization: Bearer %TOKEN%" https://hyptile-universe.fly.dev/admin/save
+curl -X POST -H "Authorization: Bearer %TOKEN%" https://hyptile-universe.fly.dev/admin/backup
+curl -X POST -H "Authorization: Bearer %TOKEN%" -H "Content-Type: application/json" -d "{\"line\":\"ban Somebody griefing\"}" https://hyptile-universe.fly.dev/admin/command
+```
+
+`/admin/command` takes any console command of section 7 except `stop` (`captains`, `kick`, `ban`, `unban`, `release`,
+`announce`...). `fly logs` shows the server log (joins, leaves, bans, saves); `fly ssh console` opens a shell on the
+machine (the saves are in `/data`; `fly ssh sftp get /data/universe.json` copies one out). `fly machine restart` or a
+deploy saves and restarts. Fly also snapshots the volume daily (kept 5 days): `fly volumes snapshots list universe_data`.
+
+## Your own universe on your PC
 
 ## The quick way: HOST_UNIVERSE_TUNNEL.cmd (no port forwarding, no account)
 
