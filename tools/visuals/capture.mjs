@@ -34,8 +34,18 @@ export const VIEWS = {
 	tidemarkNight: { time: 22, weather: 'clear', place: { kind: 'walk', port: 'tidemark' } },
 	blackwaterDusk: { time: 18.35, weather: 'clear', place: { kind: 'fly', pose: { x: - 215, y: 8, z: 1500, yaw: - 1.62, pitch: - 0.08 } } },
 	underwater: { time: 12, weather: 'clear', place: { kind: 'fly', pose: { x: 92, y: - 2.6, z: 64, yaw: 1.2, pitch: 0.12 } } },
+	// wave 18F: the launch at sea in fair weather (the water around the hull) and at golden hour (rim light, glitter)
+	launchSea: { time: 14, weather: 'clear', frames: 150, place: { kind: 'deck', boat: 'launch', x: 200, z: 260, heading: 2.4 } },
+	seaGlitter: { time: 17.2, weather: 'clear', place: { kind: 'fly', pose: { x: 230, y: 2.2, z: 300, yaw: 1.2, pitch: - 0.1 } } },
+	seaNight: { time: 23, weather: 'clear', place: { kind: 'fly', pose: { x: 230, y: 2.2, z: 300, yaw: 2.2, pitch: - 0.12 } } },
+	launchGolden: { time: 17.7, weather: 'clear', frames: 150, place: { kind: 'deck', boat: 'launch', x: 200, z: 260, heading: 1.2 } },
 	// (a manual weather pick eases in over ~25 s: 30 s of frames)
 	storm: { time: 14, weather: 'storm', intensity: 1, frames: 1800, place: { kind: 'deck', boat: 'launch', x: 200, z: 260, heading: 2.4 } },
+	// (rough sea before the launch capsizes: the waves lift the sea above the hull volume's lines)
+	launchRough: { time: 14, weather: 'storm', intensity: 0.45, frames: 360, place: { kind: 'deck', boat: 'launch', x: 200, z: 260, heading: 2.4 } },
+	// the same launch seen from the water 12 m off its quarter (a free camera set once after the placement): where the hull volume showed
+	launchSide: { time: 14, weather: 'storm', intensity: 0.45, frames: 360, place: { kind: 'deck', boat: 'launch', x: 200, z: 260, heading: 2.4 }, eval: 'app.setFreeCam( true ); app.fly.setPose( app.fly.camera.position.clone().set( 192, 2.2, 267 ), - 0.9, - 0.05 );' },
+	launchStormGolden: { time: 17.7, weather: 'storm', intensity: 0.9, frames: 420, place: { kind: 'deck', boat: 'launch', x: 200, z: 260, heading: 1.2 } },
 };
 
 const [ W, H ] = arg( 'size', '1280x720' ).split( 'x' ).map( Number );
@@ -101,15 +111,30 @@ if ( phone ) {
 else app.quality = new Q.Quality( app, { storage: null, query: new URLSearchParams( '?quality=' + tier ) } );
 app.startSession( null, { mode: 'sandbox', restore: false, session: false } );
 app.quality.apply();
+// wave 18F diagnostics: --water-hull=0|1 forces the sea's hull-mask variant; --shadow-soft=0|1 the shadow filter level
+if ( arg( 'water-hull' ) !== null && app.waterMaterial ) app.waterMaterial.hullOverride = Number( arg( 'water-hull' ) );
+if ( arg( 'water-debug' ) !== null && app.waterMaterial ) app.waterMaterial.debugMode.value = Number( arg( 'water-debug' ) );
+// --eval=<js>: a diagnostic statement run once with `app` in scope after the view is set up (e.g. hide a system)
+const evalCode = arg( 'eval' ) ? new Function( 'app', arg( 'eval' ) ) : null;
+if ( arg( 'shadow-soft' ) !== null && app.shadows && app.shadows.setSoft ) app.shadows.setSoft( Number( arg( 'shadow-soft' ) ) );
 if ( app.ui && app.ui.hide ) try { app.ui.hide(); } catch ( e ) { /* (no HUD in shots) */ }
 console.log( 'quality ' + app.quality.describe() );
 
 const perf = {};
 for ( const id of only ) {
 
-	const v = VIEWS[ id ];
+	let v = VIEWS[ id ];
+	// --place=x,z[,heading]: the same view somewhere else (does an artefact follow the boat or stay on the map?)
+	if ( v && arg( 'place' ) && v.place.kind === 'deck' ) {
+
+		const [ px, pz, ph ] = arg( 'place' ).split( ',' ).map( Number );
+		v = { ...v, place: { ...v.place, x: px, z: pz, heading: ph ?? v.place.heading } };
+
+	}
 	if ( ! v ) { console.log( 'unknown view ' + id ); continue; }
 	const set = await setupScenario( app, { id, name: id, ships: [], fire: null, peers: 0, intensity: v.intensity ?? 0, ...v } );
+	if ( evalCode ) evalCode( app );
+	else if ( v.eval ) new Function( 'app', v.eval )( app );
 	const n = v.frames || settle;
 	for ( let i = 0; i < n; i ++ ) {
 
@@ -166,12 +191,39 @@ for ( const id of only ) {
 
 	}
 
+	// --ab-soft (wave 18F): the same interleaved A / B with the soft shadow filter on and off
+	if ( process.argv.includes( '--ab-soft' ) && app.shadows && app.shadows.setSoft ) {
+
+		const on = [], off = [];
+		for ( let b = 0; b < 16; b ++ ) {
+
+			app.shadows.setSoft( b & 1 ? 0 : 1 );
+			for ( let i = 0; i < 10; i ++ ) {
+
+				set.tick( 1 / 60, 0 );
+				const a = performance.now();
+				app.frame( 1 / 60 );
+				await GPU.queue.onSubmittedWorkDone();
+				if ( i >= 2 ) ( b & 1 ? off : on ).push( performance.now() - a );
+
+			}
+
+		}
+
+		app.shadows.setSoft( arg( 'shadow-soft' ) !== null ? Number( arg( 'shadow-soft' ) ) : null );
+		const med = ( v ) => v.sort( ( x, y ) => x - y )[ v.length >> 1 ];
+		perf[ id + ':softOn' ] = Math.round( med( on ) * 100 ) / 100;
+		perf[ id + ':softOff' ] = Math.round( med( off ) * 100 ) / 100;
+		console.log( `  ${ id } soft shadows on ${ perf[ id + ':softOn' ] } ms, off ${ perf[ id + ':softOff' ] } ms` );
+
+	}
+
 	set.undo();
 	console.log( `  ${ id }${ perf[ id ] ? ' ' + perf[ id ] + ' ms' : '' }${ set.info && set.info.notes && set.info.notes.length ? ' (' + set.info.notes.join( '; ' ) + ')' : '' }` );
 
 }
 
-if ( process.argv.includes( '--perf' ) || process.argv.includes( '--ab' ) ) writeFileSync( join( out, `perf-${ profile }.json` ), JSON.stringify( perf, null, '\t' ) );
+if ( process.argv.includes( '--perf' ) || process.argv.includes( '--ab' ) || process.argv.includes( '--ab-soft' ) ) writeFileSync( join( out, `perf-${ profile }.json` ), JSON.stringify( perf, null, '\t' ) );
 if ( gpuErrors.length ) console.log( `${ gpuErrors.length } GPU errors, first: ${ JSON.stringify( gpuErrors[ 0 ] ).slice( 0, 400 ) }` );
 // images met for the first time: decode them now (the next run draws them)
 const pending = readdirSync( cache ).filter( ( f ) => f.endsWith( '.img' ) && ! existsSync( join( cache, f.replace( '.img', '.png' ) ) ) );

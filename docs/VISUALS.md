@@ -44,3 +44,25 @@ waterline), sky-atmosphere, feature-night, ui-settings.
   occluder mesh, not traced.
 - Shadow softness / contact shadows: engine (`src/engine/render/Shadows.js`), root.
 - A Settings slider for the grade: `src/ui/AppUI.js` (see the report).
+
+## Wave 18F: shadows, water, materials (2026-10-14)
+
+Pairs (before left, after right) in `tools/visuals/out/18f/`: `pair-launchSide.png`, `pair-launchStormGolden.png`,
+`pair-seaGlitter.png`, `pair-homeGolden-shadows.png`, `pair-homeGolden-barrel.png`. New views in capture.mjs (`launchSea`,
+`seaGlitter`, `seaNight`, `launchGolden`, then the storm ones last: weather leaks into the next view; `launchRough`,
+`launchSide`, `launchStormGolden`), `--ab-soft`, `--eval`, `--place`, `--water-hull`, and `tools/visuals/crop.mjs` (zoomed side by side).
+
+- The lighter rectangle around hulls: the sea discards its pixels where the hull-volume mask is in front of them (so the boat
+  shows instead of a sea surface through it); the lofted volume stands proud of the launch's gunwale and stern, and there the
+  discard opened a window onto the seabed (green / cyan block, seen in rough water and from outside). Now the discard only
+  happens where the opaque pixel behind is above the volume's lowest corner (`SceneRenderer.hullMaskKeel`, `hullKeel` in the
+  water block). Seen gone in `pair-launchSide` and `pair-launchStormGolden`.
+- Shadows (Medium and up, via `SunShadows.setSoft` / the refit periods Quality sets; phones and Low keep the old filters):
+  bilinear taps with a receiver-plane depth bias, contact hardening on the second cascade too (the penumbra grows away from
+  the caster), the sun disc 1.3x, a wider 5-tap PCF beyond. A/B on the harness is inside its noise (+-0.5 ms).
+- Water (Medium and up; phones keep the plain glint): sun / moon glitter sparks near the camera, a stronger greener crest
+  translucency.
+- Materials: `MATERIAL_DETAIL` (not on phones): +-12 % roughness / +-20 % specular noise on rough dielectrics and the splash
+  zone (darker, glossier, last 0.55 m above the sea). Character rim at golden hour (`CHARACTER_RIM`, strength
+  `SunShadows.rim`; skinned materials only; 0 = off).
+- Test: `node test/visuals-shadows.mjs` (block layout, soft level follows the tier, phones never soft).

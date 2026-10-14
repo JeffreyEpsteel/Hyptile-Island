@@ -17,6 +17,29 @@ import { Color } from '../engine/math/index.js';
 
 const SIDES = { 0: 'front', 1: 'back', 2: 'double', front: 'front', back: 'back', double: 'double' };
 
+// Shared surface detail after every scene material's own snippet (wave 18F; MATERIAL_DETAIL, off on phones):
+//  - a touch of roughness / specular variation on rough dielectrics (wood, cloth, stone, paint): two octaves of
+//    world-space noise, +-12 % roughness and +-20 % specular, so a lit plank wall or a stone quay no longer reads
+//    as one flat sheen
+//  - the splash zone: surfaces in the last half metre above the sea (piles, hull sides, quay stones, rocks)
+//    darker and glossier, with a ragged upper edge, fading out under water (the water's own absorption takes
+//    over there)
+const SURFACE_DETAIL = /* wgsl */`
+#if MATERIAL_DETAIL
+	{
+		let dn = perlin3( in.P * 2.7 ) * 0.6 + perlin3( in.P * 9.1 + vec3f( 3.1, 7.3, 1.7 ) ) * 0.4;
+		if ( s.metalness < 0.5 && s.roughness > 0.35 ) {
+			s.roughness = clamp( s.roughness * ( 1.0 + dn * 0.12 ), 0.05, 1.0 );
+			s.specularIntensity *= 1.0 + dn * 0.2;
+		}
+		let hw = in.P.y - frame.seaLevel;
+		let wet = smoothstep( 0.55, 0.12, hw + dn * 0.12 ) * smoothstep( -0.7, -0.15, hw ) * ( 1.0 - s.metalness );
+		s.albedo *= 1.0 - 0.32 * wet;
+		s.roughness = mix( s.roughness, s.roughness * 0.45, wet );
+	}
+#endif
+`;
+
 function engineParams( params ) {
 
 	const o = { ...params };
@@ -37,6 +60,8 @@ export class SceneMaterial extends Material {
 		super( { ...o, uniforms } );
 		this.isSceneMaterial = true;
 		this.isMeshStandardMaterial = true;
+		// the shared surface detail below (wave 18F): not on phones; a material may pass detail: false
+		if ( this.defines.MATERIAL_DETAIL === undefined ) this.defines.MATERIAL_DETAIL = globalThis.__phoneBudget || o.detail === false ? 0 : 1;
 
 	}
 
@@ -58,7 +83,7 @@ export class SceneMaterial extends Material {
 	// the material's own surface snippet runs after the parameter seeding
 	get surface() {
 
-		return this._prelude() + ( this._surface || '' );
+		return this._prelude() + ( this._surface || '' ) + SURFACE_DETAIL;
 
 	}
 

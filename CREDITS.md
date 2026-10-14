@@ -35,13 +35,14 @@ the end of this file. Every entry was checked against the files in this reposito
 
 ### Microsoft Rocketbox motion capture
 
-Fifteen clips on every playable character are retargeted from the
+Thirty-three clips on every playable character are retargeted from the
 [Microsoft Rocketbox Avatar Library](https://github.com/microsoft/Microsoft-Rocketbox)
 (`Assets/Animations/all_animations_max_motextr_<set>`; list in `tools/roster/rocketbox/clips.json`):
 Idle_Breathe (m_idle_breathe_01), Walk_InPlace (m_walk_neutral_01), Run_InPlace (m_run_neutral_01), Wave (m_wave_01),
 Friendly_Wave (m_wave_02), Talk (m_gestic_talk_neutral_01), Chat_Gesture (m_gestic_talk_relaxed_01), Look_Around
 (m_idle_look_around_01), Cheer_Clap (m_cheer_01), Dance (m_dancing_silly), Laugh (m_gestic_laugh_loud), Shrug
 (m_gestic_shrug_01), Point (m_gestic_presentation_right_01), Beckon (m_invite_sit), Swagger_Idle (m_idle_neutral_03).
+Wave 18 added the way-of-life set: Sit_Chair (m_sit_down_chair_01), Sit_Chair_Idle (m_sit_chair_idle_neutral_01), Stand_From_Chair (m_sit_stand_up_chair_01), Sit_Down (m_sit_down_chair_01), Stand_Up (m_sit_stand_up_chair_01), Drink (m_drink_drinking), Eat (m_idle_touch_face_01), Crouch (m_crouch_idle), Kneel_Work (m_crouch_gestic), Talk_Group (m_gestic_talk_excited_01), Clap (m_claphands_01), Point_Out (m_gestic_presentation_left_01), Fish_Net (m_work_mid), Drunk_Walk (m_walk_drunk), Walk_Tired (m_walk_bruised), Turn_Left (m_turn_left_90), Turn_Right (m_turn_right_90), Dance_2 (m_dancing_cool).
 The vendors' avatars (`public/models/characters`) are Rocketbox too (see the Tidewater section). Licence: **MIT License,
 Copyright (c) 2020 Microsoft** (the full text ships as `tools/roster/rocketbox/LICENSE.md` and
 `public/models/characters/LICENSE-Rocketbox.md`, and is reproduced below).

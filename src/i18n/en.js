@@ -87,6 +87,7 @@ export default {
 	'set.contrast': 'Contrast',
 	'set.vignette': 'Vignette',
 	'set.film_grain': 'Film grain',
+	'set.grade': 'Time of day grade',
 	'set.mute_m': 'Mute (M)',
 	'set.master': 'Master',
 	'set.music': 'Music',

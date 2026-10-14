@@ -88,7 +88,12 @@ export const ShadowUniforms = new UniformBlock( 'SunShadow', {
 	pcssCascades: [ 'u32', 1 ],
 	sunAngularDiameter: [ 'f32', 0.00925 ], // rad (tan of the 0.53 deg angular diameter)
 	enabled: [ 'f32', 0 ],
-	pad: [ 'f32', 0 ],
+	// filter level (wave 18F; SunShadows.setSoft): 0 = the filters below as they were (phones, Low), 1 = soft:
+	// bilinear comparison taps, the contact-hardening filter on the second cascade too, a wider PCF beyond
+	soft: [ 'f32', 0 ],
+	// golden hour rim on characters (CHARACTER_RIM below; rides in this block: it is a sun-visibility term). 0 = off
+	rim: [ 'f32', 0.55 ],
+	pad0: [ 'f32', 0 ], pad1: [ 'f32', 0 ], pad2: [ 'f32', 0 ],
 	// per cascade seam blending (SoftCSMShadowNode): x, y = the cascade's view distance range (m), z / w =
 	// blend band (m) centred on its near / far seam
 	blend: [ 'vec4f[4]', [ new Vector4(), new Vector4(), new Vector4(), new Vector4() ] ],
@@ -145,6 +150,21 @@ fn sunShadowCascade( P: vec3f, N: vec3f, c: i32, noise: f32, pcfNoise: f32 ) -> 
 }
 
 // pcss = false: the 5-tap PCF filter in every cascade (no blocker search)
+// Receiver plane depth bias (soft level): the gradient of the shadow-map depth over the map's uv on the lit surface
+// (from the screen derivatives of P taken at the top of shadeSurface), so a tap a few texels to the side compares
+// against the receiver's own depth there. Without it a filter wider than a texel shadows a surface tilted to the
+// light by itself: the wider kernels drew grain along the low sun's shadow edges. 0 where no derivatives (water).
+fn _shadowReceiverSlope( c: i32, Pb: vec3f, uvz: vec3f ) -> vec2f {
+	let M = shadowParams.matrices[ c ];
+	let a = M * vec4f( Pb + lightDPdx, 1.0 );
+	let b = M * vec4f( Pb + lightDPdy, 1.0 );
+	let dx = vec3f( a.x * 0.5 + 0.5, 0.5 - a.y * 0.5, a.z ) - uvz;
+	let dy = vec3f( b.x * 0.5 + 0.5, 0.5 - b.y * 0.5, b.z ) - uvz;
+	let det = dx.x * dy.y - dx.y * dy.x;
+	if ( abs( det ) < 1e-14 ) { return vec2f( 0.0 ); }
+	return vec2f( dy.y * dx.z - dx.y * dy.z, dx.x * dy.z - dy.x * dx.z ) / det;
+}
+
 fn _sunShadowCascade( P: vec3f, N: vec3f, c: i32, noise: f32, pcfNoise: f32, pcss: bool ) -> f32 {
 	let info = shadowParams.cascades[ c ];
 	let Pb = P + N * info.z;
@@ -153,6 +173,7 @@ fn _sunShadowCascade( P: vec3f, N: vec3f, c: i32, noise: f32, pcfNoise: f32, pcs
 	if ( any( uvz.xy < vec2f( 0.0 ) ) || any( uvz.xy > vec2f( 1.0 ) ) || uvz.z > 1.0 ) { return 1.0; }
 	let z = uvz.z - shadowParams.bias;
 	let texel = 1.0 / shadowParams.mapSize;
+	if ( shadowParams.soft > 0.5 ) { return _sunShadowSoft( c, Pb, uvz, z, texel, info, noise, pcfNoise, pcss ); }
 	if ( pcss && u32( c ) < shadowParams.pcssCascades ) {
 		// moved every frame (Jimenez 2014): a noise pattern fixed on screen would never average out
 		let phi = noise * TWO_PI;
@@ -188,6 +209,52 @@ fn _sunShadowCascade( P: vec3f, N: vec3f, c: i32, noise: f32, pcfNoise: f32, pcs
 	var sum = 0.0;
 	for ( var i = 0; i < 5; i++ ) {
 		sum += _shadowTap( uvz.xy + vogelDiskSample( i, 5, phiP ) * texel, c, z );
+	}
+	return sum / 5.0;
+}
+
+// The soft level (Medium and up; wave 18F). Bilinear comparison taps with the receiver plane depth bias above, and:
+//  - near cascade: the contact-hardening filter with the sun disc drawn 1.3x its real size (the penumbra growing
+//    away from the caster reads at a few metres, under a roof edge or a crown, not only under a 10 m palm)
+//  - second cascade (10-60 m: most of what is seen on foot): a lighter contact-hardening filter (6 search taps,
+//    rotation fixed per pixel: its penumbrae are a few texels and a per-frame rotation left grain the temporal
+//    resolve clipped instead of averaging)
+//  - beyond: 5-tap PCF over 1.6 texels
+fn _sunShadowSoft( c: i32, Pb: vec3f, uvz: vec3f, z: f32, texel: f32, info: vec4f, noise: f32, pcfNoise: f32, pcss: bool ) -> f32 {
+	let range = info.w; // depth range (m)
+	// (the depth step a tap may take: 1.5 m of receiver slope across the kernel, no more)
+	let g = _shadowReceiverSlope( c, Pb, uvz );
+	let gMax = 1.5 / range;
+	if ( pcss && c <= 1 ) {
+		let near = u32( c ) < shadowParams.pcssCascades;
+		let phi = select( pcfNoise, noise, near ) * TWO_PI;
+		let width = info.y * shadowParams.mapSize; // cascade width (m)
+		let SD = shadowParams.sunAngularDiameter * 1.3;
+		let nSearch = select( 6, SHADOW_SEARCH_TAPS, near );
+		let searchUV = max( min( SHADOW_MAX_OCCLUDER_HEIGHT * SD / width, texel * 24.0 ), texel * 1.5 );
+		let d0 = _shadowDepth( uvz.xy, c );
+		var blockSum = select( 0.0, d0, d0 < z );
+		var blockCount = select( 0.0, 1.0, d0 < z );
+		for ( var i = 0; i < nSearch; i++ ) {
+			let o = vogelDiskSample( i, nSearch, phi ) * searchUV;
+			let d = _shadowDepth( uvz.xy + o, c );
+			if ( d < z + clamp( dot( g, o ), - gMax, gMax ) ) { blockSum += d; blockCount += 1.0; }
+		}
+		if ( blockCount < 0.5 ) { return 1.0; }
+		let dz = abs( blockSum / blockCount - z ) * range;
+		let penumbraUV = clamp( dz * SD / width, texel, texel * 32.0 );
+		var sum = 0.0;
+		for ( var i = 0; i < SHADOW_FILTER_TAPS; i++ ) {
+			let o = vogelDiskSample( i, SHADOW_FILTER_TAPS, phi + 1.7 ) * penumbraUV;
+			sum += _shadowTap( uvz.xy + o, c, z + clamp( dot( g, o ), - gMax, gMax ) );
+		}
+		return sum / f32( SHADOW_FILTER_TAPS );
+	}
+	let phiP = pcfNoise * TWO_PI;
+	var sum = 0.0;
+	for ( var i = 0; i < 5; i++ ) {
+		let o = vogelDiskSample( i, 5, phiP ) * texel * 1.6;
+		sum += _shadowTap( uvz.xy + o, c, z + clamp( dot( g, o ), - gMax, gMax ) );
 	}
 	return sum / 5.0;
 }
@@ -431,6 +498,24 @@ fn shadeSurface( s: Surface, P: vec3f, V: vec3f, pixel: vec2f ) -> vec3f {
 	let ccN = s.clearcoatNormal;
 	let ccNL = sat( dot( ccN, L ) );
 	let ccSpec = ccNL * lightColor * BRDF_GGX( L, V, ccN, vec3f( 0.04 ), 1.0, clamp( s.clearcoatRoughness, 0.03, 1.0 ) );
+#endif
+
+#if CHARACTER_RIM && !STUDIO_LIGHTING
+	// ---- golden hour rim (characters: skinnedMaterial, wave 18F): a low sun behind a figure outlines it, the
+	// grazing light caught by skin, hair and cloth fibres at the silhouette (where N.L is about 0 and the
+	// GGX lobe has nothing). Shadowed half a metre toward the sun, past the figure's own body, so it goes out
+	// in the shade of a roof or a sail.
+	{
+		let golden = smoothstep( -0.02, 0.06, L.y ) * smoothstep( 0.5, 0.12, L.y ) * ( 1.0 - frame.night );
+		let edge = 1.0 - sat( dot( N, V ) );
+		let behind = sat( dot( - V, L ) * 0.6 + 0.4 );
+		let rimW = golden * edge * edge * behind * behind * sat( dot( N, L ) + 0.6 );
+		if ( rimW * shadowParams.rim > 0.0005 ) {
+			let Pr = P + L * 0.5;
+			let rimLight = frame.sunColor * hookDirectModulation( Pr, N ) * sunShadowPCF( Pr, L, pixel );
+			acc.directSpecular += rimLight * rimW * mix( vec3f( 1.0 ), s.albedo, 0.35 ) * shadowParams.rim;
+		}
+	}
 #endif
 
 	// ---- local lights (lanterns, windows, boat lights, flashlight)

@@ -124,7 +124,8 @@ ${ surface }
 		surface: code,
 		side: doubleSided ? 'double' : 'front',
 		alphaTest: alphaMode === 'MASK' || alphaMode === 'BLEND' ? alphaCutoff : 0,
-		defines: { HAS_ALBEDO: T.chAlbedo ? 1 : 0, HAS_ORM: T.chOrm ? 1 : 0, HAS_NORMAL: T.chNormal ? 1 : 0, ...defines },
+		// CHARACTER_RIM: the golden hour rim light of render/wgsl/lighting.js (wave 18F; a caller may pass 0)
+		defines: { HAS_ALBEDO: T.chAlbedo ? 1 : 0, HAS_ORM: T.chOrm ? 1 : 0, HAS_NORMAL: T.chNormal ? 1 : 0, CHARACTER_RIM: 1, ...defines },
 	} );
 
 }

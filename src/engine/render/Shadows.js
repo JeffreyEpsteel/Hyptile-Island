@@ -9,7 +9,8 @@ import { Matrix4, Vector3, Vector4 } from '../math/index.js';
 // rotation) and snapped to their texel grid (no shimmer when moving). Near cascade every frame,
 // the next every 2nd, the rest every 4th; a cascade's matrix only changes when its map is rendered.
 // Depth is standard (0 near .. 1 far) with an orthographic projection; the lighting module samples
-// it with PCSS on the near cascade and a 16-tap PCF elsewhere.
+// it with PCSS on the near cascade and a 5-tap PCF elsewhere; the soft level (Medium and up, wave 18F) adds a lighter
+// PCSS on the second cascade and bilinear comparison taps (setSoft, `periods`).
 //
 // Perf (src/core/Quality.js): setSize( texels ) re-makes the map, setReach( m ) moves the last split (the middle
 // one follows), and each cascade skips casters smaller than about a texel (their shadow is a blur of 1-2 texels).
@@ -34,7 +35,8 @@ export class SunShadows {
 		this.count = splits.length;
 		this.lightMargin = lightMargin;
 		this.normalBias = normalBias;
-		this.periods = splits.map( ( _, i ) => i === 0 ? 1 : i === 1 ? 2 : 4 );
+		this._softAuto = true; // until setSoft(): follows the refit periods Quality sets (see `periods`)
+		this._periods = splits.map( ( _, i ) => i === 0 ? 1 : i === 1 ? 2 : 4 );
 		this.texture = new Texture( { label: 'sunShadowMap', width: size, height: size, depth: this.count, dimension: '2d-array', format: 'depth32float', usage: [ 'sample', 'render' ] } );
 		setShadowMap( this.texture );
 		this.cascades = splits.map( ( _, i ) => ( {
@@ -59,8 +61,43 @@ export class SunShadows {
 		U.bias.value = bias;
 		U.pcssCascades.value = pcssCascades;
 		U.enabled.value = 1;
+		this._autoSoft();
 
 	}
+
+	// how often each cascade re-renders (frames). Quality (src/core/Quality.js apply) sets [ 1, 2, 4 ] on Medium and up,
+	// [ 1, 4, 8 ] on Low and tablets, [ 1, 6, 12 ] on phones: until setSoft() is called the filter level follows it
+	get periods() { return this._periods; }
+	set periods( v ) {
+
+		this._periods = v;
+		this._autoSoft();
+
+	}
+
+	_autoSoft() {
+
+		if ( ! this._softAuto ) return;
+		const p = this._periods;
+		ShadowUniforms.fields.soft.value = ! globalThis.__phoneBudget && p && p[ 1 ] <= 2 ? 1 : 0;
+
+	}
+
+	// filter level (wave 18F): 0 = the filters as before (5-tap PCF, contact hardening on the near cascade), 1 = soft
+	// (bilinear taps, contact hardening on the second cascade too, a wider PCF beyond); null = follow the tier again
+	setSoft( level ) {
+
+		this._softAuto = level === null || level === undefined;
+		if ( this._softAuto ) this._autoSoft();
+		else ShadowUniforms.fields.soft.value = level > 0 ? 1 : 0;
+
+	}
+
+	get soft() { return ShadowUniforms.fields.soft.value; }
+
+	// strength of the golden hour rim light on characters (lighting.js CHARACTER_RIM; 0 = off)
+	get rim() { return ShadowUniforms.fields.rim.value; }
+	set rim( v ) { ShadowUniforms.fields.rim.value = v; }
 
 	// seam blend band (m) at view distance d (SoftCSMShadowNode: max( 0.25 e^2, 0.25 e ) of the normalized
 	// break e, times the shadow distance): 2.5 m at the 10 m seam, 15 m at 60 m, 100 m fade-out at 400 m

@@ -4,10 +4,11 @@ import { Material } from './Material.js';
 import { FullscreenPass } from './FullscreenPass.js';
 import { Mesh } from '../scene/Mesh.js';
 import { Scene } from '../scene/Scene.js';
-import { Frustum, Matrix4, Sphere, Vector3 } from '../math/index.js';
+import { Box3, Frustum, Matrix4, Sphere, Vector3 } from '../math/index.js';
 
 const _local = new Vector3();
 const _sphere = new Sphere();
+const _box = new Box3();
 const _frustum = new Frustum();
 const _vp = new Matrix4();
 const _inv = new Matrix4();
@@ -55,6 +56,10 @@ export class SceneRenderer {
 		this.hullMaskMaterial = new Material( { name: 'hullMask', lit: false, side: 'double', surface: 's.albedo = vec3f( length( in.P - frame.cameraPos ), 0.0, 0.0 ); s.emissive = vec3f( 0.0 );' } );
 		this.hullMasks = [];
 		this.hullMaskActive = { value: 0 };
+		// world y of the lowest corner of the active hull volumes (the water keeps its surface where the opaque
+		// surface behind it is below this: seabed, not the boat). Rides on hullMaskActive for the WaterMaterial.
+		this.hullMaskKeel = { value: - 1e4 };
+		this.hullMaskActive.keel = this.hullMaskKeel;
 		// background: an object with draw( renderPassEncoder ) using SCENE_FORMATS + DEPTH_FORMAT,
 		// depth compare 'equal' at depth 0 (see Sky)
 		this.background = null;
@@ -100,7 +105,7 @@ export class SceneRenderer {
 
 	_renderHullMasks( camera ) {
 
-		let active = 0;
+		let active = 0, keel = Infinity;
 		_frustum.setFromProjectionMatrix( _vp.multiplyMatrices( camera.projectionMatrix, camera.matrixWorldInverse ) );
 		for ( const h of this.hullMasks ) {
 
@@ -110,11 +115,17 @@ export class SceneRenderer {
 			_local.setFromMatrixPosition( camera.matrixWorld ).applyMatrix4( _inv.copy( h.object.matrixWorld ).invert() );
 			const on = ! h.box.containsPoint( _local ) && _frustum.intersectsSphere( _sphere.copy( h.sphere ).applyMatrix4( h.object.matrixWorld ) );
 			h.mesh.visible = on;
-			if ( on ) active ++;
+			if ( on ) {
+
+				active ++;
+				keel = Math.min( keel, _box.copy( h.box ).applyMatrix4( h.object.matrixWorld ).min.y );
+
+			}
 
 		}
 
 		this.hullMaskActive.value = active > 0 ? 1 : 0;
+		this.hullMaskKeel.value = active > 0 ? keel : - 1e4;
 		if ( ! active ) return;
 		const rt = this.hullMaskRT;
 		this.meshRenderer.render( this.hullMaskScene, {

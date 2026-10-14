@@ -87,6 +87,7 @@ export default {
 	'set.contrast': 'Contrast',
 	'set.vignette': 'Vignetă',
 	'set.film_grain': 'Granulație de film',
+	'set.grade': 'Gradare după ora zilei',
 	'set.mute_m': 'Fără sunet (M)',
 	'set.master': 'General',
 	'set.music': 'Muzică',

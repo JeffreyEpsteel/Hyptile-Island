@@ -80,6 +80,7 @@ export class WaterMaterial extends Material {
 				ssr: [ 'f32', 1 ], // screen-space reflections on/off
 				debugMode: [ 'i32', 0 ],
 				hullActive: [ 'f32', 0 ],
+				hullKeel: [ 'f32', - 1e4 ], // world y of the lowest point of the masked hulls (SceneRenderer)
 				// near-surface water lit by a lamp (diffuse radiance per unit wrapped irradiance, 1 / PI included):
 				// the green-blue the top metre of sea water scatters back
 				lampTint: [ 'vec3f', new Vector3( 0.035, 0.1, 0.095 ) ],
@@ -126,6 +127,7 @@ export class WaterMaterial extends Material {
 		this.hullMaskActive = hullMaskActive;
 		// the renderer's { value } handle drives the uniform directly
 		if ( hullMaskActive ) this.uniformBlock.fields.hullActive = hullMaskActive;
+		if ( hullMaskActive && hullMaskActive.keel ) this.uniformBlock.fields.hullKeel = hullMaskActive.keel;
 
 		this._built = false;
 
@@ -174,6 +176,7 @@ export class WaterMaterial extends Material {
 			this.localLights && waterLampsModule ].filter( Boolean );
 		this.setDefine( 'WATER_LAMPS', this.localLights ? 1 : 0 );
 		this.setDefine( 'WATER_LAMPS_SPEC_ONLY', globalThis.__phoneBudget || this.localLightsCheap ? 1 : 0 );
+		this.setDefine( 'WATER_GLITTER', globalThis.__phoneBudget || this.glitter === false ? 0 : 1 );
 		this.bindings.waterSceneColor = { texture: this.sceneColorTexture };
 		this.bindings.waterSceneDepth = { texture: this.sceneDepthTexture, sampleType: 'unfilterable-float' };
 		if ( this.sceneDepthHalfTexture ) this.bindings.waterSceneDepthHalf = { texture: this.sceneDepthHalfTexture };
@@ -237,7 +240,15 @@ export class WaterMaterial extends Material {
 	if ( mat.hullActive > 0.5 && in.front ) {
 		let mSize = vec2f( textureDimensions( waterHullMask ) );
 		let hullDist = textureLoad( waterHullMask, vec2i( clamp( screenUV, vec2f( 0.0 ), vec2f( 0.9999 ) ) * mSize ), 0 ).x;
-		if ( hullDist > 0.01 && length( pos - frame.cameraPos ) > hullDist - 0.02 ) { discard; }
+		// Only where the opaque surface behind this pixel is part of the boat (above its keel): the hull volume
+		// is lofted from the lines plan and stands proud of some hull models (wave 18F: the launch's volume
+		// is higher than its gunwale and longer than its stern), and there the discard opened a lighter
+		// window onto the seabed (or the sky) around the hull. The seabed under a floating hull is below
+		// its keel; nothing drawn (0) is the sky.
+		if ( hullDist > 0.01 && length( pos - frame.cameraPos ) > hullDist - 0.02 ) {
+			let dB = _waterSceneDepthAt( screenUV );
+			if ( dB > 0.0 && worldFromDepth( screenUV, dB ).y > mat.hullKeel ) { discard; }
+		}
 	}
 #endif
 
@@ -384,6 +395,13 @@ ${ REFL ? `
 		let spec = _waterDGGX( NdH, alpha2 ) * _waterVSmithGGX( NdL, NdV, alpha2 ) * Fs * NdL;
 		// physically the glint is ~1e5x brighter than the sky; clamp to stay inside fp16 range
 		let sunSpec = sunLight * min( spec, 400.0 );
+#if WATER_GLITTER
+		// sparks: single capillary facets tilted into the mirror direction well outside the glint's own lobe
+		// (wave 18F; phones keep the plain glint). Sun by day, the moon by night (sunLight is the moon then).
+		let sparkle = sunLight * ( _waterGlitter( lagXZ, footprint, N, V, L ) * Fs * 60.0 * ( 1.0 - sat( foam ) ) );
+#else
+		let sparkle = vec3f( 0.0 );
+#endif
 
 		// ---- refraction / water volume
 		// Trace the refracted view ray (Snell) to the sea floor instead of using the straight
@@ -532,7 +550,8 @@ ${ hasMedium ? `		// surf zone: sand and bubbles stirred up by the breakers (see
 		// side-lit waves glow green too, not only when looking straight into the sun)
 		let back = pow( sat( dot( vH, - lH ) * 0.6 + 0.4 ), 2.5 );
 		let crest = sat( vHeight * 0.9 + 0.1 ) * ( sat( ( 1.0 - N.y ) * 4.0 ) + 0.25 );
-		let sssCol = vec3f( 0.12, 0.55, 0.45 ) * 0.06;
+		// (wave 18F: a little stronger and greener: the crests against a low sun read as lit glass)
+		let sssCol = vec3f( 0.1, 0.6, 0.45 ) * 0.075;
 		let sss = sunLight * sssCol * back * crest * mat.sss * smoothstep( 0.0, 0.25, L.y );
 
 		// the bead of the meniscus shades the sand right under it
@@ -545,7 +564,7 @@ ${ SF ? '		let foamLit = surfFoamLight( surf.foamInfo, N, L, V, sunLight, pos );
 
 		// a thin bright rim just behind the edge: the rounded bead catches the sky
 		let rim = smoothstep( 0.0, 0.025, frontD ) * smoothstep( 0.1, 0.035, frontD ) * uprush;
-		let water = mix( transmitted, reflCol, F ) + sunSpec + skyRefl * ( 0.22 * rim );
+		let water = mix( transmitted, reflCol, F ) + sunSpec + sparkle + skyRefl * ( 0.22 * rim );
 		// ---- lamps and the flashlight (LocalLights block, after the sun / sky terms): the wrapped diffuse
 		// lights the near-surface water (what the Fresnel lets in) and the foam, plus the GGX glint
 		var lampLit = vec3f( 0.0 );
@@ -672,6 +691,24 @@ const WATER_BEHIND: f32 = 0.05;
 fn _waterRefrUV( ndc: vec2f ) -> vec2f {
 	let n = ( ndc - vec2f( ${ _g6( RG.cx ) }, ${ _g6( RG.cy ) } ) ) / vec2f( ${ _g6( RG.sx ) }, ${ _g6( RG.sy ) } );
 	return clamp( vec2f( n.x * 0.5 + 0.5, 0.5 - n.y * 0.5 ), vec2f( 0.0005 ), vec2f( 0.9995 ) );
+}
+// Sun glitter (WATER_GLITTER): one candidate facet per 11 cm cell of the surface, on in about half the cells,
+// tilted at random within +-14 deg of the shading normal and re-drawn ~5 times a second (each cell on its own
+// beat): the ones that land on the mirror direction flash as a dot. Near water only (the footprint of a pixel
+// under ~5 cm): farther out the GGX roughness already spreads the glint over the unresolved facets.
+fn _waterGlitter( xz: vec2f, footprint: f32, N: vec3f, V: vec3f, L: vec3f ) -> f32 {
+	let near = smoothstep( 0.06, 0.02, footprint );
+	if ( near <= 0.0 || L.y <= 0.0 ) { return 0.0; }
+	let q = xz * ( 1.0 / 0.11 );
+	let cell = vec2i( floor( q ) );
+	let beat = u32ToUnit( ihash3( vec3i( cell, 7 ) ).x );
+	let h = ihash3( vec3i( cell, i32( floor( frame.time * 5.0 + beat * 5.0 ) ) ) );
+	let r = vec3f( u32ToUnit( h.x ), u32ToUnit( h.y ), u32ToUnit( h.z ) );
+	if ( r.z < 0.5 ) { return 0.0; }
+	let Nf = normalize( N + vec3f( r.x - 0.5, 0.0, r.y - 0.5 ) * 0.5 );
+	let a = smoothstep( 0.9965, 0.9995, dot( Nf, normalize( L + V ) ) );
+	let dotMask = smoothstep( 0.45, 0.15, length( fract( q ) - 0.5 ) );
+	return a * dotMask * near;
 }
 fn _waterDGGX( NdH: f32, a2: f32 ) -> f32 {
 	let d = NdH * NdH * ( a2 - 1.0 ) + 1.0;
