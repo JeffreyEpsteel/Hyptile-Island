@@ -638,6 +638,8 @@ export function buildHouse( ctx, s ) {
 				const closed = rand.chance( s.closedChance ?? 0.12 );
 				const lit = windowUnit( B, rand, px, baseY + 0.88, winW, winH, { ...st, closed, closedPattern: st.shutters === 'louver' ? 4 : 3 } );
 				if ( lit && wl.front ) litWindows.push( B.toWorld( lit.x, lit.y, 0.35 ) );
+				// (wave 18C) the towns dress openings (window boxes): the wall frame, its outer face at local z = 0
+				if ( s.onOpening ) s.onOpening( { kind: 'window', x: px, sillY: baseY + 0.88, story: sIdx, wall: wi, front: !! wl.front, frame: B.frame.clone(), shutters: st.shutters, closed } );
 
 			}
 
@@ -646,6 +648,7 @@ export function buildHouse( ctx, s ) {
 		if ( wl.front ) {
 
 			doorUnit( B, rand, doorX, floorY, st );
+			if ( s.onOpening ) s.onOpening( { kind: 'door', x: doorX, sillY: floorY, story: 0, wall: wi, front: true, frame: B.frame.clone() } );
 			if ( s.lantern !== false ) {
 
 				const lw = wallLantern( B, doorX + 0.78, floorY + 1.95, 0.0, rand.next() );
@@ -1020,7 +1023,7 @@ export function buildHouse( ctx, s ) {
 	fr.addBoxL( 0, ( bodyBot + roofTop ) / 2, 0, w / 2 + 0.06, ( roofTop - bodyBot ) / 2, d / 2 + 0.06, { tag: 'house' } );
 
 	return {
-		floorY, roofTop,
+		floorY, roofTop, eaveY: yE, storyH, stories, porchDepth: pd,
 		footprint: { x, z, r: Math.hypot( w, d + Math.max( pd, annexD ) * 2 ) / 2 + 0.8, kind: 'building' },
 	};
 

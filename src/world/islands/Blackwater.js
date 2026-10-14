@@ -4,6 +4,7 @@ import { createPropMaterial, PAT } from '../../game/GameMaterials.js';
 import { buildJetty } from './Jetty.js';
 import { WOOD, WOODX, STONE, rng, frameAt, cottage, palm, lantern, cullParts } from './IslandKit.js';
 import { strongholdLayout, bw, bwYaw } from './stronghold/Layout.js';
+import { TownKit, createGlowMaterial } from '../village/TownKit.js';
 import { STRONGHOLD_KINDS, strongholdPlan } from './stronghold/Kinds.js';
 import { rngFor } from '../../features/destruction/Kinds.js';
 import { ensureBlackwater } from './BlackwaterTerrain.js';
@@ -17,6 +18,8 @@ import { blackwaterLandGeometry } from './BlackwaterMesh.js';
 //
 //   const isle = new Blackwater( { scene, terrain, colliders } );
 //   isle.group, isle.lights (LocalLights sources), isle.update( dt ) (distance culling), isle.distance (camera, m)
+//   isle.seats [ { id, x, y, z, yaw } ] (the Rum Hole bench, the fire logs: blackwaterSeats()), isle.kit (the town kit:
+//   kit.ready resolves once its GLB is merged in); BLACKWATER_SHACKS (wave 18C: the stilt shacks behind the crescent)
 //   isle.structures   Map id -> Mesh: the breakable palisade runs, gun platforms and powder stores drawn here while the
 //                     destruction feature does not own them (setStructuresDrawn( false ) once it does); setBroken( id, on )
 //   isle.setSilenced( batteryId, on )   the guns of a broken battery slump on their carriages
@@ -52,6 +55,10 @@ export class Blackwater {
 		this._t = 0;
 		this.rnd = rng( 1717 );
 
+		// the town kit (wave 18C: signs, rum barrels, skull poles, net racks, lanterns; merged under the near mesh once loaded)
+		this.kit = new TownKit( { name: 'blackwater', material: this.material, glowMaterial: createGlowMaterial( 'blackwaterGlow' ) } );
+		this.kit.enabled = true;
+		this.seats = blackwaterSeats( terrain );
 		const P = [];
 		const add = ( g, o ) => P.push( prepare( g, o ) );
 		this._town( add, colliders );
@@ -61,6 +68,7 @@ export class Blackwater {
 		near.name = 'BlackwaterProps';
 		near.castShadow = true;
 		this.group.add( near );
+		this.kit.ready = this.kit.attach( near );
 
 		// the landmark: the watchtower (its bell its own mesh, it swings) and the flag
 		const T = [];
@@ -126,20 +134,30 @@ export class Blackwater {
 	_town( add, colliders ) {
 
 		const rnd = this.rnd;
+		const kit = this.kit;
 		for ( const b of this.L.town ) {
 
 			const F = frameAt( b.x, this._y( b.x, b.z ), b.z, b.yaw );
 			if ( b.kind === 'tavern' ) {
 
 				cottage( add, F, { w: b.w, d: b.d, storeys: 2, wall: 0x6a5642, plank: true, roof: TAR, trim: 0x3a2a22, tin: true } );
-				// the sign over the door: a board on two chains, a painted bottle
-				add( box( 2.4, 0.7, 0.08 ), { ...WOOD( 0x3b2a1e ), matrix: F.m( 0, 3.3, b.d / 2 + 0.6 ) } );
-				add( box( 0.3, 0.55, 0.1 ), { color: 0xa8692c, rough: 0.5, matrix: F.m( - 0.6, 3.3, b.d / 2 + 0.66 ) } );
-				add( box( 0.05, 0.6, 0.05 ), { color: 0x333333, metal: 0.7, matrix: F.m( 1.0, 3.9, b.d / 2 + 0.6 ) } );
-				add( box( 0.05, 0.6, 0.05 ), { color: 0x333333, metal: 0.7, matrix: F.m( - 1.0, 3.9, b.d / 2 + 0.6 ) } );
-				// barrels and a bench out front
+				roofPatches( add, F, b.w, b.d, 5.2, 0.55, rnd );
+				// the name board on the wall (the kit), else the old board on two chains with a painted bottle
+				kit.place( 'sign_rumhole', F.m( 0, 3.95, b.d / 2 + 0.02, 0, 0, 0, 0.9 ) );
+				if ( ! kit.enabled ) {
+
+					add( box( 2.4, 0.7, 0.08 ), { ...WOOD( 0x3b2a1e ), matrix: F.m( 0, 3.3, b.d / 2 + 0.6 ) } );
+					add( box( 0.3, 0.55, 0.1 ), { color: 0xa8692c, rough: 0.5, matrix: F.m( - 0.6, 3.3, b.d / 2 + 0.66 ) } );
+
+				}
+
+				// barrels and a bench out front (townlife's obstacles and seats mirror these), rum barrels on a rack by the side
 				for ( const s of [ - 1, 1 ] ) add( cylinder( 0.36, 0.36, 0.85, 10 ), { ...WOOD( 0x6b4a2c ), matrix: F.m( s * ( b.w / 2 - 0.3 ), 0.72, b.d / 2 + 0.9 ) } );
 				add( box( 2.2, 0.1, 0.45 ), { ...WOOD( 0x5a4632 ), matrix: F.m( 1.6, 0.75, b.d / 2 + 1.4 ) } );
+				for ( const s of [ - 1, 1 ] ) add( box( 0.1, 0.7, 0.4 ), { ...WOOD( 0x4a3a2a ), matrix: F.m( 1.6 + s * 0.95, 0.38, b.d / 2 + 1.4 ) } );
+				kit.place( 'rum_barrels', F.m( b.w / 2 + 1.3, 0, 0.6, 0, Math.PI / 2, 0 ) );
+				// a string of lanterns across the front under the eaves
+				lanternString( add, kit, F, - b.w / 2 + 0.2, b.w / 2 - 0.2, 2.75, b.d / 2 + 0.25, 7 );
 				const [ lx, lz ] = F.world( 0, b.d / 2 + 0.7 );
 				this.lights.push( lantern( add, lx, F.y + 2.6, lz, { intensity: 8 } ) );
 				if ( colliders ) colliders.addBox( new Vector3( F.x, F.y + 3, F.z ), new Vector3( b.w / 2 + 0.15, 3, b.d / 2 + 0.15 ), b.yaw, { tag: 'bwTavern' } );
@@ -147,23 +165,60 @@ export class Blackwater {
 			} else if ( b.kind === 'market' ) {
 
 				cottage( add, F, { w: b.w, d: b.d, wall: 0x4f4538, plank: true, roof: RUST, tin: true, chimney: false } );
-				// the fence's awning and his table of goods
-				add( box( b.w + 0.4, 0.06, 2.4 ), { color: 0x6b2a24, rough: 0.8, matrix: F.m( 0, 2.45, b.d / 2 + 1.1, - 0.22, 0, 0 ) } );
+				roofPatches( add, F, b.w, b.d, 2.6, 0.55, rnd );
+				// the fence's awning (a stained sail, ragged edge) and his table of goods
+				add( box( b.w + 0.4, 0.06, 2.4 ), { color: 0x6b2a24, rough: 0.8, pattern: PAT.cloth, matrix: F.m( 0, 2.45, b.d / 2 + 1.1, - 0.22, 0, 0 ) } );
+				for ( let k = 0; k < 7; k ++ ) add( box( 0.5, 0.05, 0.3 + rnd() * 0.3 ), { color: 0x5e2420, rough: 0.9, pattern: PAT.cloth, matrix: F.m( - b.w / 2 + 0.4 + k * ( b.w / 6 ), 2.15, b.d / 2 + 2.35, - 1.2, 0, 0 ) } );
 				for ( const s of [ - 1, 1 ] ) add( box( 0.12, 2.3, 0.12 ), { ...WOOD( 0x4a3a2a ), matrix: F.m( s * ( b.w / 2 + 0.1 ), 1.15, b.d / 2 + 2.2 ) } );
 				add( box( 2.6, 0.08, 0.9 ), { ...WOOD( 0x5a4632 ), matrix: F.m( 0, 0.9, b.d / 2 + 1.3 ) } );
 				for ( let k = 0; k < 4; k ++ ) add( box( 0.42, 0.32, 0.36 ), { ...WOODX( 0x7a5a3a ), matrix: F.m( - 0.9 + k * 0.6, 1.1, b.d / 2 + 1.3, 0, rnd() * 0.4, 0 ) } );
 				add( cylinder( 0.3, 0.3, 0.7, 10 ), { color: 0x2b2b2b, rough: 0.6, matrix: F.m( b.w / 2 + 0.6, 0.35, b.d / 2 + 0.6 ) } );
+				kit.place( 'sign_blackmarket', F.m( 0, 2.55, b.d / 2 + 2.32, 0, 0, 0, 0.72 ) );
+				kit.place( 'skull_pole', F.m( - b.w / 2 - 1.2, 0, b.d / 2 + 0.4, 0, 0.4, 0 ) );
 				const [ lx, lz ] = F.world( 0, b.d / 2 + 2.0 );
 				this.lights.push( lantern( add, lx, F.y + 2.2, lz, { intensity: 6, range: 9 } ) );
 				if ( colliders ) colliders.addBox( new Vector3( F.x, F.y + 1.6, F.z ), new Vector3( b.w / 2 + 0.15, 1.6, b.d / 2 + 0.15 ), b.yaw, { tag: 'bwMarket' } );
 
+			} else if ( b.kind === 'store' ) {
+
+				cottage( add, F, { w: b.w, d: b.d, wall: 0x584a3c, plank: true, roof: RUST, tin: true, chimney: true } );
+				roofPatches( add, F, b.w, b.d, 2.6, 0.55, rnd );
+				for ( let k = 0; k < 5; k ++ ) add( box( 0.6, 0.6, 0.6 ), { ...WOODX( 0x7a5a3a ), matrix: F.m( - 2 + k * 0.9, 0.6 + ( k % 2 ) * 0.6, b.d / 2 + 0.8, 0, rnd() * 0.5, 0 ) } );
+				kit.place( 'lantern_wall', F.m( b.w / 2 - 0.5, 2.5, b.d / 2 + 0.02 ) );
+				if ( colliders ) colliders.addBox( new Vector3( F.x, F.y + 1.6, F.z ), new Vector3( b.w / 2 + 0.15, 1.6, b.d / 2 + 0.15 ), b.yaw, { tag: 'bwHut' } );
+
 			} else {
 
-				cottage( add, F, { w: b.w, d: b.d, wall: [ 0x584a3c, 0x4c4236, 0x62503e ][ Math.floor( rnd() * 3 ) ], plank: true, roof: rnd() < 0.5 ? RUST : TAR, tin: true, chimney: b.kind === 'store' } );
-				if ( b.kind === 'store' ) for ( let k = 0; k < 5; k ++ ) add( box( 0.6, 0.6, 0.6 ), { ...WOODX( 0x7a5a3a ), matrix: F.m( - 2 + k * 0.9, 0.6 + ( k % 2 ) * 0.6, b.d / 2 + 0.8, 0, rnd() * 0.5, 0 ) } );
+				shack( add, kit, F, b.w, b.d, rnd, ( lx, lz ) => { const [ x, z ] = F.world( lx, lz ); return this._y( x, z ); } );
 				if ( colliders ) colliders.addBox( new Vector3( F.x, F.y + 1.6, F.z ), new Vector3( b.w / 2 + 0.15, 1.6, b.d / 2 + 0.15 ), b.yaw, { tag: 'bwHut' } );
 
 			}
+
+		}
+
+		// wave 18C: more shacks on stilts behind the crescent's line (the den grows up the slope), net racks by the huts,
+		// skull poles at the town's ends
+		for ( const s of BLACKWATER_SHACKS ) {
+
+			const F = frameAt( s.x, this._y( s.x, s.z ), s.z, s.yaw );
+			shack( add, kit, F, s.w, s.d, rnd, ( lx, lz ) => { const [ x, z ] = F.world( lx, lz ); return this._y( x, z ); } );
+			if ( colliders ) colliders.addBox( new Vector3( F.x, F.y + 1.8, F.z ), new Vector3( s.w / 2 + 0.15, 1.8, s.d / 2 + 0.15 ), s.yaw, { tag: 'bwShack' } );
+
+		}
+
+		for ( const id of [ 'hut1', 'hut2' ] ) {
+
+			const b = this.L.town.find( ( q ) => q.id === id );
+			const F = frameAt( b.x, this._y( b.x, b.z ), b.z, b.yaw );
+			kit.place( 'netrack', F.m( ( id === 'hut1' ? 1 : - 1 ) * ( b.w / 2 + 2.6 ), 0, - 0.4, 0, Math.PI / 2, 0 ) );
+
+		}
+
+		for ( const id of [ 'hut3', 'hut4' ] ) {
+
+			const b = this.L.town.find( ( q ) => q.id === id );
+			const F = frameAt( b.x, this._y( b.x, b.z ), b.z, b.yaw );
+			kit.place( 'skull_pole', F.m( ( id === 'hut3' ? 1 : - 1 ) * ( b.w / 2 + 1.6 ), 0, b.d / 2 + 1.0 ) );
 
 		}
 
@@ -187,6 +242,16 @@ export class Blackwater {
 		}
 
 		add( box( 1.0, 0.12, 0.2 ), { ...WOOD( 0x2a2016 ), matrix: mat4( pit.x, py + 0.15, pit.z, 0, 0.6, 0 ) } );
+		add( box( 0.9, 0.12, 0.18 ), { ...WOOD( 0x2a2016 ), matrix: mat4( pit.x, py + 0.2, pit.z, 0, - 0.5, 0.15 ) } );
+		// the embers glow at night, and the fire lights the faces round it; logs to sit on (blackwaterSeats)
+		kit.glow( sphere( 0.42, 8, 4, 0, Math.PI * 2, 0, Math.PI / 2 ), { color: 0x2a1a10, lit: 0.9, matrix: mat4( pit.x, py + 0.05, pit.z, 0, 0, 0, 1, 0.5, 1 ) } );
+		this.lights.push( { position: new Vector3( pit.x, py + 0.8, pit.z ), color: new Color( 1.0, 0.5, 0.2 ), intensity: 10, range: 11, kind: 'lantern', flicker: 0.35 } );
+		for ( const L of FIRE_LOGS ) {
+
+			const x = pit.x + Math.cos( L.a ) * L.r, z = pit.z + Math.sin( L.a ) * L.r;
+			add( cylinder( 0.2, 0.22, 1.5, 8 ), { ...WOOD( 0x5a4430 ), matrix: mat4( x, this._y( x, z ) + 0.2, z, 0, Math.PI / 2 - L.a, Math.PI / 2, 1, 1, 1, 'YXZ' ) } );
+
+		}
 
 	}
 
@@ -371,5 +436,175 @@ export class Blackwater {
 		if ( this.material && this.material.dispose ) this.material.dispose();
 
 	}
+
+}
+
+// ---- wave 18C: the den's looks (plain data and GeoKit helpers)
+
+// the extra shacks on stilts behind the crescent's line, between the old buildings (island u, v; they face the cove like
+// the town). Colliders tagged bwShack; townlife can read this list for its walkers' obstacles.
+export const BLACKWATER_SHACKS = [ [ - 130.3, - 20 ], [ - 130.3, 20 ], [ - 113.8, - 54 ], [ - 113.8, 54 ], [ - 90.6, - 78 ], [ - 90.6, 78 ] ].map( ( [ u, v ], i ) => {
+
+	const q = bw( u, v );
+	return { id: 'shack' + ( i + 1 ), u, v, x: q.x, z: q.z, yaw: bwYaw( - 10 - u, - v ), w: 3.6, d: 3.2 };
+
+} );
+
+// logs round the fire pit (a ring of 2 m round bw( -112, 18 )): people sit on them
+const FIRE_LOGS = [ { a: 0.4, r: 2.0 }, { a: 2.5, r: 2.0 }, { a: 4.4, r: 2.0 } ];
+
+// where people sit: the Rum Hole's bench (two places; the bench at 0.75 m) and the logs round the fire (two each)
+export function blackwaterSeats( terrain ) {
+
+	const L = strongholdLayout();
+	const out = [];
+	const y = ( x, z ) => ( terrain && terrain.heightAt ? terrain.heightAt( x, z ) : 0 );
+	const rum = L.town.find( ( b ) => b.kind === 'tavern' );
+	const F = frameAt( rum.x, y( rum.x, rum.z ), rum.z, rum.yaw );
+	for ( const [ k, lx ] of [ [ 'a', 1.2 ], [ 'b', 2.0 ] ] ) {
+
+		const [ x, z ] = F.world( lx, rum.d / 2 + 1.4 );
+		out.push( { id: 'blackwater.bench.' + k, x, y: F.y + 0.8, z, yaw: rum.yaw } );
+
+	}
+
+	const pit = bw( - 112, 18 );
+	FIRE_LOGS.forEach( ( L2, i ) => {
+
+		for ( const [ k, off ] of [ [ 'a', - 0.4 ], [ 'b', 0.4 ] ] ) {
+
+			// along the log (its tangent), facing the fire
+			const tx = - Math.sin( L2.a ), tz = Math.cos( L2.a );
+			const x = pit.x + Math.cos( L2.a ) * L2.r + tx * off, z = pit.z + Math.sin( L2.a ) * L2.r + tz * off;
+			out.push( { id: `blackwater.log.${ i }.${ k }`, x, y: y( x, z ) + 0.42, z, yaw: Math.atan2( pit.x - x, pit.z - z ) } );
+
+		}
+
+	} );
+	return out;
+
+}
+
+// tin patches over a cottage roof (IslandKit.cottage's pitch: slope, half = d / 2 + 0.35): odd sheets of other colours
+function roofPatches( add, F, w, d, H, slope, rnd ) {
+
+	const half = d / 2 + 0.35, rise = half * Math.tan( slope ), top = 0.3 + H;
+	for ( const s of [ - 1, 1 ] ) for ( let k = 0; k < 3; k ++ ) {
+
+		const t = 0.25 + rnd() * 0.55, x = ( rnd() - 0.5 ) * ( w - 1.2 );
+		const c = [ 0x7a4a30, 0x8c9296, 0x5a3d2c, 0x3a3a38 ][ Math.floor( rnd() * 4 ) ];
+		add( box( 0.9 + rnd() * 0.5, 0.03, 1.0 + rnd() * 0.4 ), { color: c, rough: 0.7, metal: 0.4, pattern: PAT.rusty, matrix: F.m( x, top + rise * ( 1 - t ) + 0.13, s * half * t, s * slope, ( rnd() - 0.5 ) * 0.2, 0 ) } );
+
+	}
+
+}
+
+// a sagging line of lanterns between two points of the front (x0 .. x1 at height y, z out from the wall): the line in
+// the prop mesh, the lantern glass in the kit's glow mesh
+function lanternString( add, kit, F, x0, x1, y, z, n ) {
+
+	const sag = 0.35, pts = [];
+	for ( let k = 0; k <= 12; k ++ ) {
+
+		const t = k / 12;
+		pts.push( [ x0 + ( x1 - x0 ) * t, y - sag * 4 * t * ( 1 - t ) ] );
+
+	}
+
+	for ( let k = 0; k < 12; k ++ ) {
+
+		const [ ax, ay ] = pts[ k ], [ bx, by ] = pts[ k + 1 ];
+		add( box( Math.hypot( bx - ax, by - ay ) + 0.01, 0.015, 0.015 ), { color: 0x2a2620, rough: 0.9, matrix: F.m( ( ax + bx ) / 2, ( ay + by ) / 2, z, 0, 0, Math.atan2( by - ay, bx - ax ) ) } );
+
+	}
+
+	for ( let k = 1; k <= n; k ++ ) {
+
+		const t = k / ( n + 1 ), x = x0 + ( x1 - x0 ) * t, yy = y - sag * 4 * t * ( 1 - t ) - 0.14;
+		kit.glow( cylinder( 0.07, 0.07, 0.16, 6 ), { color: [ 0x8a5a2a, 0x6a2a20, 0x8a7a3a ][ k % 3 ], lit: 0.8, matrix: F.m( x, yy, z ) } );
+		add( cylinder( 0.08, 0.02, 0.05, 6 ), { color: 0x1c1a18, rough: 0.6, metal: 0.5, matrix: F.m( x, yy + 0.1, z ) } );
+
+	}
+
+}
+
+// a ramshackle plank shack on stilts: uneven ground is taken by the stilts (ground( lx, lz ) the height under a local point),
+// a front deck, walls of odd vertical planks (a door gap, a shuttered window), a patched tin roof, a stovepipe, a ragged
+// sailcloth lean-to and a lantern by the door (glow). ~1.2k triangles.
+function shack( add, kit, F, w, d, rnd, ground ) {
+
+	const corners = [ [ - w / 2, - d / 2 ], [ w / 2, - d / 2 ], [ w / 2, d / 2 + 1.1 ], [ - w / 2, d / 2 + 1.1 ], [ 0, 0 ] ];
+	const gs = corners.map( ( [ lx, lz ] ) => ground( lx, lz ) - F.y );
+	const floor = Math.max( ...gs ) + 0.45;
+	const tones = [ 0x5e4c3a, 0x4e4032, 0x6a5641, 0x584a3a, 0x3e342a, 0x6e5e4a ];
+	// stilts and the floor (the deck runs 1.1 m out in front)
+	for ( const [ lx, lz ] of [ [ - w / 2 + 0.15, - d / 2 + 0.15 ], [ w / 2 - 0.15, - d / 2 + 0.15 ], [ w / 2 - 0.15, d / 2 - 0.1 ], [ - w / 2 + 0.15, d / 2 - 0.1 ], [ w / 2 - 0.2, d / 2 + 1.0 ], [ - w / 2 + 0.2, d / 2 + 1.0 ] ] ) {
+
+		const g = ground( lx, lz ) - F.y - 0.3, h = floor - g;
+		add( box( 0.16, h, 0.16 ), { ...WOOD( 0x3a3026 ), matrix: F.m( lx, g + h / 2, lz, ( rnd() - 0.5 ) * 0.06, 0, ( rnd() - 0.5 ) * 0.06 ) } );
+
+	}
+
+	add( box( w + 0.2, 0.12, d + 0.2 ), { ...WOODX( 0x4e4032 ), matrix: F.m( 0, floor - 0.06, 0 ) } );
+	for ( let k = 0; k < 5; k ++ ) add( box( 0.2 + rnd() * 0.04, 0.06, w - 0.1 ), { ...WOOD( tones[ k % 6 ] ), matrix: F.m( - w / 2 + 0.3 + k * ( w - 0.6 ) / 4, floor, d / 2 + 0.55, 0, Math.PI / 2, 0 ) } );
+	const H = 2.3;
+	// walls: odd planks; the front leaves a door (x -0.4..0.4) and a window (x 0.8..1.4, 1.0..1.7 up)
+	const wall = ( L, place, front ) => {
+
+		const n = Math.ceil( L / 0.32 );
+		for ( let k = 0; k < n; k ++ ) {
+
+			const x = - L / 2 + ( k + 0.5 ) * L / n, h = H + ( rnd() - 0.5 ) * 0.25;
+			if ( front && Math.abs( x ) < 0.45 ) {
+
+				add( box( L / n - 0.02, 0.4, 0.05 ), { ...WOOD( tones[ k % 6 ] ), matrix: place( x, floor + H - 0.2 ) } );
+				continue;
+
+			}
+
+			if ( front && x > 0.75 && x < 1.45 ) {
+
+				add( box( L / n - 0.02, 0.95, 0.05 ), { ...WOOD( tones[ ( k + 2 ) % 6 ] ), matrix: place( x, floor + 0.47 ) } );
+				add( box( L / n - 0.02, H - 1.75, 0.05 ), { ...WOOD( tones[ ( k + 1 ) % 6 ] ), matrix: place( x, floor + 1.75 + ( H - 1.75 ) / 2 ) } );
+				continue;
+
+			}
+
+			add( box( L / n - 0.02, h, 0.05 ), { ...WOOD( tones[ Math.floor( rnd() * 6 ) ] ), matrix: place( x, floor + h / 2 ) } );
+
+		}
+
+	};
+	wall( w, ( x, y ) => F.m( x, y, d / 2 ), true );
+	wall( w, ( x, y ) => F.m( x, y, - d / 2 ), false );
+	wall( d, ( x, y ) => F.m( w / 2, y, x, 0, Math.PI / 2, 0 ), false );
+	wall( d, ( x, y ) => F.m( - w / 2, y, x, 0, Math.PI / 2, 0 ), false );
+	// the dark doorway and window behind the gaps, a shutter hanging off one hinge
+	add( box( 0.9, 1.9, 0.02 ), { color: 0x14110e, rough: 1, matrix: F.m( 0, floor + 0.95, d / 2 - 0.06 ) } );
+	add( box( 0.7, 0.8, 0.02 ), { color: 0x14110e, rough: 1, matrix: F.m( 1.1, floor + 1.35, d / 2 - 0.06 ) } );
+	add( box( 0.34, 0.75, 0.04 ), { ...WOOD( 0x6a5641 ), matrix: F.m( 1.65, floor + 1.25, d / 2 + 0.08, 0, - 0.5, 0.2 ) } );
+	// the roof: a single pitch falling to the back, sheets of tin each a little askew
+	const rise = 0.7, run = d + 0.9, ang = Math.atan2( rise, run );
+	for ( let k = 0; k < 4; k ++ ) {
+
+		const x = - w / 2 - 0.15 + ( k + 0.5 ) * ( w + 0.3 ) / 4;
+		const c = [ 0x7a4a30, 0x8c9296, 0x5a3d2c, 0x6b6f72, 0x3a3a38 ][ Math.floor( rnd() * 5 ) ];
+		add( box( ( w + 0.3 ) / 4 + 0.12, 0.03, Math.hypot( rise, run ) + 0.1 ), { color: c, rough: 0.65, metal: 0.45, pattern: PAT.rusty, matrix: F.m( x, floor + H + 0.1 + rise / 2 + ( rnd() - 0.5 ) * 0.04, 0.15, - ang, ( rnd() - 0.5 ) * 0.05, ( rnd() - 0.5 ) * 0.05 ) } );
+
+	}
+
+	// a rock or two weighing the tin down, the stovepipe
+	add( sphere( 0.16, 6, 4 ), { ...STONE( 0x2e2c2a ), matrix: F.m( - w * 0.25, floor + H + 0.5, 0.2 ) } );
+	add( cylinder( 0.08, 0.08, 1.2, 8 ), { color: 0x2b2522, rough: 0.6, metal: 0.5, pattern: PAT.rusty, matrix: F.m( w / 2 - 0.5, floor + H + 0.75, - d / 4 ) } );
+	add( cylinder( 0.16, 0.1, 0.12, 8 ), { color: 0x2b2522, rough: 0.6, metal: 0.5, matrix: F.m( w / 2 - 0.5, floor + H + 1.4, - d / 4 ) } );
+	// the lean-to: a stained sail on two poles over the deck
+	for ( const s of [ - 1, 1 ] ) add( box( 0.08, 2.0, 0.08 ), { ...WOOD( 0x3e342a ), matrix: F.m( s * ( w / 2 - 0.2 ), floor + 1.0, d / 2 + 1.05 ) } );
+	add( box( w - 0.2, 0.03, 1.4 ), { color: [ 0xb8ac94, 0x8a7a64, 0x6b2a24 ][ Math.floor( rnd() * 3 ) ], rough: 0.95, pattern: PAT.cloth, matrix: F.m( 0, floor + 2.1, d / 2 + 0.55, 0.28, 0, ( rnd() - 0.5 ) * 0.06 ) } );
+	// the lantern by the door
+	add( box( 0.03, 0.03, 0.3 ), { color: 0x1c1a18, rough: 0.6, metal: 0.5, matrix: F.m( - 0.65, floor + 1.95, d / 2 + 0.15 ) } );
+	kit.glow( cylinder( 0.07, 0.07, 0.17, 6 ), { color: 0x6a4a2a, lit: rnd() < 0.7 ? 0.9 : 0, matrix: F.m( - 0.65, floor + 1.75, d / 2 + 0.3 ) } );
+	// a crate and a barrel on the deck
+	add( box( 0.5, 0.45, 0.5 ), { ...WOODX( 0x7a5a3a ), matrix: F.m( w / 2 - 0.5, floor + 0.23, d / 2 + 0.6, 0, rnd(), 0 ) } );
+	add( cylinder( 0.25, 0.25, 0.7, 10 ), { ...WOOD( 0x5a4028 ), matrix: F.m( - w / 2 + 0.45, floor + 0.35, d / 2 + 0.6 ) } );
 
 }

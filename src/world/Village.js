@@ -1,12 +1,14 @@
 import { BufferGeometry, Color, Euler, Group, Mesh, Vector3 } from '../engine/index.js';
 import { mulberry32 } from '../util/Noise.js';
-import { Builder, Batch } from './village/GeoBuilder.js';
+import { Builder, Batch, mat4 } from './village/GeoBuilder.js';
 import { createVillageMaterials } from './village/VillageMaterials.js';
 import { VillageTextures } from './village/TextureBaker.js';
 import { buildHouse, buildBoathouse, buildMarketStall, buildShed } from './village/Buildings.js';
 import { buildBoardwalk } from './village/Boardwalk.js';
 import { buildPier, PIER } from './Pier.js';
 import { G } from '../engine/render/Frame.js';
+import { TownKit, createGlowMaterial } from './village/TownKit.js';
+import { createPropMaterial } from '../game/GameMaterials.js';
 import {
 	InstancedProps, Rand, lin, C, WOOD, rowboat, netRack, fishRack, fence, laundryLine, oar, buoy,
 	bench, ropeCoil, pathLight, lampPost, bucket, wreck,
@@ -59,6 +61,25 @@ const CURTAINS = [ lin( 0xe8d6b0 ), lin( 0xd98c7a ), lin( 0x9cc0d8 ), lin( 0xf0e
 
 const _lanternEuler = new Euler();
 
+// the plaza's two benches [ x, z, yaw ] and where people sit on them (18B's residents): two places each, facing the yaw
+export const VILLAGE_BENCHES = [ [ 36.2, - 108.2, 0.9 ], [ 45.8, - 108.6, - 0.85 ] ];
+export function villageSeats( terrain ) {
+
+	const out = [];
+	VILLAGE_BENCHES.forEach( ( [ x, z, yaw ], i ) => {
+
+		for ( const [ k, lx ] of [ [ 'a', - 0.4 ], [ 'b', 0.4 ] ] ) {
+
+			const sx = x + lx * Math.cos( yaw ), sz = z - lx * Math.sin( yaw );
+			out.push( { id: `village.bench.${ i }.${ k }`, x: sx, y: terrain.heightAt( x, z ) + 0.46, z: sz, yaw } );
+
+		}
+
+	} );
+	return out;
+
+}
+
 export class Village {
 
 	constructor( { scene, terrain, colliders } ) {
@@ -100,8 +121,17 @@ export class Village {
 		], { width: 1.8, startY: foot.y + 0.24, lightEvery: 70 } );
 		this._plaza( ctx( this.town ) );
 
+		// wave 18C: window boxes on about half the cottages up the slope (the town kit; their own random stream)
+		this.kit = new TownKit( { name: 'village', material: createPropMaterial( 'villageKit' ), glowMaterial: createGlowMaterial( 'villageGlow' ) } );
+		const boxRand = new Rand( mulberry32( 5150 ) );
 		for ( const s of specs.houses ) {
 
+			if ( ! s.harbor && s.foundation !== 'stilts' && boxRand.chance( 0.5 ) ) s.onOpening = ( o ) => {
+
+				if ( o.kind !== 'window' || ! o.front || o.closed || o.shutters === 'bahama' || ( o.story === 0 && s.porch ) ) return;
+				this.kit.place( boxRand.chance( 0.5 ) ? 'flowerbox_a' : 'flowerbox_b', o.frame.clone().multiply( mat4( o.x, o.sillY - 0.24, 0.01 ) ) );
+
+			};
 			const B = s.harbor ? this.harbor : this.town;
 			const res = buildHouse( ctx( B ), s );
 			this.buildings.push( { name: s.name, x: s.x, z: s.z, floorY: res.floorY, roofTop: res.roofTop, stilts: s.foundation === 'stilts', footprint: res.footprint } );
@@ -245,9 +275,9 @@ export class Village {
 		const { B, terrain, colliders, rand, lights } = ctx;
 		// benches, a lamp and some barrels around the market stall
 		const g = ( x, z ) => terrain.heightAt( x, z );
-		bench( B, 36.2, g( 36.2, - 108.2 ), - 108.2, 0.9, 1.6, rand.next(), lin( 0x4f8fa0 ) );
+		bench( B, VILLAGE_BENCHES[ 0 ][ 0 ], g( VILLAGE_BENCHES[ 0 ][ 0 ], VILLAGE_BENCHES[ 0 ][ 1 ] ), VILLAGE_BENCHES[ 0 ][ 1 ], VILLAGE_BENCHES[ 0 ][ 2 ], 1.6, rand.next(), lin( 0x4f8fa0 ) );
 		colliders.addBox( new Vector3( 36.2, g( 36.2, - 108.2 ) + 0.45, - 108.2 ), new Vector3( 0.85, 0.45, 0.3 ), 0.9, { tag: 'bench' } );
-		bench( B, 45.8, g( 45.8, - 108.6 ), - 108.6, - 0.85, 1.6, rand.next(), lin( 0xb05a45 ) );
+		bench( B, VILLAGE_BENCHES[ 1 ][ 0 ], g( VILLAGE_BENCHES[ 1 ][ 0 ], VILLAGE_BENCHES[ 1 ][ 1 ] ), VILLAGE_BENCHES[ 1 ][ 1 ], VILLAGE_BENCHES[ 1 ][ 2 ], 1.6, rand.next(), lin( 0xb05a45 ) );
 		colliders.addBox( new Vector3( 45.8, g( 45.8, - 108.6 ) + 0.45, - 108.6 ), new Vector3( 0.85, 0.45, 0.3 ), - 0.85, { tag: 'bench' } );
 		const lw = lampPost( B, 44.3, g( 44.3, - 106.2 ), - 106.2, - 2.4, 3.3, rand.next() );
 		lights.push( { position: lw, color: new Color( 1.0, 0.72, 0.42 ), intensity: 5, kind: 'lantern' } );
@@ -612,6 +642,10 @@ export class Village {
 			this.group.add( mesh );
 
 		}
+
+		// the kit's window boxes merge in under the first village mesh once its GLB is in (the village is in world space)
+		this.kit.ready = this.meshes.length ? this.kit.attach( this.meshes[ 0 ], { cullDistance: 260, cullRadius: 90 } ) : Promise.resolve( null );
+		this.seats = villageSeats( this.terrain );
 
 		// release the CPU-side builders
 		this.B = this.harbor = this.town = null;

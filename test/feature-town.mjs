@@ -340,7 +340,7 @@ const near = BUILDINGS.map( ( b ) => {
 ok( Math.min( ...near ) > 60, 'the airstrip is clear of the town\'s buildings', 'nearest shell ' + Math.min( ...near ).toFixed( 0 ) + ' m from the runway' );
 const hg = EXTRA.find( ( e ) => e.id === 'hangar' );
 ok( onStrip( hg.x, hg.z ) && Math.abs( t.heightAt( hg.x, hg.z ) - A.y ) < 0.05 && Math.hypot( A.hangar.x - hg.x, A.hangar.z - hg.z ) < 0.2, 'the hangar stands on the apron (WORLD.tidemark.airstrip.hangar)' );
-ok( TM.stats.edgeLights >= 20 && TM.lights.length <= 4, 'runway edge lights are emissive (no local lights); the island adds 4 lights at most', TM.stats.edgeLights + ' edge lights, ' + TM.lights.length + ' island lights + ' + ports.tidemarkPort.lights.length + ' at the stalls' );
+ok( TM.stats.edgeLights >= 20 && TM.lights.length <= 10, 'runway edge lights are emissive (no local lights); the island adds 10 lights at most (wave 18C: five street lamps)', TM.stats.edgeLights + ' edge lights, ' + TM.lights.length + ' island lights + ' + ports.tidemarkPort.lights.length + ' at the stalls' );
 ok( TM.stats.palms >= 30 && TM.stats.treeCount >= 60, 'palms on the beach, woodland on the hills', TM.stats.palms + ' palms, ' + TM.stats.treeCount + ' trees' );
 
 // distance culling: from home the town is hidden, the far terrain and the lookout stay; close up the town draws

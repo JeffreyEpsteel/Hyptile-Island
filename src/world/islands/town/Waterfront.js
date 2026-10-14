@@ -11,10 +11,50 @@ import { FACE, SPOTS } from './Layout.js';
 // head is WORLD.tidemark.dock), the timber wharf in front of the quay's south end, the market booth of the trade cell and
 // the well's stone base (its roof is a breakable prop). Static geometry into `add`; colliders; returns the lights.
 //
-//   const wf = buildWaterfront( { terrain, add, colliders } )   wf.lights   wf.pierTop   wf.quayTop
+//   const wf = buildWaterfront( { terrain, add, colliders } )   wf.lights   wf.pierTop   wf.quayTop   wf.seats
+//   STREET (the street furniture the town kit draws), tidemarkSeats( terrain ) (the benches' places, for the residents)
 
 export const QUAY_TOP = 2.45;
 const QUAY = { u0: - 166, u1: - 158, v0: - 82, v1: 70 };
+
+// The street furniture (wave 18C; island coordinates u, v; yawOff from FACE: 0 = the piece's front toward the bay). The
+// town kit (village/TownKit.js) draws them, Buildings.js places them; the lamp lights and the seats are plain data here.
+//   lamps     iron street lamps along the quay and the back lane (light: a LocalLights lantern at night)
+//   benches   park benches round the square and along the quay (18B seats people on them: tidemarkSeats())
+//   planters  half-barrel tubs with flowers; fountain: the square's fountain (a collider); netracks: nets drying
+export const STREET = {
+	lamps: [
+		{ u: - 152, v: - 30, light: true }, { u: - 152, v: 30, light: true }, { u: - 154, v: 13.5, light: true },
+		{ u: - 152, v: - 72, light: false }, { u: - 152, v: 58, light: false },
+		{ u: - 105, v: - 45, light: true }, { u: - 105, v: 45, light: true }, { u: - 105, v: - 12, light: false },
+	],
+	benches: [
+		{ u: - 118, v: - 8, yawOff: 0 }, { u: - 108, v: 12, yawOff: Math.PI / 2 }, { u: - 128, v: 24, yawOff: Math.PI },
+		{ u: - 153, v: - 52, yawOff: 0 }, { u: - 153, v: - 12, yawOff: 0 }, { u: - 153, v: 24, yawOff: 0 }, { u: - 153, v: 45, yawOff: 0 },
+	],
+	planters: [ { u: - 152, v: - 40 }, { u: - 152, v: - 19 }, { u: - 152, v: 18 }, { u: - 130, v: - 9.5 }, { u: - 108.5, v: - 9 } ],
+	fountain: { u: - 121, v: 0, r: 2.55 },
+	netracks: [ { u: - 151, v: - 56, yawOff: 0 }, { u: - 146, v: - 86, yawOff: 0 } ],
+};
+
+// where people can sit: two places per bench, { id, x, y (the seat), z, yaw (the way a sitter faces) }
+export function tidemarkSeats( terrain ) {
+
+	const out = [];
+	STREET.benches.forEach( ( b, i ) => {
+
+		const Fb = F( terrain, b.u, b.v, b.yawOff );
+		for ( const [ k, lx ] of [ [ 'a', - 0.45 ], [ 'b', 0.45 ] ] ) {
+
+			const [ x, z ] = Fb.world( lx, 0.05 );
+			out.push( { id: `tidemark.bench.${ i }.${ k }`, x, y: Fb.y + 0.46, z, yaw: Fb.yaw } );
+
+		}
+
+	} );
+	return out;
+
+}
 
 const F = ( terrain, u, v, yawOff = 0, y = null ) => {
 
@@ -138,11 +178,23 @@ export function buildWaterfront( { terrain, add, colliders = null } ) {
 
 	}
 
-	for ( const [ u, v, r ] of [ [ - 118, - 8, 0 ], [ - 108, 12, Math.PI / 2 ], [ - 128, 24, Math.PI ] ] ) {
+	// the fountain's basin (the kit draws it): a low collider
+	{
 
-		const Bn = F( terrain, u, v, r );
-		add( box( 1.8, 0.07, 0.42 ), { ...WOODX( 0x7d6e5a ), matrix: Bn.m( 0, 0.45, 0 ) } );
-		for ( const s of [ - 1, 1 ] ) add( box( 0.1, 0.45, 0.38 ), { ...WOOD( 0x5a4a3a ), matrix: Bn.m( s * 0.75, 0.22, 0 ) } );
+		const [ x, z ] = tidemarkWorld( STREET.fountain.u, STREET.fountain.v ), y = terrain.heightAt( x, z );
+		if ( colliders ) colliders.addCylinder( x, z, STREET.fountain.r, y - 0.3, y + 0.62, { tag: 'tidemarkFountain' } );
+
+	}
+
+	// (the benches round the square and along the quay are the town kit's: STREET.benches, placed by Buildings.js)
+
+	// the street lamps' lights (their iron posts are the town kit's; a light only on the ones that matter at night)
+	for ( const L of STREET.lamps ) {
+
+		if ( ! L.light ) continue;
+		const [ x, z ] = tidemarkWorld( L.u, L.v );
+		const y = terrain.heightAt( x, z ) + 3.55;
+		lights.push( { position: new Vector3( x, y, z ), color: new Color( 1.0, 0.74, 0.44 ), intensity: 9, range: 15, kind: 'lantern', flicker: 0.03 } );
 
 	}
 
@@ -156,7 +208,7 @@ export function buildWaterfront( { terrain, add, colliders = null } ) {
 
 	}
 
-	return { lights, pierTop: top, quayTop: QUAY_TOP };
+	return { lights, pierTop: top, quayTop: QUAY_TOP, seats: tidemarkSeats( terrain ) };
 
 }
 
