@@ -376,12 +376,16 @@ for ( const [ id, w, pts ] of [
 // town stands, and the fort on the north headland above the entrance (src/world/islands/Blackwater.js builds it,
 // src/features/pirates/Stronghold.js runs it). The same recipe as the Inverted Isles' atoll; the beach sector also
 // gives the outer west shore a narrow strip of black sand under the summit. Everything is zero beyond `far`.
+// Wave 14D: the island moved from (-55, 688), 480 m ahead of the seaplane's take-off run, to (-120, 1520), beyond
+// the heightmap's south edge on its own 2 m terrain tile (src/world/islands/BlackwaterTerrain.js: the heightmap's islet
+// recipe on the tile, attached like Tidemark's). It is NOT one of ISLETS any more (the heightmap no longer stamps it;
+// ISLETS_BY_ID.blackwater still names it, so WorldLayout and stronghold/Layout derive everything from this centre).
 const BW_AX = axis( 0.97, 0.24 );
 export const BLACKWATER = {
 	id: 'blackwater', name: 'Blackwater',
-	x: - 55, z: 688, ax: BW_AX[ 0 ], az: BW_AX[ 1 ],
+	x: - 120, z: 1520, ax: BW_AX[ 0 ], az: BW_AX[ 1 ],
 	ru: 228, rv: 175, far: 160, shelf: [ 70, 4 ],
-	atoll: [ 105, 85 ], channel: [ 0, 26, 85, 310 ], lagoon: 7, box: true,
+	atoll: [ 105, 85 ], channel: [ 0, 26, 85, 310 ], lagoon: 7, tile: true,
 	outline: [ 70, 14, 22, 4, 5.3, 2.9, - 6.1, 8.4 ],
 	beach: { sector: [ 0.55, 0.85 ], out: [ 6, 26 ], inland: [ - 40, - 20 ] },
 	// the summit behind the town, the north and south rims, the shoulders either side of the entrance
@@ -396,22 +400,35 @@ export const BLACKWATER = {
 	dock: { u0: - 112, u1: - 82, v: 0, width: 2.4, deck: 1.05 },
 };
 
-ISLETS.push( BLACKWATER );
 ISLETS_BY_ID.blackwater = BLACKWATER;
-refreshIsletStacks();
 
-// footpaths: along the crescent behind the docks, and from the town over the north rim to the fort gate
-for ( const [ w, pts ] of [
-	[ 0.9, [ [ - 72, - 84 ], [ - 97, - 66 ], [ - 113, - 44 ], [ - 121, - 20 ], [ - 122, 0 ], [ - 121, 20 ], [ - 113, 44 ], [ - 97, 66 ], [ - 72, 84 ] ] ],
-	[ 0.7, [ [ - 97, - 66 ], [ - 70, - 100 ], [ - 30, - 116 ], [ 20, - 122 ], [ 70, - 116 ], [ 120, - 98 ], [ 160, - 80 ], [ 172, - 72 ] ] ],
-] ) {
+export function blackwaterLocal( x, z ) {
 
-	PATHS.push( { w, pts: pts.map( ( [ u, v ] ) => {
+	return isletLocal( BLACKWATER, x, z );
 
-		const [ x, z ] = isletWorld( BLACKWATER, u, v );
+}
+
+export function blackwaterWorld( u, v ) {
+
+	return isletWorld( BLACKWATER, u, v );
+
+}
+
+// footpaths in island coordinates (the tile wears them in; blackwaterPaths() gives world polylines): along the
+// crescent behind the docks, and from the town over the north rim to the fort gate
+export const BLACKWATER_PATHS = [
+	{ id: 'crescent', w: 0.9, pts: [ [ - 72, - 84 ], [ - 97, - 66 ], [ - 113, - 44 ], [ - 121, - 20 ], [ - 122, 0 ], [ - 121, 20 ], [ - 113, 44 ], [ - 97, 66 ], [ - 72, 84 ] ] },
+	{ id: 'rim', w: 0.7, pts: [ [ - 97, - 66 ], [ - 70, - 100 ], [ - 30, - 116 ], [ 20, - 122 ], [ 70, - 116 ], [ 120, - 98 ], [ 160, - 80 ], [ 172, - 72 ] ] },
+];
+
+export function blackwaterPaths() {
+
+	return BLACKWATER_PATHS.map( ( p ) => ( { id: p.id, w: p.w, pts: p.pts.map( ( [ u, v ] ) => {
+
+		const [ x, z ] = blackwaterWorld( u, v );
 		return [ Math.round( x * 10 ) / 10, Math.round( z * 10 ) / 10 ];
 
-	} ) } );
+	} ) } ) );
 
 }
 

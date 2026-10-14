@@ -181,12 +181,13 @@ for ( const [ id, radius, standUV, roadsUV, approach ] of [
 
 }
 
-// Blackwater (wave 12B): the pirates' island among their patrol lanes, south of the home island (terrain/IslandShape.js
+// Blackwater (wave 12B): the pirates' island among their patrol lanes, far south of the home island (terrain/IslandShape.js
 // BLACKWATER: a volcanic ring round a flooded caldera; src/world/islands/Blackwater.js builds the town and the fort,
 // src/features/pirates/Stronghold.js runs them). Not a port: no harbourmaster, no customs, no market cell; the black market
 // is the stronghold's own. cove: the caldera water; entrance: the gap's seaward mouth (the cliff channel runs from there
 // to `inner`); dock: the main pirate dock on the crescent beach. The island entry carries den: false (the stronghold
-// replaces a den camp) and pirate: true.
+// replaces a den camp) and pirate: true; since wave 14D also tile: true (it lies beyond the heightmap's south edge on its
+// own terrain tile, src/world/islands/BlackwaterTerrain.js). Everything here derives from ISLETS_BY_ID.blackwater.
 {
 
 	const I = ISLETS_BY_ID.blackwater;
@@ -204,7 +205,7 @@ for ( const [ id, radius, standUV, roadsUV, approach ] of [
 		entrance: at( 255, 0 ), inner: at( 90, 0 ),
 		dock: { position: at( D.u1 + 3, D.v + D.width / 2 + 3.5 ), heading: Math.atan2( e.x - s.x, e.z - s.z ), start: s, end: e, deckHeight: D.deck, width: D.width },
 	};
-	WORLD.islands.push( { id: 'blackwater', name: I.name, center, radius, den: false, pirate: true } );
+	WORLD.islands.push( { id: 'blackwater', name: I.name, center, radius, den: false, pirate: true, tile: true } );
 
 }
 

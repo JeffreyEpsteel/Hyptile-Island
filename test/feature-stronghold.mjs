@@ -17,7 +17,8 @@ import { GameState } from '../src/game/GameState.js';
 import { TerrainData } from '../src/world/TerrainData.js';
 import { Colliders } from '../src/world/Colliders.js';
 import { WORLD } from '../src/world/WorldLayout.js';
-import { ISLETS, BLACKWATER } from '../src/world/terrain/IslandShape.js';
+import { ISLETS, ISLETS_BY_ID, BLACKWATER } from '../src/world/terrain/IslandShape.js';
+import { ensureBlackwater, HALF as TILE_HALF } from '../src/world/islands/BlackwaterTerrain.js';
 import { PATROLS, BLACKWATER_PATROLS, MERCHANT_ROUTE, SAFE_ZONES, legs, inSafeZone } from '../src/features/naval/Routes.js';
 import { strongholdLayout } from '../src/world/islands/stronghold/Layout.js';
 import { STRONGHOLD_KINDS, strongholdPlan } from '../src/world/islands/stronghold/Kinds.js';
@@ -33,6 +34,7 @@ const ok = ( c, msg, info = '' ) => {
 const section = ( s ) => console.log( '\n== ' + s );
 const DT = 1 / 20;
 const terrain = new TerrainData();
+const tile = ensureBlackwater( terrain ); // TerrainData's constructor does this once root applies the wave 14D patch (idempotent)
 const L = strongholdLayout();
 
 // ---------------------------------------------------------------- 1. the island in the world
@@ -43,28 +45,34 @@ const isl = WORLD.islands.find( ( i ) => i.id === 'blackwater' );
 	ok( isl && isl.name === 'Blackwater' && isl.den === false && isl.pirate === true, 'WORLD.islands has Blackwater (den: false, pirate: true)' );
 	ok( WORLD.blackwater && WORLD.blackwater.cove && WORLD.blackwater.entrance && WORLD.blackwater.dock, 'WORLD.blackwater: cove, entrance, dock' );
 	ok( ! WORLD.ports.some( ( p ) => p.id === 'blackwater' ), 'not a port (no customs, no market cell, no harbourmaster)' );
-	// footprint: land and the extent
-	let land = 0, edge = 0, shoalEdge = 0, peak = - 99;
+	// footprint: land and the extent (wave 14D: on its own terrain tile beyond the heightmap's south edge)
+	let land = 0, rim = Infinity, shoalRim = Infinity, peak = - 99;
 	const R = 300;
 	for ( let dz = - R; dz <= R; dz += 2 ) for ( let dx = - R; dx <= R; dx += 2 ) {
 
 		const x = BLACKWATER.x + dx, z = BLACKWATER.z + dz;
 		if ( terrain.islandAt( x, z ) !== 'blackwater' ) continue;
 		const h = terrain.heightAt( x, z );
+		const toRim = Math.min( x - tile.x0, tile.x1 - x, z - tile.z0, tile.z1 - z );
 		if ( h > 0.3 ) land += 4;
-		if ( h > 1 ) edge = Math.max( edge, Math.abs( x ), Math.abs( z ) );
-		if ( h > - 2.5 ) shoalEdge = Math.max( shoalEdge, Math.abs( x ), Math.abs( z ) );
+		if ( h > 1 ) rim = Math.min( rim, toRim );
+		if ( h > - 2.5 ) shoalRim = Math.min( shoalRim, toRim );
 		peak = Math.max( peak, h );
 
 	}
 
 	ok( land > 60000 && peak > 50, 'a big volcanic island', `${ ( land / 1e4 ).toFixed( 1 ) } ha of land, peak ${ peak.toFixed( 0 ) } m` );
-	ok( edge < 904 && shoalEdge < 920, 'inside the terrain, clear of the border fade', `land to ${ edge } m, shoal to ${ shoalEdge } m` );
+	ok( tile.z0 >= WORLD.terrainSize / 2 + 6 && tile.x1 - tile.x0 === 2 * TILE_HALF && rim > 140 && shoalRim > 125, 'on its own tile wholly outside the heightmap, inside it clear of its rim fade',
+		`tile z ${ tile.z0 }..${ tile.z1 }, land ${ rim.toFixed( 0 ) } m and shoal ${ shoalRim.toFixed( 0 ) } m from the rim (fade 120 m)` );
 	const d = Math.hypot( BLACKWATER.x - WORLD.boatDock.position.x, BLACKWATER.z - WORLD.boatDock.position.z );
-	ok( d > 600, 'far from the home harbour', d.toFixed( 0 ) + ' m from the pier head' );
-	// open water between its land and every other island's land (sampled on the heightmap)
+	ok( d > 1300, 'far from the home harbour', d.toFixed( 0 ) + ' m from the pier head' );
+	// the seaplane's take-off run from its berth (SITE.berth (0, -20), heading 0: due +z) has open water for 1 km
+	let run = 0;
+	for ( let z = 60; z <= 1400; z += 2 ) { if ( [ - 30, 0, 30 ].some( ( o ) => terrain.heightAt( o, z ) > - 1 ) ) break; run = z + 20; }
+	ok( run > 1000, 'the seaplane take-off run due south is clear of Blackwater', `open water for ${ run } m from the berth` );
+	// open water between its land and every other island's land (the heightmap's south band and the tile)
 	const mine = [], others = {};
-	for ( let z = 260; z <= 1000; z += 4 ) for ( let x = - 760; x <= 760; x += 4 ) {
+	for ( let z = 260; z <= 2000; z += 4 ) for ( let x = - 760; x <= 760; x += 4 ) {
 
 		if ( terrain.heightAt( x, z ) <= 0.3 ) continue;
 		const id = terrain.islandAt( x, z );
@@ -81,8 +89,8 @@ const isl = WORLD.islands.find( ( i ) => i.id === 'blackwater' );
 
 	}
 
-	ok( gap > 200, 'open water to every other island', `${ gap.toFixed( 0 ) } m to ${ gapTo } (400 m does not fit inside the 2048 m heightmap with the eight islands; this is the widest site on the pirates' side)` );
-	ok( ISLETS.filter( ( I ) => I.id === 'blackwater' ).length === 1, 'one terrain entry' );
+	ok( gap > 400, 'open water to every other island', `${ gap.toFixed( 0 ) } m to ${ gapTo }` );
+	ok( ! ISLETS.some( ( I ) => I.id === 'blackwater' ) && ISLETS_BY_ID.blackwater === BLACKWATER && terrain.tiles.filter( ( q ) => q.id === 'blackwater' ).length === 1, 'one terrain entry: its tile (no longer a heightmap islet)' );
 	// the merchant lane and the port approaches stay in open water past it
 	let lane = Infinity;
 	for ( const [ a, b ] of legs( MERCHANT_ROUTE ) ) for ( let s = 0; s <= 1; s += 0.01 ) {
@@ -140,9 +148,19 @@ section( '1b. the patrol lanes (Routes.BLACKWATER_PATROLS)' );
 		const minZ = Math.min( ...route.map( ( p ) => p[ 1 ] ) );
 		let clear = Infinity;
 		for ( const I of ISLETS ) if ( I.id !== 'blackwater' ) for ( const [ a, b ] of legs( route, true ) ) clear = Math.min( clear, segDist( I.x, I.z, a, b ) - Math.max( I.ru, I.rv ) - 30 );
-		ok( w < - 3.5 && minZ > 150 && ! route.some( ( p ) => inSafeZone( p[ 0 ], p[ 1 ] ) ) && clear > 100, `patrol ${ i }: deep water all round Blackwater (highest ${ w.toFixed( 1 ) } m), south of z 150, outside the ports, ${ clear.toFixed( 0 ) } m clear of the other islands` );
+		ok( w < - 3.5 && minZ > 150 && ! route.some( ( p ) => inSafeZone( p[ 0 ], p[ 1 ] ) ) && clear > 100, `patrol ${ i }: deep water all round (highest ${ w.toFixed( 1 ) } m), south of z 150, outside the ports, ${ clear.toFixed( 0 ) } m clear of the other islands` );
 
 	} );
+	// lane 0 keeps the heightmap's south band (between home and Blackwater); the others circle the island on its tile
+	const band = BLACKWATER_PATROLS[ 0 ], ring = BLACKWATER_PATROLS.slice( 1 );
+	ok( band.every( ( p ) => p[ 1 ] >= 380 && p[ 1 ] <= 990 && Math.abs( p[ 0 ] ) < 1024 - 120 ), 'lane 0 patrols the south band (z 380-990) inside the heightmap', band.map( ( p ) => p.join( ',' ) ).join( ' ' ) );
+	const C = WORLD.blackwater.center;
+	ok( ring.length >= 3 && ring.every( ( r ) => r.every( ( p ) => tile.contains( p[ 0 ], p[ 1 ] ) && Math.hypot( p[ 0 ] - C.x, p[ 1 ] - C.z ) < 480 ) ), `${ ring.length } lanes round Blackwater, every waypoint on its tile` );
+	const sides = new Set( ring.flat().map( ( p ) => Math.round( Math.atan2( p[ 1 ] - C.z, p[ 0 ] - C.x ) / ( Math.PI / 2 ) ) & 3 ) );
+	ok( sides.size === 4, 'they cover all four sides of the island' );
+	let shore = Infinity;
+	for ( const r of ring ) for ( const [ a, b ] of legs( r, true ) ) for ( let s = 0; s <= 1; s += 0.02 ) shore = Math.min( shore, tile.coastDistance( a[ 0 ] + ( b[ 0 ] - a[ 0 ] ) * s, a[ 1 ] + ( b[ 1 ] - a[ 1 ] ) * s ).d );
+	ok( shore > 60, 'and keep off its shore', `nearest ${ shore.toFixed( 0 ) } m (coast distance with the shelf)` );
 
 }
 

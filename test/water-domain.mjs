@@ -2,7 +2,7 @@
 // carries the tiles under the domain (the WGSL lookup's maths checked on the CPU), the shore field has the tiles' own
 // fields (non-empty on Tidemark's beaches), the breakers and the shore simulation have Tidemark's beaches, the grass and
 // the trees are planted on the tile (clear of the town, the strip, the roads and the river), the IslandKit stand-ins step
-// back, the water / terrain / grass shaders compose with no new binding, the extra GPU memory stays under 6 MB, and the
+// back, the water / terrain / grass shaders compose with no new binding, the extra GPU memory of the two tiles stays under 9 MB, and the
 // home island's data (heights, shore field, breaker stations, plants, grass mask) are bit-identical.
 //   node test/water-domain.mjs                 checks (no GPU: a stub device)
 //   node test/water-domain.mjs --dawn=<dir>    also compiles the shaders and runs terrainHeightAt / terrainShoreSample on
@@ -87,10 +87,10 @@ const tile = tm.src;
 // ---------------------------------------------------------------- 1. heights: the atlas under the domain
 const L = TT.heightAtlasLayout( T );
 const strip = TT.buildHeightStrip( L );
-ok( L.width === 2048 && L.mainRows === 2048 && L.stripRows === Math.ceil( 661 * 661 / 2048 ), 'height atlas: the domain\'s 2048 x 2048 texels, Tidemark\'s nodes in ' + L.stripRows + ' rows under them' );
+ok( L.width === 2048 && L.mainRows === 2048 && L.stripRows === Math.ceil( tiles.reduce( ( s, t ) => s + t.n * t.n, 0 ) / 2048 ), 'height atlas: the domain\'s 2048 x 2048 texels, Tidemark\'s nodes in ' + L.stripRows + ' rows under them' );
 const beachRuns = TT.tileBeaches( T );
 const probes = [];
-for ( const r of beachRuns ) for ( let k = 0; k < r.pts.length; k += 37 ) {
+for ( const r of beachRuns.filter( ( q ) => q.tile === 'tidemark' ) ) for ( let k = 0; k < r.pts.length; k += 37 ) {
 
 	const [ x, z, nx, nz ] = r.pts[ k ];
 	for ( const d of [ - 30, - 6, 0, 4, 15, 60 ] ) probes.push( [ x + nx * d, z + nz * d ] );
@@ -116,7 +116,7 @@ const fieldCopy = new Float32Array( field.data );
 const gpu = new TerrainGPU( T, field );
 console.log( 'shore field + TerrainGPU', ( performance.now() - t0 ).toFixed( 0 ), 'ms', JSON.stringify( gpu.timings, ( k, v ) => ( typeof v === 'number' ? Math.round( v ) : v ) ) );
 ok( sameBits( field.data, fieldCopy ), 'the home shore field is untouched by the packing' );
-ok( gpu.heightTexture.width === 2048 && gpu.heightTexture.height === 2048 + L.stripRows && gpu.shoreTexture.width === 512 && gpu.shoreTexture.height === 512 + Math.ceil( 330 * 330 / 512 ), 'GPU: height atlas ' + gpu.heightTexture.width + ' x ' + gpu.heightTexture.height + ', shore field ' + gpu.shoreTexture.width + ' x ' + gpu.shoreTexture.height );
+ok( gpu.heightTexture.width === 2048 && gpu.heightTexture.height === 2048 + L.stripRows && gpu.shoreTexture.width === 512 && gpu.shoreTexture.height === 512 + Math.ceil( TT.shoreTileLayout( tiles ).reduce( ( s, t ) => s + t.n * t.n, 0 ) / 512 ), 'GPU: height atlas ' + gpu.heightTexture.width + ' x ' + gpu.heightTexture.height + ', shore field ' + gpu.shoreTexture.width + ' x ' + gpu.shoreTexture.height );
 if ( ! DAWN ) {
 
 	const hu = uploads.filter( ( u ) => u.label === 'terrainHeights' );
@@ -134,7 +134,7 @@ for ( let k = 0; k < tf.data.length; k += 4 ) { if ( tf.data[ k ] < 1e5 ) finite
 ok( finite > 330 * 330 * 0.6 && wet > 330 * 330 * 0.4, 'Tidemark\'s shore field is filled (arrival times, wave directions)', `${ finite } timed, ${ wet } with a direction of ${ 330 * 330 } cells` );
 // at the exposed beaches the waves run shoreward; the lee shore is calm
 let toShore = 0, cnt = 0, lee = 0, leeN = 0;
-for ( const r of beachRuns ) for ( let k = 0; k < r.pts.length; k += 6 ) {
+for ( const r of beachRuns.filter( ( q ) => q.tile === 'tidemark' ) ) for ( let k = 0; k < r.pts.length; k += 6 ) {
 
 	const [ x, z, nx, nz ] = r.pts[ k ];
 	const s = gpu.shoreSampleAt( x + nx * 25, z + nz * 25 );
@@ -195,7 +195,7 @@ const tScatter = performance.now() - t0;
 const home = scatterVegetation( new VegSite( T, {} ), 99, { tiles: false } );
 const KINDS = [ 'palms', 'trees', 'bananas', 'shrubs', 'youngPalms', 'ferns', 'monsteras', 'elephantEars', 'heliconias', 'strelitzias' ];
 ok( KINDS.every( ( k ) => JSON.stringify( recs[ k ].slice( 0, home[ k ].length ) ) === JSON.stringify( home[ k ] ) ) && recs.villagePalms === home.villagePalms, 'the home island\'s plants are bit-identical (first in every list)', `scatter ${ tScatter.toFixed( 0 ) } ms` );
-const added = Object.fromEntries( KINDS.map( ( k ) => [ k, recs[ k ].slice( home[ k ].length ) ] ) );
+const added = Object.fromEntries( KINDS.map( ( k ) => [ k, recs[ k ].slice( home[ k ].length ).filter( ( r ) => tile.contains( r.x, r.z ) ) ] ) );
 const c = recs.tileCounts.tidemark;
 ok( c.trees > 400 && c.palms > 60 && c.shrubs > 300 && c.ferns > 1000 && added.trees.length === c.trees, 'Tidemark is planted: woodland, palms, shrubs, ferns', JSON.stringify( c ) );
 const inTile = ( r ) => tile.contains( r.x, r.z );
@@ -250,7 +250,7 @@ const extra = {
 	breakers: ( st.count - main.count ) * ( 16 + 6 * 16 ),
 };
 const total = Object.values( extra ).reduce( ( a, b ) => a + b, 0 );
-ok( total < 6 * 1024 * 1024, 'the tile costs under 6 MB of GPU memory', JSON.stringify( Object.fromEntries( Object.entries( extra ).map( ( [ k, v ] ) => [ k, ( v / 1048576 ).toFixed( 2 ) + ' MB' ] ) ) ) );
+ok( total < 9 * 1024 * 1024, 'the two tiles cost under 9 MB of GPU memory', JSON.stringify( Object.fromEntries( Object.entries( extra ).map( ( [ k, v ] ) => [ k, ( v / 1048576 ).toFixed( 2 ) + ' MB' ] ) ) ) );
 
 // ---------------------------------------------------------------- 6. the shaders compose (no new binding)
 {
