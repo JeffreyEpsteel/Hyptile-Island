@@ -421,8 +421,26 @@ the residents' schedule, chapel bell on the hour, quay gulls, airstrip run-ups, 
 the black flag, claims, practice swords, the chute, the Kestrel's wheels; the Albatross's second engine voice beats
 against the first (PlaneAudio engines / failed); world map legend, Blackwater "?" until discovered, airstrip and
 parked-plane markers, quest pins (questPin / questPinClear), Tidemark on the map terrain bake.
-13A water / vegetation domain (w13-water-domain.md), 13B quest lines (w13-quests.md), 13D netsync parity (w13-netsync.md):
-in progress.
+13A water / vegetation domain (w13-water-domain.md, 8d34193): the height and shore textures carry the outer terrain
+tiles (TerrainTiles.js) under the home data, so shallow tint, shore waves, swash and breakers reach Tidemark; scatter and
+grass plant the tile; the minimap bakes the tile under the player. 13B quest lines (w13-quests.md, e3d2eeb): seven
+quests in StoryData.W13_CHAINS (A ferry to Tidemark, Wings, The long way round, Rumours from Blackwater, The black flag,
+Hold the line with a raiding sloop that fires on the waterfront, Learn to fight), new Rules (counts, standing gates, step
+payouts, time limits, repeats, plane-only reach), board notices taken through the story, root hooks (contrabandSold,
+powder / Kestrel / chandler discounts, the strip hangar's engine row, Tidemark haul contracts and gunner wages behind
+their quests, sales report the port). 13D netsync (w13-netsync.md, 1148098): PlaneLink (airframe / livery / upgrades,
+the chute, stray and parked planes), StrongholdLink (host-authoritative Blackwater), TownLink (prop respawns,
+hostRequest / askHost), server messages plane / fort / ask with rate limits; the fort state does not survive a universe
+server restart yet.
+
+### Wave 14 (2026-10-14, root + 4 workers): the user's play-test notes
+Asked for: planes visible and findable at the airstrip, the parachute discoverable, cockpits that differ per airframe,
+a replacement boat at every dock and a replacement plane at every landing place, Blackwater further from the seaplane's
+take-off run. Take-off runs measured in the flight model (Jade lifts at 318 m and reaches 30 m at 629 m, Petrel 133 / 387,
+Albatross 504 / 798): Blackwater's shore sat 480 m dead ahead of the berth and nothing else fits in the heightmap's
+south band, so it moves onto its own terrain tile far south (14D, w14-blackwater-tile.md). 14A cockpits per airframe
+(w14-cockpits.md), 14B parked airframes, strip hangar discoverability, bail-out hints, plane delivery sites
+(w14-parked-planes.md), 14C harbour agents at every dock (w14-replacements.md): in progress.
 Root: climb out of the water onto a pier or ledge (Space / W, rise 0.2-2.6 m); the crash toast says where to recover a
 wreck (hangar or yard); the world map refreshes its discovery state.
 
