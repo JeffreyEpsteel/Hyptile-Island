@@ -31,9 +31,11 @@ export const BAIT = {
 
 // crew (wage-earners beyond the skipper) and the daily rate; upkeep is a share of the boat's price per day
 export const CREW = { skiff: 0, canoe: 0, cutter: 0, launch: 1, lobster: 1, trawler: 3, sloop: 4, brigantine: 7 };
+// wave 15B: tuned so a ship's running costs are a real share of a good day's trading (a trawler about $90 a day, a
+// brigantine about $220; a launch about $24) while a skiff or a cutter stays nearly free to run
 export const OPERATING = {
-	wage: 12, // $ per crew member per in-game day
-	upkeep: 0.0012, // of the boat's price per day
+	wage: 16, // $ per crew member per in-game day
+	upkeep: 0.0018, // of the boat's price per day
 	desertDays: 3, // days of unpaid wages before the crew walks off
 	desertedSpeed: 0.6,
 };

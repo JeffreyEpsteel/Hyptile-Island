@@ -12,6 +12,13 @@ import { GOODS, GOOD_IDS, PORTS } from './goods.js';
 // The DOM is built lazily, the first time the window opens with a HUD to put it in (app.ui.ui.hud), and the market
 // rows are built once and updated in place so a click never lands on a button that was just replaced.
 // Everything it shows comes from trade.view( port ); the buttons call trade.buy / trade.sell.
+//
+// Wave 15B, legible first: the Market tab opens on the harbourmaster's board (the five best loads from here, and what
+// the fish hall wants today), then the goods of this port only (what it makes, what it wants, what you carry, what
+// moved) with a chip for all goods. Each row reads: made here / wanted here, a trend arrow over the day and the news
+// behind it, and the best route (where to sell what you hold, else where it sells best, else where to bring it from:
+// margin per crate, hours at your boat's speed, pirate lanes). Costs adds harbour dues, insurance and the Tidemark
+// warehouse; the Ledger adds those costs and the fish halls.
 
 const CSS = /* css */`
 .tr-panel { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -48%); width: min(calc(720 * var(--tw-u)), calc(100vw - 2 * var(--tw-edge))); max-height: 84vh;
@@ -103,6 +110,26 @@ const CSS = /* css */`
 .tr-card .tr-act { gap: var(--tw-1); flex-wrap: wrap; }
 .tr-act .tr-btn { padding: 2px var(--tw-3); font-size: var(--tw-fs-sm); }
 .tr-act .tr-btn[disabled] { opacity: 0.35; cursor: default; }
+.tr-row.is-hidden { display: none; }
+.tr-name i.tr-tagm, .tr-name i.tr-tagw, .tr-name i.tr-tagl { font-style: normal; font-weight: 700; font-size: var(--tw-fs-xs); letter-spacing: 0.06em; text-transform: uppercase; margin-right: 4px; }
+.tr-name i.tr-tagm { color: var(--tw-aqua); }
+.tr-name i.tr-tagw { color: var(--tw-sun); }
+.tr-name i.tr-tagl { color: var(--tw-coral); }
+.tr-why { display: block; color: var(--tw-ink-3); font-size: var(--tw-fs-xs); font-style: italic; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tr-trend { font: 700 var(--tw-fs-sm) var(--tw-mono); text-align: center; display: block; line-height: 1; }
+.tr-trend.is-up { color: var(--tw-aqua); }
+.tr-trend.is-down { color: var(--tw-coral); }
+.tr-trend.is-flat { color: var(--tw-ink-4); }
+.tr-board { margin: 0 0 var(--tw-2); padding: var(--tw-2) var(--tw-3); border-radius: var(--tw-r-md); background: var(--tw-fill); border: 1px solid var(--tw-line); font-size: var(--tw-fs-sm); }
+.tr-board h4 { margin: 0 0 var(--tw-1); font-size: var(--tw-fs-xs); font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--tw-ink-3); display: flex; justify-content: space-between; gap: var(--tw-2); }
+.tr-board h4 span { letter-spacing: 0; text-transform: none; font-weight: 500; }
+.tr-board ol { margin: 0; padding: 0; list-style: none; display: grid; gap: 1px; }
+.tr-board li { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) auto; gap: var(--tw-2); align-items: baseline; }
+.tr-board li b { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tr-board li span { color: var(--tw-ink-3); font-size: var(--tw-fs-xs); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tr-board li em { font: 600 var(--tw-fs-sm) var(--tw-mono); font-style: normal; color: var(--tw-aqua); text-align: right; }
+.tr-board p { margin: var(--tw-1) 0 0; color: var(--tw-ink-2); font-size: var(--tw-fs-xs); }
+.tr-board .is-risk { color: var(--tw-coral); }
 @media (max-width: 760px) {
 	.tr-cols, .tr-row { grid-template-columns: minmax(0, 1.4fr) calc(46 * var(--tw-u)) calc(46 * var(--tw-u)) minmax(0, 1fr) calc(34 * var(--tw-u)) auto; }
 	.tr-spark, .tr-cols span:nth-child(2) { display: none; }
@@ -139,6 +166,7 @@ export class TradePanel {
 		this.kind = 'market';
 		this.tab = 'market';
 		this.loanDays = 3;
+		this.filter = 'port'; // the market rows: 'port' (this port's own goods, the hold, what moved) | 'hold' | 'all'
 		this.isOpen = false;
 		this.msg = null; // { text, bad, at }
 		this._rows = {};
@@ -243,12 +271,14 @@ export class TradePanel {
 
 		const body = this._f.body;
 		body.innerHTML = `
+			<div class="tr-board" data-f="board"></div>
+			<div class="tr-cmp" data-f="filter"></div>
 			<div class="tr-cmp" data-f="cmp"></div>
-			<div class="tr-cols"><span>Goods</span><span>2 days</span><span>Buy</span><span>Sell</span><span data-f="othername">Other port</span><span>Hold</span><span style="text-align:right">Buy / sell</span></div>
+			<div class="tr-cols"><span>Goods</span><span>Day</span><span>Buy</span><span>Sell</span><span data-f="othername">Best route</span><span>Hold</span><span style="text-align:right">Buy / sell</span></div>
 			${ GOOD_IDS.map( ( g ) => `
 			<div class="tr-row" data-good="${ g }">
-				<div class="tr-name"><i class="tr-sw" style="background:${ GOODS[ g ].color }"></i><div><b>${ GOODS[ g ].name }</b><small data-f="meta"></small></div></div>
-				<svg class="tr-spark" viewBox="0 0 64 22" preserveAspectRatio="none"><line data-f="eq" x1="0" x2="64" y1="11" y2="11"></line><polyline data-f="line" points=""></polyline><circle data-f="dot" r="2.2" cx="64" cy="11"></circle></svg>
+				<div class="tr-name"><i class="tr-sw" style="background:${ GOODS[ g ].color }"></i><div><b>${ GOODS[ g ].name }</b><small data-f="meta"></small><span class="tr-why" data-f="why"></span></div></div>
+				<div><svg class="tr-spark" viewBox="0 0 64 22" preserveAspectRatio="none"><line data-f="eq" x1="0" x2="64" y1="11" y2="11"></line><polyline data-f="line" points=""></polyline><circle data-f="dot" r="2.2" cx="64" cy="11"></circle></svg><span class="tr-trend" data-f="trend"></span></div>
 				<div class="tr-num"><b data-f="buy"></b><small data-f="tag"></small></div>
 				<div class="tr-num"><b data-f="sell"></b><small data-f="cond"></small></div>
 				<div class="tr-num" data-f="otherbox"><b data-f="other"></b><small data-f="note"></small><small data-f="age"></small></div>
@@ -270,7 +300,11 @@ export class TradePanel {
 
 		this._f.othername = body.querySelector( '[data-f="othername"]' );
 		this._f.cmp = body.querySelector( '[data-f="cmp"]' );
+		this._f.board = body.querySelector( '[data-f="board"]' );
+		this._f.filter = body.querySelector( '[data-f="filter"]' );
 		this._cmpKey = '';
+		this._boardKey = '';
+		this._filterKey = '';
 
 	}
 
@@ -303,14 +337,70 @@ export class TradePanel {
 
 	}
 
+	// which rows the filter shows
+	shows( r ) {
+
+		if ( this.filter === 'all' ) return true;
+		if ( this.filter === 'hold' ) return r.held > 0;
+		return r.held > 0 || r.made || r.wanted || !! r.event || ( r.trend && r.trend.dir !== 'flat' && r.legal );
+
+	}
+
+	boardHtml( v ) {
+
+		const b = v.board || [];
+		const fish = v.fish && v.fish.wantedName ? `<p>Fish hall: <b>${ esc( v.fish.wantedName ) }</b> wanted today (+${ Math.round( v.fish.bonus * 100 ) }%)${ v.fish.eats.length ? ` · the port likes ${ esc( v.fish.eats.join( ', ' ).toLowerCase() ) }` : '' }${ v.fish.iced ? ' · ice aboard keeps the catch fresh' : '' }</p>` : '';
+		const known = v.identity && v.identity.signature.length ? `<span>${ esc( v.name ) } makes ${ esc( v.identity.signature.join( ', ' ).toLowerCase() ) }</span>` : '';
+		const dues = v.dues && v.dues.fee ? `<p>Harbour dues here: ${ money( v.dues.fee ) } a docking</p>` : '';
+		const rows = b.map( ( x ) => `<li title="${ esc( `Buy at ${ price( x.buy ) }, sells ${ x.rumour ? 'by rumour ' : '' }at ${ price( x.sell ) } in ${ x.toName }; ${ ( x.metres / 1000 ).toFixed( 1 ) } km` ) }"><b>${ esc( x.name ) } to ${ esc( x.toName ) }${ x.rumour ? ' ~' : '' }</b><span class="${ x.lanes ? 'is-risk' : '' }">${ Math.max( 1, Math.round( x.hours ) ) } h · ${ x.lanes ? x.risk : 'safe' } · up to ${ x.room }${ x.fine && v.licence < 1 && ! v.sandbox ? ' · licence' : '' }</span><em>${ signed( x.perCrate ) }/crate</em></li>` ).join( '' );
+		return `<h4>Harbourmaster's board ${ known }</h4>${ rows ? `<ol>${ rows }</ol>` : '<div class="tr-empty">Nothing worth loading here at the prices you know.</div>' }${ fish }${ dues }`;
+
+	}
+
+	// the best-route cell: where the row's good is worth carrying
+	routeCell( r ) {
+
+		const hrs = ( x ) => `${ Math.max( 1, Math.round( x.hours ) ) } h${ x.lanes ? ' · ' + x.risk : '' }`;
+		if ( ! r.legal && ! r.held ) return { b: '-', note: 'contraband here', age: '', cls: 'is-contraband' };
+		const s = r.best;
+		if ( r.held && s ) {
+
+			if ( s.here ) return { b: 'Sell here', note: `${ signed( s.margin ) }/unit on cost`, age: '', cls: s.margin >= 0 ? 'is-up' : 'is-down' };
+			return { b: `${ s.rumour ? '~' : '' }${ esc( s.name ) }`, note: `${ signed( s.margin ) }/unit on cost`, age: hrs( s ), cls: s.margin >= 0 ? 'is-up' : 'is-down' };
+
+		}
+
+		if ( s && ! s.here && s.margin > 0 ) return { b: `${ s.rumour ? '~' : '' }${ esc( s.name ) }`, note: `${ signed( s.perCrate ) }/crate`, age: hrs( s ), cls: 'is-up' };
+		const src = r.source;
+		if ( src && src.margin > 0 ) return { b: `from ${ src.rumour ? '~' : '' }${ esc( src.name ) }`, note: `${ signed( src.perCrate ) }/crate brought here`, age: hrs( src ), cls: 'is-dear' };
+		return { b: '-', note: 'no margin anywhere', age: '', cls: '' };
+
+	}
+
 	refreshMarket( v ) {
 
-		this._f.othername.textContent = v.otherName + ' (last seen)';
+		this._f.othername.textContent = 'Best route';
+		const bk = JSON.stringify( [ v.board, v.fish, v.dues, v.licence ] );
+		if ( bk !== this._boardKey ) {
+
+			this._boardKey = bk;
+			this._f.board.innerHTML = this.boardHtml( v );
+
+		}
+
+		const fk = this.filter;
+		if ( fk !== this._filterKey ) {
+
+			this._filterKey = fk;
+			this._f.filter.innerHTML = `<span>Show</span>${ [ [ 'port', `${ esc( v.name ) }'s goods` ], [ 'hold', 'In the hold' ], [ 'all', 'All goods' ] ].map( ( [ id, n ] ) => `<button data-act="filter" data-filter="${ id }" class="${ id === fk ? 'is-on' : '' }">${ n }</button>` ).join( '' ) }`;
+
+		}
+
 		const key = v.other + '|' + v.ports.map( ( p ) => p.id ).join();
 		if ( key !== this._cmpKey ) {
 
 			this._cmpKey = key;
-			this._f.cmp.innerHTML = `<span>Compare with</span>${ v.ports.map( ( p ) => `<button data-act="cmp" data-port="${ p.id }" class="${ p.id === v.other ? 'is-on' : '' }" title="${ p.seen ? 'Prices you saw there' : 'Only rumours so far' }">${ esc( p.name ) }${ p.seen ? '' : ' ~' }</button>` ).join( '' ) }`;
+			this._f.cmp.innerHTML = `<span>Projected at</span>${ v.ports.map( ( p ) => `<button data-act="cmp" data-port="${ p.id }" class="${ p.id === v.other ? 'is-on' : '' }" title="${ p.seen ? 'Prices you saw there' : 'Only rumours so far' }">${ esc( p.name ) }${ p.seen ? '' : ' ~' }</button>` ).join( '' ) }`;
 
 		}
 
@@ -318,7 +408,15 @@ export class TradePanel {
 
 			const f = this._rows[ r.id ];
 			if ( ! f ) continue;
-			f.meta.innerHTML = `${ r.unit } · ${ r.crates } crate${ r.crates > 1 ? 's' : '' }${ r.perish >= 0.01 ? ` · melts ${ ( r.perish * 100 ).toFixed( 0 ) }%/h` : '' }${ r.event ? ` · <em>${ r.event.pct >= 0 ? '+' : '' }${ r.event.pct }%</em>` : '' }`;
+			f.el.classList.toggle( 'is-hidden', ! this.shows( r ) );
+			const tags = `${ r.made ? '<i class="tr-tagm" title="Made here: cheap, and the stall restocks">made here</i>' : '' }${ r.wanted ? '<i class="tr-tagw" title="Wanted here: dear, until the demand fills up">wanted</i>' : '' }${ r.locked ? '<i class="tr-tagl" title="The guild sells it to licensed merchants only">licence</i>' : '' }`;
+			f.meta.innerHTML = `${ tags }${ r.unit } · ${ r.crates } crate${ r.crates > 1 ? 's' : '' }${ r.perish >= 0.01 ? ` · spoils ${ ( r.perish * 100 ).toFixed( 0 ) }%/h` : '' }${ r.event ? ` · <em>${ r.event.pct >= 0 ? '+' : '' }${ r.event.pct }%</em>` : '' }`;
+			f.why.textContent = r.why || '';
+			f.why.title = r.why || '';
+			const tr = r.trend || { dir: 'flat', pct: 0 };
+			f.trend.textContent = `${ tr.dir === 'up' ? '\u25B2' : tr.dir === 'down' ? '\u25BC' : '\u25B6' } ${ tr.pct > 0 ? '+' : '' }${ tr.pct }%`;
+			f.trend.className = `tr-trend is-${ tr.dir }`;
+			f.trend.title = 'Change over the last day';
 			f.el.classList.toggle( 'is-event', !! r.event );
 			f.buy.textContent = price( r.buy );
 			f.tag.textContent = r.tag;
@@ -326,12 +424,13 @@ export class TradePanel {
 			f.tag.className = r.tag ? `is-${ r.tag }` : '';
 			f.sell.textContent = price( r.sell * ( r.held ? r.cond : 1 ) );
 			f.cond.textContent = r.held && r.cond < 0.995 ? `${ Math.round( r.cond * 100 ) }% condition` : '';
-			f.other.textContent = `${ r.other.rumour ? '~' : '' }${ price( r.other.sell ) }`;
-			f.otherbox.classList.toggle( 'is-stale', r.other.stale || r.other.rumour );
-			const m = r.margin;
-			f.note.textContent = r.other.contraband ? 'contraband there' : `${ signed( m ) }/unit${ r.room > 0 ? ' · up to ' + r.room : '' }`;
-			f.age.textContent = r.other.rumour ? 'rumour' : r.other.age < 1 ? 'seen just now' : `seen ${ hours( r.other.age ) }`;
-			f.note.className = r.other.contraband ? 'is-contraband' : m > 0.5 ? 'is-up' : m < - 0.5 ? 'is-down' : '';
+			const rc = this.routeCell( r );
+			f.other.innerHTML = rc.b;
+			f.otherbox.classList.toggle( 'is-stale', !! ( ( r.best && r.best.rumour ) || ( ! r.best && r.other.rumour ) ) );
+			f.otherbox.title = r.source && r.source.margin > 0 && ! r.held ? `Cheapest to bring here from ${ r.source.name } (${ price( r.source.price ) })` : r.best ? `${ r.best.name }: ${ price( r.best.price ) } a unit${ r.best.rumour ? ' (rumour)' : '' }, ${ ( r.best.metres / 1000 ).toFixed( 1 ) } km` : '';
+			f.note.textContent = rc.note;
+			f.note.className = rc.cls;
+			f.age.textContent = rc.age;
 			f.held.textContent = r.held ? String( r.held ) : '-';
 			f.heldv.textContent = r.held ? `paid ${ money( r.paid ) }` : '';
 			this.spark( f, r );
@@ -392,7 +491,9 @@ export class TradePanel {
 			<h3>Routes</h3>
 			${ routes.length ? `<table class="tr-table"><tr><th>Route</th><th>Sales</th><th>Units</th><th>Sold for</th><th>Profit</th></tr>${ routes.map( ( r ) => `<tr><td>${ esc( r.label ) }</td><td>${ r.sales }</td><td>${ r.units }</td><td>${ money( r.revenue ) }</td><td class="${ r.profit >= 0 ? 'tr-pos' : 'tr-neg' }">${ signed( r.profit ) }</td></tr>` ).join( '' ) }</table>` : '<div class="tr-empty">No routes sailed yet.</div>' }
 			<h3>By goods</h3>
-			${ goods.length ? `<table class="tr-table"><tr><th>Goods</th><th>Units</th><th>Sold for</th><th>Profit</th></tr>${ goods.map( ( x ) => `<tr><td>${ esc( GOODS[ x.g ].name ) }</td><td>${ x.units }</td><td>${ money( x.revenue ) }</td><td class="${ x.profit >= 0 ? 'tr-pos' : 'tr-neg' }">${ signed( x.profit ) }</td></tr>` ).join( '' ) }</table>` : '<div class="tr-empty">Nothing sold yet.</div>' }`;
+			${ goods.length ? `<table class="tr-table"><tr><th>Goods</th><th>Units</th><th>Sold for</th><th>Profit</th></tr>${ goods.map( ( x ) => `<tr><td>${ esc( GOODS[ x.g ].name ) }</td><td>${ x.units }</td><td>${ money( x.revenue ) }</td><td class="${ x.profit >= 0 ? 'tr-pos' : 'tr-neg' }">${ signed( x.profit ) }</td></tr>` ).join( '' ) }</table>` : '<div class="tr-empty">Nothing sold yet.</div>' }
+			${ L.costs ? `<h3>Costs of trading</h3><table class="tr-table"><tr><th>Harbour dues</th><th>Insurance</th><th>Warehouse</th><th>Net profit</th></tr><tr><td style="text-align:right">${ money( L.costs.dues ) }</td><td>${ money( L.costs.insurance ) }</td><td>${ money( L.costs.rent ) }</td><td class="${ ( L.net ?? L.profit ) >= 0 ? 'tr-pos' : 'tr-neg' }">${ signed( L.net ?? L.profit ) }</td></tr></table>` : '' }
+			${ L.fish && L.fish.sold ? `<div class="tr-empty">Fish halls: ${ money( L.fish.sold ) } for the catch, ${ signed( L.fish.bonus ) } for freshness, taste and the wanted fish.</div>` : '' }`;
 
 	}
 
@@ -407,7 +508,7 @@ export class TradePanel {
 	contractsHtml( h ) {
 
 		const lic = h.next
-			? `<div class="tr-card"><div><b>${ esc( h.licence.name ) }</b><small>Next: ${ esc( h.next.name ) }, loads up to ${ h.next.maxCrates } crates${ h.next.standing ? `, needs standing ${ h.next.standing }` : '' }</small></div><div class="tr-act"><button class="tr-btn" data-act="licence">${ h.next.price ? money( h.next.price ) : 'Free' }</button></div></div>`
+			? `<div class="tr-card"><div><b>${ esc( h.licence.name ) }</b><small>Next: ${ esc( h.next.name ) }: ${ esc( h.next.unlocks || '' ) }, loads up to ${ h.next.maxCrates } crates${ h.next.standing ? `, needs standing ${ h.next.standing }` : '' }</small></div><div class="tr-act"><button class="tr-btn" data-act="licence">${ h.next.price ? money( h.next.price ) : 'Free' }</button></div></div>`
 			: `<div class="tr-card"><div><b>${ esc( h.licence.name ) }</b><small>Any load you can carry</small></div></div>`;
 		const act = h.active.map( ( c ) => `<div class="tr-card"><div><b>${ c.qty } ${ esc( c.name.toLowerCase() ) } to ${ esc( c.toName ) }</b><small>${ c.crates } crate${ c.crates > 1 ? 's' : '' } aboard · ${ money( c.reward ) } on delivery${ c.paidDeposit ? ` + ${ money( c.paidDeposit ) } deposit back` : '' } · <span class="${ c.left < 3 ? 'tr-bad' : '' }">${ left( c.left ) }</span>${ c.here ? ' · delivered when you open this stall' : '' }</small></div><div class="tr-act"><button class="tr-btn" data-act="abandon" data-id="${ c.id }" title="The deposit is forfeit">Abandon</button></div></div>` ).join( '' );
 		const offers = h.offers.map( ( o ) => `<div class="tr-card"><div><b>${ o.qty } ${ esc( o.name.toLowerCase() ) } to ${ esc( o.toName ) }</b><small>${ o.crates } crate${ o.crates > 1 ? 's' : '' } · pays ${ money( o.reward ) } · deposit ${ money( o.deposit ) } · ${ o.hours } h${ o.why ? ` · <span class="tr-bad">${ esc( o.why ) }</span>` : '' }</small></div><div class="tr-act"><button class="tr-btn" data-act="accept" data-id="${ o.id }" ${ o.ok ? '' : 'disabled' }>Take it</button></div></div>` ).join( '' );
@@ -435,9 +536,32 @@ export class TradePanel {
 
 	}
 
+	// dues, insurance and the warehouse (wave 15B); d = trade.dues.view(), w = the warehouse view or null, held = cargo
+	harbourHtml( d, w, held = {} ) {
+
+		if ( ! d ) return '';
+		const ins = d.insurance;
+		const fee = d.feeHere.waived ? { home: 'none at home', beloved: 'waived: this port loves you', sandbox: 'sandbox', foot: 'no boat', unknown: '-' }[ d.feeHere.waived ] || 'waived' : money( d.feeHere.fee ) + ' a docking';
+		const policy = ins.active && ins.policy ? `Insured: ${ money( ins.policy.value ) } of cargo, ${ left( ins.policy.left ) }` : `Covers 80% of the cost of cargo pirates take or that sinks with the boat, for ${ ins.hours } h`;
+		let out = `<h3>Harbourmaster</h3>
+			<div class="tr-card"><div><b>Harbour dues</b><small>Here: ${ fee } · by hull size, waived at home and where you are loved · paid so far ${ money( d.paid ) }</small></div></div>
+			<div class="tr-card"><div><b>Cargo insurance</b><small>${ policy } · ${ ( ins.rate * 100 ).toFixed( 1 ) }% of the cargo's cost${ ins.value ? ` (${ money( ins.value ) } aboard)` : '' }</small></div><div class="tr-act"><button class="tr-btn" data-act="insure" ${ ins.active || ins.value < 40 ? 'disabled' : '' }>${ ins.premium ? money( ins.premium ) : 'Free' }</button></div></div>`;
+		if ( w ) {
+
+			const stored = Object.keys( w.goods ).map( ( g ) => `<div class="tr-card"><div><b>${ w.goods[ g ].qty } ${ esc( GOODS[ g ].name.toLowerCase() ) }</b><small>in store${ w.goods[ g ].cond < 0.995 ? ` at ${ Math.round( w.goods[ g ].cond * 100 ) }%` : '' }</small></div><div class="tr-act"><button class="tr-btn" data-act="withdraw" data-good="${ g }">Load all</button></div></div>` ).join( '' );
+			const carry = Object.keys( held ).map( ( g ) => `<button class="tr-btn" data-act="store" data-good="${ g }">Store ${ esc( GOODS[ g ].name.toLowerCase() ) }</button>` ).join( '' );
+			out += `<h3>${ esc( w.name ) } warehouse</h3><div class="tr-card"><div><b>${ w.used } / ${ w.capacity } crates</b><small>${ w.sandbox ? 'Sandbox: no rent' : `${ money( w.rent ) } a crate a day · ${ money( w.rentPerDay ) } a day now` }${ w.owed > 0 ? ` · <span class="tr-bad">${ money( Math.ceil( w.owed ) ) } rent owed</span>` : '' }</small></div>${ w.owed > 0 ? '<div class="tr-act"><button class="tr-btn" data-act="rent">Pay rent</button></div>' : '' }</div>${ stored }${ carry ? `<div class="tr-act" style="justify-content:flex-start;flex-wrap:wrap;margin-top:var(--tw-2)">${ carry }</div>` : '' }`;
+
+		} else out += '<div class="tr-empty">The Tidemark warehouse stores cargo for a crate-day rent.</div>';
+		return out;
+
+	}
+
 	costsHtml( o ) {
 
-		if ( o.sandbox ) return `<div class="tr-empty">Sandbox: bait, wages and upkeep cost nothing.</div>`;
+		const t = this.trade;
+		const harbour = t && t.dues ? this.harbourHtml( t.dues.view(), t.warehouse.here( this.port ) ? t.warehouse.view() : null, t.cargo ) : '';
+		if ( o.sandbox ) return `<div class="tr-empty">Sandbox: bait, wages, upkeep and dues cost nothing.</div>${ harbour }`;
 		return `
 			<div class="tr-stats">
 				<div><span>Bait</span><b class="${ o.bait < 5 ? 'tr-neg' : '' }">${ o.bait }</b></div>
@@ -447,7 +571,7 @@ export class TradePanel {
 			</div>
 			<div class="tr-card"><div><b>Bait</b><small>One per cast; a bare hook bites slowly. ${ o.tin } for ${ money( o.tinPrice ) }</small></div><div class="tr-act"><button class="tr-btn" data-act="bait" data-n="${ o.tin }">+${ o.tin }</button><button class="tr-btn" data-act="bait" data-n="${ o.tin * 5 }">+${ o.tin * 5 }</button></div></div>
 			<div class="tr-card"><div><b>Crew of ${ o.crew }</b><small>${ o.deserted ? '<span class="tr-bad">The crew walked off: the ship sails short-handed</span>' : o.missedDays ? `<span class="tr-bad">${ o.missedDays } day${ o.missedDays > 1 ? 's' : '' } unpaid</span>` : 'Paid at the turn of each day' } · next bill in ${ Math.ceil( o.nextBillIn ) } h</small></div>${ o.owed > 0 ? `<div class="tr-act"><button class="tr-btn" data-act="payowed">Pay ${ money( Math.ceil( o.owed ) ) }</button></div>` : '' }</div>
-			<div class="tr-empty">Spent so far: bait ${ money( o.spent.bait ) } · wages ${ money( o.spent.wages ) } · upkeep ${ money( o.spent.upkeep ) }</div>`;
+			<div class="tr-empty">Spent so far: bait ${ money( o.spent.bait ) } · wages ${ money( o.spent.wages ) } · upkeep ${ money( o.spent.upkeep ) }</div>${ harbour }`;
 
 	}
 
@@ -502,7 +626,7 @@ export class TradePanel {
 		const r = act === 'buy' ? this.trade.buy( this.port, good, n ) : this.trade.sell( this.port, good, n );
 		const name = GOODS[ good ].name.toLowerCase();
 		if ( ! r.ok ) this.msg = { text: r.message, bad: true, at: performance.now() };
-		else if ( act === 'buy' ) this.msg = { text: `Bought ${ r.qty } ${ name } for ${ money( r.total ) }${ r.limited === 'capacity' ? ' (the hold is full)' : r.limited === 'money' ? ' (all you could pay for)' : '' }.`, bad: false, at: performance.now() };
+		else if ( act === 'buy' ) this.msg = { text: `Bought ${ r.qty } ${ name } for ${ money( r.total ) }${ r.limited === 'capacity' ? ' (the hold is full)' : r.limited === 'money' ? ' (all you could pay for)' : r.limited === 'licence' ? ' (a bulk lot wants the master licence)' : '' }.`, bad: false, at: performance.now() };
 		else this.msg = { text: `Sold ${ r.qty } ${ name } for ${ money( r.total ) }: ${ r.profit >= 0 ? 'profit' : 'loss' } ${ signed( r.profit ) }.`, bad: false, at: performance.now() };
 		this._cache = '';
 		this.refresh();
@@ -517,6 +641,11 @@ export class TradePanel {
 		switch ( act ) {
 
 			case 'cmp': t.setCompare( port, b.dataset.port ); this._cmpKey = ''; return true;
+			case 'filter': this.filter = [ 'port', 'hold', 'all' ].includes( b.dataset.filter ) ? b.dataset.filter : 'port'; return true;
+			case 'insure': { const r = t.dues.insure(); say( r, r.ok ? `Insured ${ money( r.value ) } of cargo for ${ money( r.premium ) }.` : '' ); return true; }
+			case 'store': { const r = t.warehouse.store( port, b.dataset.good, 'all' ); say( r, r.ok ? `Stored ${ r.qty } in the warehouse.` : '' ); return true; }
+			case 'withdraw': { const r = t.warehouse.withdraw( port, b.dataset.good, 'all' ); say( r, r.ok ? `Loaded ${ r.qty } from the warehouse.` : '' ); return true; }
+			case 'rent': { const r = t.warehouse.payOwed(); say( r, r.ok ? `Paid ${ money( r.paid ) } of rent.` : '' ); return true; }
 			case 'licence': { const r = t.haul.buyLicence(); say( r, r.ok ? `You hold the ${ r.name }.` : '' ); return true; }
 			case 'accept': { const r = t.haul.accept( port, b.dataset.id ); say( r, r.ok ? `Loaded ${ r.contract.qty } ${ GOODS[ r.contract.good ].name.toLowerCase() } for ${ portName( r.contract.to ) }.` : '' ); return true; }
 			case 'abandon': t.haul.abandon( b.dataset.id ); this.msg = { text: 'Contract abandoned: the deposit is forfeit.', bad: true, at: performance.now() }; return true;

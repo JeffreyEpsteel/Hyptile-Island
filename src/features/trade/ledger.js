@@ -10,6 +10,11 @@ import { num } from './market.js';
 //   ledger.routes[ 'home>pons' ]       { sales, units, revenue, cost, profit }
 //   ledger.goods[ id ]                 { units, revenue, cost, profit }
 //   ledger.best                        { good, qty, profit, from, to, day } the best single sale, or null
+//   ledger.costs                       { dues, insurance, rent } the harbourmaster's and the warehouse's money (wave 15B;
+//                                      insurance claims count against the premiums); ledger.cost( kind, n ); net()
+//   ledger.fish                        { sold ($ the halls paid), bonus ($ over / under the catch value) }; fishSale( total, delta )
+export const COST_KINDS = [ 'dues', 'insurance', 'rent' ];
+
 export class Ledger {
 
 	constructor() {
@@ -30,6 +35,31 @@ export class Ledger {
 		this.routes = {};
 		this.goods = {};
 		this.best = null;
+		this.costs = { dues: 0, insurance: 0, rent: 0 };
+		this.fish = { sold: 0, bonus: 0 };
+
+	}
+
+	cost( kind, n ) {
+
+		if ( ! COST_KINDS.includes( kind ) || ! Number.isFinite( n ) ) return;
+		this.costs[ kind ] += n;
+
+	}
+
+	fishSale( total, delta ) {
+
+		if ( Number.isFinite( total ) ) this.fish.sold += total;
+		if ( Number.isFinite( delta ) ) this.fish.bonus += delta;
+
+	}
+
+	// the trading profit after the dues, the insurance and the rent
+	net() {
+
+		let c = 0;
+		for ( const k of COST_KINDS ) c += this.costs[ k ];
+		return this.profit - c;
 
 	}
 
@@ -124,6 +154,7 @@ export class Ledger {
 		return {
 			trips: this.trips, crossings: this.crossings, bought: this.bought, spent: r2( this.spent ), sold: this.sold,
 			revenue: r2( this.revenue ), profit: r2( this.profit ), routes, goods, best: this.best ? { ...this.best } : null,
+			costs: { dues: r2( this.costs.dues ), insurance: r2( this.costs.insurance ), rent: r2( this.costs.rent ) }, fish: { sold: r2( this.fish.sold ), bonus: r2( this.fish.bonus ) },
 		};
 
 	}
@@ -156,6 +187,10 @@ export class Ledger {
 
 		}
 
+		const c = d.costs && typeof d.costs === 'object' ? d.costs : {};
+		for ( const k of COST_KINDS ) this.costs[ k ] = num( c[ k ], 0, - 1e12, 1e12 );
+		const f = d.fish && typeof d.fish === 'object' ? d.fish : {};
+		this.fish = { sold: num( f.sold, 0, 0, 1e12 ), bonus: num( f.bonus, 0, - 1e12, 1e12 ) };
 		const b = d.best;
 		if ( b && GOODS[ b.good ] && PORTS[ b.from ] && PORTS[ b.to ] ) this.best = { good: b.good, qty: num( b.qty, 0, 0, 1e9 ) | 0, profit: num( b.profit, 0, - 1e12, 1e12 ), from: b.from, to: b.to, day: num( b.day, 1, 1, 1e6 ) | 0 };
 		return true;

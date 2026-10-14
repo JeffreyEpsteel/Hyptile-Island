@@ -1,4 +1,4 @@
-import { GOODS, GOOD_IDS, PORTS, PORT_IDS, REGION, MARKET, EVENTS, CAUSES, syncPorts } from './goods.js';
+import { GOODS, GOOD_IDS, PORTS, PORT_IDS, REGION, MARKET, EVENTS, CAUSES, syncPorts, identity } from './goods.js';
 
 // The market model of the two ports: pure logic, no engine, no DOM, deterministic from a seed (the generator's
 // state is saved, so a loaded game goes on exactly where it was).
@@ -22,6 +22,11 @@ import { GOODS, GOOD_IDS, PORTS, PORT_IDS, REGION, MARKET, EVENTS, CAUSES, syncP
 //   m.forceEvent( 'wreck' )                     start an event now (EVENTS or CAUSES); m.on( fn ) hears new events and trades
 //   m.mod( port, good ) -> factor               optional price hook (story priceMod); m.spreadMul scales the spread
 //   m.snapshot() / m.adopt( snap )              the shared part of the market (cells and events) for the universe server
+//   m.trend( port, good ) -> { pct, dir }        the change over the last in-game day ('up' | 'down' | 'flat', 3% band)
+//   m.post( text, kind, { good, port } )        a line of news; good / port tie it to a row of the window (why it moved)
+//
+// Wave 15B: each port's drift is scaled by its identity's swing (Tidemark's prices wander more); the save keeps the
+// sparklines as two base-36 characters a point (the log price against the equilibrium), loading the older arrays too.
 //
 // Ports come from goods.js PORT_IDS, which grows with WORLD.ports: a port that appears later gets its cells on
 // the next advance / quote (lazily, with a flat history).
@@ -58,6 +63,38 @@ export const clamp = ( v, lo, hi ) => ( v < lo ? lo : v > hi ? hi : v );
 export const num = ( v, d = 0, lo = - Infinity, hi = Infinity ) => ( typeof v === 'number' && Number.isFinite( v ) ? clamp( v, lo, hi ) : d );
 const r2 = ( v ) => Math.round( v * 100 ) / 100;
 const r4 = ( v ) => Math.round( v * 10000 ) / 10000;
+
+// the sparkline in a save: two base-36 characters a point, the log price against the equilibrium in steps of 1/400
+// (a quarter percent) between -1.6 and +1.6
+const HIST_OFF = 1.6, HIST_RES = 400;
+
+export function packHist( hist, eq ) {
+
+	let s = '';
+	for ( const p of hist ) {
+
+		const v = clamp( Math.round( ( Math.log( Math.max( 1e-6, p ) / eq ) + HIST_OFF ) * HIST_RES ), 0, 1295 );
+		s += v.toString( 36 ).padStart( 2, '0' );
+
+	}
+
+	return s;
+
+}
+
+export function unpackHist( s, eq ) {
+
+	const out = [];
+	for ( let i = 0; i + 1 < s.length; i += 2 ) {
+
+		const v = parseInt( s.slice( i, i + 2 ), 36 );
+		if ( Number.isFinite( v ) ) out.push( r2( eq * Math.exp( v / HIST_RES - HIST_OFF ) ) );
+
+	}
+
+	return out.slice( - MARKET.histLen );
+
+}
 
 export class Market {
 
@@ -291,9 +328,10 @@ export class Market {
 	_tick( dh ) {
 
 		const kw = Math.exp( - dh / MARKET.noiseTau );
-		const sw = this.noise ? this.noise * MARKET.noiseStd * Math.sqrt( 1 - kw * kw ) : 0;
+		const sw0 = this.noise ? this.noise * MARKET.noiseStd * Math.sqrt( 1 - kw * kw ) : 0;
 		for ( const p of PORT_IDS ) {
 
+			const sw = sw0 * this._swing( p );
 			for ( const g of GOOD_IDS ) {
 
 				const c = this.cells[ p ][ g ];
@@ -303,6 +341,25 @@ export class Market {
 			}
 
 		}
+
+	}
+
+	_swing( port ) {
+
+		const s = identity( port ).swing;
+		return typeof s === 'number' && s > 0 ? Math.min( 3, s ) : 1;
+
+	}
+
+	// the change of the middle price over the last in-game day, from the sparkline
+	trend( port, good ) {
+
+		const h = this._cell( port, good ).hist;
+		const back = Math.round( 24 / MARKET.histStep );
+		const then = h.length ? h[ Math.max( 0, h.length - back ) ] : 0;
+		const now = this.mid( port, good );
+		const pct = then > 0 ? ( now / then - 1 ) * 100 : 0;
+		return { pct: Math.round( pct ), dir: pct > 3 ? 'up' : pct < - 3 ? 'down' : 'flat' };
 
 	}
 
@@ -418,7 +475,7 @@ export class Market {
 			start, end: start + ( over.dur ?? dur ), text: text.charAt( 0 ).toUpperCase() + text.slice( 1 ),
 		};
 		this.events.push( e );
-		const item = { t: start, text: e.text, kind: 'event', id: e.id };
+		const item = { t: start, text: e.text, kind: 'event', id: e.id, good, port: ports.length === 1 ? ports[ 0 ] : null };
 		this.news.unshift( item );
 		if ( this.news.length > MARKET.newsKeep ) this.news.length = MARKET.newsKeep;
 		this._tell( { type: 'event', event: e, news: item } );
@@ -435,9 +492,11 @@ export class Market {
 	}
 
 	// a line of news that is not an event (a rival's voyage, a seizure)
-	post( text, kind = 'news' ) {
+	post( text, kind = 'news', meta = null ) {
 
 		const item = { t: this.abs, text: String( text ).slice( 0, 160 ), kind };
+		if ( meta && GOODS[ meta.good ] ) item.good = meta.good;
+		if ( meta && PORTS[ meta.port ] ) item.port = meta.port;
 		this.news.unshift( item );
 		if ( this.news.length > MARKET.newsKeep ) this.news.length = MARKET.newsKeep;
 		return item;
@@ -524,14 +583,14 @@ export class Market {
 			for ( const g of GOOD_IDS ) {
 
 				const c = this.cells[ p ][ g ];
-				cells[ p ][ g ] = [ r4( c.x ), r4( c.w ), c.hist.slice() ];
+				cells[ p ][ g ] = [ r4( c.x ), r4( c.w ), packHist( c.hist, this.eq( p, g ) ) ];
 
 			}
 
 		}
 
 		return {
-			abs: r4( this.abs ), next: r4( this.nextEventAt ), rng: this.rng.s, evId: this._evId, acc: r4( this._acc ), cells,
+			h: 2, abs: r4( this.abs ), next: r4( this.nextEventAt ), rng: this.rng.s, evId: this._evId, acc: r4( this._acc ), cells,
 			events: this.events.map( ( e ) => ( { ...e, ports: e.ports.slice() } ) ),
 			news: this.news.slice( 0, MARKET.newsKeep ).map( ( n ) => ( { ...n } ) ),
 		};
@@ -556,7 +615,8 @@ export class Market {
 				const c = this.cells[ p ][ g ];
 				c.x = num( a[ 0 ], 0, - MARKET.xMax, MARKET.xMax );
 				c.w = num( a[ 1 ], 0, - 1, 1 );
-				c.hist = Array.isArray( a[ 2 ] ) ? a[ 2 ].filter( ( v ) => typeof v === 'number' && Number.isFinite( v ) && v > 0 ).slice( - MARKET.histLen ) : [];
+				// a wave-14 save keeps the prices themselves, a newer one the packed string
+				c.hist = typeof a[ 2 ] === 'string' ? unpackHist( a[ 2 ], this.eq( p, g ) ) : Array.isArray( a[ 2 ] ) ? a[ 2 ].filter( ( v ) => typeof v === 'number' && Number.isFinite( v ) && v > 0 ).slice( - MARKET.histLen ) : [];
 				if ( ! c.hist.length ) c.hist.push( r2( this.mid( p, g ) ) );
 
 			}
@@ -580,7 +640,10 @@ export class Market {
 		for ( const n of Array.isArray( d.news ) ? d.news : [] ) {
 
 			if ( ! n || typeof n.text !== 'string' ) continue;
-			this.news.push( { t: num( n.t, 0 ), text: n.text.slice( 0, 160 ), kind: String( n.kind || 'news' ), id: n.id } );
+			const item = { t: num( n.t, 0 ), text: n.text.slice( 0, 160 ), kind: String( n.kind || 'news' ), id: n.id };
+			if ( GOODS[ n.good ] ) item.good = n.good;
+			if ( PORTS[ n.port ] ) item.port = n.port;
+			this.news.push( item );
 
 		}
 

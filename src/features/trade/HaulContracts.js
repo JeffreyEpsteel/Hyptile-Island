@@ -20,11 +20,16 @@ import { DAY_SPEED } from '../../game/GameMode.js';
 // Events: haulAccepted { id, from, to, good, qty, reward, due }, haulDelivered { id, from, to, good, qty, reward },
 // haulFailed { id, from, to, good, qty, why: 'late' | 'abandoned' }, licenceBought { level, name, price }.
 
+// wave 15B: the licences are the merchant tiers. The coastal licence also lets the Tidemark guild sell you its
+// luxuries (wine, silk, clocks: goods tagged 'fine'); the master licence lifts the bulk limit on one purchase
+// (LICENCE_LOTS: units per purchase by level). The sandbox needs none.
 export const LICENCES = [
-	{ level: 0, name: 'No licence', price: 0, maxCrates: 2, payMul: 1 },
-	{ level: 1, name: 'Coastal hauling licence', price: 350, maxCrates: 14, payMul: 1, standing: 0 },
-	{ level: 2, name: 'Master freight licence', price: 1400, maxCrates: 40, payMul: 1.2, standing: 35 },
+	{ level: 0, name: 'No licence', price: 0, maxCrates: 2, payMul: 1, unlocks: 'parcels only' },
+	{ level: 1, name: 'Coastal hauling licence', price: 350, maxCrates: 14, payMul: 1, standing: 0, unlocks: 'freight contracts and the Tidemark luxuries' },
+	{ level: 2, name: 'Master freight licence', price: 1400, maxCrates: 40, payMul: 1.2, standing: 35, unlocks: 'big loads, better pay and bulk lots' },
 ];
+
+export const LICENCE_LOTS = [ 24, 24, 60 ];
 
 export const HAUL = {
 	perPort: 4, // offers on a board

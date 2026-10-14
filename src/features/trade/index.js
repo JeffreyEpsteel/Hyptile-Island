@@ -1,9 +1,13 @@
-import { GOODS, GOOD_IDS, PORTS, PORT_IDS, MARKET, HOLD_CRATES, BOAT_SPEED, SEA_DISTANCE, legalAt, contrabandAt, seaDistance, syncPorts, worldPort, dockOf } from './goods.js';
+import { GOODS, GOOD_IDS, PORTS, PORT_IDS, MARKET, HOLD_CRATES, BOAT_SPEED, SEA_DISTANCE, CAUSES, PORT_IDENTITY, legalAt, contrabandAt, seaDistance, syncPorts, worldPort, dockOf, identity, isFine } from './goods.js';
 import { Market, clamp, num } from './market.js';
 import { Ledger } from './ledger.js';
 import { TradeStall, STALL_SITES, stallFront } from './stall.js';
 import { TradePanel } from './panel.js';
-import { HaulContracts } from './HaulContracts.js';
+import { HaulContracts, LICENCES, LICENCE_LOTS } from './HaulContracts.js';
+import { Dues, DUES } from './Dues.js';
+import { Warehouse } from './Warehouse.js';
+import { FishHall } from './FishHall.js';
+import { board, bestSale, bestSource, leg } from './routes.js';
 import { Credit } from './Credit.js';
 import { Rivals } from './Rivals.js';
 import { Smuggler } from './Smuggler.js';
@@ -20,6 +24,15 @@ import { DAY_SPEED } from '../../game/GameMode.js';
 // credit and standing (Credit.js), rival merchants (Rivals.js), the smuggler contact (Smuggler.js) and operating
 // costs: bait, wages, upkeep (Operating.js).
 //
+// Wave 15B, a better economy: every port has an identity (goods.js PORT_IDENTITY: what it makes cheap and wants
+// dear); the window reads per good the best place to sell what you hold and the best place to bring it from (margin
+// per crate, distance, hours at your boat's speed, pirate lanes crossed: routes.js), a trend arrow over the last day
+// and the news behind a swing; the harbourmaster's board lists the five best margins from here. Rival merchants and
+// the Tidemark guild's convoy move goods and prices; a bulk sale floods a market for a day. Money sinks: harbour
+// dues per docking and cargo insurance (Dues.js), the Tidemark warehouse (Warehouse.js), wages and upkeep
+// (Operating.js), licences that open the luxuries and bulk lots (HaulContracts.js LICENCES). The fish halls pay by
+// freshness, port taste and a daily wanted species (FishHall.js; prices in game/FishStand.js FISH_HALL).
+//
 //   features.add( 'trade', tradeModule );        // import * as tradeModule from './features/trade/index.js'
 //   const trade = features.get( 'trade' );
 //   trade.update( dt )                           per frame (Features.update does it); reads app.settings.timeOfDay
@@ -34,6 +47,12 @@ import { DAY_SPEED } from '../../game/GameMode.js';
 //   trade.haul / credit / rivals / smuggler / operating     the sub-systems (see their files)
 //   trade.marketSnapshot() / adoptMarketSnapshot( snap ) / onMarketChange( cb ) -> unsubscribe   the universe server
 //   trade.applyRemoteTrade( { port, good, qty, side } )      a trade made by another player, relayed
+//   trade.board( port, n = 5 )                   the harbourmaster's price board: the n best margins from a port
+//   trade.route( from, to ) / bestSale( port, good ) / bestSource( port, good )    route maths (routes.js)
+//   trade.arrive( port )                         the boat docked (harbour dues); update() does it near a dock
+//   trade.dues / warehouse / fishHall            harbour dues and insurance, the Tidemark warehouse, the fish halls
+//   trade.fishSale( soldFish, port ) -> $        settle a fish sale by freshness and taste (Game.sellAll / sell call it)
+//   trade.fishQuote( fish, port ) -> { price, factor, fresh, eats, wanted, age }
 //   trade.ledger, trade.day, trade.hour, trade.news, trade.events, trade.lights, trade.sites
 //   trade.toJSON() / fromJSON( d ) / reset() / dispose()
 //
@@ -50,14 +69,19 @@ import { DAY_SPEED } from '../../game/GameMode.js';
 // the stalls still charge their list prices in the ledger, so the profit shown stays honest; no operating costs,
 // no loans needed, licences free.
 
-export { GOODS, GOOD_IDS, PORTS, PORT_IDS, HOLD_CRATES, STALL_SITES };
+export { GOODS, GOOD_IDS, PORTS, PORT_IDS, HOLD_CRATES, STALL_SITES, PORT_IDENTITY, LICENCES };
 
 const r2 = ( v ) => Math.round( v * 100 ) / 100;
 const WHY = {
 	capacity: 'Your hold is full.', money: 'Not enough money.', empty: 'You carry none of that.', qty: 'Choose a quantity.', unknown: 'Unknown goods.',
 	contraband: 'Contraband here: no stall may deal in it. Find the smuggler after dark.', banned: 'The harbourmaster has banned you from trading here for now.',
 	blocked: 'You defaulted on a loan here: the stall will not sell to you until you pay it.',
+	licence: 'The Tidemark guild sells its luxuries to licensed merchants only: buy a coastal hauling licence (Contracts).',
 };
+
+// a sale that pushes a market this far down (log price) floods it: a 'flood' event holds the price down for a day
+export const FLOOD = { push: 0.6, mult: 0.85, hours: 24 };
+const ABOARD = new Set( [ 'boat', 'deck', 'seat' ] );
 
 export function hold( boatId ) {
 
@@ -123,6 +147,10 @@ export class Trade {
 		this.rivals.enabled = opts.rivals ?? ! quiet; // a quiet market (tests) has no rivals either
 		this.smuggler = new Smuggler( this );
 		this.operating = new Operating( this );
+		this.dues = new Dues( this );
+		this.warehouse = new Warehouse( this );
+		this.fishHall = new FishHall( this );
+		this._dockT = 0;
 		this._seedRumours();
 		this._offMarket = this.sim.on( ( e ) => this._onMarket( e ) );
 		this.panel = new TradePanel( this );
@@ -249,6 +277,13 @@ export class Trade {
 		if ( ! f || ! f.on ) return;
 		this._removers.push( f.on( 'shipSunk', ( e ) => this._onSunk( e || {} ) ) );
 		this._removers.push( f.on( 'weatherChanged', ( e ) => this._onWeather( e || {} ) ) );
+		// wave 15B: insurance claims, hijacked merchants, raids, the fish halls' clock, dockings
+		this._removers.push( f.on( 'boardersWon', ( e ) => this.dues.claim( 'piracy', e && e.goods ) ) );
+		this._removers.push( f.on( 'playerBoatSunk', () => this.dues.claim( 'sunk' ) ) );
+		this._removers.push( f.on( 'shipPlundered', ( e ) => this._onPlundered( e || {} ) ) );
+		this._removers.push( f.on( 'retaliationRaid', ( e ) => this._onRaid( e || {} ) ) );
+		this._removers.push( f.on( 'fishCaught', () => this.fishHall.track() ) );
+		this._removers.push( f.on( 'portVisited', ( e ) => { if ( e && PORTS[ e.port ] ) this.arrive( e.port ); } ) );
 
 	}
 
@@ -296,6 +331,34 @@ export class Trade {
 		if ( this.following || ! this._ready( 'storm', 24 ) ) return;
 		this.sim.forceEvent( 'stormShoal' );
 		this.sim.forceEvent( 'stormIce' );
+		// and one port is closed: what it wants goes dear there
+		const ports = PORT_IDS.filter( ( p ) => p !== 'home' );
+		const port = ports.length ? ports[ Math.floor( this.sim.rng.next() * ports.length ) ] : null;
+		const wants = port ? identity( port ).wants.filter( ( g ) => GOODS[ g ] && legalAt( port, g ) ) : [];
+		if ( wants.length ) this.sim.forceEvent( 'stormPort', { good: wants[ Math.floor( this.sim.rng.next() * wants.length ) ], ports: [ port ] } );
+
+	}
+
+	// a merchant taken by boarders (boarding's shipPlundered): her cargo never reaches the port she was bound for
+	_onPlundered( e ) {
+
+		if ( this.following ) return;
+		const nv = this._feature( 'naval' );
+		const ship = nv && Array.isArray( nv.ships ) ? nv.ships.find( ( s ) => s && s.id === e.id ) : null;
+		if ( ! ship || ship.faction !== 'merchant' ) return;
+		const p = this.app && this.app.player && this.app.player.position;
+		const lost = this.rivals.lose( p ? p.x : ship.x, p ? p.z : ship.z, { hijack: true } );
+		if ( lost && lost.good && PORTS[ lost.to ] ) this.sim.forceEvent( 'hijack', { good: lost.good, ports: [ lost.to ], rival: lost.name } );
+
+	}
+
+	// a pirate raid burns a port's stores: what it makes goes dear there for a day or so
+	_onRaid( e ) {
+
+		if ( this.following || ! this._ready( 'raid', 24 ) ) return;
+		const port = e.at === 'harbour' ? 'home' : this.nearestPort( e.x, e.z ) || 'home';
+		const made = identity( port ).produces.filter( ( g ) => GOODS[ g ] && legalAt( port, g ) );
+		if ( made.length ) this.sim.forceEvent( 'raid', { good: made[ Math.floor( this.sim.rng.next() * made.length ) ], ports: [ port ] } );
 
 	}
 
@@ -369,6 +432,14 @@ export class Trade {
 
 		const dh = this._clock();
 		if ( dh > 0 ) this.advance( dh );
+		this._dockT += num( dt );
+		if ( this._dockT > 0.5 ) {
+
+			this._dockT = 0;
+			this._docking();
+
+		}
+
 		if ( this.openPort ) {
 
 			// walking away from the stall (or the smuggler leaving at dawn) closes the window
@@ -394,6 +465,34 @@ export class Trade {
 
 	}
 
+	// aboard and within DUES.arrive m of a port's dock: docked there (dues once per arrival)
+	_docking() {
+
+		const pl = this.app && this.app.player;
+		const p = pl && pl.position;
+		if ( ! p || ! ABOARD.has( pl.mode ) ) return;
+		const bc = this.app.boatCtl;
+		if ( bc && Number.isFinite( bc.speed ) && bc.speed > 3 ) return; // sailing past is not docking
+		for ( const id of PORT_IDS ) {
+
+			const d = dockOf( id );
+			if ( d && Math.hypot( d.x - p.x, d.z - p.z ) < DUES.arrive ) {
+
+				this.arrive( id );
+				return;
+
+			}
+
+		}
+
+	}
+
+	arrive( port ) {
+
+		return this.dues.arrive( port );
+
+	}
+
 	// let `hours` of island time pass (update() does it from the clock; tests and other features may too)
 	advance( hours ) {
 
@@ -411,6 +510,9 @@ export class Trade {
 			this.credit.advance( s );
 			this.smuggler.advance( s );
 			this.operating.advance( s );
+			this.dues.advance( s );
+			this.warehouse.advance( s );
+			this.fishHall.advance( s );
 			left -= s;
 
 		}
@@ -595,6 +697,8 @@ export class Trade {
 
 		}
 
+		this.dues.noteTaken( good, got, paid ); // a piracy claim pays on what this cost
+
 		this.panel.refresh();
 		return { qty: got, paid: r2( paid ) };
 
@@ -680,6 +784,7 @@ export class Trade {
 
 		if ( ! PORTS[ port ] ) return false;
 		this.ledger.arrive( this.lastPort, port, this.crates() > 0 );
+		this.arrive( port ); // the harbour dues, when the docking was not seen
 		this.lastPort = port;
 		this._see( port );
 		const got = this.haul.deliver( port );
@@ -709,7 +814,25 @@ export class Trade {
 		try { ban = cu && cu.banned ? cu.banned( port ) : 0; } catch ( e ) { ban = 0; }
 		if ( ban ) return 'banned';
 		if ( side === 'buy' && this.credit.blocked( port ) ) return 'blocked';
+		if ( side === 'buy' && this._locked( good ) ) return 'licence';
 		return null;
+
+	}
+
+	// a luxury the guild will not sell without a licence (the campaign only)
+	_locked( good ) {
+
+		const s = this.state;
+		return isFine( good ) && ! ( s && s.free ) && this.haul.licence < 1;
+
+	}
+
+	// the most units one purchase may take: the master licence lifts the bulk limit
+	lotLimit() {
+
+		const s = this.state;
+		if ( s && s.free ) return MARKET.maxLot;
+		return Math.min( MARKET.maxLot, LICENCE_LOTS[ this.haul.licence ] || MARKET.maxLot );
 
 	}
 
@@ -733,6 +856,13 @@ export class Trade {
 		const fit = Math.floor( Math.max( 0, this.free() ) / G.crates );
 		let n = Math.min( want, fit );
 		let limited = n < want ? 'capacity' : null;
+		if ( n > this.lotLimit() ) {
+
+			n = this.lotLimit();
+			limited = 'licence';
+
+		}
+
 		if ( n < 1 ) return this._fail( 'capacity' );
 		const s = this.state;
 		const purse = ! s || s.free ? Infinity : num( s.money );
@@ -788,6 +918,7 @@ export class Trade {
 		const s = this.state;
 		if ( q.total > 0 && s && s.earn ) s.earn( q.total );
 		this.sim.applySell( port, good, n );
+		this._flood( port, good, n );
 		const profit = this.ledger.sale( { good, to: port, day: this.day, parts } );
 		// a good trade is noticed: merchant standing (a little, never for flips at one stall)
 		if ( profit > 0 && parts.some( ( p ) => p.from !== port ) ) this.credit.adjust( Math.min( 2, profit / 300 ), 'profitable sale' );
@@ -795,6 +926,20 @@ export class Trade {
 		const avg = r2( q.total / n );
 		if ( this.features && this.features.emit ) this.features.emit( 'cargoSold', { good, qty: n, price: avg, port, profit: Math.round( profit ), total: q.total } );
 		return { ok: true, good, port, qty: n, total: q.total, avg, profit: Math.round( profit ) };
+
+	}
+
+	// a bulk sale floods the market for a day (the local market only: in a universe the host floods its own on the
+	// relayed trade); returns the event or null
+	_flood( port, good, n ) {
+
+		if ( this.following ) return null;
+		const push = n * this.sim.impact( port, good );
+		if ( push < FLOOD.push ) return null;
+		if ( this.sim.events.some( ( e ) => e.good === good && e.ports.includes( port ) && e.mult < 1 ) ) return null;
+		const tpl = CAUSES.find( ( t ) => t.id === 'flood' );
+		// fully in at once (no three-hour ease): the stall pays less from the next sale on
+		return tpl ? this.sim.addEvent( tpl, this.sim.abs - 3, { good, ports: [ port ], mult: FLOOD.mult, dur: FLOOD.hours + 3 } ) : null;
 
 	}
 
@@ -817,7 +962,7 @@ export class Trade {
 	// the shared market as plain JSON (cells, events, the market clock)
 	marketSnapshot() {
 
-		return this.sim.snapshot();
+		return { ...this.sim.snapshot(), rivals: this.rivals.snapshot() };
 
 	}
 
@@ -828,6 +973,7 @@ export class Trade {
 
 		let ok = false;
 		try { ok = this.sim.adopt( snap ); } catch ( e ) { console.warn( 'trade: bad market snapshot', e ); ok = false; }
+		if ( ok && follow && snap.rivals ) this.rivals.adopt( snap.rivals ); // where the host's rivals are (display only)
 		if ( ok && follow && ! this.following ) {
 
 			this.following = true;
@@ -870,8 +1016,12 @@ export class Trade {
 		if ( ! t || ! PORTS[ t.port ] || ! GOODS[ t.good ] ) return false;
 		const n = Math.floor( num( t.qty, 0, 0, 500 ) );
 		if ( n < 1 ) return false;
-		if ( t.side === 'sell' ) this.sim.applySell( t.port, t.good, n, 'remote' );
-		else this.sim.applyBuy( t.port, t.good, n, 'remote' );
+		if ( t.side === 'sell' ) {
+
+			this.sim.applySell( t.port, t.good, n, 'remote' );
+			this._flood( t.port, t.good, n ); // the host floods for a guest's bulk sale too (guests follow it)
+
+		} else this.sim.applyBuy( t.port, t.good, n, 'remote' );
 		return true;
 
 	}
@@ -938,6 +1088,58 @@ export class Trade {
 	}
 
 	// everything the window shows, as plain data
+	// ---- route maths and the harbourmaster's board (routes.js)
+
+	board( port, n = 5 ) {
+
+		if ( ! this.seen[ port ] ) this._seedRumours( true );
+		return board( this, port, n );
+
+	}
+
+	route( from, to ) {
+
+		return PORTS[ from ] && PORTS[ to ] ? leg( this, from, to ) : null;
+
+	}
+
+	bestSale( port, good, opts ) {
+
+		return PORTS[ port ] && GOODS[ good ] ? bestSale( this, port, good, opts ) : null;
+
+	}
+
+	bestSource( port, good ) {
+
+		return PORTS[ port ] && GOODS[ good ] ? bestSource( this, port, good ) : null;
+
+	}
+
+	// ---- the fish halls
+
+	fishQuote( fish, port = null ) {
+
+		return this.fishHall.quote( fish, PORTS[ port ] ? port : 'home' );
+
+	}
+
+	// Game sold these fish at their catch value: settle freshness, taste and the wanted bonus; returns the difference
+	fishSale( sold, port = null ) {
+
+		return this.fishHall.settle( sold, PORTS[ port ] ? port : 'home' );
+
+	}
+
+	// the latest news that explains a swing of this good at this port (the last day)
+	_why( port, good ) {
+
+		const ev = this.sim.events.find( ( e ) => e.good === good && e.ports.includes( port ) );
+		if ( ev ) return ev.text;
+		const n = this.sim.news.find( ( x ) => x.good === good && ( x.port === port || x.port == null ) && this.sim.abs - x.t < 24 );
+		return n ? n.text : null;
+
+	}
+
 	view( port, otherPort = null ) {
 
 		const other = otherPort && PORTS[ otherPort ] && otherPort !== port ? otherPort : this.otherFor( port );
@@ -950,6 +1152,7 @@ export class Trade {
 		const sandbox = !! ( s && s.free );
 		const banned = this._refuse( port, 'salt', 'sell' ) === 'banned';
 		const blocked = this.credit.blocked( port );
+		const I = identity( port );
 		const rows = [];
 		let tip = null;
 		for ( const g of GOOD_IDS ) {
@@ -988,7 +1191,12 @@ export class Trade {
 				legal: legalHere, legalThere,
 				other: { port: other, name: PORTS[ other ].name, buy: seen.buy, sell: seen.sell, age: this.sim.abs - seen.t, rumour: seen.rumour, stale: this.sim.abs - seen.t > MARKET.staleHours, contraband: ! legalThere },
 				margin, room, gain, event: ev ? { pct: Math.round( ( ev.mult - 1 ) * 100 ), text: ev.text, left: Math.max( 0, ev.end - this.sim.abs ) } : null,
-				can: { buy: legalHere && ! banned && ! blocked && fits >= 1 && affordable, sell: !! held && legalHere && ! banned },
+				can: { buy: legalHere && ! banned && ! blocked && fits >= 1 && affordable && ! this._locked( g ), sell: !! held && legalHere && ! banned },
+				// wave 15B: the port's identity, the day's trend and why, where to sell it / where to bring it from
+				made: I.produces.includes( g ), wanted: I.wants.includes( g ), fine: isFine( g ), locked: this._locked( g ),
+				trend: this.sim.trend( port, g ), why: this._why( port, g ),
+				best: bestSale( this, port, g, held ? { cond: held.cond, cost: held.paid / Math.max( 1, held.qty ) } : {} ),
+				source: legalHere ? bestSource( this, port, g ) : null,
 			};
 			rows.push( row );
 			if ( row.can.buy && room > 0 && ( ! tip || gain / ( room * G.crates ) > tip.gain / ( tip.room * GOODS[ tip.good ].crates ) ) ) tip = { good: g, name: G.name, margin, room, gain };
@@ -1031,34 +1239,47 @@ export class Trade {
 			events: this.events,
 			rumour: rumour && PORTS[ rumour ] ? `Word on the quay: ${ this.smuggler.isNight() ? 'tonight' : 'after dark' } the smuggler meets buyers at ${ PORTS[ rumour ].name }.` : '',
 			standing: this.credit.standing,
-			ledger: { ...this.ledger.toJSON(), routeList: this.ledger.routeList() },
+			ledger: { ...this.ledger.toJSON(), routeList: this.ledger.routeList(), net: this.ledger.net() },
+			// wave 15B
+			identity: { note: I.note || '', signature: ( I.signature || [] ).filter( ( g ) => GOODS[ g ] ).map( ( g ) => GOODS[ g ].name ), produces: I.produces.slice(), wants: I.wants.slice() },
+			board: this.board( port, 5 ), fish: this.fishHall.board( port ), dues: this.dues.fee( port ), insurance: this.dues.quote(),
+			warehouse: this.warehouse.here( port ) ? this.warehouse.view() : null, licence: this.haul.licence, lotLimit: this.lotLimit(),
+			rivals: this.rivals.view(),
 		};
 
 	}
 
 	// ---- save
 
+	// v 2 (wave 15B): the prices seen are kept only where they are not rumours, as [ buy, sell, t ] (the middle is between
+	// them); the market packs its sparklines; dues, warehouse and the fish halls are new parts. A v 1 save loads.
 	toJSON() {
 
 		const seen = {};
 		for ( const p of PORT_IDS ) {
 
 			if ( ! this.seen[ p ] ) continue;
-			seen[ p ] = {};
+			const row = {};
+			let any = false;
 			for ( const g of GOOD_IDS ) {
 
 				const x = this.seen[ p ][ g ];
-				seen[ p ][ g ] = [ x.buy, x.sell, x.mid, r2( x.t ), x.rumour ? 1 : 0 ];
+				if ( ! x || x.rumour ) continue;
+				row[ g ] = [ x.buy, x.sell, r2( x.t ) ];
+				any = true;
 
 			}
+
+			if ( any ) seen[ p ] = row;
 
 		}
 
 		return {
-			v: 1, day: this.day, lastPort: this.lastPort, sim: this.sim.toJSON(), ledger: this.ledger.toJSON(), seen,
+			v: 2, day: this.day, lastPort: this.lastPort, sim: this.sim.toJSON(), ledger: this.ledger.toJSON(), seen,
 			lots: this.lots.map( ( l ) => ( { good: l.good, port: l.port, qty: l.qty, cond: Math.round( l.cond * 10000 ) / 10000, paid: r2( l.paid ) } ) ),
 			compare: { ...this.compare }, cool: { ...this._cool },
 			haul: this.haul.toJSON(), credit: this.credit.toJSON(), rivals: this.rivals.toJSON(), smuggler: this.smuggler.toJSON(), operating: this.operating.toJSON(),
+			dues: this.dues.toJSON(), warehouse: this.warehouse.toJSON(), fish: this.fishHall.toJSON(),
 		};
 
 	}
@@ -1079,10 +1300,12 @@ export class Trade {
 			for ( const g of GOOD_IDS ) {
 
 				const a = src[ p ] && src[ p ][ g ];
-				if ( ! Array.isArray( a ) || a.length < 4 ) continue;
-				const buy = num( a[ 0 ], NaN, 0, 1e6 ), sell = num( a[ 1 ], NaN, 0, 1e6 ), mid = num( a[ 2 ], NaN, 0, 1e6 );
+				if ( ! Array.isArray( a ) || a.length < 3 ) continue;
+				// v 1: [ buy, sell, mid, t, rumour ]; v 2: [ buy, sell, t ] (seen, never a rumour)
+				const old = a.length >= 4;
+				const buy = num( a[ 0 ], NaN, 0, 1e6 ), sell = num( a[ 1 ], NaN, 0, 1e6 ), mid = old ? num( a[ 2 ], NaN, 0, 1e6 ) : r2( ( buy + sell ) / 2 );
 				if ( ! ( buy > 0 && sell > 0 && mid > 0 ) ) continue;
-				this.seen[ p ][ g ] = { buy, sell, mid, t: num( a[ 3 ], this.sim.abs - 24, - 1e7, this.sim.abs ), rumour: a[ 4 ] === 1 };
+				this.seen[ p ][ g ] = { buy, sell, mid, t: num( a[ old ? 3 : 2 ], this.sim.abs - 24, - 1e7, this.sim.abs ), rumour: old ? a[ 4 ] === 1 : false };
 
 			}
 
@@ -1108,6 +1331,9 @@ export class Trade {
 		this.rivals.fromJSON( d.rivals );
 		this.smuggler.fromJSON( d.smuggler );
 		this.operating.fromJSON( d.operating );
+		this.dues.fromJSON( d.dues );
+		this.warehouse.fromJSON( d.warehouse );
+		this.fishHall.fromJSON( d.fish );
 
 	}
 
@@ -1128,6 +1354,9 @@ export class Trade {
 		this.rivals.reset();
 		this.smuggler.reset();
 		this.operating.reset();
+		this.dues.reset();
+		this.warehouse.reset();
+		this.fishHall.reset();
 
 	}
 

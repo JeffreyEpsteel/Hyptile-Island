@@ -772,6 +772,7 @@ export class Game {
 		const r = this.state.sell();
 		const bonus = r.count ? this._portPremium( sold ) : 0;
 		r.total += bonus;
+		r.total += r.count ? this.app.features?.get( 'trade' )?.fishSale?.( sold, this._salePort() ) || 0 : 0; // wave 15B: freshness and the port's taste
 		if ( r.count && this.app.features ) this.app.features.emit( 'fishSold', { count: r.count, total: r.total, port: this._salePort() } );
 		if ( r.count ) this.toast( `Sold ${ r.count } fish for $${ r.total }` );
 		if ( this.app.audio && this.app.audio.coin ) this.app.audio.coin();
@@ -785,6 +786,7 @@ export class Game {
 		const r = this.state.sell( ids );
 		const bonus = r.count ? this._portPremium( sold ) : 0;
 		r.total += bonus;
+		r.total += r.count ? this.app.features?.get( 'trade' )?.fishSale?.( sold, this._salePort() ) || 0 : 0; // wave 15B: freshness and the port's taste
 		if ( r.count && this.app.features ) this.app.features.emit( 'fishSold', { count: r.count, total: r.total, port: this._salePort() } );
 		if ( r.count ) this.toast( `Sold for $${ r.total }` );
 		return r;

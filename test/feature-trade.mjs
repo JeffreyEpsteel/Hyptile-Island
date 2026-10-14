@@ -8,7 +8,7 @@ import { install, hold, Trade } from '../src/features/trade/index.js';
 import { Features } from '../src/features/Features.js';
 import { GameState } from '../src/game/GameState.js';
 import { BOATS, BOAT_IDS } from '../src/game/Boats.js';
-import { GOODS, GOOD_IDS, PORTS, PORT_IDS, REGION, EVENTS, HOLD_CRATES, MARKET } from '../src/features/trade/goods.js';
+import { GOODS, GOOD_IDS, PORTS, PORT_IDS, REGION, EVENTS, HOLD_CRATES, MARKET, legalAt } from '../src/features/trade/goods.js';
 import { Market } from '../src/features/trade/market.js';
 import { Ledger } from '../src/features/trade/ledger.js';
 import { TradePanel } from '../src/features/trade/panel.js';
@@ -78,7 +78,7 @@ function leg( t, state, from, to, hours ) {
 	const eq = ( p, g ) => GOODS[ g ].base * REGION[ p ][ g ];
 	ok( eq( 'pons', 'coconuts' ) < eq( 'home', 'coconuts' ) && eq( 'pons', 'pearls' ) < eq( 'home', 'pearls' ), 'coconuts and pearls are cheap at Pons' );
 	ok( eq( 'home', 'ice' ) < eq( 'pons', 'ice' ) && eq( 'home', 'rope' ) < eq( 'pons', 'rope' ), 'ice and rope are cheap at Home' );
-	ok( GOOD_IDS.filter( ( g ) => g !== 'relics' ).every( ( g ) => Math.max( ...PORT_IDS.map( ( p ) => eq( p, g ) ) ) / Math.min( ...PORT_IDS.map( ( p ) => eq( p, g ) ) ) > 1.4 ), 'every open good sells at least 40% dearer at some port than at another' );
+	ok( GOOD_IDS.filter( ( g ) => PORT_IDS.some( ( p ) => legalAt( p, g ) ) ).every( ( g ) => Math.max( ...PORT_IDS.map( ( p ) => eq( p, g ) ) ) / Math.min( ...PORT_IDS.map( ( p ) => eq( p, g ) ) ) > 1.4 ), 'every open good sells at least 40% dearer at some port than at another' );
 	ok( EVENTS.every( ( e ) => GOODS[ e.good ] && e.ports.every( ( p ) => PORTS[ p ] ) && e.mult > 0 && e.dur[ 0 ] > 0 && e.dur[ 1 ] >= e.dur[ 0 ] && e.text.includes( '{pct}' ) ), 'event templates point at real goods and ports' );
 	ok( BOAT_IDS.every( ( b ) => HOLD_CRATES[ b ] > 0 ) && HOLD_CRATES.foot === 2, 'a hold size for every boat id, 2 crates on foot' );
 	ok( Math.max( ...Object.values( EVENTS.map( ( e ) => e.mult ) ) ) >= 1.6 && EVENTS.some( ( e ) => e.mult < 1 ), 'events include shortages and gluts' );
@@ -330,7 +330,7 @@ function leg( t, state, from, to, hours ) {
 	const late = trip.slice( 7 );
 	ok( Math.max( ...late ) < first / 2, `repeating it wears the margin out ($${ trip.join( ', ' ) })` );
 	ok( trip.every( ( t ) => t > - 15 ), 'a trader who reads the window never loses much' );
-	ok( state.money - start === Math.round( trade.ledger.profit ) || near( state.money - start, trade.ledger.profit, 0.5 ), 'the ledger profit is the money made' );
+	ok( state.money - start === Math.round( trade.ledger.net() ) || near( state.money - start, trade.ledger.net(), 0.5 ), 'the ledger profit after the harbour dues is the money made' );
 
 	// leave the markets alone for three days and the route is back
 	trade.advance( 72 );
@@ -550,7 +550,7 @@ function leg( t, state, from, to, hours ) {
 	t.sell( 'pons', 'rum', 2 );
 	t.close();
 	const saved = JSON.parse( JSON.stringify( t.toJSON() ) );
-	ok( saved.v === 1 && saved.lots.length === 2 && saved.ledger.sold === 2 && saved.sim.events.length >= 1, 'toJSON is plain data (cargo, ledger, markets, events)' );
+	ok( saved.v === 2 && saved.lots.length === 2 && saved.ledger.sold === 2 && saved.sim.events.length >= 1, 'toJSON is plain data (cargo, ledger, markets, events)' );
 	ok( JSON.stringify( saved ).length < 40000, `and small (${ JSON.stringify( saved ).length } characters)` );
 
 	// through the Features registry, the way the game loads: data first, then the module is added
@@ -573,7 +573,7 @@ function leg( t, state, from, to, hours ) {
 	const inst = store2.add( 'trade', tradeModule );
 	ok( inst.cargo.rum && inst.cargo.rum.qty === 1 && inst.ledger.sold === 2, 'Features.add restores the saved part' );
 	const out = store2.toJSON();
-	ok( out.trade && out.trade.v === 1 && out.trade.ledger.sold === 2, 'Features.toJSON includes it' );
+	ok( out.trade && out.trade.v === 2 && out.trade.ledger.sold === 2, 'Features.toJSON includes it' );
 	store2.dispose();
 
 	// the clock after a load is not elapsed time

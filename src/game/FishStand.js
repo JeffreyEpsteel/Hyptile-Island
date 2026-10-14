@@ -413,3 +413,37 @@ function net( K, x, top, z0, hw, h ) {
 	}
 
 }
+
+// ---------------------------------------------------------------- fish hall prices (wave 15B)
+
+// The fish halls pay by freshness and by the port's taste. A fish is worth its catch value (GameState's fishValue)
+// for FISH_HALL.freshHours in-game hours, then the price above the floor halves every halfLife hours; ice in the boat's
+// hold slows that clock (the trade feature keeps each fish's age: src/features/trade/FishHall.js). A species the port
+// eats (PORT_IDENTITY eats) pays a little more, and the day's wanted species on the board a lot more. Pure numbers,
+// no engine: the trade feature settles the difference when Game sells the catch.
+export const FISH_HALL = {
+	freshHours: 4, // full price this long after the catch
+	halfLife: 16, // then the premium over the floor halves every this many hours
+	floor: 0.45, // a fish days old still fetches this share
+	iced: 0.4, // ice in the hold slows the freshness clock to this
+	eats: 0.15, // a species the port eats
+	wanted: 0.6, // the day's wanted species
+};
+
+// 0..1: the share of the catch value a fish of this age (in-game hours, already slowed by ice) fetches
+export function fishFreshness( age, H = FISH_HALL ) {
+
+	const a = Number.isFinite( age ) ? Math.max( 0, age - H.freshHours ) : 0;
+	return H.floor + ( 1 - H.floor ) * Math.pow( 0.5, a / H.halfLife );
+
+}
+
+// { factor, fresh, eats, wanted }: the multiplier on a fish's catch value at a fish hall
+export function fishSaleFactor( { species, age = 0, eats = [], wanted = null, freshness = true } = {}, H = FISH_HALL ) {
+
+	const fresh = freshness ? fishFreshness( age, H ) : 1;
+	const likes = Array.isArray( eats ) && eats.includes( species );
+	const want = !! wanted && wanted === species;
+	return { factor: fresh * ( 1 + ( likes ? H.eats : 0 ) + ( want ? H.wanted : 0 ) ), fresh, eats: likes, wanted: want };
+
+}
