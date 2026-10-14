@@ -200,7 +200,9 @@ export class LocalLights {
 
 		// lamps: on from dusk (same ramp as the lantern glass), nearest first
 		const on = smooth( G.night.value, 0.05, 0.45 ) * this.strength; // lamps come up from dusk, not only in full night
-		if ( on > 0.002 && this.enabled ) {
+		// (wave 19E) the interiors' lamps (sources with `indoor` > 0, src/world/interiors) burn by day too
+		const indoor = this.sources.some( ( s ) => s.indoor > 0 && s.enabled !== false );
+		if ( ( on > 0.002 || indoor ) && this.enabled ) {
 
 			const cp = camera.position;
 			const list = this._list;
@@ -223,7 +225,7 @@ export class LocalLights {
 				const s = list[ i ];
 				const fade = Number.isFinite( dCut ) ? smooth( Math.sqrt( s.d2 ), dCut, dCut * 0.8 ) : 1;
 				const fl2 = s.flicker ? 1 + s.flicker * Math.sin( this.time * 9 + s.phase ) * Math.sin( this.time * 5.3 + s.phase * 0.37 ) : 1;
-				const k = s.intensity * on * fade * fl2 * ( s.scale ?? 1 );
+				const k = s.intensity * ( s.indoor > 0 ? Math.max( on, s.indoor * this.strength ) : on ) * fade * fl2 * ( s.scale ?? 1 );
 				if ( k <= 1e-4 ) continue;
 				const r = s.range;
 				pos[ n ].set( s.position.x, s.position.y, s.position.z, r * r );

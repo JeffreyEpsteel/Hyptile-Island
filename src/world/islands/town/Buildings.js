@@ -10,6 +10,7 @@ import { WOOD, WOODX, STONE, PAINT, frameAt, cottage } from '../IslandKit.js';
 import { tidemarkWorld } from '../../terrain/IslandShape.js';
 import { BUILDINGS, EXTRA, FACE, at } from './Layout.js';
 import { STREET } from './Waterfront.js';
+import { DOOR } from '../../interiors/Rooms.js';
 
 // Tidemark's building shells: the fishermen's houses, the chandlery, the tavern and the harbourmaster's hut are the home
 // village's own houses (village/Buildings.js buildHouse, its baked PBR materials) when the Village is passed in, plain
@@ -31,6 +32,8 @@ import { STREET } from './Waterfront.js';
 //   shells.far (the lookout: a landmark), shells.list [ { id, kind, name, x, z, yaw, w, d, floorY, top, block } ],
 //   shells.lamp (the lookout's lamp position), shells.kit (TownKit: kit.ready resolves once the GLB is merged in),
 //   shells.blocks [ { id, x, z, ids } ], shells.stats { near, far, paving, kitPlacements }
+//   (wave 19E) the tavern, the chandlery and the harbourmaster's hut open (INTERIOR_OF: their list entries' `interior`): the
+//   village house cuts the doorway and registers its shell for src/world/interiors
 
 const PASTEL = [ lin( 0x7fc8c0 ), lin( 0xf0a890 ), lin( 0xf2e2b8 ), lin( 0x9cc8e4 ), lin( 0xf4d27a ), lin( 0xb8e0c4 ), lin( 0xe8c0d4 ) ];
 const TRIM = { white: lin( 0xf2efe6 ), cream: lin( 0xe8dcc0 ), navy: lin( 0x2e4f73 ), teal: lin( 0x2d7f7a ), red: lin( 0xa8463a ), green: lin( 0x4c7d4c ) };
@@ -114,6 +117,10 @@ function fillerSpec( b, rand ) {
 
 const HOUSE_KINDS = new Set( [ 'house', 'tavern', 'chandler' ] );
 
+// wave 19E: the shells whose door opens into an interior (src/world/interiors/Rooms.js INTERIORS; the village houses only:
+// the GeoKit stand-in cottages stay shut)
+export const INTERIOR_OF = { tavern: 'tidemark.tavern', chandler: 'tidemark.chandler', office: 'tidemark.office' };
+
 // the name boards and projecting signs on the village houses: piece, the height over the floor (in storeys + m), scale
 const SIGNS = {
 	tavern: [ { piece: 'sign_tavern', y: [ 1, 0.42 ], x: 0, scale: 0.82 }, { piece: 'hang_tavern', y: [ 1, 1.15 ], x: 'corner' } ],
@@ -157,6 +164,7 @@ export function buildShells( { terrain, colliders, village = null, propMaterial 
 		if ( HOUSE_KINDS.has( b.kind ) ) {
 
 			const sp = b.filler ? fillerSpec( b, rand2 ) : houseSpec( b, rand );
+			if ( useVillage && INTERIOR_OF[ b.id ] ) sp.openDoor = { id: INTERIOR_OF[ b.id ], w: DOOR.w, h: DOOR.h };
 			if ( useVillage ) {
 
 				const r = rand2.next();
@@ -213,7 +221,7 @@ export function buildShells( { terrain, colliders, village = null, propMaterial 
 
 		k.ids.push( b.id );
 		k.sx += b.x; k.sz += b.z; k.n ++;
-		list.push( { id: b.id, kind: b.kind, name: b.name, x: b.x, z: b.z, yaw: b.yaw, w: b.w, d: b.d, floorY: g, top, block: k.id, filler: !! b.filler } );
+		list.push( { id: b.id, kind: b.kind, name: b.name, x: b.x, z: b.z, yaw: b.yaw, w: b.w, d: b.d, floorY: g, top, block: k.id, filler: !! b.filler, interior: useVillage ? INTERIOR_OF[ b.id ] || null : null } );
 
 	}
 

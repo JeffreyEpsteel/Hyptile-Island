@@ -376,6 +376,7 @@ export class Player {
 	springArm( dt, feet, base ) {
 
 		const target = _v2.set( feet.x, feet.y + ( this.mode === 'swim' ? 0.6 : ARM.height ), feet.z );
+		if ( this.indoor ) this.indoor.pivot( target ); // (wave 19E, src/world/interiors) indoors the pivot stays under the ceiling
 		if ( ! this.armInit ) {
 
 			this.armPivot.copy( target );
@@ -405,6 +406,7 @@ export class Player {
 
 		}
 
+		if ( this.indoor ) dist = this.indoor.arm( this.armPivot, back, dist ); // (wave 19E) the closer arm that stays in the room
 		this.camera.position.copy( this.armPivot ).addScaledVector( back, dist ).addScaledVector( side, ARM.side );
 		this._camY = this.camera.position.y;
 

@@ -17,3 +17,4 @@ tools/roster/__pycache__/
 
 # wave 18A: capture outputs (regenerate with tools/visuals/capture.mjs)
 tools/visuals/out/
+tools/interiors/out/

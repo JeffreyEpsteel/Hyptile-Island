@@ -328,6 +328,8 @@ export class TownLife {
 		};
 		// the benches and logs wave 18C exports (the built object's list when it has one, else the module's)
 		t.sim.setSeats( this._seats( plan.id ).filter( ( s ) => t.grid.nearestFree( s.x, s.z, 2 ) ) );
+		// (wave 19E) the taverns' interiors (src/world/interiors): tavern-goers past a full patio sit inside
+		t.sim.interiorSeats = () => this.features?.get?.( 'interiors' )?.seatsFor?.( plan.id, { tavern: true } ) || [];
 		this.animals.addTown( plan.id, { pens: plan.pens, animals: scaleAnimals( plan.animals, this.scale ), free: ( x, z ) => t.grid.free( x, z ), ground: t.sim.ground } );
 
 	}
@@ -635,7 +637,7 @@ export class TownLife {
 
 				}
 
-				if ( c.body || d2 < hide * hide ) c.y = ( ground ? ground( c.x + ox, c.z + oz ) : 0 ) + sit;
+				if ( c.body || d2 < hide * hide ) c.y = ( c.indoorFloor !== null ? c.indoorFloor : ground ? ground( c.x + ox, c.z + oz ) : 0 ) + sit; // (wave 19E: an interior's floor)
 				const body = c.body;
 				if ( body && body.model ) {
 

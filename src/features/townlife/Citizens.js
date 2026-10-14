@@ -172,6 +172,8 @@ export class Citizen {
 		this.moving = false;
 		this.mode = 'walk'; // walk | run | drunk | sweep | barrow | carry | patrol | chase | flee
 		this.hidden = false;
+		this.indoorFloor = null; // (wave 19E) seated in an interior (src/world/interiors): its floor's height
+		this.indoorDoor = null;
 		this.waitT = 0; // s at the goal
 		this.gesture = null;
 		this.gestureT = 4 + ( h % 7 );
@@ -404,6 +406,8 @@ export class TownSim {
 
 	_goal( c, goal, mode = 'walk' ) {
 
+		// (wave 19E) out of an interior: back at its door first
+		if ( c.indoorFloor !== null ) { c.x = c.indoorDoor.x; c.z = c.indoorDoor.z; c.indoorFloor = null; c.indoorDoor = null; }
 		// up from a seat first (the near ones play it; out of sight they just go)
 		if ( c.sitting && ! this.dormant && c.near ) c.standT = 1.1;
 		c.goal = goal;
@@ -444,7 +448,15 @@ export class TownSim {
 		c.waitT = 0;
 		if ( ! g ) return;
 		if ( Number.isFinite( g.yaw ) ) c.yaw = g.yaw;
-		if ( g.indoors ) c.hidden = true;
+		if ( g.indoors && g.seat ) {
+
+			// (wave 19E) through the tavern's door to a seat in its interior: seated there, drawn on its floor
+			c.indoorDoor = { x: g.x, z: g.z };
+			c.x = g.seat.x; c.z = g.seat.z; c.yaw = g.seat.yaw + Math.PI;
+			c.indoorFloor = g.seat.floor;
+			c.hidden = false;
+
+		} else if ( g.indoors ) c.hidden = true;
 		if ( g.look && g.look.sit ) {
 
 			c.seatH = Number.isFinite( g.h ) ? g.h : 0.45;
@@ -538,7 +550,10 @@ export class TownSim {
 				const sk = S.claim( 'seat', this.seats.length, c.id );
 				if ( sk >= 0 && Math.hypot( this.seats[ sk ].x - T.door.x, this.seats[ sk ].z - T.door.z ) < 25 ) { const s = this.seats[ sk ]; return this._goal( c, { x: s.x, z: s.z, yaw: s.yaw, h: s.h, look: LOOK.seat, kind: 'seat', dwell: Infinity } ); }
 				S.release( c.id );
-				// the patio is full: inside, where it is loud
+				// the patio is full: inside, where it is loud (wave 19E: on a free seat of the tavern's interior when it has one)
+				const In = this.interiorSeats ? this.interiorSeats() : null;
+				const ik = In && In.length ? S.claim( 'inside', In.length, c.id ) : - 1;
+				if ( ik >= 0 ) { const s = In[ ik ]; return this._goal( c, { x: T.door.x, z: T.door.z, yaw: T.door.yaw, indoors: true, kind: 'tavernIn', look: LOOK.seat, h: s.h, seat: s, dwell: Infinity } ); }
 				return this._goal( c, { x: T.door.x, z: T.door.z, yaw: T.door.yaw, indoors: true, kind: 'tavernIn' } );
 
 			}

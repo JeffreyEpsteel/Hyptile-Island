@@ -5,6 +5,8 @@ import {
 	bucket, fish, iceBed, bananaLeaf, lobster, fishTwine, sHook, Rand,
 } from '../Props.js';
 import { mulberry32 } from '../../util/Noise.js';
+import { openDoorFor, DOOR } from '../interiors/Rooms.js';
+import { hollowColliders, registerShell } from '../interiors/Shells.js';
 
 // Parametric tropical fishing-village buildings: cottages, two-storey houses and stilt huts,
 // plus a boathouse and a market stall. All geometry goes into a GeoBuilder in the building's
@@ -137,16 +139,28 @@ function windowUnit( B, rand, cx, sillY, ww, wh, st ) {
 
 }
 
-function doorUnit( B, rand, cx, floorY, st ) {
+// open: { w, h } an open doorway (wave 19E): the casing and the sill round it, no leaf, glass or knob (the same random draws)
+function doorUnit( B, rand, cx, floorY, st, open = null ) {
 
-	const dw = 0.92, dh = 2.08, tw = 0.09;
+	const dw = open ? open.w : 0.92, dh = open ? open.h : 2.08, tw = 0.09;
 	const trim = st.trim, td = () => [ rand.next(), st.trimPaint, 0, st.weather ];
-	B.box( 'wood', cx, floorY + dh / 2, 0.012, dw, dh, 0.045, { grain: 1, tint: st.accent, data: [ rand.next(), st.paint, st.doorPattern ?? 3, st.weather ] } );
+	const leaf = [ rand.next(), st.paint, st.doorPattern ?? 3, st.weather ];
+	if ( ! open ) B.box( 'wood', cx, floorY + dh / 2, 0.012, dw, dh, 0.045, { grain: 1, tint: st.accent, data: leaf } );
 	B.box( 'wood', cx - dw / 2 - tw / 2, floorY + dh / 2 + 0.02, 0.02, tw, dh + 0.04, 0.04, { grain: 1, tint: trim, data: td() } );
 	B.box( 'wood', cx + dw / 2 + tw / 2, floorY + dh / 2 + 0.02, 0.02, tw, dh + 0.04, 0.04, { grain: 1, tint: trim, data: td() } );
 	B.box( 'wood', cx, floorY + dh + 0.1, 0.024, dw + 2 * tw + 0.06, 0.14, 0.048, { grain: 0, tint: trim, data: td() } );
 	B.box( 'wood', cx, floorY + dh + 0.18, 0.045, dw + 2 * tw + 0.12, 0.025, 0.09, { grain: 0, tint: trim, data: td() } );
 	B.box( 'wood', cx, floorY + 0.015, 0.05, dw + 0.12, 0.03, 0.1, { grain: 0, data: WOOD( rand.next(), 0.7 ) } );
+	if ( open ) {
+
+		// the sill through the wall, the jambs' reveals (the cut wall's ends show the siding's edge)
+		B.box( 'wood', cx, floorY + 0.015, - 0.06, dw, 0.03, 0.16, { grain: 0, data: WOOD( 0.37, 0.7 ) } );
+		if ( st.doorGlass ) { td(); rand.next(); rand.chance( 0.5 ); td(); }
+		rand.next();
+		return;
+
+	}
+
 	if ( st.doorGlass ) {
 
 		B.box( 'wood', cx, floorY + 1.55, 0.04, 0.56, 0.5, 0.012, { grain: 0, tint: trim, data: td() } );
@@ -227,6 +241,10 @@ export function buildHouse( ctx, s ) {
 
 	const stories = s.stories || 1;
 	const storyH = s.storyH || ( stories > 1 ? 2.75 : 2.95 );
+	// wave 19E: a door that opens into an interior (src/world/interiors): the doorway is cut through the front wall, the
+	// casing stays (the leaf stands open inside: the room's), the body collider becomes hollow walls and a floor
+	const od = s.openDoor || openDoorFor( s );
+	const odX = s.doorX ?? 0, odW = od ? od.w ?? DOOR.w : 0, odH = od ? od.h ?? DOOR.h : 0;
 	const H = stories * storyH;
 	const t = 0.14;
 	const porch = s.porch || null;
@@ -349,7 +367,15 @@ export function buildHouse( ctx, s ) {
 
 	// ------------------------------------------------------------- walls & trim
 	const wy = floorY + H / 2;
-	B.box( 'wood', 0, wy, d / 2 - t / 2, w, H, t, { grain: 0, tint: s.wall, data: wallData() } );
+	if ( od ) {
+
+		// (one wallData for the three pieces: the random stream, and so every later house, stays as it was)
+		const wd = wallData(), x0 = odX - odW / 2, x1 = odX + odW / 2;
+		B.box( 'wood', ( - w / 2 + x0 ) / 2, wy, d / 2 - t / 2, x0 + w / 2, H, t, { grain: 0, tint: s.wall, data: wd } );
+		B.box( 'wood', ( x1 + w / 2 ) / 2, wy, d / 2 - t / 2, w / 2 - x1, H, t, { grain: 0, tint: s.wall, data: wd } );
+		B.box( 'wood', odX, floorY + odH + ( H - odH ) / 2, d / 2 - t / 2, odW, H - odH, t, { grain: 0, tint: s.wall, data: wd } );
+
+	} else B.box( 'wood', 0, wy, d / 2 - t / 2, w, H, t, { grain: 0, tint: s.wall, data: wallData() } );
 	B.box( 'wood', 0, wy, - d / 2 + t / 2, w, H, t, { grain: 0, tint: s.wall, data: wallData() } );
 	B.box( 'wood', w / 2 - t / 2, wy, 0, t, H, d - 2 * t, { grain: 2, tint: s.wall, data: wallData() } );
 	B.box( 'wood', - w / 2 + t / 2, wy, 0, t, H, d - 2 * t, { grain: 2, tint: s.wall, data: wallData() } );
@@ -647,7 +673,7 @@ export function buildHouse( ctx, s ) {
 
 		if ( wl.front ) {
 
-			doorUnit( B, rand, doorX, floorY, st );
+			doorUnit( B, rand, doorX, floorY, st, od ? { w: odW, h: odH } : null );
 			if ( s.onOpening ) s.onOpening( { kind: 'door', x: doorX, sillY: floorY, story: 0, wall: wi, front: true, frame: B.frame.clone() } );
 			if ( s.lantern !== false ) {
 
@@ -1020,7 +1046,13 @@ export function buildHouse( ctx, s ) {
 
 	// main body collider
 	const bodyBot = gMin - 0.3;
-	fr.addBoxL( 0, ( bodyBot + roofTop ) / 2, 0, w / 2 + 0.06, ( roofTop - bodyBot ) / 2, d / 2 + 0.06, { tag: 'house' } );
+	if ( od ) {
+
+		// (wave 19E) hollow: the walls up to the eaves, the doorway, a walkable floor; the room is laid out inside it
+		const walls = hollowColliders( colliders, { x, z, yaw }, { w: w + 0.12, d: d + 0.12, t: t + 0.12, bottom: bodyBot, top: yE, floorY, doorX: odX, doorW: odW, doorH: odH }, 'house' );
+		registerShell( od.id, { x, z, yaw, w, d, t, floorY, h: storyH, stories, doorX: odX, doorW: odW, doorH: odH, top: roofTop, colliders: walls } );
+
+	} else fr.addBoxL( 0, ( bodyBot + roofTop ) / 2, 0, w / 2 + 0.06, ( roofTop - bodyBot ) / 2, d / 2 + 0.06, { tag: 'house' } );
 
 	return {
 		floorY, roofTop, eaveY: yE, storyH, stories, porchDepth: pd,

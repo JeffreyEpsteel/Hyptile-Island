@@ -39,6 +39,7 @@ import * as emotes from './emotes/index.js';
 import * as start from '../world/start/index.js';
 import * as townlife from './townlife/index.js';
 import * as navy from './navy/index.js';
+import * as interiors from '../world/interiors/index.js';
 
 export const MODULES = [
 	[ 'start', start ], // Jade Landing + intro (first: later modules see its colliders)
@@ -58,6 +59,7 @@ export const MODULES = [
 	[ 'pirates', pirates ], // named captains, dens, notoriety (spawns through naval)
 	[ 'stronghold', stronghold ], // Blackwater: the fort's batteries, alarm, guards, claim and black market
 	[ 'townlife', townlife ], // wave 18B: townsfolk, animals, skiffs (after harbour, stronghold)
+	[ 'interiors', interiors ], // wave 19E: walk into the taverns, the chandleries and the harbourmaster's office
 	[ 'crew', crew ], // hired characters posted aboard: gunners and anglers
 	[ 'emotes', emotes ], // 5 opens the emote row (12 emotes), synced as a world event
 	[ 'netsync', netsync ],

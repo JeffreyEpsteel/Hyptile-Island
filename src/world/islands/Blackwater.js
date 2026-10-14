@@ -8,6 +8,7 @@ import { TownKit, createGlowMaterial } from '../village/TownKit.js';
 import { STRONGHOLD_KINDS, strongholdPlan } from './stronghold/Kinds.js';
 import { rngFor } from '../../features/destruction/Kinds.js';
 import { ensureBlackwater } from './BlackwaterTerrain.js';
+import { openCottage } from '../interiors/Shells.js';
 import { blackwaterLandGeometry } from './BlackwaterMesh.js';
 
 // Blackwater, the pirates' island (terrain/IslandShape.js BLACKWATER; wave 12B). The pirate town on the black-sand crescent
@@ -140,7 +141,8 @@ export class Blackwater {
 			const F = frameAt( b.x, this._y( b.x, b.z ), b.z, b.yaw );
 			if ( b.kind === 'tavern' ) {
 
-				cottage( add, F, { w: b.w, d: b.d, storeys: 2, wall: 0x6a5642, plank: true, roof: TAR, trim: 0x3a2a22, tin: true } );
+				// wave 19E: the Rum Hole's door opens into its interior (src/world/interiors): hollow walls, a doorway, the shell registered
+				openCottage( add, F, { w: b.w, d: b.d, storeys: 2, wall: 0x6a5642, plank: true, roof: TAR, trim: 0x3a2a22, tin: true, id: 'blackwater.rumhole', tag: 'bwTavern' }, colliders );
 				roofPatches( add, F, b.w, b.d, 5.2, 0.55, rnd );
 				// the name board on the wall (the kit), else the old board on two chains with a painted bottle
 				kit.place( 'sign_rumhole', F.m( 0, 3.95, b.d / 2 + 0.02, 0, 0, 0, 0.9 ) );
@@ -160,7 +162,7 @@ export class Blackwater {
 				lanternString( add, kit, F, - b.w / 2 + 0.2, b.w / 2 - 0.2, 2.75, b.d / 2 + 0.25, 7 );
 				const [ lx, lz ] = F.world( 0, b.d / 2 + 0.7 );
 				this.lights.push( lantern( add, lx, F.y + 2.6, lz, { intensity: 8 } ) );
-				if ( colliders ) colliders.addBox( new Vector3( F.x, F.y + 3, F.z ), new Vector3( b.w / 2 + 0.15, 3, b.d / 2 + 0.15 ), b.yaw, { tag: 'bwTavern' } );
+				// (its colliders are the open cottage's hollow walls and floor)
 
 			} else if ( b.kind === 'market' ) {
 

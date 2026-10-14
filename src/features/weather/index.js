@@ -387,6 +387,18 @@ export class Weather {
 	_shelterTick( dt ) {
 
 		const app = this.app;
+		// (wave 19E) inside a room (src/world/interiors: its shell has hollow walls, no roof collider): fully sheltered at
+		// once, so no streak falls through the ceiling and the flash and the rain's sound stay outside
+		const it = this.features && this.features.get ? this.features.get( 'interiors' ) : null;
+		if ( it && it.inside ) {
+
+			this._cover = 1;
+			this.shelter = 1;
+			this._shelterIn = 0;
+			return;
+
+		}
+
 		this._shelterIn -= dt;
 		if ( this._shelterIn <= 0 ) {
 
