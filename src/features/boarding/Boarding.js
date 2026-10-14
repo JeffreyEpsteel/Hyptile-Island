@@ -338,7 +338,10 @@ export class Boarding {
 	_deckY( lx, lz, s = this.ship ) {
 
 		s.finalPose( _fp );
-		return _fp.y + s.cls.deck + 0.05 + lz * Math.sin( _fp.pitch ) + lx * Math.sin( _fp.roll );
+		// stepped decks (the navy frigate's quarterdeck and forecastle, ShipClasses decks): the one under lz, else the main deck
+		let deck = s.cls.deck;
+		if ( s.cls.decks ) for ( const d of s.cls.decks ) if ( lz >= d.z0 && lz < d.z1 ) { deck = d.y; break; }
+		return _fp.y + deck + 0.05 + lz * Math.sin( _fp.pitch ) + lx * Math.sin( _fp.roll );
 
 	}
 

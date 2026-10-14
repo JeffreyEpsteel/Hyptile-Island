@@ -92,7 +92,7 @@ section( '1. classes, lanes and looks' );
 
 	const F = SHIP_CLASSES.frigate, R = SHIP_CLASSES.revenue, B = SHIP_CLASSES.brigantine;
 	ok( NAVY_KINDS.includes( 'frigate' ) && NAVY_KINDS.includes( 'revenue' ) && F.faction === 'navy' && R.faction === 'navy', 'two navy classes: the frigate and the revenue cutter' );
-	ok( SHIP_KINDS.length === 3 && ! F.glb && F.model === 'navy' && F.base === 'brigantine' && R.base === 'sloop', 'no GLBs of their own: drawn from the brigantine / sloop' );
+	ok( SHIP_KINDS.length === 3 && ! F.glb && F.model === 'navy' && /navy\/frigate\.glb$/.test( F.navyGlb ) && /navy\/revenue\.glb$/.test( R.navyGlb ) && F.base === 'brigantine' && R.base === 'sloop', 'their own GLBs (navyGlb, wave 19F), the brigantine / sloop in dress as the fallback; SHIP_KINDS keeps the three' );
 	const ys = [ ...new Set( F.stations.map( ( s ) => s.y.toFixed( 2 ) ) ) ];
 	ok( ys.length === 2 && F.stations.filter( ( s ) => s.side === 'port' ).length === 6 && Math.abs( ys[ 0 ] - ys[ 1 ] ) > 1, `the frigate's two gun decks: 6 guns a side at heights ${ ys.join( ' / ' ) } m` );
 	ok( F.turn < B.turn && F.mass > B.mass && F.hp > B.hp && F.speed < B.speed, 'the frigate turns slower, weighs and holds more than a brigantine' );
@@ -102,12 +102,12 @@ section( '1. classes, lanes and looks' );
 	ok( !! inSafeZone( NAVY_JETTY.home.x, NAVY_JETTY.home.z ), 'the naval jetty lies inside Tidemark\'s calm circle' );
 	const d = dressGeometry( 'frigate' ), j = jettyGeometry();
 	ok( d && d.attributes.position.count > 100 && j && j.attributes.position.count > 200, `the frigate's dress (${ d.attributes.position.count } verts) and the jetty (${ j.attributes.position.count } verts) build` );
-	// drawNavy hands out a scaled base-class visual
+	// drawNavy on a set without templates of its own (the fallback): a scaled base-class visual in dress
 	const made = [];
 	const models = { visuals: new Set(), create( kind ) { const v = { kind, group: { name: '', scale: { set( x, y, z ) { this.v = [ x, y, z ]; } }, add( m ) { made.push( m ); } } }; return v; } };
 	ok( drawNavy( models ) && ! drawNavy( models ), 'drawNavy wraps the ModelSet once' );
 	const v = models.create( 'frigate' );
-	ok( v.kind === 'brigantine' && v.navyKind === 'frigate' && v.group.scale.v[ 0 ] === F.scale && made.length === 1, 'a frigate visual is the brigantine template at 1.3x with the navy dress' );
+	ok( v.kind === 'brigantine' && v.navyKind === 'frigate' && v.group.scale.v[ 0 ] === F.scale && made.length === 1, 'without a template of its own a frigate visual is the brigantine at 1.3x in navy dress' );
 	ok( models.create( 'sloop' ).kind === 'sloop', 'other classes pass through' );
 
 }
@@ -496,6 +496,81 @@ section( '7. the host runs the navy for everybody; the harbourmaster\'s board' )
 	const post = navy.postings( 'tidemark', 30 );
 	ok( post.length === 1 && post[ 0 ].type === 'navyBounty' && post[ 0 ].reward.money === 380 && navy.postings( 'pons', 30 ).length === 0, 'Tidemark\'s board carries the navy bounty notice' );
 	ok( typeof navyModule.install === 'function' && navyModule.install( makeApp(), new Features( makeApp() ), { jetty: false } ) instanceof Navy, 'the module exports install( app, features )' );
+
+}
+
+// ================================================================================================ 8. the navy's own GLBs (wave 19F)
+section( '8. the frigate and the revenue cutter GLBs: nodes, materials, size; loaded through naval\'s ModelSet' );
+{
+
+	const { readFileSync, statSync } = await import( 'node:fs' );
+	const { join } = await import( 'node:path' );
+	const { fileURLToPath } = await import( 'node:url' );
+	const ROOT = fileURLToPath( new URL( '..', import.meta.url ) );
+	const json = ( f ) => { const b = readFileSync( join( ROOT, 'public', f ) ); return JSON.parse( b.subarray( 20, 20 + b.readUInt32LE( 12 ) ).toString( 'utf8' ) ); };
+	const brig = statSync( join( ROOT, 'public/models/ships/brigantine_v2.glb' ) ).size;
+	const MAT = [ 'M_NavalSparTimber', 'M_NavalSailCanvas', 'M_NavalRiggingHemp', 'M_NavalLanternGlass', 'M_NavalDeckPlank', 'M_NavalIron', 'M_NavyHullBlue', 'M_NavyHullWhite', 'M_NavyBlueCanvas', 'M_NavyHelmWheel' ];
+	for ( const [ kind, node ] of [ [ 'frigate', 'SM_Frigate' ], [ 'revenue', 'SM_Revenue' ] ] ) {
+
+		const cls = SHIP_CLASSES[ kind ], j = json( cls.navyGlb ), size = statSync( join( ROOT, 'public', cls.navyGlb ) ).size;
+		const names = j.materials.map( ( m ) => m.name ), prims = j.meshes[ 0 ].primitives;
+		const pos = prims.map( ( p ) => j.accessors[ p.attributes.POSITION ] );
+		const lo = Math.min( ...pos.map( ( a ) => a.min[ 0 ] ) ), hi = Math.max( ...pos.map( ( a ) => a.max[ 0 ] ) );
+		const tris = prims.reduce( ( n, p ) => n + j.accessors[ p.indices ].count / 3, 0 );
+		ok( j.nodes.length === 1 && j.nodes[ 0 ].name === node && j.meshes.length === 1 && prims.length === names.length, `${ kind }: one node ${ node }, one primitive per material (${ prims.length })` );
+		ok( MAT.every( ( m ) => names.includes( m ) ), `${ kind }: the brigantine's spar / sail / rigging / glass materials (masts fall, the lantern glows) and the navy's paint, canvas and wheel` );
+		ok( Math.abs( lo + hi ) < 0.5, `${ kind }: the X extent is centred (${ lo.toFixed( 2 ) } .. ${ hi.toFixed( 2 ) }: centreOnHull leaves the hull where it is)` );
+		ok( size < brig * 1.6 && tris < 24640 * 1.6 && ( j.images || [] ).length <= 7, `${ kind }: ${ ( size / 1e6 ).toFixed( 2 ) } MB (brigantine ${ ( brig / 1e6 ).toFixed( 2 ) }), ${ tris } triangles, ${ j.images.length } textures` );
+
+	}
+
+	// the frigate's stations: two tiers inside her sides, under the rail; the cutter's between deck and rail
+	const F = SHIP_CLASSES.frigate, R = SHIP_CLASSES.revenue;
+	ok( F.stations.every( ( s ) => Math.abs( s.x ) < F.beam / 2 && Math.abs( s.x ) > F.beam / 2 - 0.8 && s.y > 2 && s.y < F.sheer ), 'the frigate\'s guns stand inside her sides, under the rail' );
+	ok( R.stations.every( ( s ) => Math.abs( s.x ) < R.beam / 2 && s.y > R.deck && s.y < R.sheer ) && R.stations.length === 4, 'the cutter\'s two guns a side stand at her ports, between deck and rail' );
+	ok( F.helm.z < F.wheel.z && F.wheel.y > F.decks[ 0 ].y && F.wheel.z > F.decks[ 0 ].z0 && F.wheel.z < F.decks[ 0 ].z1, 'the frigate\'s coxswain stands aft of the wheel on the quarterdeck' );
+
+	// a real load through naval's ModelSet (headless GPU for the textures)
+	const { GPU } = await import( '../src/engine/gpu/GPU.js' );
+	let gpu = true;
+	try { await GPU.init( { headless: true } ); } catch ( e ) { gpu = false; }
+	ok( gpu, 'a headless GPU for the textures' );
+	if ( gpu ) {
+
+		globalThis.__assetFile = async ( url ) => { const b = readFileSync( join( ROOT, 'public', url.replace( /^\//, '' ) ) ); return b.buffer.slice( b.byteOffset, b.byteOffset + b.byteLength ); };
+		const GREY = new Uint8Array( 16 ).fill( 160 );
+		globalThis.__assetImage = async () => ( { data: GREY.slice(), width: 2, height: 2 } );
+		const { ModelSet } = await import( '../src/features/naval/Models.js' );
+		const { hideMast } = await import( '../src/features/naval/MastFall.js' );
+		const { Scene } = await import( '../src/engine/index.js' );
+		const set = new ModelSet( { scene: new Scene(), baseUrl: '/' } );
+		drawNavy( set );
+		for ( const kind of [ 'frigate', 'revenue' ] ) {
+
+			const v = set.create( kind );
+			const glb = await set.ready( kind );
+			const names = v.meshes.map( ( m ) => m.name );
+			ok( glb && v.loaded && v.kind === kind && v.navyKind === kind && ! v.dress && v.group.scale.x === 1, `${ kind }: her own GLB loads into the visual (no dress, no scale)` );
+			ok( names.includes( 'ship-glass' ) && names.includes( 'ship-M_NavalSailCanvas' ) && names.includes( 'ship-M_NavyHullBlue' ) && ! names.includes( 'ship-M_NavyHelmWheel' ) && !! glb.lantern, `${ kind }: ${ names.length } meshes: the lantern glass, the canvas, the paint; the wheel lifted out` );
+			const c = SHIP_CLASSES[ kind ], wp = v.wheel && v.wheel.parent.position;
+			ok( !! v.wheel && Math.abs( wp.x ) < 0.05 && Math.abs( wp.y - c.wheel.y ) < 0.1 && Math.abs( wp.z - c.wheel.z ) < 0.1, `${ kind }: the wheel's hub at the helm (${ wp ? [ wp.x, wp.y, wp.z ].map( ( n ) => n.toFixed( 2 ) ).join( ', ' ) : '-' }, class ${ c.wheel.y } / ${ c.wheel.z })` );
+			const ship = new Ship( kind, { x: 0, z: 0, yaw: 0 } );
+			ship.steer = 0.5;
+			v.apply( ship, ship.finalPose( {} ) );
+			ok( !! v.wheel && Math.abs( v.wheel.rotation.z + 0.5 * v.wheelTurns * Math.PI * 2 ) < 1e-6, `${ kind }: the wheel turns with her helm` );
+			// the hull's own extent (model frame: +X forward, Z across): the bowsprit past her length, the yards across her beam
+			let xmax = - Infinity, zmax = 0;
+			for ( const m of v.meshes ) { const b = m.geometry.boundingBox; xmax = Math.max( xmax, b.max.x ); zmax = Math.max( zmax, b.max.z ); }
+			ok( Math.abs( glb.shiftX ) < 0.3 && xmax > c.length / 2 && zmax > c.beam / 2 - 0.1, `${ kind }: centred (shift ${ glb.shiftX.toFixed( 2 ) }), the bowsprit past her length, spars across her beam` );
+			const hidden = hideMast( v.group );
+			ok( hidden.length >= 3 && hidden.every( ( m ) => /Spar|Sail|Canvas|Rigging/.test( m.name ) ) && ! hidden.some( ( m ) => /Hull|glass/.test( m.name ) ), `${ kind }: a mast shot away takes ${ hidden.length } meshes (spars, canvas, rigging), not the hull` );
+			v.dispose();
+
+		}
+
+		set.dispose();
+
+	}
 
 }
 

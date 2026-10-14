@@ -56,26 +56,35 @@ export const SHIP_CLASSES = {
 		loot: { crates: 0, value: [ 0, 0 ] },
 		helm: { x: 0, z: - 2.5 }, wheel: { x: 0, y: 1.55, z: - 2.02 }, lamp: { x: 0, y: 3.42, z: - 1.32 },
 	},
-	// wave 19B: the navy (features/navy; Brains.thinkNavy sails every class with navy: true). No GLB of their own: model 'navy'
-	// draws the base class's GLB (brigantine / sloop) at `scale` in navy dress (navy/NavyModels.js wraps naval's ModelSet), so
-	// they cost no extra textures. The frigate carries two gun decks (three guns a side on each: the lower deck's ports 1.15 m
-	// under the upper's), turns slowly and is heavy; the revenue cutter is the quick patrol boat. hull: what a taken one sails as.
+	// wave 19B: the navy (features/navy; Brains.thinkNavy sails every class with navy: true). Wave 19F: their own GLBs
+	// (public/models/navy/*.glb, tools/navy/build_navy_ships.py): model 'navy' with navyGlb (navy/NavyModels.js loads it as the
+	// class's template in naval's ModelSet; glb stays null so SHIP_KINDS keeps the three pirate / merchant hulls). base / scale:
+	// the fallback look if that GLB fails (the base class's GLB scaled, in navy dress). Measured on the GLBs (boat frame): the
+	// frigate's main (gun) deck 3.4 m, the raised quarterdeck 4.6 m aft of z -6.8 and the forecastle 4.35 m forward of z 9.2
+	// (decks), the waist rail 4.75 m, the sides 3.8 m out at the guns; two tiers of three guns a side (the lower tier's ports
+	// at 2.48 m on the white strake, the upper's at 4.0 m in the waist) and the double wheel on the quarterdeck (helm: where
+	// the coxswain stands, wheel: its hub). The revenue cutter: deck 1.95 m, rail 2.7 m, a gun a side aft and forward of the
+	// mast in ports at 2.42 m, the wheel aft. hull: what a taken one sails as.
 	frigate: {
-		id: 'frigate', label: 'Navy frigate', faction: 'navy', navy: true, glb: null, model: 'navy', base: 'brigantine', scale: 1.3, hull: 'brigantine',
-		length: 26, beam: 8.8, draft: 2.5, sheer: 4.85, deck: 3.4, mast: 19.8,
+		id: 'frigate', label: 'Navy frigate', faction: 'navy', navy: true, glb: null, navyGlb: 'models/navy/frigate.glb', model: 'navy', base: 'brigantine', scale: 1.3, hull: 'brigantine',
+		length: 27.5, beam: 7.9, draft: 2.6, sheer: 4.75, deck: 3.4, mast: 27.1,
 		speed: 5.6, accel: 0.45, decel: 0.7, turn: 0.19,
 		mass: 140000, hp: 520, guns: 6,
-		stations: [ ...stations( [ - 5.4, 0, 5.4 ], 3.8, 3.4 ), ...stations( [ - 5.4, 0, 5.4 ], 4.1, 2.25 ) ],
+		stations: [ ...stations( [ - 5.4, 0, 5.4 ], 3.3, 3.45 ), ...stations( [ - 5.4, 0, 5.4 ], 3.3, 1.93 ) ],
 		sight: 520, engage: 170, lose: 950, fleeAt: 0.14, shot: 0.013, damage: 32, reload: 7.4, traverse: 20 * DEG,
 		loot: { crates: 2, value: [ 60, 120 ] },
+		helm: { x: 0, z: - 11.45 }, wheel: { x: 0, y: 5.62, z: - 10.7 },
+		decks: [ { z0: - 13.75, z1: - 6.8, y: 4.6 }, { z0: - 6.8, z1: 9.2, y: 3.4 }, { z0: 9.2, z1: 13.75, y: 4.35 } ],
 	},
 	revenue: {
-		id: 'revenue', label: 'Navy revenue cutter', faction: 'navy', navy: true, glb: null, model: 'navy', base: 'sloop', scale: 1.05, hull: 'sloop',
-		length: 15.1, beam: 5.5, draft: 1.5, sheer: 3.37, deck: 2.3, mast: 12.5,
+		id: 'revenue', label: 'Navy revenue cutter', faction: 'navy', navy: true, glb: null, navyGlb: 'models/navy/revenue.glb', model: 'navy', base: 'sloop', scale: 1.05, hull: 'sloop',
+		length: 15, beam: 5.2, draft: 1.6, sheer: 2.7, deck: 1.95, mast: 16.6,
 		speed: 7.8, accel: 1.1, decel: 1.3, turn: 0.55,
-		mass: 29000, hp: 160, guns: 2, stations: stations( [ - 2.5, 2.5 ], 2.2, 2.3 ),
+		mass: 29000, hp: 160, guns: 2,
+		stations: [ { side: 'port', x: 1.95, y: 2.42, z: - 3.0 }, { side: 'starboard', x: - 1.95, y: 2.42, z: - 3.0 }, { side: 'port', x: 1.6, y: 2.42, z: 4.0 }, { side: 'starboard', x: - 1.6, y: 2.42, z: 4.0 } ],
 		sight: 460, engage: 140, lose: 820, fleeAt: 0.26, shot: 0.016, damage: 24, reload: 5.0, traverse: 24 * DEG,
 		loot: { crates: 1, value: [ 30, 60 ] },
+		helm: { x: 0, z: - 6.2 }, wheel: { x: 0, y: 2.9, z: - 5.6 },
 	},
 };
 
