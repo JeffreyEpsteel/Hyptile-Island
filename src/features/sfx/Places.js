@@ -191,7 +191,7 @@ export function runupOf( features, world = WORLD ) {
 
 // ------------------------------------------------------------------ audio: the loops
 
-function loopNoise( ctx, kind ) {
+export function loopNoise( ctx, kind ) {
 
 	const s = ctx.createBufferSource();
 	s.buffer = noiseBuf( ctx, kind );
@@ -201,7 +201,7 @@ function loopNoise( ctx, kind ) {
 }
 
 // a slow modulator on a param: out += osc * depth
-function lfo( ctx, rate, depth, param, sources ) {
+export function lfo( ctx, rate, depth, param, sources ) {
 
 	const o = ctx.createOscillator();
 	o.frequency.value = rate;
@@ -215,7 +215,7 @@ function lfo( ctx, rate, depth, param, sources ) {
 }
 
 // a crowd: brown noise through voice-band filters whose levels flutter at syllable rates (rowdy: faster, deeper, louder)
-function crowdBed( ctx, out, rowdy ) {
+export function crowdBed( ctx, out, rowdy ) {
 
 	const sources = [];
 	const bands = [ [ 420, 1.3, 3.1 ], [ 1100, 1.6, 4.7 ], [ 700, 1.0, 2.3 ], [ 1900, 2, 6.2 ] ];

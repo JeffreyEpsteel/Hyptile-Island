@@ -31,6 +31,9 @@ the end of this file. Every entry was checked against the files in this reposito
 | Seaplane (`public/models/seaplane`) | procedural, `tools/seaplane/build_seaplane.py` | this repository's MIT license |
 | Animation: the authored clips (fishing, swims, helm, rowing, seated, fall, prank, jump) | the project owner (`JadeFisher_Comfy/animations`, `Assets/Hyptile*`, `Assets/FishingFleet`) | the owner's own work |
 | Melee, cannon, impact and dynamic sounds (`public/audio/combat`, `public/audio/naval`, `public/audio/sfx`) | the project owner (ElevenLabs text-to-sound generations in the naval fork, receipts there; details in each folder's `CREDITS.txt`) | the owner's own work; `thwack`, `thud`, `splinter`, `sail_luff` are synthesised and need no credit |
+| Action sounds of wave 20 (weapons, navy, storms, interiors, crew, towns; `src/features/sfx/Voices.js`) | synthesised at runtime with Web Audio, no recordings | this repository's MIT license |
+| Navy frigate and revenue cutter (`public/models/navy`) | procedural, `tools/navy/build_navy_ships.py` (reusing the brigantine's textures) | this repository's MIT license |
+| Interiors kit (`public/models/interiors`) | procedural, `tools/interiors/kit.py` (Poly Haven CC0 plank scans already credited below) | this repository's MIT license |
 | Character names Ethena Prosper (chandlery) and PoorGoat (fish stand) | the project owner | - |
 
 ### Microsoft Rocketbox motion capture

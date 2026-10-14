@@ -9,6 +9,10 @@
 //   s.play( 'battery_fire', { at: { x, y, z }, gain: 1, rate: 1 } )   -> voice | null (not active, too far, no room)
 //   CUES[ name ] = { cat, gain, ref, max, voices, build }
 //
+// Wave 20B: a cue's voices are halved on a phone (globalThis.__phoneBudget) and the whole synth has a budget (VOICE_CAP) so a
+// battle never stacks into clipping; opts.delay starts a cue later (a far gun's sound travelling); the SfxPlayer's occlude
+// hook makes a positional cue quieter and low-passed through a room's walls. Voices.js adds the new actions' cues.
+//
 // Without oscillators on the context (a bare test double) every call returns null; nothing here throws.
 
 const clamp = ( v, a, b ) => ( v < a ? a : v > b ? b : v );
@@ -118,7 +122,7 @@ export function burst( ctx, dest, { t, dur, peak = 1, type = 'lowpass', f = 800,
 // a struck bell: inharmonic partials with their own decays (the lowest rings longest)
 const BELL = [ [ 0.5, 1.0, 2.6 ], [ 1, 0.9, 2.0 ], [ 1.19, 0.5, 1.3 ], [ 1.56, 0.4, 0.9 ], [ 2, 0.35, 0.8 ], [ 2.51, 0.22, 0.5 ], [ 3.2, 0.12, 0.35 ] ];
 
-function bellStrike( ctx, dest, t, f0, amp = 1, ring = 1 ) {
+export function bellStrike( ctx, dest, t, f0, amp = 1, ring = 1 ) {
 
 	for ( const [ r, a, d ] of BELL ) tone( ctx, dest, { type: 'sine', f0: f0 * r, t, dur: d * ring, peak: 0.35 * a * amp, attack: 0.003 } );
 	burst( ctx, dest, { t, dur: 0.05, peak: 0.25 * amp, type: 'bandpass', f: f0 * 5, q: 1.5 } ); // the clapper
@@ -126,14 +130,14 @@ function bellStrike( ctx, dest, t, f0, amp = 1, ring = 1 ) {
 }
 
 // the report echoing round the caldera: copies of a low burst coming back later and duller
-function echoes( ctx, dest, t, { f = 380, peak = 0.5, dur = 0.7, delays = [ 0.45, 0.95, 1.7 ] } = {} ) {
+export function echoes( ctx, dest, t, { f = 380, peak = 0.5, dur = 0.7, delays = [ 0.45, 0.95, 1.7 ] } = {} ) {
 
 	delays.forEach( ( dl, i ) => burst( ctx, dest, { t: t + dl, dur: dur * ( 1 + i * 0.4 ), peak: peak / ( 2 + i * 1.3 ), type: 'lowpass', f: f / ( 1 + i * 0.5 ), q: 0.6, attack: 0.04 } ) );
 
 }
 
 // a vowel-ish voice: a sawtooth through two formant bands, gliding in pitch
-function voice( ctx, dest, { t, dur, f0, f1 = f0, forms = [ 700, 1200 ], peak = 0.5, type = 'sawtooth', vibrato = 0 } ) {
+export function voice( ctx, dest, { t, dur, f0, f1 = f0, forms = [ 700, 1200 ], peak = 0.5, type = 'sawtooth', vibrato = 0 } ) {
 
 	const o = ctx.createOscillator();
 	o.type = type;
@@ -388,6 +392,17 @@ export const CUES = {
 
 // ------------------------------------------------------------------ the player
 
+// (wave 20B) the whole synth's budget of voices sounding at once, so a battle's guns, hits and drums never stack into
+// clipping; a phone gets fewer, and half of each cue's own voices (globalThis.__phoneBudget, docs/PERF.md)
+export const VOICE_CAP = { desktop: 24, phone: 10 };
+export const isPhone = () => !! globalThis.__phoneBudget;
+export function voiceLimit( info, phone = isPhone() ) {
+
+	const n = Math.max( 1, Math.round( num( info && info.voices, 1 ) ) );
+	return phone ? Math.max( 1, Math.ceil( n / 2 ) ) : n;
+
+}
+
 export class SynthPlayer {
 
 	constructor( player ) {
@@ -398,6 +413,8 @@ export class SynthPlayer {
 		this.count = 0;
 		this.skipped = 0;
 		this.failed = 0;
+		this.limited = 0; // skipped: the cue's own voices were all sounding
+		this.capped = 0; // skipped: the whole synth's budget was full
 
 	}
 
@@ -416,7 +433,18 @@ export class SynthPlayer {
 
 	}
 
-	// opts: at { x, y, z } (omitted: in the head), gain, rate (pitch / tempo of builders that use it), any builder option
+	// voices still sounding (or waiting on their delay) across every cue
+	live( now = num( this.player && this.player.ctx && this.player.ctx.currentTime, 0 ) ) {
+
+		let n = 0;
+		for ( const list of this.voices.values() ) for ( const v of list ) if ( v.end > now ) n ++;
+		return n;
+
+	}
+
+	// opts: at { x, y, z } (omitted: in the head), gain, rate (pitch / tempo of builders that use it), delay (s: a far gun
+	// heard after its sound has travelled), any builder option. A positional cue is occluded when the SfxPlayer's
+	// occlude( at ) says so (wave 20B: a wall between it and the listener): { gain, cutoff } -> quieter and low-passed.
 	play( name, opts = {} ) {
 
 		const info = CUES[ name ], p = this.player, ctx = p && p.ctx;
@@ -428,13 +456,17 @@ export class SynthPlayer {
 			const now = num( ctx.currentTime, 0 );
 			const list = ( this.voices.get( name ) || [] ).filter( ( v ) => v.end > now );
 			this.voices.set( name, list );
-			if ( list.length >= info.voices ) { this.skipped ++; return null; }
-			let dist = 0, g = info.gain * num( gain, 1 );
+			const phone = isPhone();
+			if ( list.length >= voiceLimit( info, phone ) ) { this.skipped ++; this.limited ++; return null; }
+			if ( ! info.prio && this.live( now ) >= ( phone ? VOICE_CAP.phone : VOICE_CAP.desktop ) ) { this.skipped ++; this.capped ++; return null; }
+			let dist = 0, g = info.gain * num( gain, 1 ), occ = null;
 			if ( at ) {
 
 				const l = p.listener();
 				dist = Math.hypot( num( at.x, 0 ) - l.x, num( at.y, l.y ) - l.y, num( at.z, 0 ) - l.z );
 				g *= this.distanceGain( name, dist );
+				if ( typeof p.occlude === 'function' ) occ = p.occlude( at, info );
+				if ( occ ) g *= clamp( num( occ.gain, 1 ), 0, 1 );
 
 			}
 
@@ -445,6 +477,16 @@ export class SynthPlayer {
 
 			const out = ctx.createGain();
 			out.gain.value = g;
+			// through a wall: the low-pass between the cue and its panner / bus
+			let head = out, lp = null;
+			if ( occ && num( occ.cutoff, 20000 ) < 18000 && typeof ctx.createBiquadFilter === 'function' ) {
+
+				lp = filterNode( ctx, 'lowpass', Math.max( 120, occ.cutoff ), 0.6 );
+				out.connect( lp );
+				head = lp;
+
+			}
+
 			let panner = null;
 			if ( at && typeof ctx.createPanner === 'function' ) {
 
@@ -461,22 +503,23 @@ export class SynthPlayer {
 					panner.positionZ.value = num( at.z, 0 );
 
 				} else if ( panner.setPosition ) panner.setPosition( num( at.x, 0 ), num( at.y, 0 ), num( at.z, 0 ) );
-				out.connect( panner );
+				head.connect( panner );
 				panner.connect( sink.node );
 
-			} else out.connect( sink.node );
+			} else head.connect( sink.node );
 
-			const t0 = Math.max( now, num( ctx.currentTime, 0 ) ) + 0.01;
+			const delay = clamp( num( opts.delay, 0 ), 0, 12 );
+			const t0 = Math.max( now, num( ctx.currentTime, 0 ) ) + 0.01 + delay;
 			const dur = num( info.build( ctx, out, t0, opts ), 1 );
-			const voice = { name, cat: info.cat, end: t0 + dur, dist, gain: g, at: at ? { x: at.x, y: at.y, z: at.z } : null, node: out };
+			const voice = { name, cat: info.cat, end: t0 + dur, dist, gain: g, at: at ? { x: at.x, y: at.y, z: at.z } : null, node: out, delay, occluded: occ ? occ : null };
 			list.push( voice );
 			this.count ++;
-			this.played.push( { name, cat: info.cat, at: voice.at, dist, gain: g } );
+			this.played.push( { name, cat: info.cat, at: voice.at, dist, gain: g, delay, occluded: occ ? { gain: occ.gain, cutoff: occ.cutoff } : null } );
 			if ( this.played.length > 200 ) this.played.shift();
 			// the nodes free themselves when their sources end; this drops the output a little after the last one
 			if ( typeof setTimeout === 'function' ) {
 
-				const h = setTimeout( () => { try { out.disconnect(); if ( panner ) panner.disconnect(); } catch ( e ) { /* already gone */ } }, Math.ceil( ( dur + 0.3 ) * 1000 ) );
+				const h = setTimeout( () => { try { out.disconnect(); if ( lp ) lp.disconnect(); if ( panner ) panner.disconnect(); } catch ( e ) { /* already gone */ } }, Math.ceil( ( delay + dur + 0.3 ) * 1000 ) );
 				if ( h && h.unref ) h.unref();
 
 			}

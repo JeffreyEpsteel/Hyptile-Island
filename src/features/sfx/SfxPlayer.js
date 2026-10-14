@@ -61,6 +61,9 @@ export class SfxPlayer {
 		this.played = []; // log of the last plays (tests, debugging): { name, cat, at, dist, gain, rate }
 		this.count = 0; // sounds started
 		this.skipped = 0; // sounds asked for but not started (not loaded yet, muted, too far)
+		// (wave 20B) occlude( at, info ) -> { gain, cutoff } | null: a wall between a positional sound and the listener (the
+		// sfx feature sets it from the interiors); the synthesised cues (Synth.js) read the same hook
+		this.occlude = null;
 
 	}
 
@@ -206,12 +209,14 @@ export class SfxPlayer {
 			this.voices.set( name, list );
 			if ( list.length >= info.voices ) { this.skipped ++; return null; }
 
-			let dist = 0, g = info.gain * num( gain, 1 );
+			let dist = 0, g = info.gain * num( gain, 1 ), occ = null;
 			if ( at ) {
 
 				const l = this.listener();
 				dist = Math.hypot( num( at.x, 0 ) - l.x, num( at.y, l.y ) - l.y, num( at.z, 0 ) - l.z );
 				g *= this.distanceGain( name, dist );
+				if ( typeof this.occlude === 'function' ) occ = this.occlude( at, info );
+				if ( occ ) g *= clamp( num( occ.gain, 1 ), 0, 1 );
 
 			}
 
@@ -239,6 +244,18 @@ export class SfxPlayer {
 			} else gp.value = g;
 
 			src.connect( gn );
+			// through a wall: a low-pass after the voice's gain
+			let head = gn, lp = null;
+			if ( occ && num( occ.cutoff, 20000 ) < 18000 && typeof ctx.createBiquadFilter === 'function' ) {
+
+				lp = ctx.createBiquadFilter();
+				lp.type = 'lowpass';
+				lp.frequency.value = Math.max( 120, occ.cutoff );
+				gn.connect( lp );
+				head = lp;
+
+			}
+
 			let panner = null;
 			if ( at && typeof ctx.createPanner === 'function' ) {
 
@@ -255,14 +272,14 @@ export class SfxPlayer {
 					panner.positionZ.value = num( at.z, 0 );
 
 				} else if ( panner.setPosition ) panner.setPosition( num( at.x, 0 ), num( at.y, 0 ), num( at.z, 0 ) );
-				gn.connect( panner );
+				head.connect( panner );
 				panner.connect( sink.node );
 
-			} else gn.connect( sink.node );
+			} else head.connect( sink.node );
 
 			src.onended = () => {
 
-				try { gn.disconnect(); if ( panner ) panner.disconnect(); } catch ( e ) { /* already gone */ }
+				try { gn.disconnect(); if ( lp ) lp.disconnect(); if ( panner ) panner.disconnect(); } catch ( e ) { /* already gone */ }
 
 			};
 
@@ -270,7 +287,7 @@ export class SfxPlayer {
 			const voice = { name, cat: info.cat, end: t0 + dur, dist, gain: g, rate: r, at: at ? { x: at.x, y: at.y, z: at.z } : null, src, node: gn };
 			list.push( voice );
 			this.count ++;
-			this.played.push( { name, cat: info.cat, at: voice.at, dist, gain: g, rate: r } );
+			this.played.push( { name, cat: info.cat, at: voice.at, dist, gain: g, rate: r, occluded: occ ? { gain: occ.gain, cutoff: occ.cutoff } : null } );
 			if ( this.played.length > 200 ) this.played.shift();
 			return voice;
 

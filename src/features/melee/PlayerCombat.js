@@ -295,7 +295,7 @@ export class PlayerCombat {
 				if ( ! this.swingSfx && this.t >= W.contact - lead ) {
 
 					this.swingSfx = true;
-					h.sfx( 'paddleSwing', { rate: W.id === 'axe' ? 0.8 : W.id === 'cutlass' ? 1.3 : 1.05, gain: 0.6 } );
+					h.sfx( 'paddleSwing', { rate: W.id === 'axe' ? 0.8 : W.id === 'cutlass' ? 1.3 : 1.05, gain: W.id === 'paddle' ? 0.6 : 0.3 } ); // (wave 20B: the blades' own voices sit on top)
 
 				}
 
@@ -474,7 +474,7 @@ export class PlayerCombat {
 		}
 
 		this.stats.hits ++;
-		h.sfx( 'paddleHit', { at: { x: best.x, y: best.y + 1.1, z: best.z }, gain: 0.95, rate: res.punish ? 0.9 : W.id === 'axe' ? 0.75 : 1 } );
+		h.sfx( 'paddleHit', { at: { x: best.x, y: best.y + 1.1, z: best.z }, gain: W.id === 'paddle' ? 0.95 : 0.5, rate: res.punish ? 0.9 : W.id === 'axe' ? 0.75 : 1 } );
 		const label = res.guardBroken ? `BREAK ${ res.dealt }` : res.punish ? `PUNISH ${ res.dealt }` : k > 1 ? `CHAIN ${ res.dealt }` : String( res.dealt );
 		h.pop( label, _v, res.punish || res.guardBroken || k > 1 ? 'punish' : 'dmg' );
 		const heavy = res.punish || res.killed || W.id === 'axe';

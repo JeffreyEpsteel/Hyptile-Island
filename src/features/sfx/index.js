@@ -2,9 +2,14 @@ import { SfxPlayer, FILES } from './SfxPlayer.js';
 import { FishingSfx } from './FishingSfx.js';
 import { ShipSfx, isSailBoat, SAIL_BOATS } from './ShipSfx.js';
 import { FolkSfx, isWorking } from './FolkSfx.js';
-import { SynthPlayer, CUES } from './Synth.js';
+import { SynthPlayer, CUES, VOICE_CAP, voiceLimit } from './Synth.js';
+import { VOICES, VOICE_NAMES } from './Voices.js';
+import { EventSounds, INVENTORY, LOOPS } from './EventSounds.js';
 import { PlaceBeds, bedWeights, sources, marketCrowd, bellStrikes } from './Places.js';
 import { Cues, cueFor, wheelLevels } from './Cues.js';
+
+// (wave 20B) the voices of waves 13-19's actions join the synthesised cues
+for ( const k of VOICE_NAMES ) if ( ! CUES[ k ] ) CUES[ k ] = VOICES[ k ];
 
 // Dynamic audio, driven by the game state every frame (NAVAL_BRIEF B2 / WORLD_TRADE_PIRATES_BRIEF A6). A feature
 // module that only listens: it changes no game state and draws nothing.
@@ -24,6 +29,13 @@ import { Cues, cueFor, wheelLevels } from './Cues.js';
 //   Cues        (wave 13C, synthesised) shore batteries firing, a powder store exploding, the fort bell and the watch's call,
 //               the black flag and the claim, the practice fight's wooden swords, the parachute's canopy snap and lines, the
 //               Kestrel's wheels rolling and braking; each with its own rate limit (Cues.js)
+//   EventSounds (wave 20B, synthesised: Voices.js) the actions of waves 13-19: cutlass / axe / pin / harpoon swings and the
+//               blows landing, bullet impacts, the harpoon gun's strike, the swivel gun's crack, fire pools and burning decks,
+//               a deck catching, flooding and the bilge, masts falling, buckets and the pump, the navy's bosun's call,
+//               "Heave to!", drums to quarters and far broadsides (late by distance / 343 m/s), the fronts' gusts and the
+//               waterspout, doors, floorboards and the hearth indoors, the crew's dice and snoring, the other towns'
+//               markets and gulls, dogs. Its INVENTORY lists each with its source; occlusion() muffles any positional
+//               sound of this feature through a room's walls (the player.occlude hook).
 // The reel ratchet, drag, snap, hull slap and engine are the SoundScape's; weather sound is the weather feature's.
 //
 // Volume: everything goes into the SoundScape's sfx or ambience category nodes (see SfxPlayer.js), so the master
@@ -37,6 +49,7 @@ import { Cues, cueFor, wheelLevels } from './Cues.js';
 // Hooks it takes by itself: it chains app.boatCtl.onSlam (never replaces it).
 
 export { SfxPlayer, FILES, FishingSfx, ShipSfx, FolkSfx, isSailBoat, isWorking, SAIL_BOATS, SynthPlayer, CUES, PlaceBeds, Cues, bedWeights, sources, marketCrowd, bellStrikes, cueFor, wheelLevels };
+export { VOICES, VOICE_CAP, voiceLimit, EventSounds, INVENTORY, LOOPS };
 
 export class Sfx {
 
@@ -52,6 +65,8 @@ export class Sfx {
 		this.folk = new FolkSfx( this );
 		this.places = new PlaceBeds( this );
 		this.cues = new Cues( this );
+		this.events = new EventSounds( this );
+		if ( ! this.player.occlude ) this.player.occlude = ( at ) => this.events.occlusion( at );
 		this.failed = new Set();
 		this.off = [];
 		if ( features && features.on ) this.off.push( features.on( 'strikeMissed', () => this.fishing.miss() ) );
@@ -69,7 +84,7 @@ export class Sfx {
 
 		dt = Math.min( Math.max( Number.isFinite( dt ) ? dt : 0, 0 ), 0.25 );
 		this.time += dt;
-		for ( const k of [ 'fishing', 'ship', 'folk', 'places', 'cues' ] ) {
+		for ( const k of [ 'fishing', 'ship', 'folk', 'places', 'cues', 'events' ] ) {
 
 			try {
 
@@ -93,6 +108,7 @@ export class Sfx {
 		this.synth.stopAll();
 		this.places.reset();
 		this.cues.reset();
+		this.events.reset();
 		this.ship.stress = 0;
 		this.ship.lastHp = null;
 
@@ -107,6 +123,7 @@ export class Sfx {
 		this.folk.dispose();
 		this.places.dispose();
 		this.cues.dispose();
+		this.events.dispose();
 		this.synth.stopAll();
 		this.player.dispose();
 

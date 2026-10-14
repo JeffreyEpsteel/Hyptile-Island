@@ -21,3 +21,10 @@ cp out/*.ogg ../../public/audio/         # then copy the entries of fishing-bank
 - The mixer (`src/audio/SoundScape.js`, `MIX`) turns target loudness into gains with those measurements.
 
 `raw/`, `work/` and `out/` are build scratch (not committed).
+
+## Wave 20B: the new actions' sounds (no build step)
+
+The sounds of waves 13-19's actions (weapons, navy, storm fronts, interiors, crew, towns) are synthesised at runtime
+with Web Audio in `src/features/sfx/Voices.js` and `EventSounds.js` (oscillators and filtered noise), so they add no
+files and need no credit. `EventSounds.js` `INVENTORY` lists each action, its sound and its source;
+`node test/feature-sfx-w20.mjs` checks them.
