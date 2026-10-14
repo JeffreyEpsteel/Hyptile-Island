@@ -440,7 +440,9 @@ take-off run. Take-off runs measured in the flight model (Jade lifts at 318 m an
 Albatross 504 / 798): Blackwater's shore sat 480 m dead ahead of the berth and nothing else fits in the heightmap's
 south band, so it moved onto its own 2 m terrain tile at (-120, 1520) (14D, w14-blackwater-tile.md, 5ab2476:
 BlackwaterTerrain.js ports the heightmap's islet recipe, the fort / town / docks match to the centimetre, one patrol lane
-keeps the south band and four circle the island; the land mesh for the tile is being added). 14A cockpits per airframe
+keeps the south band and four circle the island; BlackwaterMesh.js draws the tile's land, 81cc597). Release
+3.1-alpha packaged (releases/hyptile-island-3.1-alpha.zip, 111 MB, notes in releases/NOTES-3.1-alpha.md; the packaging
+script now copies src/features/firearms/FirearmsData.js for the server). 14A cockpits per airframe
 (w14-cockpits.md, 5b37824: Panels.js layouts, the Albatross's engine columns with feather switches, the Kestrel's gear
 lever and parking brake, the face rebuilds on an airframe change). 14B (w14-parked-planes.md, 18817bc): parked airframes
 on the strip apron and the ramp with E to buy or fly, a 4 m office prompt and an arrival toast, takeOut / recall with a
