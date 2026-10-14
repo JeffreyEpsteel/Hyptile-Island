@@ -12,9 +12,16 @@
 // Wave 4: never in the peaceful home waters (melee/Peace.js). A raid that falls due while the player is on the home island or in
 // its bay waits there (it does not count down the ashore grace), the avenger never appears inside the zone, and the harbour
 // that gets ransacked is an outer port the player is ashore at, never Hyptile Harbour.
+//
+// Wave 15C: the calm waters (naval/Routes.js CALM). A raid waits while the player is afloat in any calm circle (Jade Landing, the
+// home dock, every port's dock) as it does in the home peace (ashore at an outer port the grace still runs); the avenger comes from Blackwater's quarter (the bearing from the player to
+// the island first, then fanning out), else from the nearest den mooring, never inside CALM.spawn m of home and never in calm
+// water; she appears RAID_RULES.distance m off, so the horizon warning (pirates index: HORIZON) is given before she closes.
+// hunt( captainId, reason ) launches one at once (the hijack feature's wanted ships: the faction sends her).
 
 import { CAPTAIN_BY_ID, CAPTAINS, hasTrait } from './Roster.js';
-import { inSafeZone } from '../naval/Routes.js';
+import { inSafeZone, nearHome } from '../naval/Routes.js';
+import { WORLD } from '../../world/WorldLayout.js';
 import { inPeace, PEACE } from '../melee/Peace.js';
 
 export const RAID_RULES = {
@@ -22,7 +29,7 @@ export const RAID_RULES = {
 	delay: [ 70, 160 ], // s before the raid is due
 	ashoreGrace: 300, // s the raiders wait for you to put to sea before they hit the harbour instead
 	cooldown: 240, // s after a raid before another is queued
-	distance: 420, // m from the player where the avenger appears
+	distance: 560, // m from the player where the avenger appears (past the 500 m horizon warning)
 	escape: 950, // m: a raid ship left this far behind gives up
 	harbourShare: 0.06, harbourMax: 180,
 	maxPending: 2,
@@ -75,21 +82,50 @@ export class Retaliation {
 
 	}
 
-	// deep open water about `r` m from the player, not in a harbour
-	_spot( pl, r ) {
+	// a spot an avenger may appear at: open deep water, out of the peace and every calm circle, CALM.spawn m clear of home
+	_open( x, z ) {
 
 		const T = this.p.terrain;
-		const a0 = this.p.rng() * Math.PI * 2;
+		if ( inSafeZone( x, z, null, 40 ) || inPeace( x, z, PEACE.pad ) || nearHome( x, z ) ) return false;
+		if ( T && T.heightAt && ( T.heightAt( x, z ) > - 6 || T.heightAt( x + 20, z ) > - 4 || T.heightAt( x, z + 20 ) > - 4 ) ) return false;
+		return true;
+
+	}
+
+	// deep open water about `r` m from the player, from Blackwater's quarter first (the pirates' island lies far south), fanning
+	// out either side; failing that, the den mooring nearest the player (her band's own water)
+	_spot( pl, r ) {
+
+		const bw = WORLD.blackwater && WORLD.blackwater.center;
+		const a0 = bw ? Math.atan2( bw.x - pl.x, bw.z - pl.z ) : Math.PI * ( this.p.rng() * 2 );
 		for ( let k = 0; k < 16; k ++ ) {
 
-			const a = a0 + k * ( Math.PI * 2 / 16 );
+			const a = a0 + ( k % 2 ? 1 : - 1 ) * Math.ceil( k / 2 ) * ( Math.PI / 12 );
 			const x = pl.x + Math.sin( a ) * r, z = pl.z + Math.cos( a ) * r;
-			if ( inSafeZone( x, z ) || inPeace( x, z, PEACE.pad ) ) continue;
-			if ( T && T.heightAt && ( T.heightAt( x, z ) > - 6 || T.heightAt( x + 20, z ) > - 4 || T.heightAt( x, z + 20 ) > - 4 ) ) continue;
-			return { x, z, yaw: Math.atan2( pl.x - x, pl.z - z ) };
+			if ( this._open( x, z ) ) return { x, z, yaw: Math.atan2( pl.x - x, pl.z - z ) };
 
 		}
 
+		let best = null, bd = Infinity;
+		for ( const d of ( this.p.dens && this.p.dens.list ) || [] ) {
+
+			const dist = Math.hypot( d.mx - pl.x, d.mz - pl.z );
+			if ( dist < bd && dist > 250 && this._open( d.mx, d.mz ) ) { bd = dist; best = d; }
+
+		}
+
+		return best ? { x: best.mx, z: best.mz, yaw: Math.atan2( pl.x - best.mx, pl.z - best.mz ) } : null;
+
+	}
+
+	// a hunt sent at once (no odds, no queue): the captain's ship comes for the player now if he is at sea; else it is queued
+	hunt( captainId, reason = 'hunt' ) {
+
+		const c = CAPTAIN_BY_ID[ captainId ];
+		if ( ! c || ! this.p.ledger.isFree( c.id ) || this.p.roster.shipOf( c.id ) ) return null;
+		const q = { avenger: c.id, reason, victim: null, t: 0, wait: 0 };
+		if ( this.p.playerAtSea() && this.p.navalActive() && this._launch( q ) ) return this.active[ this.active.length - 1 ];
+		if ( this.pending.length < RAID_RULES.maxPending ) this.pending.push( { ...q, t: 20 } );
 		return null;
 
 	}
@@ -106,7 +142,9 @@ export class Retaliation {
 		s.faction = 'pirate'; // a raid always means business
 		if ( hasTrait( c, 'boarder' ) ) s.mustBoard = true;
 		this.active.push( s );
-		this.p.toast( `Black sails to the ${ this._quarter( pl, at ) }: ${ c.captain } has come for revenge`, 4600 );
+		if ( q.reason === 'stolen' ) s.hunt = true; // (a hijack hunt: the horizon warning names her too)
+		this.p.toast( q.reason === 'stolen' ? `Sails to the ${ this._quarter( pl, at ) }: the ${ c.ship } is out after the ship you took`
+			: `Black sails to the ${ this._quarter( pl, at ) }: ${ c.captain } has come for revenge`, 4600 );
 		this.p._emitRaid( { captain: c.captain, id: c.id, reason: q.reason, at: 'sea', x: Math.round( at.x ), z: Math.round( at.z ) } );
 		return true;
 
@@ -148,7 +186,8 @@ export class Retaliation {
 			q.t -= dt;
 			if ( q.t > 0 ) continue;
 			const pl = this.p.playerPos();
-			if ( pl && inPeace( pl.x, pl.z ) ) continue; // home waters: the raid waits for him to leave them
+			// home waters, or afloat in a calm circle: the raid waits for him to leave them (ashore at an outer port the grace runs)
+			if ( pl && ( inPeace( pl.x, pl.z ) || ( ! this.p.onFoot() && inSafeZone( pl.x, pl.z ) ) ) ) continue;
 			if ( this.p.playerAtSea() && this.p.navalActive() ) {
 
 				if ( this._launch( q ) ) this.pending.splice( i, 1 );

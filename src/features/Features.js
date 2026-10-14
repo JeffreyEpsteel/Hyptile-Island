@@ -46,6 +46,9 @@
 //   gullSquawk { x, y, z }   emote { id }                    (life cues; emotes, synced as a world event)
 //   seaplaneUpgraded { airframe, upgrade }   planeBailedOut   chuteLanded { x, y, z, water }   planeEngineFailed { engine }   (seaplane)
 //   hostRequest { kind, data, from, local }   (netsync: a guest asked the host to run something; local when this is the host)
+//   harbourDues { port, amount }   insuranceBought / insuranceClaim   warehouseStored / warehouseWithdrawn / warehouseRent   fishHallBonus   (trade, wave 15B)
+//   climbedAboard { ship }   flaresBought   rescueAnswered { by }   rescueAlongside   rescueDelivered   rescueAbandoned   flareFired { x, z }   (rescue, wave 15D)
+//   vesselTaken { id, class, by }   sailSighted   (hijack / pirates, wave 15C)
 //   practiceStarted { count }   practiceEnded { result }   rockThrown { by, x, z }   (melee: the practice fight, the rock thrower)
 //   questPin { id, x, z, label }   questPinClear { id }        (story -> the maps: a quest step's place)
 //

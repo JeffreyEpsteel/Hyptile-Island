@@ -15,7 +15,7 @@
 
 import { BOARD_SITES } from '../notices/Sites.js';
 import { WORLD } from '../../world/WorldLayout.js';
-import { PATROLS, inSafeZone } from '../naval/Routes.js';
+import { PATROLS, inSafeZone, nearHome } from '../naval/Routes.js';
 import { CAPTAINS, CAPTAIN_BY_ID, hasTrait } from './Roster.js';
 
 export const HB_RULES = {
@@ -207,7 +207,7 @@ export class SearchZones {
 			const b = spots[ Math.floor( rng() * spots.length ) % spots.length ];
 			const a = rng() * Math.PI * 2, d = 40 + rng() * 140;
 			const x = b[ 0 ] + Math.sin( a ) * d, z = b[ 1 ] + Math.cos( a ) * d;
-			if ( inSafeZone( x, z ) ) continue;
+			if ( inSafeZone( x, z ) || nearHome( x, z ) ) continue; // (wave 15C: never in calm water or within 600 m of home)
 			if ( T && T.heightAt && [ [ 0, 0 ], [ 30, 0 ], [ - 30, 0 ], [ 0, 30 ], [ 0, - 30 ] ].some( ( o ) => T.heightAt( x + o[ 0 ], z + o[ 1 ] ) > - 5 ) ) continue;
 			return { x, z };
 

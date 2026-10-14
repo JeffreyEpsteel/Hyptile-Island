@@ -13,6 +13,8 @@
 //                                                              -> { ok, reason?, total?, qty? }
 // Everything sold here that customs cares about is flagged by the trade feature's legality: powder and relics are contraband at
 // home, so a hold full of Blackwater powder is seized there like any other (test/feature-stronghold.mjs checks it).
+// Wave 15C: ctx.stolen ( hijack.stolenQuote() -> { hull, name, price } ) adds the row 'sellship': the fence takes a stolen hull
+// off your hands (Stronghold.marketAction runs hijack.sellStolen(): the money, and a skiff thrown in at the dock).
 
 import { GOODS, contrabandAt } from '../trade/goods.js';
 import { CHARACTERS } from '../../game/Characters.js';
@@ -226,6 +228,8 @@ export class BlackMarket {
 		out.push( { id: 'flag', kind: 'flag', label: 'The black flag', price: this.rules.flagPrice, ok: flag.ok && ! ctx.flag, why: ctx.flag ? 'owned' : why( flag ) } );
 		out.push( { id: 'chart', kind: 'chart', label: 'A treasure chart', price: this.rules.chart, ok: trade.ok, why: why( trade ) } );
 		for ( const c of this.crewFor() ) out.push( { id: 'crew:' + c.id, kind: 'crew', label: `${ c.name } (pirate crew)`, price: c.price, ok: trade.ok, why: why( trade ) } );
+		const st = ctx.stolen;
+		if ( st && st.price > 0 ) out.push( { id: 'sellship', kind: 'ship', label: `Sell the stolen ${ st.name } (a skiff thrown in)`, price: st.price, ok: trade.ok, why: why( trade ) } );
 		return out;
 
 	}

@@ -50,10 +50,21 @@ import { Hostile } from './Hostile.js';
 //
 // Hostile boarding (pirates boarding the player's boat) lives in Hostile.js as this.hostile, updated from update(); prisonerTaken carries the ship id.
 //
+// Wave 15C (hijack any vessel): every NPC ship the player cripples strikes and can be boarded - pirates, merchants and the navy
+// (RULES.prizes; a merchant ships RULES.crew.trawler deck hands, a navy hull one more). The prisoner is a pirate's affair (only a
+// pirate captain fetches a ransom: the option is disabled for the others). With the hijack feature installed the surrender adds
+// 3 "Take the ship" (hijack.takeOffer( ship ) -> { ok, sub }): you stay aboard, hijack.takeShip( ship, { how: 'boarded', goods } )
+// makes her your boat (your old one stays moored where it lies) and boardingEnded { outcome: 'taken' } follows; a pirate taken
+// this way counts as beaten (shipSunk { how: 'taken', taken: true }: the ledger, a bounty). b.board( ship, { sneak: true } ) is
+// the hijack feature's alarm path: the player is already on her deck (sneaked aboard), his own boat is left alone.
+//
 // Headless: install( app, features, { avatarFactory, hud: false, rand, seed, naval, melee, trade, notices } ) takes stubs.
 
 const _fp = {};
-const SECOND_KEYS = { 0: [ 'Digit1', 'Numpad1' ], 1: [ 'Digit2', 'Numpad2' ] };
+const SECOND_KEYS = { 0: [ 'Digit1', 'Numpad1' ], 1: [ 'Digit2', 'Numpad2' ], 2: [ 'Digit3', 'Numpad3' ] };
+const PRIZES = new Set( RULES.prizes || [ 'pirate' ] );
+// a ship that can strike to the player and be boarded (a remote player's mirrored puppet never)
+const isPrize = ( s ) => !! s && PRIZES.has( s.faction ) && ! s.puppet;
 const FIGHT_HINT = '<kbd>LMB</kbd> attack &nbsp;·&nbsp; <kbd>RMB</kbd> guard &nbsp;·&nbsp; <kbd>Q</kbd> evade &nbsp;·&nbsp; <kbd>B</kbd> back to your boat';
 const DOWN_STATES = new Set( [ 'down', 'getup', 'flee', 'gone' ] );
 
@@ -180,7 +191,7 @@ export class Boarding {
 		this.offer = null;
 		this.prisoners = [];
 		this.bountyInfo = new Map();
-		this.stats = { boarded: 0, repelled: 0, captured: 0, plundered: 0, ransomed: 0, ransomTotal: 0, escaped: 0, crewDefeated: 0 };
+		this.stats = { boarded: 0, repelled: 0, captured: 0, plundered: 0, ransomed: 0, ransomTotal: 0, escaped: 0, crewDefeated: 0, taken: 0 };
 		this.host = new DeckHost( this );
 		this._moor = null;
 		this._moverSaved = false;
@@ -241,6 +252,12 @@ export class Boarding {
 	get notices() {
 
 		return this.opts.notices || ( this.features && this.features.get ? this.features.get( 'notices' ) : null );
+
+	}
+
+	get hijack() {
+
+		return this.opts.hijack || ( this.features && this.features.get ? this.features.get( 'hijack' ) : null );
 
 	}
 
@@ -339,9 +356,11 @@ export class Boarding {
 
 	// ------------------------------------------------------------------ crippled ships
 
-	_crewFor( kind ) {
+	// deck hands by class (a ship or a class id); a navy hull ships one more
+	_crewFor( k ) {
 
-		return RULES.crew[ kind ] || 2;
+		const kind = typeof k === 'string' ? k : k && k.kind;
+		return ( RULES.crew[ kind ] || 2 ) + ( k && typeof k === 'object' && k.faction === 'navy' ? 1 : 0 );
 
 	}
 
@@ -349,7 +368,7 @@ export class Boarding {
 
 		for ( const s of nv.ships ) {
 
-			if ( s.faction !== 'pirate' || ! s.alive ) continue;
+			if ( ! isPrize( s ) || ! s.alive ) continue;
 			if ( s.state === 'adrift' ) {
 
 				s.adriftT = ( s.adriftT || 0 ) + dt;
@@ -375,12 +394,12 @@ export class Boarding {
 		s.adriftT = 0;
 		if ( ! s.boarding ) {
 
-			const n = this._crewFor( s.kind );
+			const n = this._crewFor( s );
 			s.boarding = { crewLeft: n, crewTotal: n };
 
 		}
 
-		this._toast( `The ${ s.name } has struck her colours · pull alongside to board`, 4200 );
+		this._toast( s.faction === 'pirate' ? `The ${ s.name } has struck her colours · pull alongside to board` : `The ${ s.name } heaves to and strikes · pull alongside to board`, 4200 );
 		this._emit( 'shipCrippled', { id: s.id, name: s.name } );
 
 	}
@@ -400,7 +419,7 @@ export class Boarding {
 		const nv = this.naval;
 		if ( nv ) {
 
-			if ( nv.stats ) { nv.stats.shipsSunk ++; nv.stats.piratesSunk ++; }
+			if ( nv.stats ) { nv.stats.shipsSunk ++; if ( s.faction === 'pirate' ) nv.stats.piratesSunk ++; }
 			if ( s.bounty && nv.bounties ) nv.bounties.delete( s.bounty.id );
 
 		}
@@ -431,7 +450,7 @@ export class Boarding {
 		let best = null, bd = Infinity;
 		for ( const s of nv.ships ) {
 
-			if ( s.faction !== 'pirate' || ! s.alive || s.state !== 'adrift' || s.hpFraction >= RULES.cripple ) continue;
+			if ( ! isPrize( s ) || ! s.alive || s.state !== 'adrift' || s.hpFraction >= RULES.cripple ) continue;
 			const gap = hullGap( s.cls, this._pose( s ), b.position.x, b.position.z );
 			if ( gap <= RULES.range && gap < bd ) { bd = gap; best = s; }
 
@@ -443,16 +462,26 @@ export class Boarding {
 
 	// ------------------------------------------------------------------ the crossing
 
-	// start the crossing to a crippled ship by hand. Returns false if it cannot be done now.
-	board( ship ) {
+	// start the crossing to a crippled ship by hand. Returns false if it cannot be done now. sneak: the player is on her deck
+	// already (the hijack feature's alarm: the crew wake), his own boat is not touched
+	board( ship, { sneak = false } = {} ) {
 
-		if ( this.phase !== 'idle' || ! ship || ! ship.alive || ! this.app.player || ! this.app.boatCtl ) return false;
+		if ( this.phase !== 'idle' || ! ship || ! ship.alive || ! this.app.player || ( ! sneak && ! this.app.boatCtl ) ) return false;
 		this.ship = ship;
 		this.deck = deckFor( ship.cls );
 		this.phase = 'cross-out';
 		this.tl = 0;
 		this.outcome = null;
-		this._moorBoat();
+		this.sneak = !! sneak;
+		this._wasState = ship.state; // (a sneaked-aboard ship the player retreats from lies at her mooring again)
+		if ( ! sneak ) this._moorBoat();
+		if ( ! ship.boarding ) {
+
+			const n = this._crewFor( ship );
+			ship.boarding = { crewLeft: n, crewTotal: n };
+
+		}
+
 		return true;
 
 	}
@@ -552,7 +581,7 @@ export class Boarding {
 	_makeCaptain( lay ) {
 
 		const s = this.ship, bt = s.bounty;
-		const name = bt ? bt.captain : ( s.captain || 'the captain' );
+		const name = bt ? bt.captain : ( s.captain || ( s.faction === 'pirate' ? 'the captain' : `the master of the ${ s.name }` ) );
 		const mine = this.app.avatar && this.app.avatar.character;
 		const chars = CAPTAIN_CHARACTERS.filter( ( c ) => c !== mine );
 		const character = chars[ hash( name ) % chars.length ];
@@ -584,8 +613,9 @@ export class Boarding {
 		const s = this.ship, p = this.app.player, b = this.app.boatCtl;
 		if ( p.mode === 'boat' && p.leaveHelm ) p.leaveHelm();
 		const pose = this._pose( s );
-		const bl = toLocal( pose, b.position.x, b.position.z, {} );
-		const n = this.melee && this.melee.enabled ? ( s.boarding ? s.boarding.crewLeft : this._crewFor( s.kind ) ) : 0;
+		const from = this.sneak || ! b || ! b.position ? p.position : b.position; // (sneaked aboard: where he stands)
+		const bl = toLocal( pose, from.x, from.z, {} );
+		const n = this.melee && this.melee.enabled ? ( s.boarding ? s.boarding.crewLeft : this._crewFor( s ) ) : 0;
 		const lay = layout( this.deck, bl, n );
 		s.state = 'boarded';
 		s.wantSpeed = 0;
@@ -745,7 +775,9 @@ export class Boarding {
 
 		}
 
-		this.deal = { tier, ransom, plunder, bounty: !! bt && reward > 0, reward };
+		const hj = this.hijack;
+		const take = hj && typeof hj.takeOffer === 'function' ? hj.takeOffer( s ) : null;
+		this.deal = { tier, ransom, plunder, bounty: !! bt && reward > 0, reward, take };
 		if ( c ) c.action = 'disappointed';
 		if ( this.melee && this.melee.releaseToken ) for ( const r of this.crew ) this.melee.releaseToken( r );
 		this._toast( `${ c ? c.name : 'The captain' } throws down the cutlass`, 3200 );
@@ -755,27 +787,39 @@ export class Boarding {
 
 	_choiceModel() {
 
-		const d = this.deal, c = this.captain;
+		const d = this.deal, c = this.captain, s = this.ship;
 		if ( ! d ) return null;
 		const full = this.prisoners.length >= RULES.maxPrisoners;
-		const prisonerSub = full ? 'Your boat has no room for another prisoner'
+		const pirate = ! s || s.faction === 'pirate';
+		const prisonerSub = ! pirate ? 'Only a pirate captain fetches a ransom' : full ? 'Your boat has no room for another prisoner'
 			: d.bounty ? `The bounty x${ RULES.bountyMult } on delivery (about $${ Math.round( d.reward * RULES.bountyMult ) })` : `Ransom about $${ d.ransom } when you hand him over at the harbour`;
+		const options = [
+			{ key: '1', label: 'Take prisoner', sub: prisonerSub, disabled: full || ! pirate },
+			{ key: '2', label: 'Plunder', sub: `About $${ d.plunder.coins } and ${ d.plunder.goods.reduce( ( a, g ) => a + g.qty, 0 ) } crates of cargo` },
+		];
+		// wave 15C: with the hijack feature, she can be yours
+		const take = d.take;
+		if ( take ) options.push( { key: '3', label: 'Take the ship', sub: take.sub || 'Her helm is yours; your boat stays moored here', disabled: ! take.ok } );
 		return {
 			title: `${ c ? c.name : 'The captain' } surrenders`,
-			lines: [ `The crew of the ${ this.ship ? this.ship.name : 'ship' } is beaten.`, 'The ship will go down once you have left her.' ],
-			options: [
-				{ key: '1', label: 'Take prisoner', sub: prisonerSub, disabled: full },
-				{ key: '2', label: 'Plunder', sub: `About $${ d.plunder.coins } and ${ d.plunder.goods.reduce( ( a, g ) => a + g.qty, 0 ) } crates of cargo` },
-			],
+			lines: [ `The crew of the ${ s ? s.name : 'ship' } is beaten.`, take && take.ok ? 'Take her, or she goes down once you have left her.' : 'The ship will go down once you have left her.' ],
+			options,
 		};
 
 	}
 
-	// 0: take prisoner, 1: plunder (keys 1 / 2 or the buttons)
+	// 0: take prisoner, 1: plunder, 2: take the ship (with the hijack feature) - keys 1 / 2 / 3 or the buttons
 	choose( i ) {
 
 		if ( this.phase !== 'surrender' || ! this.deal ) return false;
 		if ( i === 0 ) {
+
+			if ( this.ship && this.ship.faction !== 'pirate' ) {
+
+				this._toast( 'Only a pirate captain fetches a ransom' );
+				return false;
+
+			}
 
 			if ( this.prisoners.length >= RULES.maxPrisoners ) {
 
@@ -792,6 +836,21 @@ export class Boarding {
 		if ( i === 1 ) {
 
 			this._beginReturn( 'plunder' );
+			return true;
+
+		}
+
+		if ( i === 2 && this.deal.take ) {
+
+			const t = this.hijack && this.hijack.takeOffer ? this.hijack.takeOffer( this.ship ) : null;
+			if ( ! t || ! t.ok ) {
+
+				if ( t && t.sub ) this._toast( t.sub );
+				return false;
+
+			}
+
+			this._beginReturn( 'take' );
 			return true;
 
 		}
@@ -832,10 +891,37 @@ export class Boarding {
 
 	}
 
+	// the player owns a boat to step back into (none: he swam out to a moored ship and goes back into the water)
+	_hasBoat() {
+
+		const st = this.state, b = this.app.boatCtl;
+		return !! b && b.enabled !== false && ( ! st || st.boat !== null );
+
+	}
+
 	_stepBack() {
 
 		const p = this.app.player, b = this.app.boatCtl;
 		if ( ! p || p.mode !== 'walk' ) return;
+		if ( ! this._hasBoat() ) {
+
+			// over the side, into the water beside her
+			const s = this.ship;
+			if ( s ) {
+
+				const w = toWorld( this._pose( s ), s.cls.beam * 0.5 + 2, 0, {} );
+				p.position.set( w.x, 0, w.z );
+
+			}
+
+			p.mode = 'swim';
+			if ( p.velocity ) p.velocity.set( 0, 0, 0 );
+			p.camInit = false;
+			p._camY = null;
+			return;
+
+		}
+
 		if ( p.boardBoat && b ) {
 
 			p.boardBoat();
@@ -854,13 +940,31 @@ export class Boarding {
 		const s = this.ship, outcome = this.outcome;
 		this._hideCrew();
 		this._removeMover();
+		if ( outcome === 'take' ) {
+
+			// she is yours: you stay aboard; your boat stays moored where it lies (its anchor is set there already)
+			this._moor = null;
+			this._take( s );
+			this._emit( 'boardingEnded', { id: s.id, outcome: 'taken' } );
+			this.ship = null;
+			this.deck = null;
+			this.deal = null;
+			this.prev = null;
+			this.sneak = false;
+			return;
+
+		}
+
 		this._stepBack();
 		this._unmoorBoat();
+		const sneak = this.sneak;
+		this.sneak = false;
 		if ( outcome === 'prisoner' ) this._takePrisoner( s );
 		else if ( outcome === 'plunder' ) this._plunder( s );
 		else if ( outcome === 'retreat' ) {
 
-			if ( s.alive ) { s.state = 'adrift'; s.adriftT = 0; }
+			if ( s.alive && sneak && ( this._wasState === 'moored' || this._wasState === 'dock' ) ) s.state = this._wasState;
+			else if ( s.alive ) { s.state = 'adrift'; s.adriftT = 0; }
 			this._dropCaptain();
 
 		}
@@ -895,6 +999,34 @@ export class Boarding {
 		this._emit( 'prisonerTaken', { id: s.id, name: c.name, ship: s.name, tier: d.tier, value: d.ransom, bounty: !! bt } );
 		// a bounty prisoner is claimed at the hand-over; the ship still goes down now
 		this._sink( s, { emit: ! bt, how: 'captured' } );
+
+	}
+
+	// "Take the ship": her cargo (the plunder's goods) comes with her; a pirate taken counts as beaten (the ledger, a bounty)
+	_take( s ) {
+
+		const d = this.deal, c = this.captain;
+		this._dropCaptain();
+		const hj = this.hijack;
+		const r = hj && hj.takeShip ? hj.takeShip( s, { how: 'boarded', goods: d ? d.plunder.goods.map( ( g ) => ( { ...g } ) ) : [], captain: c ? c.name : null } ) : null;
+		if ( ! r || ! r.ok ) {
+
+			// (nothing took her after all: back to the boat; she lies adrift and founders in time)
+			this._stepBack();
+			this._unmoorBoat();
+			if ( s.alive ) { s.state = 'adrift'; s.adriftT = 0; }
+			return;
+
+		}
+
+		this.stats.taken ++;
+		if ( s.faction === 'pirate' ) {
+
+			const nv = this.naval;
+			if ( s.bounty && nv && nv.bounties ) nv.bounties.delete( s.bounty.id );
+			this._emit( 'shipSunk', { ...this._sunkPayload( s, { how: 'taken' } ), taken: true } );
+
+		}
 
 	}
 
@@ -977,6 +1109,7 @@ export class Boarding {
 		this.prev = null;
 		this.offer = null;
 		this.outcome = null;
+		this.sneak = false;
 
 	}
 
@@ -1187,7 +1320,7 @@ export class Boarding {
 
 		} else if ( ph === 'surrender' ) {
 
-			for ( const i of [ 0, 1 ] ) if ( SECOND_KEYS[ i ].some( ( k ) => inp.hit( k ) ) ) { this.choose( i ); break; }
+			for ( const i of [ 0, 1, 2 ] ) if ( SECOND_KEYS[ i ].some( ( k ) => inp.hit( k ) ) ) { this.choose( i ); break; }
 
 		} else if ( ph === 'fight' ) {
 
@@ -1316,7 +1449,7 @@ export class Boarding {
 		let prompt = '';
 		if ( this.phase === 'idle' && this.offer ) {
 
-			const n = this.offer.boarding ? this.offer.boarding.crewLeft : this._crewFor( this.offer.kind );
+			const n = this.offer.boarding ? this.offer.boarding.crewLeft : this._crewFor( this.offer );
 			prompt = `<kbd>B</kbd>Board the ${ this.offer.name } · ${ n ? `${ n } crew` : 'no crew left' }`;
 
 		} else if ( this.phase === 'fight' ) prompt = FIGHT_HINT;
@@ -1384,7 +1517,7 @@ export class Boarding {
 		for ( const pr of this.prisoners ) pr.dispose();
 		this.prisoners.length = 0;
 		this.bountyInfo.clear();
-		this.stats = { boarded: 0, repelled: 0, captured: 0, plundered: 0, ransomed: 0, ransomTotal: 0, escaped: 0, crewDefeated: 0 };
+		this.stats = { boarded: 0, repelled: 0, captured: 0, plundered: 0, ransomed: 0, ransomTotal: 0, escaped: 0, crewDefeated: 0, taken: 0 };
 		this.offer = null;
 		if ( this.hostile ) this.hostile.reset();
 

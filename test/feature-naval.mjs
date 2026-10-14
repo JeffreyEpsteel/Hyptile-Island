@@ -332,7 +332,7 @@ section( '5. AI state machines' );
 	const w = { time: 0, night: false, storm: false, rng: makeRng( 3 ), terrain: null, target: { x: 4000, z: 4000, vx: 0, vz: 0, ok: true }, fire: ( s, side ) => { calls.fire.push( side ); return true; }, escape: () => { calls.escape ++; } };
 	const mk = () => {
 
-		const s = new Ship( 'sloop', { x: - 100, z: 450, yaw: 0, speed: 4 } );
+		const s = new Ship( 'sloop', { x: - 100, z: 700, yaw: 0, speed: 4 } ); // (wave 15C: outside the 450 m calm round the home dock)
 		s.cursor = makeCursor( PATROLS[ 0 ], { loop: true, index: 1 } );
 		return s;
 
@@ -696,8 +696,8 @@ section( '10. a pirate hunts the player (patrol -> chase -> broadside)' );
 {
 
 	const { app, naval, features, events } = setup( { seed: 11 } );
-	app.boatCtl.position.set( - 50, 0, 450 );
-	const pirate = naval.spawn( 'sloop', { x: 200, z: 470, yaw: - Math.PI / 2, route: PATROLS[ 0 ], loop: true, index: 3, speed: 4 } );
+	app.boatCtl.position.set( - 50, 0, 700 ); // (wave 15C: the open sea starts 450 m off the home dock)
+	const pirate = naval.spawn( 'sloop', { x: 200, z: 720, yaw: - Math.PI / 2, route: PATROLS[ 0 ], loop: true, index: 3, speed: 4 } );
 	const states = new Set();
 	let fired = 0, closest = 1e9, highest = - 1e9, ballsFiredByPirate = 0;
 	const spawn0 = naval.balls.spawn.bind( naval.balls );
@@ -706,10 +706,10 @@ section( '10. a pirate hunts the player (patrol -> chase -> broadside)' );
 	run( features, 160, 0.05, () => {
 
 		states.add( pirate.state );
-		if ( pirate.state === 'broadside' ) ranges.push( Math.hypot( pirate.x + 50, pirate.z - 450 ) );
-		closest = Math.min( closest, Math.hypot( pirate.x + 50, pirate.z - 450 ) );
+		if ( pirate.state === 'broadside' ) ranges.push( Math.hypot( pirate.x + 50, pirate.z - 700 ) );
+		closest = Math.min( closest, Math.hypot( pirate.x + 50, pirate.z - 700 ) );
 		highest = Math.max( highest, terrain.heightAt( pirate.x, pirate.z ) );
-		if ( app.boatCtl.position.x !== - 50 ) app.boatCtl.position.set( - 50, 0, 450 );
+		if ( app.boatCtl.position.x !== - 50 ) app.boatCtl.position.set( - 50, 0, 700 );
 		if ( naval.playerHull.sunk ) return false;
 
 	} );
@@ -740,8 +740,8 @@ section( '10. a pirate hunts the player (patrol -> chase -> broadside)' );
 
 	// flee: a crippled pirate runs and escapes
 	const f = setup( { seed: 3 } );
-	f.app.boatCtl.position.set( - 50, 0, 450 );
-	const p3 = f.naval.spawn( 'sloop', { x: 100, z: 450, yaw: 0, route: PATROLS[ 0 ], loop: true, index: 3, speed: 6, hp: 20 } );
+	f.app.boatCtl.position.set( - 50, 0, 700 );
+	const p3 = f.naval.spawn( 'sloop', { x: 100, z: 700, yaw: 0, route: PATROLS[ 0 ], loop: true, index: 3, speed: 6, hp: 20 } );
 	p3.alertT = 40;
 	let fled = false;
 	run( f.features, 200, 0.05, () => { if ( p3.state === 'flee' ) fled = true; return ! ( p3.escaped ); } );

@@ -72,8 +72,9 @@ const before = probes.map( ( [ x, z ] ) => [ TP.heightAt.call( t, x, z ), TP.coa
 const t0 = performance.now();
 const fresh = new TidemarkTerrain();
 const tileMs = performance.now() - t0;
-const tile = t._outerTiles && t._outerTiles[ 0 ];
-ok( tile && tile.id === fresh.id && attachTidemark( t, fresh ) === tile && ensureTidemark( t ) === tile && t._outerTiles.length === 1, 'TerrainData attaches the tile on construction; attaching again is idempotent' );
+const tile = t._outerTiles && t._outerTiles.find( ( q ) => q.id === fresh.id );
+const nTiles = t._outerTiles ? t._outerTiles.length : 0; // (Blackwater has a tile of its own since wave 14D)
+ok( tile && tile.id === fresh.id && attachTidemark( t, fresh ) === tile && ensureTidemark( t ) === tile && t._outerTiles.length === nTiles, 'TerrainData attaches the tile on construction; attaching again is idempotent' );
 const after = probes.map( ( [ x, z ] ) => [ t.heightAt( x, z ), t.coastDistance( x, z ).d, t.islandAt( x, z ) ] );
 ok( before.every( ( b, k ) => b[ 0 ] === after[ k ][ 0 ] && b[ 1 ] === after[ k ][ 1 ] && b[ 2 ] === after[ k ][ 2 ] ), 'every query inside the 2048 m domain is unchanged with the tile attached', probes.length + ' probes' );
 ok( tileMs < 2500, 'the tile builds quickly', Math.round( tileMs ) + ' ms ' + JSON.stringify( fresh.timings ) );

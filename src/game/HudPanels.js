@@ -199,7 +199,9 @@ export function installHudPanels( GameHUD ) {
 		const wreckRow = spv && spv.lost ? `<div class="gm-shop-row"><span>Recover the seaplane wreck<small>She broke up out there · towed to the ramp, then repair her at the hangar</small></span><span class="gm-shop-act"><span class="gm-price">${ s.free ? 'Free in sandbox' : '$' + ( sp.recoveryCost ? sp.recoveryCost() : 600 ).toLocaleString() }</span><button class="gm-btn" data-recover-plane ${ ! s.free && sp.recoveryCost && sp.recoveryCost() > s.money ? 'disabled' : '' }>Recover</button></span></div>` : '';
 		if ( ! nv || ! boatId ) return wreckRow;
 		// she lies on the sea floor: salvage first (naval.wreck / salvage)
-		if ( nv.wreck && nv.salvageCost ) { const cost = nv.salvageCost(); return wreckRow + `<div class="gm-shop-row"><span>Salvage ${ BOATS[ boatId ].name }<small>She lies on the sea floor · raised and moored at her berth with her hold</small></span><span class="gm-shop-act"><span class="gm-price">${ s.free ? 'Free in sandbox' : '$' + cost.toLocaleString() }</span><button class="gm-btn" data-salvage ${ ! s.free && cost > s.money ? 'disabled' : '' }>Salvage</button></span></div>`; }
+		// wave 15C: a stolen hull is wanted until the yard repaints her
+		const hjRow = ( () => { const hj = this.game.app?.features?.get( 'hijack' ); const row = hj && hj.yardRow ? hj.yardRow() : null; return row ? `<div class="gm-shop-row"><span>${ row.label }<small>${ row.note }</small></span><span class="gm-shop-act"><span class="gm-price">${ s.free ? 'Free in sandbox' : '$' + row.price.toLocaleString() }</span><button class="gm-btn" data-repaint ${ row.disabled || ( ! s.free && row.price > s.money ) ? 'disabled' : '' }>Repaint</button></span></div>` : ''; } )();
+		if ( nv.wreck && nv.salvageCost ) { const cost = nv.salvageCost(); return hjRow + wreckRow + `<div class="gm-shop-row"><span>Salvage ${ BOATS[ boatId ].name }<small>She lies on the sea floor · raised and moored at her berth with her hold</small></span><span class="gm-shop-act"><span class="gm-price">${ s.free ? 'Free in sandbox' : '$' + cost.toLocaleString() }</span><button class="gm-btn" data-salvage ${ ! s.free && cost > s.money ? 'disabled' : '' }>Salvage</button></span></div>`; }
 		const g = nv.playerGun;
 		// wave 11: powder and shot, rigging / rudder / sail repairs (naval Ammo.js / Sections.js)
 		const q = nv.shotQuote ? nv.shotQuote() : null, sc = nv.sectionRepairCost ? nv.sectionRepairCost() : 0;
@@ -227,6 +229,8 @@ export function installHudPanels( GameHUD ) {
 
 		const nv = navalOf( hud ), s = hud.game.state;
 		if ( ! nv ) return;
+		const rpt = hud.stand.querySelector( '[data-repaint]' );
+		if ( rpt ) rpt.onclick = () => { const hj = hud.game.app?.features?.get( 'hijack' ); const r = hj && hj.repaint ? hj.repaint( { free: !! s.free } ) : null; if ( r && r.ok ) { roidClicks( hud, 'buy' ); s.save(); } if ( r && r.reason ) hud.game.toast( r.reason, 3000 ); hud._keepScroll( () => hud.renderYard() ); };
 		const rp = hud.stand.querySelector( '[data-recover-plane]' );
 		if ( rp ) rp.onclick = () => { const sp = hud.game.app && hud.game.app.features ? hud.game.app.features.get( 'seaplane' ) : null; const r = sp && sp.recall ? sp.recall() : null; if ( r && r.ok ) { roidClicks( hud, 'buy' ); s.save(); } if ( r && r.text ) hud.game.toast( r.text, 3000 ); hud._keepScroll( () => hud.renderYard() ); };
 		const sb = hud.stand.querySelector( '[data-salvage]' );

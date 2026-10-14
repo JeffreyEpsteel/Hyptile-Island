@@ -9,6 +9,13 @@
 // PATROLS: closed loops in deep water (5+ m deep over the whole leg and 20 m to either side), clear of both ports:
 // one across the heightmap's south band between home and Blackwater, the rest round Blackwater on its own terrain tile.
 // SAFE_ZONES: pirates will not fight inside them.
+//
+// Wave 15C, the calm waters (the user: "better placement of pirates, further away than the starting point"):
+//   CALM.home m round Jade Landing (WORLD.landing) and the home dock (WORLD.boatDock) and CALM.port m round every other port's
+//   dock (WORLD.ports, read live) are calm: no pirate spawns, hunts or fires inside them, and one heading in turns along the
+//   edge (Brains.keepOut). SAFE_ZONES holds the home pair and Pons (static, as before); inSafeZone( x, z ) with no list adds
+//   the other ports' circles (calmZones()). Spawns for hunts and raids never come inside CALM.spawn m of home (nearHome).
+//   Lane 0 runs 600+ m south of the pier head and Jade Landing, so the first pirate is met past the reef and the home calm.
 
 import { WORLD } from '../../world/WorldLayout.js';
 import { dist2 } from './util.js';
@@ -24,7 +31,8 @@ export const MERCHANT_ROUTE = [ HARBOUR_ANCHORAGE, [ 100, 230 ], [ 150, 500 ], P
 // it: north across the approach from home, east past the entrance, south, and west under the summit.
 const BW = WORLD.blackwater.center;
 const round = ( pts ) => pts.map( ( [ dx, dz ] ) => [ Math.round( BW.x + dx ), Math.round( BW.z + dz ) ] );
-export const SOUTH_BAND_PATROL = [ [ - 260, 380 ], [ 200, 440 ], [ 280, 700 ], [ 80, 930 ], [ - 240, 870 ], [ - 160, 620 ] ];
+// (wave 15C: 600+ m off the pier head and Jade Landing at every waypoint, 600+ m at every leg; 280+ m off the Inverted Isles' dock)
+export const SOUTH_BAND_PATROL = [ [ - 200, 640 ], [ 180, 640 ], [ 320, 780 ], [ 120, 960 ], [ - 220, 920 ], [ - 300, 780 ] ];
 export const BLACKWATER_PATROLS = [
 	SOUTH_BAND_PATROL,
 	round( [ [ - 205, - 308 ], [ 255, - 248 ], [ 115, - 293 ], [ - 5, - 263 ] ] ),
@@ -35,16 +43,64 @@ export const BLACKWATER_PATROLS = [
 
 export const PATROLS = BLACKWATER_PATROLS;
 
-// pirates break off and merchants are safe inside these (the harbour and the cove)
+// the calm radii (m): round Jade Landing and the home dock, round every other port's dock, and how far from home a hunt or a
+// raid may appear
+export const CALM = { home: 450, port: 250, spawn: 600 };
+
+// pirates break off and merchants are safe inside these (Jade Landing, the home harbour and the cove)
 export const SAFE_ZONES = [
-	{ id: 'harbour', x: WORLD.boatDock.position.x, z: WORLD.boatDock.position.z, r: 140 },
-	{ id: 'pons', x: WORLD.pons.dock.position.x, z: WORLD.pons.dock.position.z, r: 140 },
+	{ id: 'landing', x: WORLD.landing.center.x, z: WORLD.landing.center.z, r: CALM.home },
+	{ id: 'harbour', x: WORLD.boatDock.position.x, z: WORLD.boatDock.position.z, r: CALM.home },
+	{ id: 'pons', x: WORLD.pons.dock.position.x, z: WORLD.pons.dock.position.z, r: CALM.port },
 ];
 
-export function inSafeZone( x, z, zones = SAFE_ZONES ) {
+// every other port's dock (WORLD.ports grows: rebuilt when its length changes)
+let _ports = [], _portsN = - 1;
+export function calmZones() {
 
-	for ( const s of zones ) if ( dist2( x, z, s.x, s.z ) < s.r ) return s;
+	const P = WORLD.ports || [];
+	if ( P.length !== _portsN ) {
+
+		_portsN = P.length;
+		_ports = P.filter( ( p ) => p && p.id !== 'home' && p.id !== 'pons' && p.dock && p.dock.position )
+			.map( ( p ) => ( { id: p.id, x: p.dock.position.x, z: p.dock.position.z, r: CALM.port, port: true } ) );
+
+	}
+
+	return _ports;
+
+}
+
+// the zone (x, z) lies in (pad metres added to every radius), or null; with no list: SAFE_ZONES, then every port's calm circle
+export function inSafeZone( x, z, zones = null, pad = 0 ) {
+
+	for ( const s of zones || SAFE_ZONES ) if ( dist2( x, z, s.x, s.z ) < s.r + pad ) return s;
+	if ( ! zones ) for ( const s of calmZones() ) if ( dist2( x, z, s.x, s.z ) < s.r + pad ) return s;
 	return null;
+
+}
+
+// within r of Jade Landing or the home dock (no hunt or raid appears there)
+export function nearHome( x, z, r = CALM.spawn ) {
+
+	return dist2( x, z, WORLD.landing.center.x, WORLD.landing.center.z ) < r || dist2( x, z, WORLD.boatDock.position.x, WORLD.boatDock.position.z ) < r;
+
+}
+
+// heading (naval convention: forward = ( sin, cos )) straight out of the calm zone that holds (x, z), or of the nearest one
+export function calmExit( x, z, pad = 0 ) {
+
+	const s = inSafeZone( x, z, null, pad );
+	if ( s ) return Math.atan2( x - s.x, z - s.z );
+	let best = SAFE_ZONES[ 0 ], bd = Infinity;
+	for ( const q of [ ...SAFE_ZONES, ...calmZones() ] ) {
+
+		const d = dist2( x, z, q.x, q.z ) - q.r;
+		if ( d < bd ) { bd = d; best = q; }
+
+	}
+
+	return Math.atan2( x - best.x, z - best.z );
 
 }
 

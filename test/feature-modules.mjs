@@ -39,10 +39,10 @@ function makeApp( over = {} ) {
 	return {
 		mode: 'campaign', settings: { timeOfDay: 12 },
 		terrainData: terrain, query: null, spray: null, scene: null, audio: null,
-		boatCtl: { position: new Vector3( - 50, 0, 450 ), quaternion: new Quaternion(), velocity: new Vector3(), driven: true, moored: false },
+		boatCtl: { position: new Vector3( - 50, 0, 750 ), quaternion: new Quaternion(), velocity: new Vector3(), driven: true, moored: false },
 		boat: { dimensions: { length: 8.2, beam: 2.9, draft: 0.85, freeboard: 0.9 } },
 		camera: { position: new Vector3( - 50, 4, 440 ), quaternion: new Quaternion(), fov: 60, aspect: 16 / 9 },
-		player: { mode: 'boat', position: new Vector3( - 50, 1, 450 ) },
+		player: { mode: 'boat', position: new Vector3( - 50, 1, 750 ) },
 		input: { hit: () => false },
 		game: { state, toast( t ) { toasts.push( t ); } },
 		cameraFeel: { kick() {} },
@@ -264,7 +264,7 @@ section( 'effects on the player\'s boat' );
 	ok( naval.sightRange() === ARROW_RANGE, 'no spyglass: the HUD shows pirates within 400 m' );
 	ok( naval.buyModule( 'navKit' ).ok && ! naval.fitting.isFitted( 'navKit' ), 'the lobster boat has one deck slot: the spyglass waits in the store' );
 	ok( naval.removeModule( 'lantern' ) && naval.fitModule( 'navKit' ), 'the lantern comes off, the spyglass goes on' );
-	const far = naval.spawn( 'sloop', { x: - 50, z: 450 + 650, yaw: Math.PI } );
+	const far = naval.spawn( 'sloop', { x: - 50, z: 750 + 650, yaw: Math.PI } );
 	far.state = 'dock';
 	app.camera.quaternion.setFromAxisAngle( new Vector3( 0, 1, 0 ), 0 ); // looking down -z: the sloop at +z is behind
 	const m = hudModel( naval );
@@ -343,7 +343,7 @@ section( 'cannonFired / cannonballImpact, vfx and the Effects fallback' );
 		ok( naval.fx.counts.hit === 0 && naval.fx.counts.splash === 0 && vfx.calls.length === 0, 'and no Effects.js splinters / splashes either (vfx reads cannonballImpact)' );
 
 		// a pirate's broadside at us: by pirate, then a hit on our hull
-		const s = naval.spawn( 'sloop', { x: - 50 - 110, z: 450, yaw: 0 } ); // our boat abeam to her port (+x)
+		const s = naval.spawn( 'sloop', { x: - 50 - 110, z: 750, yaw: 0 } ); // our boat abeam to her port (+x)
 		s.state = 'broadside';
 		naval._refreshTarget();
 		naval._gatherTargets( 0.05 );
@@ -366,7 +366,7 @@ section( 'cannonFired / cannonballImpact, vfx and the Effects fallback' );
 		ok( naval.remoteShot( [ 'a' ], [ 0, 0, 1 ], 120, {} ) === null, 'garbage remote shots are ignored' );
 
 		// sinking: list, settle, sink, then removal; shipSunk once; the vfx feature's sinking()
-		const victim = naval.spawn( 'sloop', { x: - 50 + 120, z: 450, yaw: 0 } );
+		const victim = naval.spawn( 'sloop', { x: - 50 + 120, z: 750, yaw: 0 } );
 		victim.state = 'dock';
 		naval._shipHit( { owner: 'player', damage: 1e4, travelled: 0 }, victim, 'hull', { x: victim.x, y: 1, z: victim.z } );
 		ok( victim.state === 'sinking' && evs( events, 'shipSunk' ).length === 1 && naval.fx.counts.splash === 0, 'at 0 hp she starts sinking; shipSunk (vfx draws the sinking from it, no Effects.js splash)' );
@@ -387,13 +387,13 @@ section( 'pirates go for the nearest player boat, local or remote' );
 {
 
 	const peers = new Map();
-	const peer = { id: 'p2', boat: {}, hasPose: true, boatPos: new Vector3( - 50 + 160, 0, 450 + 520 ), boatState: { driven: true } };
+	const peer = { id: 'p2', boat: {}, hasPose: true, boatPos: new Vector3( - 50 + 160, 0, 750 + 520 ), boatState: { driven: true } };
 	peers.set( 'p2', peer );
 	const app = makeApp( { remotePlayers: { peers } } );
-	app.boatCtl.position.set( - 50, 0, 450 );
+	app.boatCtl.position.set( - 50, 0, 750 );
 	const { features, naval, events } = setup( { app } );
 	run( features, 0.05 );
-	const s = naval.spawn( 'sloop', { x: - 50, z: 450 + 520, yaw: 0 } ); // 520 m from us, 160 m from the other player
+	const s = naval.spawn( 'sloop', { x: - 50, z: 750 + 520, yaw: 0 } ); // 520 m from us, 160 m from the other player
 	run( features, 1.5 );
 	ok( s.tgt && s.tgt.remote === 'p2' && ( s.state === 'chase' || s.state === 'broadside' ), `she goes for the other player's boat (state ${ s.state })` );
 	// the other player ties up in harbour: we are next

@@ -348,6 +348,15 @@ export class Agents {
 
 			}
 
+		// wave 15C: the boats you left behind when you took another vessel
+		const hj = this.features?.get?.( 'hijack' );
+		if ( hj && Array.isArray( hj.left ) ) for ( const e of hj.left ) {
+
+			const d = Math.hypot( e.x - A.dock.position.x, e.z - A.dock.position.z );
+			const price = free ? 0 : this.price( 40 + Math.round( d * 0.06 ), port );
+			out.push( { key: `left:${ e.id }`, label: `Have your ${ e.name || ( BOATS[ e.boat ] ? BOATS[ e.boat ].name : 'boat' ) } sailed here`, note: `Left ${ Math.round( d ) } m away when you took another vessel · moored at this dock`, price, action: 'Send for her', disabled: ! free && price > st.money } );
+
+		}
 		// wave 15D: distress flares, sold here too
 		const rescue = this.features?.get?.( 'rescue' );
 		if ( rescue && rescue.agentRow ) out.push( rescue.agentRow( port ) );
@@ -370,6 +379,7 @@ export class Agents {
 		if ( key === 'plane' ) return !! this.recoverPlane( port )?.ok;
 		if ( key === 'planeFerry' ) return !! this.ferryPlane( port )?.ok;
 		if ( key === 'flares' ) return !! this.features?.get?.( 'rescue' )?.buy?.( { port } ); // wave 15D
+		if ( key.startsWith( 'left:' ) ) { const A = this.list.find( ( a ) => a.port === port ); return !! this.features?.get?.( 'hijack' )?.recover?.( key.slice( 5 ), { dock: A ? A.dock : null } ); } // wave 15C
 		return false;
 
 	}

@@ -35,9 +35,14 @@
 //   - a silenced side (sections.gunsOk) counts as never loaded: she wears round to the other one
 //   - where she lays her guns (s.mem.aim, read by Naval): the target's sails while he opens the range (running away: cut his
 //     canvas), the hull while he closes or holds it (AIM_PREF.opening m/s of range rate, smoothed)
+//
+// Wave 15C (the calm waters, Routes.js CALM): keepOut also turns a pirate away from the calm circles round Jade Landing, the home
+// dock and every port's dock (inSafeZone), and a pirate inside one (or after a target inside one) neither hunts nor fires. A
+// struck, boarded or moored hull ('adrift', 'boarded', 'moored': NO_STEER) is left alone by the merchant brain too (a hijacked
+// or sneaked-aboard merchant does not run off under the boarders).
 
 import { angleDiff, clamp, sideSign } from './util.js';
-import { advance, nearestIndex } from './Routes.js';
+import { advance, nearestIndex, inSafeZone } from './Routes.js';
 import { inPeace, peaceExit, PEACE } from '../melee/Peace.js';
 
 export const BROADSIDE = { wear: 14, reloadLead: 1.5 };
@@ -94,21 +99,32 @@ export function hullLost( s, dt ) {
 
 }
 
-// no pirate sails into the home waters: inside, straight out; at the edge, along it rather than in
+// the way out of whatever no-go water lies ahead or close by: the home peace zone, else a calm circle (Routes.js); null if none
+function exitFrom( x, z, ax, az ) {
+
+	if ( inPeace( ax, az ) || inPeace( x, z, PEACE.pad ) ) return peaceExit( x, z );
+	const c = inSafeZone( ax, az ) || inSafeZone( x, z, null, PEACE.pad );
+	return c ? Math.atan2( x - c.x, z - c.z ) : null;
+
+}
+
+// no pirate sails into the home waters or a calm circle: inside, straight out; at the edge, along it rather than in
 export function keepOut( s ) {
 
-	if ( NO_STEER.has( s.state ) ) return false;
-	if ( inPeace( s.x, s.z ) ) {
+	if ( NO_STEER.has( s.state ) || s.state === 'dock' ) return false; // (lying at anchor: nothing to steer)
+	const inside = inPeace( s.x, s.z ) ? { x: null } : inSafeZone( s.x, s.z );
+	if ( inside ) {
 
-		s.want = peaceExit( s.x, s.z );
+		s.want = inside.x === null ? peaceExit( s.x, s.z ) : Math.atan2( s.x - inside.x, s.z - inside.z );
 		s.wantSpeed = Math.max( s.wantSpeed || 0, 0.8 );
 		return true;
 
 	}
 
 	const ax = s.x + Math.sin( s.want ) * KEEP_OUT.look, az = s.z + Math.cos( s.want ) * KEEP_OUT.look;
-	if ( ! inPeace( ax, az ) && ! inPeace( s.x, s.z, PEACE.pad ) ) return false;
-	const out = peaceExit( s.x, s.z ), rel = angleDiff( s.want, out );
+	const out = exitFrom( s.x, s.z, ax, az );
+	if ( out === null ) return false;
+	const rel = angleDiff( s.want, out );
 	if ( Math.abs( rel ) > Math.PI / 2 - 0.15 ) {
 
 		s.want = out + Math.sign( rel || 1 ) * ( Math.PI / 2 - 0.15 );
@@ -159,8 +175,8 @@ export function thinkPirate( s, w, dt ) {
 
 	}
 
-	// a boat in the home waters is not a target (whatever the harbour safe zone says)
-	const aggro = !! ( t && t.ok ) && ! inPeace( t.x, t.z );
+	// a boat in the home waters is not a target (whatever the harbour safe zone says), nor is anyone while she lies in calm water
+	const aggro = !! ( t && t.ok ) && ! inPeace( t.x, t.z ) && ! inSafeZone( t.x, t.z ) && ! inSafeZone( s.x, s.z );
 	let sight = c.sight * ( w.night ? 0.75 : 1 ) * ( w.storm ? 0.7 : 1 );
 	if ( s.alertT > 0 ) sight = Math.max( sight, c.lose * 0.9 );
 	s.avoidMargin = 1.2;
@@ -336,6 +352,7 @@ export function thinkMerchant( s, w, dt ) {
 	const t = w.target;
 	s.avoidMargin = 0.8;
 	s.avoidLook = 45;
+	if ( NO_STEER.has( s.state ) ) return; // struck, boarded, moored: she lies where she is
 	if ( s.alertT > 0 && s.state !== 'flee' && s.alive ) s.setState( 'flee' );
 
 	switch ( s.state ) {

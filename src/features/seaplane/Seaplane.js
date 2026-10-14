@@ -2302,7 +2302,7 @@ export class Seaplane {
 
 			const r = this.fleet[ id ];
 			if ( ! r || ! r.owned ) continue;
-			fleet[ id ] = { owned: true, hp: Math.round( r.hp ), fuel: Math.round( ( r.fuel ?? 1 ) * 1000 ) / 1000, switches: r.switches || null, sprung: r.sprung || [ 0, 0 ], lost: !! r.lost, upgrades: { ...cleanUpgrades( r.upgrades ) }, cargo: ( r.cargo || [] ).map( ( c ) => ( { ...c } ) ), engineFail: ( r.engineFail || [] ).slice() };
+			fleet[ id ] = { owned: true, stolen: !! r.stolen, hp: Math.round( r.hp ), fuel: Math.round( ( r.fuel ?? 1 ) * 1000 ) / 1000, switches: r.switches || null, sprung: r.sprung || [ 0, 0 ], lost: !! r.lost, upgrades: { ...cleanUpgrades( r.upgrades ) }, cargo: ( r.cargo || [] ).map( ( c ) => ( { ...c } ) ), engineFail: ( r.engineFail || [] ).slice() };
 
 		}
 

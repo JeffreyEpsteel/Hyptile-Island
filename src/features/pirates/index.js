@@ -20,6 +20,11 @@
 // Listened to: shipSunk, prisonerTaken, crewDefeated, portVisited, playerBoatSunk, boardersRepelled / boardersWon / ransomPaid
 //   (Hostile.js), remoteWorldEvent (kinds 'denRaided', 'captainKilled' from app.netsync.sendWorldEvent).
 // Headless: install( app, features, { rand, seed, hud: false, doc, hudElement, naval, melee, trade, avatarFactory, terrain } ).
+//
+// Wave 15C: the horizon warning. A hunter coming for the player (a raid, a hijack hunt, a hostile named captain chasing, the navy
+// or a bounty hunter turned on him by notoriety) is announced once when she comes within HORIZON.range of him at sea: a toast
+// ("A sail on the horizon to the south-west: the Copper Gull") and a minimap / world map blip (searchZones() kind 'sail', for
+// HORIZON.blip s), event sailSighted { id, name, captain, x, z, quarter }. Retaliation raids appear 560 m off (past the range).
 
 import { mulberry32 } from '../../util/Noise.js';
 import { DAY_SPEED } from '../../game/GameMode.js';
@@ -41,6 +46,8 @@ export { SearchZones, HB_RULES, CAPTURE_MULT } from './SearchZones.js';
 
 const SAVE_VERSION = 1;
 const REGROUP = { reach: 60, maxTime: 100, heal: 0.3 };
+export const HORIZON = { range: 500, blip: 45 };
+const QUARTERS = [ 'south', 'south-east', 'east', 'north-east', 'north', 'north-west', 'west', 'south-west' ];
 
 export class Pirates {
 
@@ -54,6 +61,7 @@ export class Pirates {
 		this.hours = 8;
 		this._lastTod = null;
 		this._factionT = 0;
+		this.sails = new Map(); // ship id -> { x, z, t, name, captain } the horizon warnings still on the map
 		this._offs = [];
 		this.ledger = new Ledger();
 		const hudEl = opts.hudElement || ( this.app.ui && this.app.ui.ui ? ( this.app.ui.ui.hud || this.app.ui.ui.root ) : null );
@@ -531,6 +539,57 @@ export class Pirates {
 
 	}
 
+	_worldmap() {
+
+		return this.features && this.features.get ? this.features.get( 'worldmap' ) : null;
+
+	}
+
+	// a ship hunting the player: a raid, a hijack hunt, or a hostile roster ship on his trail
+	_hunter( s ) {
+
+		if ( ! s.alive || s.faction !== 'pirate' || s.state === 'gone' || s.state === 'moored' || s.state === 'adrift' ) return false;
+		if ( s.raid || s.hunt ) return true;
+		return !! s.pirateId && ( s.state === 'chase' || s.alertT > 0 );
+
+	}
+
+	// the horizon warning: once per ship, when a hunter comes within HORIZON.range of the player at sea
+	_horizon( dt ) {
+
+		for ( const [ id, b ] of this.sails ) {
+
+			b.t -= dt;
+			const s = b.ship;
+			if ( s && s.alive ) { b.x = s.x; b.z = s.z; }
+			if ( b.t <= 0 || ! s || ! s.alive ) {
+
+				this.sails.delete( id );
+				this._worldmap()?.removeMarker?.( 'sail:' + id );
+
+			}
+
+		}
+
+		const nv = this.naval, pl = this.playerPos();
+		if ( ! nv || ! pl || ! this.playerAtSea() ) return;
+		for ( const s of nv.ships ) {
+
+			if ( s._horizonSeen || ! this._hunter( s ) ) continue;
+			const d = Math.hypot( s.x - pl.x, s.z - pl.z );
+			if ( d > HORIZON.range ) continue;
+			s._horizonSeen = true;
+			const a = Math.atan2( s.x - pl.x, s.z - pl.z ); // +z is south, +x east
+			const quarter = QUARTERS[ ( Math.round( a / ( Math.PI / 4 ) ) + 8 ) % 8 ];
+			this.sails.set( s.id, { ship: s, x: s.x, z: s.z, t: HORIZON.blip, name: s.name, captain: s.captain || '' } );
+			this._worldmap()?.addMarker?.( { id: 'sail:' + s.id, kind: 'sail', x: s.x, z: s.z, label: `A sail: the ${ s.name }`, icon: 'skull', mine: false } );
+			this.toast( `A sail on the horizon to the ${ quarter }: the ${ s.name }`, 4200 );
+			this._emit( 'sailSighted', { id: s.id, name: s.name, captain: s.captain || '', x: Math.round( s.x ), z: Math.round( s.z ), quarter } );
+
+		}
+
+	}
+
 	update( dt ) {
 
 		if ( ! ( dt > 0 ) ) return;
@@ -543,6 +602,7 @@ export class Pirates {
 			this.dens.update( dt );
 			this.retaliation.update( dt );
 			this.zones.update( dt );
+			if ( act ) this._horizon( dt );
 			if ( act ) {
 
 				this._regroup( dt );
@@ -587,6 +647,7 @@ export class Pirates {
 
 		const out = [ ...this.zones.zones(), ...this.dens.zones() ];
 		for ( const s of this.retaliation.active ) if ( s.alive ) out.push( { id: s.id, kind: 'raid', x: Math.round( s.x ), z: Math.round( s.z ), r: 120, label: `${ s.captain } (raid)`, captain: s.captain } );
+		for ( const [ id, b ] of this.sails ) out.push( { id: 'sail:' + id, kind: 'sail', x: Math.round( b.x ), z: Math.round( b.z ), r: 40, label: `A sail: the ${ b.name }`, captain: b.captain } );
 		out.push( ...( this.features?.get?.( 'stronghold' )?.zones?.() || [] ) ); // Blackwater's fort (and its batteries' reach)
 		return out;
 
@@ -637,6 +698,7 @@ export class Pirates {
 
 		for ( const s of this.roster.live.values() ) if ( s.alive ) s.state = 'gone';
 		this.roster.clear();
+		this.sails.clear();
 		this.hours = 8;
 		this.ledger.reset();
 		this.wanted.reset();

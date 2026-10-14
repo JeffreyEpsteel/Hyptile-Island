@@ -17,7 +17,8 @@ export const RULES = {
 	maxPrisoners: 2,
 	fadeOut: 0.45, fadeIn: 0.55, // s: the crossing (a plank, in effect) is a short fade
 	// crew on deck by class; the captain stands back until they are down
-	crew: { sloop: 2, brigantine: 3 },
+	crew: { sloop: 2, brigantine: 3, trawler: 1 }, // (a merchant's deck hands; a navy hull ships one more: Boarding._crewFor)
+	prizes: [ 'pirate', 'merchant', 'navy' ], // wave 15C: the factions whose crippled ships strike to the player and can be boarded
 	// ransom paid at the harbour by tier (1 sloop, 2 brigantine, 3 the named brigantine captains), +-spread at capture
 	ransom: [ 0, 240, 520, 1100 ],
 	ransomSpread: 0.15,

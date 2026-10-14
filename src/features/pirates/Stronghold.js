@@ -10,6 +10,7 @@
 //   s.friendly() (the black flag or standing >= MARKET_RULES.standingGate, not betrayed)   s.blackFlag   s.discovered
 //   s.zones() -> battery reach circles for the world map once discovered   s.view()   s.advance( hours ) (tests)
 //   s.damageStructure( id, energy, by )   s.defeatGuard()   s.marketRows() / marketAction( rowId )
+//   s.shipTaken( i, { remote } )   (wave 15C, the hijack feature: a cove ship taken; the fence buys stolen hulls: row 'sellship')
 //   s.update( dt ) / toJSON() / fromJSON( d ) / reset() / dispose() / isOpen() / close() / wantsMouse() / lights
 //
 // The place: two shore batteries on the fort's headland fire at a player boat inside BATTERY_RULES.range (220 m) that is not
@@ -751,6 +752,19 @@ export class Stronghold {
 
 	}
 
+	// wave 15C (the hijack feature): one of the cove's ships was taken - cut out from her mooring or boarded and sailed off. She
+	// counts as down (a claim needs no more of her); a local theft is an act of war (the bell), another crew's is only booked
+	shipTaken( i, { remote = false } = {} ) {
+
+		const sl = this.ships[ i ];
+		if ( ! sl ) return false;
+		sl.down = true;
+		sl.ship = null;
+		if ( ! remote ) this._hostileAct( 'ships' );
+		return true;
+
+	}
+
 	_onShipSunk( e ) {
 
 		const m = typeof e.id === 'string' ? /^blackwater-(\d)$/.exec( e.id ) : null;
@@ -877,7 +891,9 @@ export class Stronghold {
 
 		const story = this.features && this.features.get ? this.features.get( 'story' ) : null;
 		const powderOff = story && story.discount ? story.discount( 'powder:blackwater' ) || 0 : 0; // wave 13: The black flag's reward
-		return { standing: this.standing(), flag: this.flagFlown(), alarm: this.alarm.state === 'alarm', held: this.holder === 'pirates', powderOff };
+		const hj = this.features && this.features.get ? this.features.get( 'hijack' ) : null;
+		const stolen = hj && hj.stolenQuote ? hj.stolenQuote() : null; // wave 15C: a stolen hull the fence will buy
+		return { standing: this.standing(), flag: this.flagFlown(), alarm: this.alarm.state === 'alarm', held: this.holder === 'pirates', powderOff, stolen };
 
 	}
 
@@ -906,6 +922,14 @@ export class Stronghold {
 
 		} else if ( id === 'chart' ) r = M.buyChart( ctx );
 		else if ( id.startsWith( 'crew:' ) ) r = M.hireCrew( id.slice( 5 ), ctx );
+		else if ( id === 'sellship' ) {
+
+			const c = M.canTrade( ctx ), hj = this.features && this.features.get ? this.features.get( 'hijack' ) : null;
+			r = ! c.ok ? c : hj && hj.sellStolen ? hj.sellStolen() : { ok: false, reason: 'noShip' };
+			if ( r.ok ) M.sold += r.total || 0;
+
+		}
+
 		return r;
 
 	}

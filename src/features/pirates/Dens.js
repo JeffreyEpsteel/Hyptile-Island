@@ -13,12 +13,18 @@
 // Wave 4: the raiders of the old home-island camp live here now. Guards fight with the keeper's tier (melee TIERS: a tier 1
 // keeper's crew telegraphs slowly, a tier 4-5 keeper's is quick and flanks), one more stands watch at night, and they share
 // melee's two attack tokens (the rest circle), so a den raid is the real fight the peaceful home island no longer has.
+// Wave 15C: the keeper's mooring lies outside every port's calm circle (naval/Routes.js CALM.port, 250 m round each dock): on
+// the small islands the camp is close to the jetty, so the mooring is pushed further out along the same line (MOOR_CLEAR m past
+// the circle's edge). The camp and its fight ashore are where they were.
 
 import { WORLD } from '../../world/WorldLayout.js';
 import { Raider } from '../melee/Raider.js';
 import { RAIDER, yawToward, tierCfg } from '../melee/MeleeData.js';
 import { CREW_TWEAK, CREW_NAMES, CREW_CHARACTERS, RULES as BOARD_RULES } from '../boarding/BoardingData.js';
 import { CAPTAINS, CAPTAIN_BY_ID } from './Roster.js';
+import { inSafeZone } from '../naval/Routes.js';
+
+const MOOR_CLEAR = 20; // m past a calm circle's edge
 
 export const DEN_RULES = {
 	restock: 72, // in-game hours before a raided den is held again
@@ -64,9 +70,17 @@ export function denSite( island, terrain, port = null ) {
 	const l = Math.hypot( dx, dz ) || 1;
 	dx /= l;
 	dz /= l;
+	// the mooring goes out along the line until it is clear of every calm circle (no pirate is put to sea inside one)
+	const clear = ( r ) => {
+
+		while ( r < R + 600 && inSafeZone( c.x + dx * r, c.z + dz * r, null, MOOR_CLEAR ) ) r += 10;
+		return r;
+
+	};
 	if ( ! terrain || ! terrain.heightAt ) {
 
-		return { x: c.x + dx * R * 0.8, z: c.z + dz * R * 0.8, mx: c.x + dx * ( R + 70 ), mz: c.z + dz * ( R + 70 ), yaw: Math.atan2( dx, dz ) };
+		const mr = clear( R + 70 );
+		return { x: c.x + dx * R * 0.8, z: c.z + dz * R * 0.8, mx: c.x + dx * mr, mz: c.z + dz * mr, yaw: Math.atan2( dx, dz ) };
 
 	}
 
@@ -91,6 +105,8 @@ export function denSite( island, terrain, port = null ) {
 		if ( terrain.heightAt( c.x + dx * r, c.z + dz * r ) < - 5 ) { moor = r + 20; break; }
 
 	}
+
+	moor = clear( moor );
 
 	return { x: c.x + dx * camp, z: c.z + dz * camp, mx: c.x + dx * moor, mz: c.z + dz * moor, yaw: Math.atan2( dx, dz ) };
 
