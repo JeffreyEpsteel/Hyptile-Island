@@ -49,6 +49,7 @@
 //   harbourDues { port, amount }   insuranceBought / insuranceClaim   warehouseStored / warehouseWithdrawn / warehouseRent   fishHallBonus   (trade, wave 15B)
 //   climbedAboard { ship }   flaresBought   rescueAnswered { by }   rescueAlongside   rescueDelivered   rescueAbandoned   flareFired { x, z }   (rescue, wave 15D)
 //   vesselTaken { id, class, by }   sailSighted   (hijack / pirates, wave 15C)
+//   castawayRescued { x, z }   routeRun { from, to, good, profit }   (story, wave 16D)
 //   practiceStarted { count }   practiceEnded { result }   rockThrown { by, x, z }   (melee: the practice fight, the rock thrower)
 //   questPin { id, x, z, label }   questPinClear { id }        (story -> the maps: a quest step's place)
 //

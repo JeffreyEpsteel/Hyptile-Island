@@ -81,6 +81,8 @@ export const NPCS = {
 	osric: { name: 'Harbourmaster Osric', role: 'Harbourmaster', port: 'tidemark', pin: () => townAt( - 147, 22 ) },
 	fence: { name: 'The fence', role: 'Blackwater black market', port: 'blackwater', at: 'spot', spot: () => fenceSpot(), pin: () => fenceSpot() },
 	ethena: { name: 'Ethena Prosper', role: 'Chandler', port: 'home', at: 'spot', spot: () => ETHENA_SPOT, pin: () => ETHENA_SPOT },
+	// wave 16: the Tidemark fisher of Mayday (a harbour resident of world/islands/town/Folk.js: same id), the castaway
+	wenna: { name: 'Wenna', role: 'Fisher', port: 'tidemark', match: 'wenna' },
 };
 
 // beside Ethena's stall, on the side away from her bait tub (src/game/Chandlery.js CHANDLERY { 85.5, -60.5, yaw -1.9 }, local
@@ -115,6 +117,9 @@ export const ITEMS = {
 	kestrelVoucher: { name: 'Hangar voucher', text: 'The Tidemark airstrip hangar sells you the Kestrel at 20 % off.', perk: { 'off:kestrel': 0.2 } },
 	brotherhoodMark: { name: 'Brotherhood mark', text: 'Blackwater\'s fence sells powder to a brother a quarter cheaper.', perk: { 'off:powder:blackwater': 0.25 } },
 	gunnerWaiver: { name: 'Tidemark mooring pass', text: 'The town waives the post fee for your gunners.', perk: { gunnerFee: 1 } },
+	// wave 16 rewards: story.perk( 'marque' ) (a pirate hull taken is a lawful prize), story.discount( 'dues' )
+	letterOfMarque: { name: 'Letter of marque', text: 'Signed by the Tidemark council: a pirate ship you take is a lawful prize, not a wanted vessel.', perk: { marque: 1 } },
+	guildSeal: { name: 'Trade guild seal', text: 'The guild seal: harbour offices halve your dues.', perk: { 'off:dues': 0.5 } },
 };
 
 const P = ( id ) => WORLD.ports.find( ( p ) => p.id === id ) || null;
@@ -791,6 +796,86 @@ export const W13_CHAINS = {
 };
 
 Object.assign( CHAINS, W13_CHAINS );
+
+// ---------------------------------------------------------------- wave 16: three more quest lines
+// Mayday (Osric: flares, a flare when adrift, the launch's ride, then another captain's flare: a castaway Story puts in the
+// water off Tidemark, `start: 'castaway'`, pulled aboard with E: castawayRescued), Letters of marque (Osric, after Rumours
+// from Blackwater: a pirate hull taken and sold or repainted, a named captain hunted down) and The salt road (Ethena for the
+// trade guild: three runs of the harbourmaster's best routes at a profit, a hauling licence, a bulk lot in Tidemark's
+// warehouse). New reward kinds (Story._grantMore): launchFree n (the harbour launch charges nothing for n in-game days),
+// items letterOfMarque (perk marque: a pirate hull taken is no wanted vessel) and guildSeal (perk 'off:dues': half the dues).
+export const CASTAWAY = { id: 'wenna', name: 'Wenna', reach: 9, flareEvery: 45 }; // the Tidemark fisher who went over the side
+export const BULK_LOT = 10; // units stored at once: a bulk lot for the salt road
+export const ROUTE_TOP = 3; // a buy counts as a run of "the board's best routes" when the good is among the board's top three
+
+// where Wenna is in the water: 550 m out from Tidemark's bay, a little south of the line from the town (deep water, -90 m)
+export function castawaySpot() {
+
+	const bay = TM.bay, c = TM.center;
+	const dx = bay.x - c.x, dz = bay.z - c.z, l = Math.hypot( dx, dz ) || 1, ux = dx / l, uz = dz / l, a = 0.3, d = 550;
+	const cs = Math.cos( a ), sn = Math.sin( a );
+	return { x: Math.round( bay.x + ( ux * cs - uz * sn ) * d ), z: Math.round( bay.z + ( ux * sn + uz * cs ) * d ) };
+
+}
+
+const rescue = ( c ) => svc( c, 'rescue' );
+const tradeOf = ( c ) => svc( c, 'trade' );
+const TM_WAREHOUSE = { ...TM_STAND, label: 'Tidemark warehouse' };
+
+export const W16_CHAINS = {
+
+	mayday: {
+		title: 'Mayday', giver: 'osric', port: 'tidemark', region: 'tidemark', requires: { discovered: 'tidemark' },
+		offer: 'Every season somebody runs out of fuel past the outer marks and waits for a miracle. Do not wait. Carry flares, and when you are adrift, fire one: my launch answers. Then learn the other side of it: when you see red over the water, you go.',
+		accept: 'Flares, and the launch.', accepted: 'Ethena sells them by the three, the agents too. Hold F when you are in trouble, not before.',
+		remind: 'Flares in the locker? Good. Now get yourself in trouble. Carefully.',
+		thanks: 'Wenna is home and swearing at her outboard. You did right by her. For a week my launch is yours for nothing: tell the coxswain I said so.',
+		steps: [
+			{ id: 'flares', text: 'Buy a pack of flares (Ethena\'s chandlery or a harbour agent)', on: 'flaresBought', check: ( c ) => { const r = rescue( c ); return !! ( r && r.flares > 0 ); } },
+			{ id: 'fire', text: 'Fire a flare when you are adrift (hold F)', on: 'flareFired', match: { is: { by: 'player' } } },
+			{ id: 'ride', text: 'Ride the harbour launch to the dock', on: 'rescueDelivered', match: { is: { dest: 'dock' } } },
+			{ id: 'answer', text: 'A red flare off Tidemark: pull the castaway aboard', on: 'castawayRescued', start: 'castaway', pin: () => ( { ...castawaySpot(), label: 'Red flare' } ) },
+			talk( 'osric', 'Tell Harbourmaster Osric Wenna is safe', 'That was a flare off the outer marks. Well?', 'Wenna is safe. Her outboard is not.' ),
+		],
+		reward: { money: 180, xp: 90, rep: { tidemark: 6 }, launchFree: 7, rescue: 'wenna', disposition: 8,
+			journal: 'Mayday: flares in the locker, fired adrift, a ride in on the harbour launch, and Wenna pulled out of the water off Tidemark. Osric\'s launch answers free for a week.' },
+	},
+
+	lettersOfMarque: {
+		title: 'Letters of marque', giver: 'osric', port: 'tidemark', region: 'blackwater', requires: { chain: 'blackwaterRumours' },
+		offer: 'Blackwater taught the brotherhood to fear your sail. The council would rather buy that than fight it. Cripple one of their ships and take her, turn her into coin or paint her honest, then hunt down one of their named captains. Do that, and I sign you a letter: their hulls become lawful prizes.',
+		accept: 'A prize, a sale, a captain.', accepted: 'Cripple her, board her, take her. The fence at Blackwater buys hulls, or the yard repaints them. The captains you will find on the bounty boards.',
+		remind: 'A pirate hull taken, sold or painted, and a captain brought to book. Then the letter.',
+		thanks: 'Signed and sealed. With this, a pirate hull you take is a prize, not a theft: no hunters, no guards at the quay. Do not lose it.',
+		steps: [
+			{ id: 'take', text: 'Cripple a pirate ship and take her (Take the ship)', on: 'vesselTaken', match: { is: { faction: 'pirate' } } },
+			{ id: 'sell', text: 'Sell her to the Blackwater fence, or have the yard repaint her', on: [ 'stolenSold', 'vesselLaundered' ], pin: () => ( { ...fenceSpot(), label: 'The fence' } ) },
+			{ id: 'hunt', text: 'Hunt down a named pirate captain (a bounty notice)', on: [ 'captainKilled', 'bountyClaimed' ], match: { test: ( e, c ) => ( c.event === 'captainKilled' ? e.by === 'player' : e.source === 'pirates' ) } },
+			talk( 'osric', 'Collect the letter from Harbourmaster Osric', 'The council heard. Well, captain?', 'A prize taken, a captain brought to book.' ),
+		],
+		reward: { money: 350, xp: 120, rep: { tidemark: 6, home: 2 }, item: 'letterOfMarque', disposition: 8,
+			journal: 'Letters of marque: a pirate hull taken and turned, a named captain hunted down. Osric\'s letter makes a pirate ship a lawful prize: taking one makes you no wanted man.' },
+	},
+
+	saltRoad: {
+		title: 'The salt road', giver: 'ethena', port: 'home', region: 'tidemark', requires: { discovered: 'tidemark' },
+		offer: 'The trade guild wants proof a captain can make a route pay before it lets them in. Run the harbourmaster\'s best routes three times and sell at a profit, buy a hauling licence, then put a bulk lot in the Tidemark warehouse. I sit on the guild\'s bench. I will vouch for you.',
+		accept: 'Three runs, a licence, a bulk lot.', accepted: 'The board in any market lists the best loads. Buy one of the top three there, sell where it says, at a profit. Three times.',
+		remind: 'The guild counts runs, not stories. Three, at a profit.',
+		thanks: 'The guild has you on its roll. Show the seal at any harbour office: they halve your dues.',
+		steps: [
+			{ id: 'runs', text: 'Run one of the board\'s best routes at a profit (buy a top-three load, sell it where the board says)', on: 'routeRun', goal: 3 },
+			{ id: 'licence', text: 'Buy a hauling licence (any market\'s Contracts)', on: 'licenceBought', check: ( c ) => { const t = tradeOf( c ); return !! ( t && t.haul && t.haul.licence >= 1 ); } },
+			{ id: 'bulk', text: `Store a bulk lot (${ BULK_LOT } or more) in the Tidemark warehouse`, on: 'warehouseStored', match: { test: ( e ) => ( Number( e.qty ) || 0 ) >= BULK_LOT }, pin: TM_WAREHOUSE },
+			talk( 'ethena', 'Tell Ethena Prosper', 'Well? Does the guild have a new member?', 'Three runs, a licence, and a bulk lot in Tidemark.' ),
+		],
+		reward: { money: 200, xp: 100, rep: { tidemark: 4, home: 3 }, item: 'guildSeal', merchant: 5, disposition: 8,
+			journal: 'The salt road: three profitable runs on the board\'s best routes, a hauling licence and a bulk lot in the Tidemark warehouse. The guild seal halves your harbour dues.' },
+	},
+
+};
+
+Object.assign( CHAINS, W16_CHAINS );
 
 // one errand per port beyond the first four (WORLD.ports is read when the story starts: islands added later get theirs)
 export function errandChains( ports = WORLD.ports ) {

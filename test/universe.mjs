@@ -14,6 +14,8 @@ import { tmpdir } from 'node:os';
 import { startServer } from '../server/index.mjs';
 import { wireClient } from '../server/testkit.mjs';
 import { Universe, sanitizeProfile, writeAtomic, SCHEMA, MONEY_BURST, MONEY_RATE } from '../server/universe.mjs';
+import { rewardFor, REWARD_MAX, CREDIT_MAX } from '../server/universe.mjs';
+import { fencePrice } from '../src/features/hijack/Rules.js';
 import { MAX_SAVE, REFUSAL, captainKey, sanitizeCaptainName, isUniverseUrl } from '../src/net/Protocol.js';
 import { normalizeUniverseUrl, universeToken, probeUniverse, UniverseSession, universeError } from '../src/net/Universe.js';
 import * as UniverseW15 from '../src/net/Universe.js';
@@ -77,6 +79,23 @@ ok( normalizeUniverseUrl( 'ws://h:9000', null ) === 'ws://h:9000/universe' && is
 	ok( sanitizeProfile( { v: 9 } ) === null && sanitizeProfile( 'x' ) === null && sanitizeProfile( [] ) === null, 'not a save: refused' );
 	const r4 = sanitizeProfile( profileOf( 5, { inventory: [ { species: 'x', kg: - 3 }, { species: 'cod', kg: 2, value: 1e12 } ], upgrades: { rod: 99, 'bad key!': 1 } } ), null, { name: 'A b' } );
 	ok( r4.profile.inventory.length === 1 && r4.profile.inventory[ 0 ].value === 1e5 && r4.profile.upgrades.rod === 20 && ! ( 'bad key!' in r4.profile.upgrades ), 'shape: bad fish dropped, absurd values clamped' );
+
+}
+
+// wave 16D: nothing a save carries is dropped (the career's boolean flags), and a fence sale is credited at the server's price
+{
+
+	const r = sanitizeProfile( profileOf( 10, { career: { sold: 2, metRoid: true, ponsFound: false, bad: 'x' }, rodBroken: true, features: { story: { v: 1, progress: { mayday: { s: 'active', step: 3, n: 0, at: 2 } }, launchUntil: 9 } } } ), null, { name: 'A b' } );
+	ok( r.profile.career.metRoid === true && r.profile.career.ponsFound === false && r.profile.career.sold === 2 && ! ( 'bad' in r.profile.career ), 'career: numbers and the boolean flags kept (the first meeting with Roid is not replayed), junk dropped' );
+	ok( r.profile.rodBroken === true && r.profile.features.story.launchUntil === 9 && r.profile.features.story.progress.mayday.step === 3, 'unknown top-level fields and the part of every feature ride along' );
+	ok( rewardFor( 'stolenSold', { hull: 'brigantine', price: 1e9 } ) === fencePrice( 'brigantine' ) && fencePrice( 'brigantine' ) > MONEY_BURST && rewardFor( 'stolenSold', { hull: 'x' } ) === 0, 'rewardFor: a stolen hull sold is credited at the price the fence pays for her hull (more than the burst), never what the client says' );
+	ok( rewardFor( 'bountyClaimed', { id: 'b', reward: 250 } ) === 250 && rewardFor( 'bountyClaimed', { reward: 1e9 } ) === REWARD_MAX && rewardFor( 'x', null ) === 0, 'other events: their reward, at most REWARD_MAX' );
+	const u = new Universe( { name: 'fence', dir: join( root, 'fence' ) } ).load();
+	const a = u.admit( { name: 'Fence Test', token: TOKEN_C, remote: 'fence' } );
+	u.recordEvent( a.key, 'id1', 'stolenSold', { hull: 'brigantine', name: 'Grey Widow', price: fencePrice( 'brigantine' ) } );
+	ok( u.credits.get( a.key ) === fencePrice( 'brigantine' ) && fencePrice( 'brigantine' ) <= CREDIT_MAX, 'recordEvent credits the sale for the next save' );
+	const s1 = u.storeProfile( a.key, profileOf( fencePrice( 'brigantine' ) + 100 ), { startedAt: Date.now() } );
+	ok( s1.ok && ! s1.fix, 'and the save right after the sale is not clamped' );
 
 }
 

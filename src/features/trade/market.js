@@ -630,7 +630,7 @@ export class Market {
 			const ports = e.ports.filter( ( p ) => PORTS[ p ] );
 			if ( ! ports.length ) continue;
 			this.events.push( {
-				id: num( e.id, this._evId ++, 1, 1e9 ), tpl: String( e.tpl || '' ), good: e.good, ports, mult: num( e.mult, 1, 0.2, 5 ),
+				id: Number.isFinite( e.id ) && e.id >= 1 ? e.id : this._evId ++, tpl: String( e.tpl || '' ), good: e.good, ports, mult: num( e.mult, 1, 0.2, 5 ),
 				start: num( e.start, this.abs ), end: num( e.end, this.abs + 12 ), text: String( e.text || '' ).slice( 0, 160 ),
 			} );
 

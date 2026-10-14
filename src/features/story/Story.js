@@ -1,5 +1,6 @@
 import { WORLD } from '../../world/WorldLayout.js';
 import { CHAINS, NPCS, ITEMS, VENDOR_NPC, KEEPERS, BUYERS, W13_CHAINS, RAID_ID, errandChains, speciesLabel, portAt, nearestPort, portName } from './StoryData.js';
+import { W16_CHAINS, CASTAWAY, ROUTE_TOP, castawaySpot } from './StoryData.js';
 import { DISPOSITION, blankMemory, cleanMemory, clampDisposition } from './Memory.js';
 import { gate, sandboxGate, matches, amount, pickFish, isNight, isDawnDusk } from './Rules.js';
 import { leadAim } from '../naval/Ballistics.js';
@@ -40,6 +41,15 @@ import { RESIDENTS } from '../../world/residents/ResidentData.js';
 //   story.entries                    the journal's notes [ { id, title, text, day } ] (a line per finished quest, the parry tip)
 // Emitted too: questPin { id: 'quest:<chain>', x, z, label, chain, step } while a step names a place (the world map pins it),
 //   questPinClear { id }, questFailed { id, why }. The sandbox keeps only the { feature } gates (it plays everything).
+// Wave 16 (StoryData.W16_CHAINS: Mayday, Letters of marque, The salt road):
+//   story.launchFree() -> bool      Mayday's reward: the harbour launch charges nothing for a week (a fee paid is refunded)
+//   story.marque() -> bool          the letter of marque: a pirate hull taken is no wanted vessel (hijack.vessel.wanted cleared)
+//   story.discount( 'dues' )        the guild seal: half the harbour dues (refunded on harbourDues while Dues.js does not apply it)
+//   story.castaway                  { chain, x, z } while Mayday's castaway is in the water (StoryData.castawaySpot: a red flare
+//                                   through rescue.fx, re-fired every CASTAWAY.flareEvery s; E within CASTAWAY.reach pulls her out)
+//   story.pullCastaway()            -> bool; emits castawayRescued { id, resident, x, z, by: 'player', chain }
+//   story.runs                      the salt road's open runs [ { good, from, to } ]: a load of the board's top ROUTE_TOP bought at
+//                                   `from`, sold at `to` at a profit: routeRun { good, from, to, profit } (the step counts those)
 // Hold the line arms a raid: naval.spawn( 'sloop', { id: StoryData.RAID_ID, ... } ) off Tidemark's bay on a loop route,
 //   and while she is afloat and within 330 m of the pier Story fires her guns at the town's intact props through
 //   naval.launchFrom (leadAim); 6 props broken in Tidemark (propDestroyed port 'tidemark') loses it, sinking or crippling
@@ -53,6 +63,9 @@ import { RESIDENTS } from '../../world/residents/ResidentData.js';
 //   seaplane/Seaplane.js buy( af ): price = A.price * ( 1 - ( af === 'kestrel' ? story?.discount( 'kestrel' ) || 0 : 0 ) );
 //     Panel.js at the strip hangar lists the engine row only when story?.opens( 'engine:strip' ) !== false
 //   trade/HaulContracts.js offers( port ): [] for 'tidemark' while story?.opens( 'haul:tidemark' ) === false
+//   (wave 16, optional: the story does it itself until then) rescue/Rescue.js _deliver: fee 0 while story?.launchFree?.();
+//     hijack/index.js takeShip: wanted: ! this.sandbox && ! ( faction === 'pirate' && story?.marque?.() ); trade/Dues.js fee():
+//     x ( 1 - story?.discount?.( 'dues' ) ), with `discount` in the harbourDues payload (the story then refunds nothing)
 //   trade/Operating.js wagesPerDay(): minus OPERATING.wage per posted gunner while story?.perk( 'gunnerFee' ) > 0
 //   game/Game.js _salePort(): `this.ports?.near?.( p ) || ( pons near ? 'pons' : 'home' )` (Tidemark's sales say 'tidemark';
 //     the quest also counts sales by the player's position) and the chandler's gear price x ( 1 - story.discount(
@@ -68,8 +81,10 @@ const SAVE_VERSION = 1;
 const POLL = 0.5;
 const LISTEN = [ 'fishCaught', 'fishSold', 'cargoSold', 'cargoBought', 'portVisited', 'shipSunk', 'bountyClaimed', 'propDestroyed',
 	'planeTookOff', 'planeLanded', 'enemyDefeated', 'noticeCompleted', 'lootCollected', 'playerBoatSunk', 'residentPrank',
-	'prisonerRansomed', 'denRaided', 'customsInspected', 'rumourHeard', 'contrabandSold' ];
-const LEAD = new Set( Object.keys( W13_CHAINS ) ); // offered first: a giver pitches at most OFFERS_PER_NPC at once
+	'prisonerRansomed', 'denRaided', 'customsInspected', 'rumourHeard', 'contrabandSold',
+	'vesselTaken', 'rescueDelivered', 'harbourDues' ]; // (wave 16: the letter of marque, the free launch, the guild's dues)
+const LEAD = new Set( [ ...Object.keys( W13_CHAINS ), ...Object.keys( W16_CHAINS ) ] ); // offered first: a giver pitches at most OFFERS_PER_NPC at once
+const MAX_RUNS = 6;
 const RAID = { fire: 7, reach: 330, muzzleY: 3, out: 420, loop: 110 }; // the raiding sloop's guns (s, m) and her route (m)
 const MAX_ENTRIES = 24;
 const num = ( v, d = 0 ) => ( typeof v === 'number' && Number.isFinite( v ) ? v : d );
@@ -97,6 +112,9 @@ export class Story {
 		this._fence = null; // the fence's till and the hold, for a sale without contrabandSold
 		this._fenceEvent = false;
 		this._pins = new Set();
+		this.castaway = null; // wave 16: Mayday's castaway { chain, x, z } while she is in the water
+		this._castT = 0;
+		this._duesSeen = null; // trade.dues.paid at the last harbourDues (a fee that became a debt is not refunded)
 		this._resume = true; // a step's pin / raid is (re)started on the first update
 		const names = new Set( LISTEN );
 		for ( const c of Object.values( this.chains ) ) {
@@ -125,6 +143,8 @@ export class Story {
 		this.stats = { done: 0, dropped: 0 };
 		this.entries = []; // the journal's notes { id, title, text, day }
 		this.grants = []; // seaplane upgrades won but not yet fitted (the airframe is not owned yet) { airframe, key, tier }
+		this.launchUntil = - 1; // wave 16: the story day until which the harbour launch is free (Mayday)
+		this.runs = []; // wave 16: the salt road's open runs { good, from, to }
 		this._ownDay = 0;
 		this._lastTod = null;
 		this._rolledDay = null;
@@ -444,6 +464,7 @@ export class Story {
 		const c = this.chains[ id ];
 		if ( ! this.isActive( id ) ) return false;
 		if ( this._raid && this._raid.chain === id ) this._endRaid();
+		if ( this.castaway && this.castaway.chain === id ) this._clearCastaway();
 		this._unpin( id );
 		delete this.progress[ id ];
 		this._dispose( c.giver, - 2 );
@@ -510,6 +531,7 @@ export class Story {
 
 			this._toast( `${ c.title } · ${ this.stepText( id ) }`, 2800 );
 			if ( this._raid && this._raid.chain === id && c.steps[ p.step ].start !== 'raid' ) this._endRaid( false );
+			if ( this.castaway && this.castaway.chain === id && c.steps[ p.step ].start !== 'castaway' ) this._clearCastaway();
 			this._startStep( id );
 			return false;
 
@@ -542,6 +564,7 @@ export class Story {
 		delete p.f;
 		delete p.t;
 		if ( this._raid && this._raid.chain === id ) this._endRaid( false );
+		if ( this.castaway && this.castaway.chain === id ) this._clearCastaway();
 		this._unpin( id );
 		this._payout( r );
 		for ( const f of r.flags || [] ) if ( ! this.flags.includes( f ) ) this.flags.push( f );
@@ -596,6 +619,7 @@ export class Story {
 		}
 
 		if ( r.repairTown ) this._repairTown( r.repairTown );
+		if ( r.launchFree > 0 ) this.launchUntil = Math.max( this.launchUntil, this.day + r.launchFree );
 		if ( r.cartridges > 0 ) {
 
 			const fa = this._feature( 'firearms' );
@@ -719,6 +743,7 @@ export class Story {
 		if ( ! resume ) { p.f = 0; p.t = 0; }
 		this._pin( id );
 		if ( s.start === 'raid' ) this._armRaid( id );
+		if ( s.start === 'castaway' ) this._armCastaway( id, resume );
 
 	}
 
@@ -740,6 +765,7 @@ export class Story {
 		}
 
 		if ( this._raid && this._raid.chain === id ) this._endRaid( true );
+		if ( this.castaway && this.castaway.chain === id ) this._clearCastaway();
 		this._unpin( id );
 		delete this.progress[ id ];
 		this.stats.dropped ++;
@@ -866,6 +892,7 @@ export class Story {
 		}
 
 		this._tickRaid( dt );
+		this._tickCastaway( dt );
 
 	}
 
@@ -899,6 +926,7 @@ export class Story {
 
 		e = e && typeof e === 'object' ? e : {};
 		try { this._consequence( name, e ); } catch ( err ) { console.warn( 'story: consequence failed', err ); }
+		try { this._w16( name, e ); } catch ( err ) { console.warn( 'story: wave 16 hook failed', err ); }
 		const ctx = this._evCtx( name );
 		let changed = false;
 		for ( const id of Object.keys( this.progress ) ) {
@@ -1125,6 +1153,173 @@ export class Story {
 		const t = this.tod;
 		if ( this._lastTod !== null && t < this._lastTod - 12 ) this._ownDay ++;
 		this._lastTod = t;
+
+	}
+
+	// ---------------------------------------------------------------- wave 16: the free launch, the letter of marque, the guild,
+	// the salt road's runs and Mayday's castaway
+
+	launchFree() {
+
+		return this.day < this.launchUntil;
+
+	}
+
+	marque() {
+
+		return this.perk( 'marque' ) > 0;
+
+	}
+
+	_wants( event ) {
+
+		return Object.keys( this.progress ).some( ( id ) => { const s = this._step( id ); return !! ( s && [].concat( s.on || [] ).includes( event ) ); } );
+
+	}
+
+	_w16( name, e ) {
+
+		const st = this.state;
+		switch ( name ) {
+
+			case 'cargoBought': {
+
+				// a load of the board's best routes bought here: a run opens (only while the salt road counts them)
+				const t = this._feature( 'trade' );
+				if ( ! this._wants( 'routeRun' ) || ! t || typeof t.board !== 'function' || ! e.good || ! e.port ) break;
+				let rows = [];
+				try { rows = t.board( e.port, ROUTE_TOP ) || []; } catch ( err ) { rows = []; }
+				const row = rows.find( ( r ) => r.good === e.good );
+				if ( ! row || ! row.to || row.to === e.port ) break;
+				this.runs = this.runs.filter( ( r ) => r.good !== e.good );
+				this.runs.push( { good: e.good, from: e.port, to: row.to } );
+				if ( this.runs.length > MAX_RUNS ) this.runs.shift();
+				break;
+
+			}
+
+			case 'cargoSold': {
+
+				const i = this.runs.findIndex( ( r ) => r.good === e.good && r.to === e.port );
+				if ( i < 0 ) break;
+				const run = this.runs[ i ];
+				this.runs.splice( i, 1 );
+				if ( num( e.profit ) > 0 ) this.features.emit( 'routeRun', { good: run.good, from: run.from, to: run.to, profit: num( e.profit ) } );
+				break;
+
+			}
+
+			case 'vesselTaken': {
+
+				// the letter of marque: a pirate hull is a lawful prize (the hunters and the quay guards look for wanted vessels)
+				if ( e.faction !== 'pirate' || e.by !== 'player' || ! this.marque() ) break;
+				const hj = this._feature( 'hijack' ), v = hj && hj.vessel;
+				if ( ! v || v.faction !== 'pirate' || ! v.wanted ) break;
+				v.wanted = false;
+				v.laundered = true;
+				this._toast( `The ${ v.name || 'prize' } is a lawful prize: your letter of marque covers her`, 3600 );
+				break;
+
+			}
+
+			case 'rescueDelivered': {
+
+				// Mayday's week: the launch's fee comes back (Rescue.js charges it; the patch in the header makes it 0 there)
+				const fee = num( e.fee );
+				if ( fee > 0 && this.launchFree() && st && typeof st.earn === 'function' ) {
+
+					st.earn( fee );
+					this._toast( `Osric's word: the launch is free this week · $${ fee } back`, 3200 );
+
+				}
+
+				break;
+
+			}
+
+			case 'harbourDues': {
+
+				// the guild seal halves the dues (refunded here unless Dues.js applied it: `discount` in the payload)
+				const t = this._feature( 'trade' ), paid = t && t.dues ? num( t.dues.paid ) : 0;
+				const seen = this._duesSeen;
+				this._duesSeen = paid;
+				const off = this.discount( 'dues' ), fee = num( e.fee );
+				if ( ! ( fee > 0 ) || ! ( off > 0 ) || e.discount !== undefined || e.waived ) break;
+				if ( seen !== null && paid - seen < fee ) break; // it became a debt: nothing was paid
+				const back = Math.round( fee * off );
+				if ( back > 0 && st && typeof st.earn === 'function' ) {
+
+					st.earn( back );
+					this._toast( `The guild seal: half the dues back · $${ back }`, 2600 );
+
+				}
+
+				break;
+
+			}
+
+			default: break;
+
+		}
+
+	}
+
+	// Mayday: another captain's flare. Wenna is in the water at StoryData.castawaySpot(); E beside her pulls her aboard
+	_armCastaway( id, resume = false ) {
+
+		const q = castawaySpot();
+		this.castaway = { chain: id, x: q.x, z: q.z };
+		this._castT = 0;
+		this._flareCastaway();
+		if ( ! resume ) {
+
+			const p = this.player;
+			const d = p ? Math.hypot( q.x - p.position.x, q.z - p.position.z ) : 0;
+			this._toast( `A red flare off Tidemark${ d > 50 ? `, ${ d < 1000 ? Math.round( d / 10 ) * 10 + ' m' : ( d / 1000 ).toFixed( 1 ) + ' km' } away` : '' } · someone is in the water`, 4200 );
+
+		}
+
+	}
+
+	_flareCastaway() {
+
+		const c = this.castaway, r = this._feature( 'rescue' );
+		if ( ! c ) return;
+		try { if ( r && r.fx && typeof r.fx.launch === 'function' ) r.fx.launch( c.x, 1, c.z, { remote: true } ); } catch ( e ) { /* no flares headless */ }
+		try { const v = this._feature( 'vfx' ); if ( v && v.splash ) v.splash( c.x, 0, c.z, 0.4 ); } catch ( e ) { /* optional */ }
+
+	}
+
+	_tickCastaway( dt ) {
+
+		const c = this.castaway;
+		if ( ! c ) return;
+		this._castT += dt;
+		if ( this._castT < CASTAWAY.flareEvery ) return;
+		this._castT = 0;
+		const p = this.player;
+		if ( ! p || Math.hypot( c.x - p.position.x, c.z - p.position.z ) > 120 ) this._flareCastaway(); // (close by, she waves)
+
+	}
+
+	_clearCastaway() {
+
+		this.castaway = null;
+		this._castT = 0;
+
+	}
+
+	// E beside her (a boat alongside, or swimming): she is aboard; the step listens for castawayRescued
+	pullCastaway( { force = false } = {} ) {
+
+		const c = this.castaway, p = this.player;
+		if ( ! c ) return false;
+		if ( ! force && p && Math.hypot( c.x - p.position.x, c.z - p.position.z ) > CASTAWAY.reach + 3 ) return false;
+		this._clearCastaway();
+		this._toast( `${ CASTAWAY.name } is aboard: soaked, shaking and grateful`, 3600 );
+		this.features.emit( 'castawayRescued', { id: CASTAWAY.id, resident: CASTAWAY.id, x: c.x, z: c.z, by: 'player', chain: c.chain } );
+		this._changed();
+		return true;
 
 	}
 
@@ -1418,6 +1613,14 @@ export class Story {
 
 		if ( this._spots ) return;
 		this._spots = true;
+		// Mayday's castaway (no y: she is wherever the water is, the boat's rail or a swimmer beside her)
+		this._offs.push( this.features.interactable( {
+			id: 'story:castaway', radius: CASTAWAY.reach,
+			position: () => ( this.castaway ? { x: this.castaway.x, z: this.castaway.z } : null ),
+			when: () => !! this.castaway && ! this.isOpen,
+			prompt: () => `Pull ${ CASTAWAY.name } out of the water`,
+			onInteract: () => { this.pullCastaway(); },
+		} ) );
 		for ( const [ id, spec ] of Object.entries( NPCS ) ) {
 
 			if ( spec.at !== 'lighthouse' && spec.at !== 'hut' && ! ( spec.at === 'spot' && typeof spec.spot === 'function' ) ) continue;
@@ -1558,6 +1761,7 @@ export class Story {
 			v: SAVE_VERSION, progress, memory: JSON.parse( JSON.stringify( this.memory ) ), grudge: { ...this.grudge }, flags: [ ...this.flags ],
 			items: [ ...this.items ], unlocks: [ ...this.unlocks ], log: this.log.map( ( l ) => ( { ...l } ) ), stats: { ...this.stats }, day: this._ownDay, rolled: this._rolledDay,
 			entries: this.entries.map( ( e ) => ( { ...e } ) ), grants: this.grants.map( ( g ) => ( { ...g } ) ),
+			launchUntil: this.launchUntil, runs: this.runs.map( ( r ) => ( { ...r } ) ),
 		};
 
 	}
@@ -1611,9 +1815,15 @@ export class Story {
 			.map( ( e ) => ( { id: e.id.slice( 0, 40 ), title: String( e.title || '' ).slice( 0, 60 ), text: e.text.slice( 0, 300 ), day: num( e.day ) | 0 } ) );
 		this.grants = ( Array.isArray( d.grants ) ? d.grants : [] ).filter( ( g ) => g && typeof g.airframe === 'string' && typeof g.key === 'string' && Number.isFinite( g.tier ) ).slice( 0, 8 )
 			.map( ( g ) => ( { airframe: g.airframe.slice( 0, 20 ), key: g.key.slice( 0, 20 ), tier: Math.max( 0, Math.min( 5, Math.round( g.tier ) ) ) } ) );
+		this.launchUntil = Number.isFinite( d.launchUntil ) ? Math.max( - 1, Math.min( 1e6, Math.round( d.launchUntil ) ) ) : - 1;
+		const word = ( v ) => typeof v === 'string' && v.length > 0 && v.length <= 24;
+		this.runs = ( Array.isArray( d.runs ) ? d.runs : [] ).filter( ( r ) => r && word( r.good ) && word( r.from ) && word( r.to ) ).slice( - MAX_RUNS )
+			.map( ( r ) => ( { good: r.good, from: r.from, to: r.to } ) );
 		for ( const id of [ ...this._pins ] ) this.features.emit( 'questPinClear', { id } );
 		this._pins.clear();
 		this._raid = null;
+		this.castaway = null;
+		this._duesSeen = null;
 		this._fence = null;
 		this._resume = true;
 		this._roidNode = 'root';
@@ -1628,6 +1838,8 @@ export class Story {
 		this._pins.clear();
 		if ( this._raid ) this._endRaid( true );
 		this._fence = null;
+		this.castaway = null;
+		this._duesSeen = null;
 		this._initState();
 		this._roidNode = 'root';
 		this.close();

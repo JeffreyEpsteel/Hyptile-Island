@@ -643,11 +643,18 @@ fn terrainWetness( xz: vec2f, h: f32 ) -> vec2f {
 			// a universe session (server-side save) ends when another mode or slot is chosen outside the menu
 			if ( ! choice.universe && this.universe && typeof this.universe.detach === 'function' ) this.universe.detach();
 
-			st.useSlot( choice.slot | 0, mode );
-			if ( choice.newGame ) st.reset();
-			if ( typeof choice.name === 'string' ) st.name = choice.name.trim().slice( 0, 24 ); // (no name given: the slot's own stays)
-			if ( typeof choice.server === 'string' && choice.server.trim() ) this.serverOverride = choice.server.trim();
-			st.save(); // (no world snapshot yet: the stored one is read below)
+			// wave 16D: the features still hold the previous game until they are reloaded below: do not write them into this slot
+			const provider = st.featuresProvider;
+			st.featuresProvider = null;
+			try {
+
+				st.useSlot( choice.slot | 0, mode );
+				if ( choice.newGame ) st.reset();
+				if ( typeof choice.name === 'string' ) st.name = choice.name.trim().slice( 0, 24 ); // (no name given: the slot's own stays)
+				if ( typeof choice.server === 'string' && choice.server.trim() ) this.serverOverride = choice.server.trim();
+				st.save(); // (no world snapshot yet: the stored one is read below)
+
+			} finally { st.featuresProvider = provider; }
 
 		} else if ( prev !== mode ) st.useSlot( st.slot, mode );
 

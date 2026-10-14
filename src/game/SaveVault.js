@@ -304,7 +304,7 @@ export function validateSave( input, { maxBytes = MAX_SAVE_BYTES, knownPorts: po
 
 	// stats, quests, the world, the features
 	if ( ! isObj( d.career ) ) err( 'career', 'not an object' );
-	else for ( const [ k, v ] of Object.entries( d.career ) ) if ( ! ( fin( v ) && v >= 0 && v <= 1e12 ) ) err( `career.${ k }`, 'expected a number 0..1e12' );
+	else for ( const [ k, v ] of Object.entries( d.career ) ) if ( typeof v !== 'boolean' && ! ( fin( v ) && v >= 0 && v <= 1e12 ) ) err( `career.${ k }`, 'expected a number 0..1e12 or a flag' );
 	if ( 'quests' in d && ! isObj( d.quests ) ) err( 'quests', 'not an object' );
 	if ( d.world !== null && d.world !== undefined && ! parseWorld( d.world ) ) warn( 'world', 'unreadable position (start at the pier)' );
 	if ( ! isObj( d.features ) ) err( 'features', 'not an object' );
@@ -338,7 +338,7 @@ export function repairSave( json ) {
 	if ( isObj( d.upgrades ) ) for ( const [ k, v ] of Object.entries( d.upgrades ) ) if ( UPGRADES[ k ] ) up[ k ] = Math.round( clampN( v, 0, UPGRADES[ k ].levels.length - 1, 0 ) );
 	d.upgrades = up;
 	const career = defaultStats();
-	if ( isObj( d.career ) ) for ( const [ k, v ] of Object.entries( d.career ) ) career[ k ] = clampN( v, 0, 1e12, 0 );
+	if ( isObj( d.career ) ) for ( const [ k, v ] of Object.entries( d.career ) ) career[ k ] = typeof v === 'boolean' ? v : clampN( v, 0, 1e12, 0 );
 	d.career = career;
 	if ( ! isObj( d.quests ) ) d.quests = {};
 	if ( ! isObj( d.features ) ) d.features = {};

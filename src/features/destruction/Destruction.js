@@ -809,6 +809,7 @@ export class Destruction {
 
 	toJSON() {
 
+		if ( this.pending && ! this.built ) return this.pending; // wave 16D: saved before the world was built: pass it on
 		const broken = [];
 		for ( const [ id, due ] of this.broken ) broken.push( [ id, Number.isFinite( due ) ? Math.round( due * 100 ) / 100 : null ] );
 		return { v: 1, hours: Math.round( this.hours * 100 ) / 100, broken };

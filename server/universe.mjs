@@ -28,6 +28,7 @@ import {
 	CLOCK_START, CLOCK_SPEED, CHAT_KEEP, MAX_MARKET, WORLD_EVENT_RULES,
 	sanitizeCaptainName, captainKey, sanitizeToken, cleanText,
 } from '../src/net/Protocol.js';
+import { fencePrice } from '../src/features/hijack/Rules.js';
 
 export const SCHEMA = 1;
 export const MONEY_BURST = 5000; // $ a save may add beyond the rate (one good sale)
@@ -38,6 +39,9 @@ export const XP_RATE = 10; // xp per online second
 export const REWARD_MAX = 10000; // $ a world event's `reward` may explain
 export const EVENTS_MAX = 2000; // persisted world events
 export const NEW_CAPTAINS_PER_HOUR = 5; // per address
+// wave 16D: a stolen hull sold to Blackwater's fence ('stolenSold' { hull, price }) is priced by the server from her hull
+// (hijack/Rules.js fencePrice: a brigantine fetches more than REWARD_MAX), never from the client's number alone
+export const CREDIT_MAX = Math.max( REWARD_MAX * 3, fencePrice( 'brigantine' ) + REWARD_MAX );
 
 const sha256 = ( s ) => createHash( 'sha256' ).update( s ).digest( 'hex' );
 const fin = ( v ) => typeof v === 'number' && Number.isFinite( v );
@@ -92,6 +96,22 @@ function readJSON( file ) {
 
 // ---- the saved game: shape and anti-cheat
 
+// $ a relayed world event explains in the captain's next save: its numeric `reward` (at most REWARD_MAX), or for the fence's
+// purchase of a stolen hull the price the server knows for that hull (capped by what the client says it got)
+export function rewardFor( kind, data ) {
+
+	if ( ! data || typeof data !== 'object' ) return 0;
+	if ( kind === 'stolenSold' ) {
+
+		const price = typeof data.hull === 'string' ? fencePrice( data.hull ) : 0;
+		return price > 0 ? Math.min( price, fin( data.price ) && data.price > 0 ? data.price : price ) : 0;
+
+	}
+
+	return fin( data.reward ) && data.reward > 0 ? Math.min( data.reward, REWARD_MAX ) : 0;
+
+}
+
 const num = ( v, lo, hi, d = 0 ) => ( fin( v ) ? clamp( v, lo, hi ) : d );
 
 // A captain's GameState JSON (src/game/GameState.js toJSON, v 2), checked and clamped against the previous accepted one.
@@ -145,7 +165,8 @@ export function sanitizeProfile( raw, prev = null, { name = '', elapsedMs = 0, c
 	if ( raw.rep && typeof raw.rep === 'object' ) for ( const [ k, v ] of Object.entries( raw.rep ).slice( 0, 32 ) ) if ( fin( v ) ) p.rep[ k ] = clamp( v, 0, 1000 );
 	p.discovered = Array.isArray( raw.discovered ) ? raw.discovered.filter( ( s ) => typeof s === 'string' && s.length <= 32 ).slice( 0, 64 ) : [];
 	p.career = {};
-	if ( raw.career && typeof raw.career === 'object' ) for ( const [ k, v ] of Object.entries( raw.career ).slice( 0, 48 ) ) if ( fin( v ) ) p.career[ k ] = clamp( v, 0, 1e12 );
+	// (wave 16D: the flags Game.js keeps there, metRoid / ponsFound, are booleans: dropping them replayed Roid's first meeting)
+	if ( raw.career && typeof raw.career === 'object' ) for ( const [ k, v ] of Object.entries( raw.career ).slice( 0, 48 ) ) if ( fin( v ) ) p.career[ k ] = clamp( v, 0, 1e12 ); else if ( typeof v === 'boolean' && k.length <= 32 ) p.career[ k ] = v;
 	for ( const k of [ 'quests', 'world', 'features' ] ) p[ k ] = raw[ k ] && typeof raw[ k ] === 'object' && ! Array.isArray( raw[ k ] ) ? raw[ k ] : ( k === 'world' ? null : {} );
 	return { profile: p, fix: Object.keys( fix ).length ? fix : null, notes };
 
@@ -450,7 +471,8 @@ export class Universe {
 	// data.reward explains that much money in the captain's next save
 	recordEvent( key, from, kind, data, now = this.now() ) {
 
-		if ( key && data && fin( data.reward ) && data.reward > 0 ) this.credits.set( key, Math.min( ( this.credits.get( key ) || 0 ) + Math.min( data.reward, REWARD_MAX ), REWARD_MAX * 3 ) );
+		const reward = rewardFor( kind, data );
+		if ( key && reward > 0 ) this.credits.set( key, Math.min( ( this.credits.get( key ) || 0 ) + reward, CREDIT_MAX ) );
 		const rule = WORLD_EVENT_RULES[ kind ];
 		if ( ! rule ) return false;
 		const id = data ? data[ rule.key ] : undefined;

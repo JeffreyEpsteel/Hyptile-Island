@@ -593,13 +593,19 @@ export const QUEST_NOTICES = [
 	{ chain: 'longWayRound', ports: [ 'tidemark' ], client: 'Brine, the Tide & Tankard', title: 'The long way round', text: 'A bet on the bar: nobody flies the Kestrel to the home island and back in one piece. Prove it wrong.' },
 	{ chain: 'holdTheLine', ports: [ 'tidemark' ], client: 'Harbourmaster Osric', title: 'Hold the line', text: 'A pirate sloop raids the bay when the moon is dark. Sink or cripple her before she wrecks the waterfront.' },
 ];
+// wave 16: Mayday, Letters of marque, The salt road (StoryData.W16_CHAINS), on the same boards after the wave 13 ones
+export const W16_NOTICES = [
+	{ chain: 'mayday', ports: [ 'tidemark', 'home' ], client: 'Harbourmaster Osric', title: 'Mayday', text: 'Carry flares. Fire one when you are adrift and the harbour launch comes; answer the next red flare you see. The harbour pays, and remembers.' },
+	{ chain: 'lettersOfMarque', ports: [ 'tidemark' ], client: 'Harbourmaster Osric, for the council', title: 'Letters of marque', text: 'The council will license captains against the brotherhood: take a pirate hull, turn her, and bring a named captain to book.' },
+	{ chain: 'saltRoad', ports: [ 'home', 'tidemark' ], client: 'Ethena Prosper, for the trade guild', title: 'The salt road', text: 'The guild takes members who make routes pay: three profitable runs on the board\'s best loads, a licence, a bulk lot in the Tidemark warehouse.' },
+];
 
 // the quest notices on `port`'s board now (story: the story feature; hours: the board's clock): board-card shaped
 export function storyPostings( port, story, hours = 0 ) {
 
 	if ( ! story || typeof story.canAccept !== 'function' ) return [];
 	const day = Math.floor( num( hours ) / DAY_HOURS ), out = [];
-	QUEST_NOTICES.forEach( ( q, i ) => {
+	[ ...QUEST_NOTICES, ...W16_NOTICES ].forEach( ( q, i ) => {
 
 		if ( ! q.ports.includes( port ) ) return;
 		const c = typeof story.chain === 'function' ? story.chain( q.chain ) : null;
