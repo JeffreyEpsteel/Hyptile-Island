@@ -11,6 +11,7 @@ import { BlackwaterTerrain, ensureBlackwater, SOURCE, HALF } from '../src/world/
 import { ensureTidemark } from '../src/world/islands/town/TidemarkTerrain.js';
 import { terrainTiles, heightAtlasLayout, buildHeightStrip, stripHeightAt, tileHeightWGSL, mapExtent } from '../src/world/terrain/TerrainTiles.js';
 import { strongholdLayout } from '../src/world/islands/stronghold/Layout.js';
+import { blackwaterLandGeometry } from '../src/world/islands/BlackwaterMesh.js';
 
 let fails = 0, passes = 0;
 const ok = ( c, msg, info = '' ) => {
@@ -20,7 +21,7 @@ const ok = ( c, msg, info = '' ) => {
 };
 const section = ( s ) => console.log( '\n== ' + s );
 const { BLACKWATER: I, ISLETS, ISLETS_BY_ID, isletWorld } = Shape;
-const L = strongholdLayout();
+const L = strongholdLayout(), L0 = L;
 
 // ---------------------------------------------------------------- the reference: the old heightmap islet
 // Until wave 14D the heightmap stamped Blackwater at SOURCE (an ISLETS entry with `box`, its stacks and its paths). Rebuild
@@ -141,6 +142,28 @@ section( '3. the queries on the tile' );
 	ok( rock > 50 && sand > 20, 'rocky cliffs and black-sand shores', `${ rock } rock / ${ sand } sand samples` );
 	const nrm = T.normalAt( ...at( 120, - 140 ), { set( x, y, z ) { this.x = x; this.y = y; this.z = z; return this; }, normalize() { const l = Math.hypot( this.x, this.y, this.z ); this.x /= l; this.y /= l; this.z /= l; return this; } } );
 	ok( nrm.y > 0 && nrm.y < 0.999, 'normalAt reads the tile through the wrapped heightAt', nrm.y.toFixed( 3 ) );
+
+}
+
+// ---------------------------------------------------------------- 3b. the land mesh's colours
+section( '3b. the land mesh (BlackwaterMesh: TerrainMesh.terrainGeometry with the island’s own colours)' );
+{
+
+	const g = blackwaterLandGeometry( tile, { step: 1, floor: - 12 } );
+	const P = g.getAttribute( 'position' ).array, Cl = g.getAttribute( 'color' ).array;
+	const near = ( x, z ) => {
+
+		let best = 0, bd = Infinity;
+		for ( let v = 0; v < P.length / 3; v ++ ) { const d = ( P[ v * 3 ] - x ) ** 2 + ( P[ v * 3 + 2 ] - z ) ** 2; if ( d < bd ) { bd = d; best = v; } }
+		return [ Cl[ best * 3 ], Cl[ best * 3 + 1 ], Cl[ best * 3 + 2 ] ];
+
+	};
+	const L = ( c ) => 0.2126 * c[ 0 ] + 0.7152 * c[ 1 ] + 0.0722 * c[ 2 ];
+	const beach = near( ...at( - 112, 20 ) ), cove = near( L0.cove.x, L0.cove.z ), cliff = near( ...at( 0, - 150 ) );
+	let scrub = null;
+	for ( let v = 0; v < P.length / 3 && ! scrub; v += 7 ) { const c = [ Cl[ v * 3 ], Cl[ v * 3 + 1 ], Cl[ v * 3 + 2 ] ]; if ( P[ v * 3 + 1 ] > 8 && c[ 1 ] > c[ 0 ] * 1.25 ) scrub = c; }
+	ok( L( beach ) < 0.06 && L( cove ) < 0.04 && L( cliff ) < 0.09 && !! scrub, 'black sand on the crescent, a dark caldera floor, basalt on the ring, scrub green on the flanks',
+		[ beach, cove, cliff ].map( ( c ) => L( c ).toFixed( 3 ) ).join( ' / ' ) );
 
 }
 

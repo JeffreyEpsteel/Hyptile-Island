@@ -6,6 +6,8 @@ import { WOOD, WOODX, STONE, rng, frameAt, cottage, palm, lantern, cullParts } f
 import { strongholdLayout, bw, bwYaw } from './stronghold/Layout.js';
 import { STRONGHOLD_KINDS, strongholdPlan } from './stronghold/Kinds.js';
 import { rngFor } from '../../features/destruction/Kinds.js';
+import { ensureBlackwater } from './BlackwaterTerrain.js';
+import { blackwaterLandGeometry } from './BlackwaterMesh.js';
 
 // Blackwater, the pirates' island (terrain/IslandShape.js BLACKWATER; wave 12B). The pirate town on the black-sand crescent
 // inside the caldera cove - the Rum Hole tavern, the black market, the plunder store, huts, three timber docks - and the
@@ -21,6 +23,7 @@ import { rngFor } from '../../features/destruction/Kinds.js';
 //   isle.setBell( k )                   the bell swings (0..1) while the alarm rings; isle.setFlag( holder ) 'pirates' | 'player'
 
 const NEAR = 900; // m: the town, the fort and the guns
+const NEAR_TERRAIN = 1100; // m: the 2 m land mesh within this, the 8 m one (the whole island and its shelf) always
 const FAR = 3200; // m: the watchtower and the flag (a landmark from the lanes)
 const TAR = 0x2c2620, SAIL = 0xb8ac94, RUST = 0x5a3d2c;
 
@@ -29,13 +32,16 @@ const hexOf = ( c ) => c.reduce( ( h, v ) => h * 256 + Math.max( 0, Math.min( 25
 
 export class Blackwater {
 
-	constructor( { scene, terrain, colliders = null, material = null } ) {
+	constructor( { scene, terrain, colliders = null, material = null, budget = null } ) {
 
 		this.terrain = terrain;
 		this.material = material || createPropMaterial( 'blackwater' );
 		this.group = new Group();
 		this.group.name = 'Blackwater';
 		scene.add( this.group );
+		// the tile already attached to the terrain, else attach it (a TerrainData); a stand-in terrain gets no land mesh
+		const tile = ( terrain && ( terrain.tiles || terrain._outerTiles || [] ).find( ( q ) => q.id === 'blackwater' ) ) || ( terrain && terrain.coastDistance && terrain.heightAt ? ensureBlackwater( terrain ) : null );
+		this.land = this.buildLand( tile, budget ?? ( globalThis.__phoneBudget ? 0.5 : 1 ) );
 		this.L = strongholdLayout();
 		this.center = new Vector3( this.L.center.x, 0, this.L.center.z );
 		this.lights = [];
@@ -71,11 +77,29 @@ export class Blackwater {
 		for ( const b of this.L.batteries ) this.guns.set( b.id, this._battery( b ) );
 		this._structures();
 
-		this.parts = [ { object: near, dist: NEAR }, { object: far, dist: FAR }, { object: this.bell, dist: NEAR }, { object: this.flag, dist: FAR } ];
+		this.parts = [ { object: near, dist: NEAR }, { object: far, dist: FAR }, { object: this.bell, dist: NEAR }, { object: this.flag, dist: FAR }, { object: this.land.near, dist: NEAR_TERRAIN } ];
 		for ( const m of this.guns.values() ) this.parts.push( { object: m, dist: NEAR } );
 		this._structParts = [];
 		for ( const m of this.structures.values() ) this._structParts.push( { object: m, dist: NEAR } );
 		this._drawStructures = true;
+
+	}
+
+	// wave 14D: the island lies on its own terrain tile (BlackwaterTerrain), beyond the heightmap's chunks, so it draws its
+	// own ground as Tidemark does: the land and shallows at 2 m (3 m on phones) near, and an 8 m mesh of the island and its
+	// shelf that always draws (dropped 1 m under the near mesh while that shows, so they never fight)
+	buildLand( tile, phone = 1 ) {
+
+		if ( ! tile ) return { near: new Group(), far: new Group(), tile: null };
+		const near = new Mesh( blackwaterLandGeometry( tile, { step: phone < 1 ? 3 : 2, floor: phone < 1 ? - 3 : - 4 } ), this.material );
+		near.name = 'BlackwaterTerrainNear';
+		near.receiveShadow = true;
+		near.castShadow = true;
+		const far = new Mesh( blackwaterLandGeometry( tile, { step: 8, floor: - 40 } ), this.material );
+		far.name = 'BlackwaterTerrainFar';
+		far.receiveShadow = true;
+		this.group.add( near, far );
+		return { near, far, tile };
 
 	}
 
@@ -325,6 +349,14 @@ export class Blackwater {
 
 		this._t += dt;
 		this.distance = cullParts( this.center, this.parts );
+		const drop = this.land.near.visible ? - 1 : 0;
+		if ( this.land.far.position.y !== drop ) {
+
+			this.land.far.position.y = drop;
+			if ( this.land.far.updateMatrix ) this.land.far.updateMatrix();
+
+		}
+
 		if ( this._drawStructures ) for ( const p of this._structParts ) p.object.visible = ! p.object.userData.broken && ( ! Number.isFinite( this.distance ) || this.distance < p.dist );
 		if ( this.bell.visible ) this.bell.rotation.z = this._bell * 0.6 * Math.sin( this._t * 7 );
 		if ( this._holder === 'player' ) this.flag.visible = false;

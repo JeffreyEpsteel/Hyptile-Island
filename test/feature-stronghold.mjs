@@ -588,8 +588,23 @@ section( '10. the island model (headless)' );
 	const isle = new Blackwater( { scene, terrain, colliders: new Colliders() } );
 	const ms = performance.now() - t0;
 	let tris = 0, meshes = 0;
-	isle.group.traverse( ( o ) => { if ( o.geometry && o.geometry.index ) { tris += o.geometry.index.count / 3; meshes ++; } } );
+	const land = [ isle.land.near, isle.land.far ];
+	isle.group.traverse( ( o ) => { if ( o.geometry && o.geometry.index && ! land.includes( o ) ) { tris += o.geometry.index.count / 3; meshes ++; } } );
 	ok( meshes < 40 && tris < 160000, 'merged meshes', `${ meshes } meshes, ${ Math.round( tris ) } triangles, ${ Math.round( ms ) } ms` );
+	// wave 14D: the island's ground is its tile's own mesh (the heightmap's chunks no longer reach it)
+	const lt = land.map( ( m ) => m.geometry ? m.geometry.index.count / 3 : 0 );
+	const P = isle.land.near.geometry.getAttribute( 'position' ).array, Cl = isle.land.near.geometry.getAttribute( 'color' ).array;
+	let hiY = - 99, lum = 0, nv = P.length / 3, inBox = true;
+	for ( let v = 0; v < nv; v ++ ) {
+
+		hiY = Math.max( hiY, P[ v * 3 + 1 ] );
+		lum += 0.2126 * Cl[ v * 3 ] + 0.7152 * Cl[ v * 3 + 1 ] + 0.0722 * Cl[ v * 3 + 2 ];
+		if ( ! isle.land.tile.contains( P[ v * 3 ], P[ v * 3 + 2 ] ) ) inBox = false;
+
+	}
+
+	ok( isle.land.tile === tile && lt[ 0 ] > 10000 && lt[ 0 ] < 140000 && lt[ 1 ] > 1000 && lt[ 1 ] < lt[ 0 ] && inBox && hiY > 50, 'the land mesh: near 2 m and far 8 m grids of the tile, up to the summit', `${ lt.join( ' / ' ) } triangles, top ${ hiY.toFixed( 0 ) } m` );
+	ok( isle.land.near.material === isle.material && isle.land.near.castShadow && isle.land.near.receiveShadow && lum / nv < 0.12, 'on the prop material, casting shadows, dark volcanic colours', `mean luminance ${ ( lum / nv ).toFixed( 3 ) } (linear)` );
 	ok( isle.lights.length >= 3 && isle.lights.length <= 6, 'a few lights that matter (tavern, market, gate, dock)', isle.lights.length + ' lights' );
 	ok( isle.structures.size === strongholdPlan( terrain ).length && isle.guns.size === 2, 'every breakable structure and both gun batteries drawn' );
 	isle.setBroken( L.palisade[ 0 ].id, true );

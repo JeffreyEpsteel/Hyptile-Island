@@ -219,7 +219,7 @@ export class Rocks {
 		};
 
 		// ---- rubble and boulders around the sea stacks
-		for ( const s of T.rockSites || [] ) {
+		for ( const s of [ ...( T.rockSites || [] ), ...( T.tiles || [] ).flatMap( ( q ) => q.rockSites || [] ) ] ) { // wave 14D: the outer tiles' stacks too
 
 			if ( s.kind !== 'stack' ) continue;
 			const count = Math.round( 6 + s.r * 1.2 );
