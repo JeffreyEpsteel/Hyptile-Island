@@ -433,6 +433,19 @@ the chute, stray and parked planes), StrongholdLink (host-authoritative Blackwat
 hostRequest / askHost), server messages plane / fort / ask with rate limits; the fort state does not survive a universe
 server restart yet.
 
+### Wave 15 (2026-10-14, root + 4 workers): a shared universe, economy, hijacking, rescue
+Asked for: a persistent server as the default for Multiplayer; better trades / economy; pirates placed further from the
+start; NPC ships / planes / every transport hijackable; climbing onto objects from the water; flares that bring an ally
+vessel. 15A shared universe (w15-universe-hosting.md, 001a1c6): Dockerfile + fly.toml (an always-on machine in
+Frankfurt, a 1 GB volume at /data, /health), deploy-universe.yml deploys the server from the same commit as the Pages
+build once FLY_API_TOKEN exists, admin routes behind ADMIN_TOKEN, a save on SIGTERM, the fort state persisted; the
+client defaults to wss://hyptile-universe.fly.dev/universe on the Pages site (a plain-http page offers that PC's own
+:8765), the Multiplayer card opens on the Universe tab and probes the server, a commit mismatch reads "the universe
+is updating"; vite defines __BUILD_HASH__. Owner's one-time steps: deploy/SETUP_FLY.cmd (fly auth signup + card,
+launch, volume, ADMIN_TOKEN, deploy, a deploy token into the FLY_API_TOKEN secret). NOT deployed yet: needs the account.
+15B economy (w15-economy.md), 15C pirates' distance + hijack (w15-hijack.md), 15D water climbing + flares
+(w15-rescue.md): in progress.
+
 ### Wave 14 (2026-10-14, root + 4 workers): the user's play-test notes
 Asked for: planes visible and findable at the airstrip, the parachute discoverable, cockpits that differ per airframe,
 a replacement boat at every dock and a replacement plane at every landing place, Blackwater further from the seaplane's
