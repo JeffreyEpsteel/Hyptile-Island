@@ -45,6 +45,7 @@
 //   gunshot { ... }                                          (firearms: a pistol / musket shot, synced as a world event)
 //   gullSquawk { x, y, z }   emote { id }                    (life cues; emotes, synced as a world event)
 //   seaplaneUpgraded { airframe, upgrade }   planeBailedOut   chuteLanded { x, y, z, water }   planeEngineFailed { engine }   (seaplane)
+//   hostRequest { kind, data, from, local }   (netsync: a guest asked the host to run something; local when this is the host)
 //   practiceStarted { count }   practiceEnded { result }   rockThrown { by, x, z }   (melee: the practice fight, the rock thrower)
 //   questPin { id, x, z, label }   questPinClear { id }        (story -> the maps: a quest step's place)
 //

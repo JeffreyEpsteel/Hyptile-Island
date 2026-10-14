@@ -60,6 +60,8 @@ The protocol's vocabulary is unchanged from 2.x; each `{ t, ...body }` is a Coly
 | `ships`, `shipsAt`, `shipsHost` (the host's `world`, 12 Hz at most) | `world { at, host, ships }` to everybody but the host |
 | `moored` (universe) | (also announced as `boatMoored` / `boatUnmoored` events) |
 | `wrecks['<owner>:<id>']`: kind (`sinking` / `boat` / `plane`), model, pose, `t`, `parts` (wave 11) | read directly by `src/features/netsync/WreckLink.js` |
+| `planes['<owner>:<id>']`: kind (`stray` / `parked`), airframe, livery, upgrades, pose, throttle, `t` (wave 13) | read directly by `src/features/netsync/PlaneLink.js` |
+| `fort`: the host's Blackwater (holder, claimant, claim count, game-hour times, alarm, guards, ships, `batteries[id]`) (wave 13) | read directly by `src/features/netsync/StrongholdLink.js` |
 
 Messages: `hello` (a later one updates the profile), `state`, `chat`, `ping`/`pong`, `createCrew`/`crew`,
 `ride`/`unride`/`ridePolicy` → `ride`/`unride`/`rideNo`/`policy`, `world`, `fx` (to the others, 30/s), `hit` (to the host,
@@ -75,6 +77,14 @@ owner leaves, kept over a reconnect), `fx` `ram` (from the host only). Fire rate
 fires a volley of at most 6 balls within 1.2 s, then nothing for 1.5 s (a ship's side 3.5 s); a firearm `gunshot` event no
 sooner than 0.8 x its reload after the last of that weapon; only the host fires balls that are not a player's (`o`).
 The admin console's `wrecks` lists the entries.
+
+Wave 13: `plane` (`set` / `del` of the sender's own entries, 3 per player, 48 per room, 14 messages/s; dropped when the
+owner leaves, kept over a reconnect), `fort` (`set`: the host's snapshot, 10/s; `act`: a guest's hostile act forwarded to
+the host alone as `fortAct`, 4/s, `hostile` 2/s; `claim`: granted once while the host says the island is undefended,
+answered with `fortClaim`, 1 per 1.5 s; a host snapshot that has not seen the newest claim cannot hand the island back),
+`ask` (a guest's request forwarded to the host alone, 4/s). Prop events (`propDestroyed`, `propRespawned`,
+`propsRespawned { port, ids }`) have their own budget of 40/s; the universe stores a batched respawn like single ones and
+its expiry of a broken prop carries the port. The admin console's `planes` and `fort` list them.
 
 Refusals at join are Colyseus errors whose code is a `REFUSAL` number, all in the application range (Colyseus keeps
 4000..4010): `full` 4101, `hello` 4102, `version` 4103, `rooms` 4104 (409 while a room is being created), `nocrew` 4105
@@ -103,6 +113,8 @@ node test/colyseus.mjs         # schema by reflection, 15 Hz patches, reconnecti
 node test/feature-netsync.mjs  # two browser stacks: crews, a reconnect, rides, puppets, shots, hits, host migration
 node test/server-w11.mjs       # wave 11 rules: bumps to the owner only, wreck entries, fire rates
 node test/feature-netsync-w11.mjs  # two browser stacks: remote hull collisions, crew decks, rates, wrecks over a reconnect
+node test/server-w13.mjs       # wave 13 rules: plane entries, the stronghold's claim once, acts / asks to the host, prop budget
+node test/feature-netsync-w13.mjs  # two browser stacks: remote airframes, chute, stray -> wreck, parked, Blackwater, Tidemark
 ```
 
 ## The persistent universe

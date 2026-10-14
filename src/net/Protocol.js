@@ -49,6 +49,17 @@
 //   Rate rules (FireGate below): a cannon side fires a volley of at most CANNON_GATE.perVolley balls within ripple s, then
 //   nothing until its reload; a firearm 'gunshot' event no faster than GUN_GATE x its reload; slower shots are dropped
 //   welcome also carries { host, rides: [ { guest, host, seat } ], crew }
+//   (wave 13)
+//     { t: 'plane', op: 'set', id, kind, af, liv, up, p, q, thr } / { t: 'plane', op: 'del', id }   the sender's own planes
+//                                              (kind 'stray': bailed out of, flying on; 'parked': the airframe out); state:
+//                                              planes { '<owner>:<id>': { owner, kind, af, liv, up, x, y, z, qx, qy, qz, qw, thr, t } }
+//     { t: 'fort', op: 'set', ... }            the HOST's Blackwater snapshot (sanitizeFort) -> state fort { seq, holder, by, byName,
+//                                              claims, claimedAt, until, alarm, why, guards, shipsDown, castOff, open, batteries }
+//     { t: 'fort', op: 'act', act, why }       a guest's hostile act -> { t: 'fortAct', from, act, why } to the host alone
+//     { t: 'fort', op: 'claim' }               -> { t: 'fortClaim', ok, reason?, by?, claims? } (granted once, while open)
+//     { t: 'ask', kind, data }                 a guest's request -> { t: 'ask', from, kind, data } to the host alone
+//     event 'propsRespawned' { port, ids }     the host's batched prop respawns (clients expand them into propRespawned)
+//     a player's state may carry chute: [ x, y, z, heading, open ] (under the parachute) and bw: 0 | 1 (near Blackwater: let in)
 //
 // Version 2 (the persistent universe; v1 clients still join the island and crew rooms):
 //   client -> server
@@ -106,9 +117,9 @@ export const REFUSAL_HTTP = { rooms: 409, nocrew: 404, nouniverse: 404 };
 
 // world events the universe persists (the others are only relayed). key: the data field naming the thing; ttl: seconds
 // (ttlField: the sender may ask for another, clamped to min..max); expire: the kind the server sends when it runs out;
-// clears: this kind removes the stored one of that kind
+// clears: this kind removes the stored one of that kind; carry: data fields the expiry repeats (a respawn names the prop's port)
 export const WORLD_EVENT_RULES = {
-	propDestroyed: { key: 'id', ttl: 1800, min: 30, max: 86400, ttlField: 'respawn', expire: 'propRespawned' },
+	propDestroyed: { key: 'id', ttl: 1800, min: 30, max: 86400, ttlField: 'respawn', expire: 'propRespawned', carry: [ 'port' ] },
 	propRespawned: { key: 'id', clears: 'propDestroyed' },
 	bountyClaimed: { key: 'id', ttl: 48 * 3600 },
 };
@@ -665,6 +676,78 @@ export class FireGate {
 		for ( const [ k, v ] of this.keys ) if ( now - ( typeof v === 'number' ? v : v.at ) > ms ) this.keys.delete( k );
 
 	}
+
+}
+
+// ---- wave 13: shared planes, the Blackwater stronghold (host-authoritative), requests for the host
+
+export const PLANE_KINDS = [ 'stray', 'parked' ]; // an abandoned plane flying on by itself / an airframe out at its base
+export const MAX_PLANES_PER_PLAYER = 3;
+export const MAX_ROOM_PLANES = 48;
+export const PLANE_RATE = { n: 14, ms: 1000 }; // a stray streams at 10 Hz, a parked plane now and then
+const PLANE_ID = /^[\w.-]{1,16}$/;
+
+// a player's own plane entry: { op: 'set', id, kind, af, liv, up, p, q, thr } | { op: 'del', id } | null
+// (af: the airframe id, liv: its livery, up: the fitted upgrades as one digit each, Airframes.UPGRADE_IDS order)
+export function sanitizePlane( o ) {
+
+	if ( ! o || typeof o !== 'object' || typeof o.id !== 'string' || ! PLANE_ID.test( o.id ) ) return null;
+	if ( o.op === 'del' ) return { op: 'del', id: o.id };
+	if ( o.op !== 'set' || ! PLANE_KINDS.includes( o.kind ) ) return null;
+	const af = typeof o.af === 'string' && /^[a-z]{2,16}$/.test( o.af ) ? o.af : null;
+	const p = vec( o.p, 3, WORLD_LIMIT, 100 ), q = vec( o.q, 4, 2, 1e4 );
+	if ( ! af || ! p || ! q ) return null;
+	const l = Math.hypot( q[ 0 ], q[ 1 ], q[ 2 ], q[ 3 ] );
+	if ( l < 1e-3 ) return null;
+	return {
+		op: 'set', id: o.id, kind: o.kind, af, liv: Math.round( num( o.liv, 0, 15, 0 ) ), up: typeof o.up === 'string' && /^[0-9]{0,16}$/.test( o.up ) ? o.up : '',
+		p, q: q.map( ( v ) => round( v / l, 1e4 ) ), thr: round( num( o.thr, 0, 2, 0 ), 100 ),
+	};
+
+}
+
+export const FORT_HOLDERS = [ 'pirates', 'player' ];
+export const FORT_ALARMS = [ 'calm', 'spotted', 'alarm' ];
+export const FORT_ACTS = [ 'raise', 'hostile', 'guard' ]; // a guest's: the bell, a hostile in sight, a guard beaten
+export const MAX_FORT_BATTERIES = 6;
+export const FORT_CLAIM_EVERY = 1500; // ms between two claims of one player
+const FORT_WORD = /^[A-Za-z][\w-]{0,23}$/;
+
+// the stronghold messages:
+//   { op: 'set', holder, claimedAt, until, alarm, why, guards, shipsDown, castOff, open, seen, batteries: [ { id, silenced,
+//     why, platform, powder } ] }   the HOST's snapshot (claimedAt / until in game hours, -1 none; guards -1: no watch yet;
+//     shipsDown / castOff: bits of the moored ships; open: claimable on the host; seen: the room's claim count it has applied)
+//   { op: 'claim' }                 anybody: take the island (the server grants it once)
+//   { op: 'act', act, why }         a guest's hostile act for the host's watch (FORT_ACTS)
+export function sanitizeFort( o ) {
+
+	if ( ! o || typeof o !== 'object' ) return null;
+	if ( o.op === 'claim' ) return { op: 'claim' };
+	const word = ( v ) => ( typeof v === 'string' && FORT_WORD.test( v ) ? v : '' );
+	if ( o.op === 'act' ) return FORT_ACTS.includes( o.act ) ? { op: 'act', act: o.act, why: word( o.why ) } : null;
+	if ( o.op !== 'set' || ! FORT_HOLDERS.includes( o.holder ) || ! FORT_ALARMS.includes( o.alarm ) ) return null;
+	const bats = [];
+	for ( const b of Array.isArray( o.batteries ) ? o.batteries : [] ) {
+
+		if ( bats.length >= MAX_FORT_BATTERIES ) break;
+		if ( ! b || typeof b !== 'object' || ! word( b.id ) || bats.some( ( x ) => x.id === b.id ) ) continue;
+		bats.push( { id: b.id, silenced: b.silenced === true, why: word( b.why ), platform: b.platform === true, powder: b.powder === true } );
+
+	}
+
+	return {
+		op: 'set', holder: o.holder, alarm: o.alarm, why: word( o.why ),
+		claimedAt: round( num( o.claimedAt, - 1, 1e7, - 1 ), 100 ), until: round( num( o.until, - 1, 1e7, - 1 ), 100 ),
+		guards: Math.round( num( o.guards, - 1, 30, - 1 ) ), shipsDown: Math.round( num( o.shipsDown, 0, 255, 0 ) ), castOff: Math.round( num( o.castOff, 0, 255, 0 ) ),
+		open: o.open === true, seen: Math.round( num( o.seen, 0, 65535, 0 ) ), batteries: bats,
+	};
+
+}
+
+// a guest asks the room's host to run something only the host may (a raid through naval.spawn...): { kind, data } or null
+export function sanitizeAsk( o ) {
+
+	return sanitizeEvent( o );
 
 }
 

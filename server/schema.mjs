@@ -3,7 +3,8 @@
 // reads a Player back into the state object of src/net/Protocol.js (sanitizeState): p = [ x, y, z ], boat = { id, p, q, ... }.
 //
 //   HyptileState { room, crew, universe, host, at, players: { id: Player }, ships: [ Ship ], shipsAt, shipsHost,
-//                  moored: { captainKey: Moored }, clock: Clock, wrecks: { '<owner>:<id>': Wreck } }
+//                  moored: { captainKey: Moored }, clock: Clock, wrecks: { '<owner>:<id>': Wreck },
+//                  planes: { '<owner>:<id>': PlaneEntry }, fort: Fort { ..., batteries: { id: FortBattery } } }
 //   Player       profile fields (bumped `profile` on a hello) + the newest accepted state (bumped `seq`)
 
 import { schema, t } from '@colyseus/schema';
@@ -64,6 +65,31 @@ export const Wreck = schema( {
 	t: t.float64().default( 0 ), parts: t.uint16().default( 0 ),
 }, 'Wreck' );
 
+// wave 13: a player's plane that is not under her (a 'stray' flying on after a bail-out, streamed by its owner until it wrecks;
+// a 'parked' airframe out at its base or left at sea). Created and removed by its owner; gone when the owner leaves.
+export const PlaneEntry = schema( {
+	owner: t.string().default( '' ), kind: t.string().default( '' ), af: t.string().default( 'jade' ), liv: t.uint8().default( 0 ), up: t.string().default( '' ),
+	x: t.float32().default( 0 ), y: t.float32().default( 0 ), z: t.float32().default( 0 ),
+	qx: t.float32().default( 0 ), qy: t.float32().default( 0 ), qz: t.float32().default( 0 ), qw: t.float32().default( 1 ),
+	thr: t.float32().default( 0 ), t: t.float64().default( 0 ),
+}, 'PlaneEntry' );
+
+// wave 13: the Blackwater stronghold, host-authoritative (src/features/netsync/StrongholdLink.js). The host writes everything
+// but the claim, which the server grants once (holder, by, claims); a host snapshot that has not seen the newest claim
+// (seen < claims) cannot hand the island back to the pirates.
+export const FortBattery = schema( {
+	silenced: t.boolean().default( false ), why: t.string().default( '' ), platform: t.boolean().default( false ), powder: t.boolean().default( false ),
+}, 'FortBattery' );
+
+export const Fort = schema( {
+	seq: t.uint32().default( 0 ), // host snapshots applied (0: no host runs the stronghold yet)
+	holder: t.string().default( 'pirates' ), by: t.string().default( '' ), byName: t.string().default( '' ), claims: t.uint16().default( 0 ),
+	claimedAt: t.float64().default( - 1 ), until: t.float64().default( - 1 ), // game hours (the host's clock)
+	alarm: t.string().default( 'calm' ), why: t.string().default( '' ),
+	guards: t.int8().default( - 1 ), shipsDown: t.uint8().default( 0 ), castOff: t.uint8().default( 0 ), open: t.boolean().default( false ),
+	batteries: t.map( FortBattery ),
+}, 'Fort' );
+
 export const HyptileState = schema( {
 	room: t.string().default( '' ),
 	crew: t.boolean().default( false ),
@@ -77,6 +103,8 @@ export const HyptileState = schema( {
 	moored: t.map( Moored ),
 	clock: t.ref( Clock ),
 	wrecks: t.map( Wreck ),
+	planes: t.map( PlaneEntry ),
+	fort: t.ref( Fort ),
 }, 'HyptileState' );
 
 const r2 = ( v ) => Math.round( v * 100 ) / 100;
@@ -185,5 +213,62 @@ export function writeWreck( map, owner, w, now = Date.now() ) {
 	if ( changed ) e.t = now;
 	if ( fresh ) map.set( key, e );
 	return key;
+
+}
+
+// a sanitized plane (Protocol.sanitizePlane, op 'set') into the map under '<owner>:<id>'; t is the server's time of the first set
+export function writePlane( map, owner, e, now = Date.now() ) {
+
+	const key = owner + ':' + e.id;
+	let pe = map.get( key );
+	const fresh = ! pe;
+	if ( fresh ) pe = new PlaneEntry();
+	if ( fresh || pe.kind !== e.kind ) pe.t = now;
+	pe.owner = owner; pe.kind = e.kind; pe.af = e.af; pe.liv = e.liv; pe.up = e.up;
+	pe.x = e.p[ 0 ]; pe.y = e.p[ 1 ]; pe.z = e.p[ 2 ];
+	pe.qx = e.q[ 0 ]; pe.qy = e.q[ 1 ]; pe.qz = e.q[ 2 ]; pe.qw = e.q[ 3 ];
+	pe.thr = e.thr;
+	if ( fresh ) map.set( key, pe );
+	return key;
+
+}
+
+// the host's stronghold snapshot (Protocol.sanitizeFort, op 'set') into the Fort; the holder only follows a host that has seen
+// every claim the server granted (else a snapshot made before the claim reached the host would undo it)
+export function writeFort( f, s ) {
+
+	if ( s.seen === f.claims ) {
+
+		if ( s.holder === 'pirates' && f.holder === 'player' ) { f.holder = 'pirates'; f.by = ''; f.byName = ''; }
+		if ( f.holder === 'player' ) { f.claimedAt = s.claimedAt; f.until = s.until; } else { f.claimedAt = - 1; f.until = - 1; }
+
+	}
+
+	f.alarm = s.alarm; f.why = s.why;
+	f.guards = s.guards; f.shipsDown = s.shipsDown; f.castOff = s.castOff; f.open = s.open;
+	const keep = new Set();
+	for ( const b of s.batteries ) {
+
+		keep.add( b.id );
+		let e = f.batteries.get( b.id );
+		if ( ! e ) f.batteries.set( b.id, e = new FortBattery() );
+		e.silenced = b.silenced; e.why = b.why; e.platform = b.platform; e.powder = b.powder;
+
+	}
+
+	for ( const id of [ ...f.batteries.keys() ] ) if ( ! keep.has( id ) ) f.batteries.delete( id );
+	f.seq = ( f.seq + 1 ) >>> 0;
+
+}
+
+// the Fort as a plain object (the admin console, the tests)
+export function readFort( f ) {
+
+	const batteries = {};
+	f.batteries.forEach( ( b, id ) => { batteries[ id ] = { silenced: b.silenced, why: b.why, platform: b.platform, powder: b.powder }; } );
+	return {
+		seq: f.seq, holder: f.holder, by: f.by, byName: f.byName, claims: f.claims, claimedAt: f.claimedAt, until: f.until, alarm: f.alarm, why: f.why,
+		guards: f.guards, shipsDown: f.shipsDown, castOff: f.castOff, open: f.open, batteries,
+	};
 
 }

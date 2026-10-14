@@ -497,7 +497,10 @@ export class Universe {
 			delete ev[ k ];
 			this.dirty = true;
 			const rule = WORLD_EVENT_RULES[ e.kind ];
-			if ( rule && rule.expire ) out.push( { kind: rule.expire, data: { [ rule.key ]: e.data[ rule.key ] } } );
+			if ( ! rule || ! rule.expire ) continue;
+			const data = { [ rule.key ]: e.data[ rule.key ] };
+			for ( const f of rule.carry || [] ) if ( e.data[ f ] !== undefined ) data[ f ] = e.data[ f ]; // (a prop's respawn names its port)
+			out.push( { kind: rule.expire, data } );
 
 		}
 

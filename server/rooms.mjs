@@ -17,6 +17,14 @@
 // boats' hull collisions, src/features/netsync/HullLink.js); 'wreck' adds / removes the sender's own entries of the schema's
 // `wrecks` map (dropped with the owner in onLeave, kept over a reconnect); cannon 'fx' shots and firearm 'gunshot' events
 // faster than the weapon reloads are dropped (Protocol.FireGate); only the host fires balls that are not a player's ('o').
+//
+// Wave 13 (planes, the stronghold, the town): 'plane' sets / removes the sender's own entries of the schema's `planes` map
+// (a 'stray' abandoned plane streamed until it wrecks, a 'parked' airframe; dropped with the owner); 'fort' is the Blackwater
+// stronghold: the host's snapshot ('set') goes into the schema's `fort`, a guest's hostile act ('act') goes to the host alone,
+// and a 'claim' from anybody is granted once ('fortClaim' answers the claimant; the host's `open` must say it is undefended);
+// 'ask' carries a guest's request to the host alone (a raid only the host may spawn). Prop events (propDestroyed,
+// propRespawned, propsRespawned) have their own budget, so a powder blast breaking a dozen props loses none; the universe stores
+// a host's batched respawns like single ones.
 
 import { Room, ServerError, CloseCode, matchMaker } from '@colyseus/core';
 import {
@@ -25,12 +33,14 @@ import {
 	sanitizeHello, sanitizeState, sanitizeChat, sanitizeRoom, sanitizeEvent, sanitizeWorld, sanitizeFx, sanitizeHit,
 	isCrewRoom, makeCrewCode,
 	sanitizeBump, sanitizeWreck, FireGate, CANNON_GATE, GUN_GATE, BUMP_REACH, MAX_WRECKS_PER_PLAYER, MAX_ROOM_WRECKS,
+	sanitizePlane, sanitizeFort, sanitizeAsk, MAX_PLANES_PER_PLAYER, MAX_ROOM_PLANES, PLANE_RATE, FORT_CLAIM_EVERY,
 } from '../src/net/Protocol.js';
 import { BOATS } from '../src/game/Boats.js';
 import { WEAPONS } from '../src/features/firearms/FirearmsData.js';
-import { HyptileState, Player, writePlayerState, writeShips, writeMoored, writeWreck } from './schema.mjs';
+import { HyptileState, Player, writePlayerState, writeShips, writeMoored, writeWreck, writePlane, writeFort } from './schema.mjs';
 
 const SHIP_GATE = { ...CANNON_GATE, reload: CANNON_GATE.shipReload };
+const PROP_EVENTS = new Set( [ 'propDestroyed', 'propRespawned', 'propsRespawned' ] );
 
 const ID_CHARS = 'abcdefghjkmnpqrstuvwxyz23456789';
 const makeId = ( taken ) => {
@@ -67,7 +77,7 @@ export function makeRooms( ctx ) {
 	const { opts } = ctx;
 	const log = ( ...a ) => opts.log( ...a );
 
-	const MESSAGES = [ 'hello', 'state', 'chat', 'ping', 'createCrew', 'ridePolicy', 'ride', 'unride', 'world', 'fx', 'hit', 'event', 'save', 'market', 'bump', 'wreck' ];
+	const MESSAGES = [ 'hello', 'state', 'chat', 'ping', 'createCrew', 'ridePolicy', 'ride', 'unride', 'world', 'fx', 'hit', 'event', 'save', 'market', 'bump', 'wreck', 'plane', 'fort', 'ask' ];
 
 	class HyptileRoom extends Room {
 
@@ -450,6 +460,7 @@ export function makeRooms( ctx ) {
 			this.order.delete( m.id );
 			this.state.players.delete( m.id );
 			this.dropWrecks( m.id );
+			this.dropPlanes( m.id );
 			const uni = this.uni;
 			if ( uni && m.captainKey ) {
 
@@ -498,6 +509,16 @@ export function makeRooms( ctx ) {
 		dropWrecks( id ) {
 
 			const map = this.state.wrecks, gone = [];
+			map.forEach( ( e, key ) => { if ( e.owner === id ) gone.push( key ); } );
+			for ( const key of gone ) map.delete( key );
+			return gone.length;
+
+		}
+
+		// every plane entry of a player (gone for good: her stray and her parked airframe go with her)
+		dropPlanes( id ) {
+
+			const map = this.state.planes, gone = [];
 			map.forEach( ( e, key ) => { if ( e.owner === id ) gone.push( key ); } );
 			for ( const key of gone ) map.delete( key );
 			return gone.length;
@@ -796,10 +817,13 @@ export function makeRooms( ctx ) {
 
 		on_event( c, m ) {
 
-			// a world event (a destroyed prop, a trade, a claimed bounty): to everybody else; the universe keeps the known kinds
-			if ( ! this.allow( c, 'event', 10, 1000 ) ) return;
+			// a world event (a destroyed prop, a trade, a claimed bounty): to everybody else; the universe keeps the known kinds.
+			// Props have their own budget (a powder store's blast breaks a dozen at once)
+			const prop = typeof m.kind === 'string' && PROP_EVENTS.has( m.kind );
+			if ( ! ( prop ? this.allow( c, 'event:prop', 40, 1000 ) : this.allow( c, 'event', 10, 1000 ) ) ) return;
 			const e = sanitizeEvent( m );
 			if ( ! e ) return;
+			if ( e.kind === 'propsRespawned' && ! ( Array.isArray( e.data.ids ) && e.data.ids.every( ( id ) => typeof id === 'string' ) ) ) return;
 			if ( e.kind === 'gunshot' ) {
 
 				// a flintlock holds one ball: a weapon's shots come no faster than it reloads
@@ -811,7 +835,13 @@ export function makeRooms( ctx ) {
 
 			const at = Date.now();
 			this.broadcastExcept( 'event', { kind: e.kind, data: e.data, from: c.id, at }, c );
-			if ( this.uni ) this.uni.recordEvent( c.captainKey, c.id, e.kind, e.data, at );
+			if ( ! this.uni ) return;
+			if ( e.kind === 'propsRespawned' ) {
+
+				// the host's batched respawns clear the stored breaks one by one
+				for ( const id of e.data.ids ) this.uni.recordEvent( c.captainKey, c.id, 'propRespawned', { id, port: e.data.port }, at );
+
+			} else this.uni.recordEvent( c.captainKey, c.id, e.kind, e.data, at );
 
 		}
 
@@ -856,6 +886,86 @@ export function makeRooms( ctx ) {
 			}
 
 			writeWreck( map, c.id, w );
+
+		}
+
+		// ---- wave 13
+
+		// a player's own plane entries (keyed '<owner>:<id>': nobody else can touch them)
+		on_plane( c, m ) {
+
+			if ( ! this.allow( c, 'plane', PLANE_RATE.n, PLANE_RATE.ms ) ) return;
+			const e = sanitizePlane( m );
+			if ( ! e ) return;
+			const map = this.state.planes, key = c.id + ':' + e.id;
+			if ( e.op === 'del' ) {
+
+				if ( map.has( key ) ) map.delete( key );
+				return;
+
+			}
+
+			if ( ! map.has( key ) ) {
+
+				let mine = 0;
+				map.forEach( ( pe ) => { if ( pe.owner === c.id ) mine ++; } );
+				if ( mine >= MAX_PLANES_PER_PLAYER || map.size >= MAX_ROOM_PLANES ) return;
+
+			}
+
+			writePlane( map, c.id, e );
+
+		}
+
+		// the stronghold: the host's snapshot, a guest's hostile act (to the host), a claim (granted once)
+		on_fort( c, m ) {
+
+			const f = sanitizeFort( m );
+			if ( ! f ) return;
+			const fort = this.state.fort, hid = this.state.host;
+			if ( f.op === 'set' ) {
+
+				if ( hid !== c.id || ! this.allow( c, 'fort', 10, 1000 ) ) return;
+				writeFort( fort, f );
+				return;
+
+			}
+
+			if ( f.op === 'act' ) {
+
+				if ( hid === c.id || ! this.allow( c, 'fort:act', f.act === 'hostile' ? 2 : 4, 1000 ) ) return;
+				const h = hid ? this.order.get( hid ) : null;
+				if ( h ) this.tell( h, 'fortAct', { from: c.id, act: f.act, why: f.why } );
+				return;
+
+			}
+
+			// a claim: one player gets it; a host that runs the stronghold must have said it is undefended
+			if ( ! this.allow( c, 'fort:claim', 1, FORT_CLAIM_EVERY ) ) return this.tell( c, 'fortClaim', { ok: false, reason: 'rate' } );
+			if ( fort.holder !== 'pirates' ) return this.tell( c, 'fortClaim', { ok: false, reason: 'taken', by: fort.by } );
+			if ( fort.seq > 0 && ! fort.open ) return this.tell( c, 'fortClaim', { ok: false, reason: 'defended' } );
+			fort.holder = 'player';
+			fort.by = c.id;
+			fort.byName = c.name;
+			fort.claims = ( fort.claims + 1 ) & 0xffff;
+			fort.claimedAt = - 1; // (the host's clock fills it in)
+			fort.until = - 1;
+			fort.open = false;
+			log( `fort  ${ this.label } claimed by ${ c.id } "${ c.name }"` );
+			this.tell( c, 'fortClaim', { ok: true, by: c.id, claims: fort.claims } );
+
+		}
+
+		// a guest asks the host to run something only the host may (src/features/netsync: sync.askHost)
+		on_ask( c, m ) {
+
+			if ( ! this.allow( c, 'ask', 4, 1000 ) ) return;
+			const hid = this.state.host;
+			if ( hid === c.id ) return; // (the host runs it itself)
+			const a = sanitizeAsk( m );
+			const h = hid ? this.order.get( hid ) : null;
+			if ( ! a || ! h ) return;
+			this.tell( h, 'ask', { from: c.id, kind: a.kind, data: a.data } );
 
 		}
 

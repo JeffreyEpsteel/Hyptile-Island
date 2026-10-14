@@ -108,6 +108,9 @@ export class Story {
 
 		for ( const name of names ) this._offs.push( features.on( name, ( e ) => this._onEvent( name, e ) ) );
 
+		// wave 13D: in a room only the host runs the raid; a guest asks (netsync.askHost 'raid') and the host arms it here
+		this._offs.push( features.on( 'hostRequest', ( e ) => { if ( e && e.kind === 'raid' && ! e.local ) this._armRaid( ( e.data && e.data.chain ) || 'holdTheLine', true ); } ) );
+
 	}
 
 	_initState() {
@@ -748,11 +751,13 @@ export class Story {
 	}
 
 	// Hold the line: the raiding sloop comes in on Tidemark's bay (naval.spawn), unless she is already afloat
-	_armRaid( id ) {
+	_armRaid( id, fromHost = false ) {
 
 		const nv = this._feature( 'naval' );
 		this._raid = { chain: id, fireT: RAID.fire };
 		if ( ! nv || typeof nv.spawn !== 'function' ) return;
+		const sync = this._feature( 'netsync' );
+		if ( ! fromHost && sync && sync.hostOnly && ! sync.hostOnly() ) { sync.askHost( 'raid', { port: 'tidemark', chain: id } ); return; } // the host spawns her
 		if ( Array.isArray( nv.ships ) && nv.ships.some( ( s ) => s.id === RAID_ID && s.alive ) ) return;
 		const tm = WORLD.tidemark;
 		if ( ! tm ) return;

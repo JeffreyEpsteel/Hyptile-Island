@@ -43,6 +43,16 @@
 //                               them with crew/Deck.js
 //   cannon fire carries its side and crew gunner (fx sd, c); the server drops shots and gunshots faster than the reload
 //   (Protocol.FireGate) and relays the host's 'ram' effects. All of it survives a reconnect (schema + state, re-sent wrecks).
+//
+// Wave 13, the wave 12 features for everybody in the room:
+//   sync.planes (PlaneLink.js)  the others' airframes with livery and upgrades (state plane.af / liv / up), a pilot under the
+//                               parachute (state chute), the plane she bailed out of streamed as a schema 'stray' entry until it
+//                               wrecks, each player's airframe out as a 'parked' entry (the Kestrel on the airstrip pad). The
+//                               pilot's mode 'plane' goes as 'seat' (it is not a protocol mode: such a state was refused).
+//   sync.fort   (StrongholdLink.js)  Blackwater, host-authoritative: alarm, batteries, powder, guards, moored ships and the
+//                               claim (granted once by the server; the claimant takes the loot) in the schema's `fort`
+//   sync.town   (TownLink.js)   the host's prop respawns go to everybody (batched); sync.hostOnly() / sync.askHost( kind, data )
+//                               -> features 'hostRequest' { kind, data, from, local } on the host (a raid only the host spawns)
 
 import { BOATS } from '../../game/Boats.js';
 import { CrewPanel } from './CrewPanel.js';
@@ -50,6 +60,9 @@ import { NavalLink } from './NavalLink.js';
 import { HullLink } from './HullLink.js';
 import { WreckLink } from './WreckLink.js';
 import { CrewLink } from './CrewLink.js';
+import { PlaneLink } from './PlaneLink.js';
+import { StrongholdLink } from './StrongholdLink.js';
+import { TownLink } from './TownLink.js';
 import { crewCodeFromLocation } from '../../net/NetClient.js';
 import { crewUrl } from '../../net/Protocol.js';
 
@@ -83,6 +96,9 @@ export class NetSync {
 		this.hulls = new HullLink( this );
 		this.wrecks = new WreckLink( this );
 		this.crew = new CrewLink( this );
+		this.planes = new PlaneLink( this );
+		this.fort = new StrongholdLink( this );
+		this.town = new TownLink( this );
 		this.panel = null;
 		this._offs = [];
 		this._speeds = new Map(); // peer id -> { x, z, t, v }: boat speed from the interpolated transform
@@ -176,6 +192,20 @@ export class NetSync {
 
 	}
 
+	// true offline or on the room's host: the caller may change the shared world (spawn a raider...)
+	hostOnly() {
+
+		return this.town.hostOnly();
+
+	}
+
+	// run something on the room's host (features 'hostRequest' there; here at once when this is the host or offline)
+	askHost( kind, data = {} ) {
+
+		return this.town.askHost( kind, data );
+
+	}
+
 	bountySeed() {
 
 		return this.universe ? this.universe.bountySeed : null;
@@ -204,6 +234,14 @@ export class NetSync {
 	_onEvent( m, replay = false ) {
 
 		if ( ! m || typeof m.kind !== 'string' ) return;
+		if ( m.kind === 'propsRespawned' ) {
+
+			// the host's town coming back, one prop at a time for the features
+			for ( const e of this.town.expand( m ) ) this._onEvent( e, replay );
+			return;
+
+		}
+
 		const data = m.data && typeof m.data === 'object' ? m.data : {};
 		if ( m.kind === 'boatMoored' && typeof data.captain === 'string' ) {
 
@@ -626,6 +664,10 @@ export class NetSync {
 
 		}
 
+		// the airframe's upgrades, the parachute, a pilot seated (mode 'plane' is no protocol mode); near Blackwater: let in?
+		try { this.planes.decorate( s ); } catch ( e ) { /* optional */ }
+		try { this.fort.decorate( s ); } catch ( e ) { /* optional */ }
+
 		if ( ! this.riding ) {
 
 			// aboard her own boat: its way, mass and hull for the host's collisions; the posted crew for the others' decks
@@ -749,6 +791,9 @@ export class NetSync {
 		this.naval.bind( net );
 		this.hulls.bind( net );
 		this.wrecks.bind( net );
+		this.planes.bind( net );
+		this.fort.bind( net );
+		this.town.bind( net );
 		this.crew.clear();
 		if ( ! net ) {
 
@@ -818,6 +863,9 @@ export class NetSync {
 		this.hulls.update( dt );
 		this.wrecks.update( dt );
 		this.crew.update( dt );
+		this.planes.update( dt ); // (feeds seaplane.updateRemote with the others' new plane states)
+		this.fort.update( dt );
+		this.town.update( dt );
 		this._updateMarket( dt );
 		if ( net && net.universe ) {
 
@@ -825,13 +873,6 @@ export class NetSync {
 			const was = this._lastStatus;
 			this._lastStatus = net.status;
 			if ( was === 'online' && net.status !== 'online' && net.status !== 'error' ) this.toast( 'Universe connection lost: reconnecting (your game is kept and sent when back)', 3200 );
-
-		}
-
-		const plane = this.features && this.features.get ? this.features.get( 'seaplane' ) : null;
-		if ( plane && rp && typeof plane.updateRemote === 'function' ) {
-
-			try { plane.updateRemote( rp.peers ); } catch ( e ) { /* a remote plane is decoration */ }
 
 		}
 
@@ -852,6 +893,9 @@ export class NetSync {
 		this.hulls.dispose();
 		this.wrecks.dispose();
 		this.crew.dispose();
+		this.planes.dispose();
+		this.fort.dispose();
+		this.town.dispose();
 		if ( this.panel ) this.panel.dispose();
 		this.panel = null;
 		this.net = null;

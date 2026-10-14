@@ -16,10 +16,21 @@
 //
 //   const wl = new WreckLink( sync );  wl.bind( net );  wl.update( dt );  wl.supported;  wl.remote (Map key -> view)
 //   wl.local() -> the entries this player owns now;  wl.stats { out, dels, added, removed }
+// Wave 13: a plane wreck's model names its airframe and livery ('kestrel', 'petrel-2'; 'seaplane' from older clients is the
+// Jade): the remote wreck is that airframe's model in that paint, its pieces where that airframe has them (Wreck partsFor).
+
+// a plane wreck entry's model -> { af, liv }
+export function planeModelOf( model ) {
+
+	const m = /^([a-z]+)(?:-(\d{1,2}))?$/.exec( String( model || '' ) );
+	const af = m && m[ 1 ] !== 'seaplane' ? m[ 1 ] : 'jade';
+	return { af, liv: m && m[ 2 ] ? + m[ 2 ] : 0 };
+
+}
 
 import { Vector3, Quaternion } from '../../engine/index.js';
 import { BOATS } from '../../game/Boats.js';
-import { Wreck as PlaneWreck, PARTS, PART_NAMES } from '../seaplane/Wreck.js';
+import { Wreck as PlaneWreck, PART_NAMES, partsFor } from '../seaplane/Wreck.js';
 
 export const WRECK_SYNC = {
 	every: 0.5, // s between two comparisons of the local wrecks with the room's entries
@@ -86,9 +97,10 @@ export class PlaneWreckView {
 		this.vfx = vfx;
 		const q = quatOf( entry.yaw, entry.pitch, entry.roll );
 		const c = new Vector3( entry.x, entry.y, entry.z );
-		// Wreck takes the plane's pose: its origin is the fuselage centre less the model-frame centre
-		const origin = new Vector3( ...PARTS.fuselage.c ).applyQuaternion( q ).multiplyScalar( - 1 ).add( c );
-		this.wreck = new PlaneWreck( { position: origin, quaternion: q, seed: hashOf( entry.key || 'plane' ), afloat: 1e9 } );
+		const { af } = planeModelOf( entry.model );
+		// Wreck takes the plane's pose: its origin is the fuselage centre less the model-frame centre (of that airframe)
+		const origin = new Vector3( ...partsFor( af ).fuselage.c ).applyQuaternion( q ).multiplyScalar( - 1 ).add( c );
+		this.wreck = new PlaneWreck( { position: origin, quaternion: q, seed: hashOf( entry.key || 'plane' ), afloat: 1e9, airframe: af } );
 		this.target = { c: c.clone(), q: q.clone() };
 		this.cur = { c: c.clone(), q: q.clone() }; // (eased towards the target; the pieces' own physics never move the fuselage)
 		this.env = { seaAt: seaAt || ( () => 0 ), groundAt: groundAt || ( () => - Infinity ) };
@@ -261,7 +273,9 @@ export class WreckLink {
 		if ( w && w.fuselage && [ w.x, w.y, w.z ].every( Number.isFinite ) ) {
 
 			const a = anglesOf( w.fuselage.q );
-			out.push( { id: 'plane', kind: 'plane', model: 'seaplane', x: r2( w.x ), y: r2( w.y ), z: r2( w.z ), yaw: r3( a.yaw ), pitch: r3( a.pitch ), roll: r3( a.roll ), parts: planeBits( w ) } );
+			const af = typeof w.airframe === 'string' && /^[a-z]{2,16}$/.test( w.airframe ) ? w.airframe : typeof sp.af === 'string' ? sp.af : 'jade';
+			const liv = ( sp.upgrades && sp.upgrades.livery ) | 0;
+			out.push( { id: 'plane', kind: 'plane', model: liv > 0 ? `${ af }-${ liv }` : af, x: r2( w.x ), y: r2( w.y ), z: r2( w.z ), yaw: r3( a.yaw ), pitch: r3( a.pitch ), roll: r3( a.roll ), parts: planeBits( w ) } );
 
 		}
 
@@ -432,7 +446,8 @@ export class WreckLink {
 		let visual = null;
 		try {
 
-			visual = make ? make( e ) : sp && sp.models && sp.models.create ? sp.models.create() : null;
+			const { af, liv } = planeModelOf( e.model );
+			visual = make ? make( e ) : sp && sp.models && sp.models.create ? sp.models.create( af, liv ) : null;
 
 		} catch ( err ) { /* no model: the pieces still run (nothing drawn) */ }
 

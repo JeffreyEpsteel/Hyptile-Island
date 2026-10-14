@@ -137,6 +137,8 @@ export function startServer( options = {} ) {
 				return [
 					'list                 who is online (every room)',
 					'wrecks               the wrecks the rooms show (sinking boats, boats on the bottom, seaplanes)',
+					'planes               the planes flying on by themselves (stray) and parked, per room',
+					'fort                 the Blackwater stronghold of each room (holder, alarm, batteries, guards)',
 					'captains             every captain of the universe',
 					'kick <name>          disconnect a player (they may come back)',
 					'ban <name> [reason]  ban a captain from the universe (and kick)',
@@ -164,6 +166,36 @@ export function startServer( options = {} ) {
 
 				} );
 				return lines.length ? lines.join( '\n' ) : 'no wrecks';
+
+			}
+
+			case 'planes': {
+
+				const lines = [];
+				for ( const r of ctx.rooms.values() ) r.state.planes.forEach( ( e, key ) => {
+
+					const m = r.order.get( e.owner );
+					lines.push( `${ r.label.padEnd( 10 ) } ${ key.padEnd( 24 ) } ${ e.kind.padEnd( 7 ) } ${ e.af.padEnd( 10 ) } at ${ Math.round( e.x ) }, ${ Math.round( e.y ) }, ${ Math.round( e.z ) }  ${ m ? m.name : '?' }` );
+
+				} );
+				return lines.length ? lines.join( '\n' ) : 'no planes';
+
+			}
+
+			case 'fort': {
+
+				const lines = [];
+				for ( const r of ctx.rooms.values() ) {
+
+					const f = r.state.fort;
+					if ( ! f.seq && f.holder === 'pirates' ) continue;
+					const bats = [];
+					f.batteries.forEach( ( b, id ) => bats.push( `${ id }${ b.silenced ? ' silenced' : '' }${ b.platform ? ' (platform down)' : '' }${ b.powder ? ' (powder blown)' : '' }` ) );
+					lines.push( `${ r.label.padEnd( 10 ) } ${ f.holder }${ f.holder === 'player' ? ' (' + ( f.byName || f.by ) + ')' : '' } alarm ${ f.alarm }, guards ${ f.guards < 0 ? '-' : f.guards }, ships down ${ f.shipsDown.toString( 2 ) }; ${ bats.join( ', ' ) || 'no batteries reported' }` );
+
+				}
+
+				return lines.length ? lines.join( '\n' ) : 'no stronghold running';
 
 			}
 
