@@ -437,7 +437,17 @@ server restart yet.
 Asked for: improve all aspects of the visuals, the way of life and the looks of the cities, expand weaponry, continue the
 animations; Blender, BlenderKit and found assets allowed (permissive licences only, no logins). 18A visuals
 (w18-visuals.md), 18B town life (w18-townlife.md), 18C city looks (w18-citylooks.md), 18D weapons (w18-weapons.md), 18E
-animation library (w18-animlib.md); common rules in w18-common.md. In progress.
+animation library (w18-animlib.md); common rules in w18-common.md.
+Landed: 18E (54b7c42) 27 new clips on all eight GLBs (Rocketbox chair sits at 0.45 m and new Sit_Down / Stand_Up at the
+0.29 m seat drop, Drink, Eat, Clap, Crouch, Kneel_Work, Talk_Group, Fish_Net, Dance_2, Drunk_Walk, Walk_Tired, turns; pose
+clips Lean_Wall, Carry_Box, Hammer, Crouch_Walk, Lamp_Light; twelve emotes), crouch / tired / carry blend spaces (root: C
+crouches, the winded walk after a sprint). 18A (90e87b3) Grade.js time-of-day grade, night bloom, exposure, sea haze,
+moonlit horizon, a grade slider, tools/visuals/capture.mjs. 18C (551c25c) a Blender town kit (signs with 3D lettering,
+lamps, benches, fountain, awnings...), Tidemark's 15 infill houses, cobbled streets, far blocks, Blackwater's stilt shacks,
+seat lists. 18D (648e0d2) cutlass, axe, pin, harpoon, duelling pistols, long rifle, blunderbuss, harpoon gun, bombs, fire
+bottles, smoke pots, swivel gun, chain / grape shot, 15 models, pose clips, shops (chandlery, the fence), naval.igniteShip.
+18B (8bdb8f4) the townlife feature: ~90 townsfolk with homes, jobs and day plans, reactions, animals, skiffs; verified on
+Tidemark's quay in the browser. 18F visuals pass 2 (w18-visuals2.md: shadows, water, materials): in progress.
 
 ### Wave 17 (2026-10-14, root + 1 worker): no A-pose
 Asked for: fix the animations (even the jump was an A-pose), using ComfyUI SkinTokens / NVIDIA Kimodo. Found: 22 roster
