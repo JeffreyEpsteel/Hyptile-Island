@@ -255,7 +255,7 @@ section( 'effects on the player\'s boat' );
 	app.settings.timeOfDay = 22;
 	ok( naval.biteBonus() === 1.25, 'at night at the helm: bites x1.25' );
 	app.player.mode = 'walk';
-	app.player.position.set( - 50, 1, 455 );
+	app.player.position.set( - 50, 1, 755 );
 	ok( naval.biteBonus() === 1.25, 'fishing beside the boat counts' );
 	app.player.position.set( 200, 1, 455 );
 	ok( naval.biteBonus() === 1, 'far from the boat: no bonus' );

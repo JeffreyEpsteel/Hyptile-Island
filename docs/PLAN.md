@@ -443,8 +443,18 @@ client defaults to wss://hyptile-universe.fly.dev/universe on the Pages site (a 
 :8765), the Multiplayer card opens on the Universe tab and probes the server, a commit mismatch reads "the universe
 is updating"; vite defines __BUILD_HASH__. Owner's one-time steps: deploy/SETUP_FLY.cmd (fly auth signup + card,
 launch, volume, ADMIN_TOKEN, deploy, a deploy token into the FLY_API_TOKEN secret). NOT deployed yet: needs the account.
-15B economy (w15-economy.md), 15C pirates' distance + hijack (w15-hijack.md), 15D water climbing + flares
-(w15-rescue.md): in progress.
+15B economy (w15-economy.md, 5e4e27f): PORT_IDENTITY per port (made cheap / wanted dear, 32 goods), the window opens on
+the harbourmaster's board and the fish hall's wanted fish, rows with tags, a day trend, news and the best route (margin
+per crate, hours, lanes crossed: routes.js), rivals' convoys move prices, harbour dues, insurance, the Tidemark
+warehouse, licences, a ledger with net profit, fish by freshness and taste (Game.sell paths call trade.fishSale); saves
+version 2 with migration; verified in the browser. 15C (w15-hijack.md, 4a983bc): Routes CALM (450 m round Jade Landing
+/ the home dock, 250 m round every dock, spawns 600 m+ from home, keepOut turns pirates back), raids from Blackwater's
+direction with a horizon warning; the hijack feature (take a crippled merchant / navy / pirate after the deck fight,
+night sneak with a guard roll, the mail Petrel, residents' skiffs, wanted hulls hunted until a yard repaint or the
+fence buys her, the old boat left moored for an agent to send for; vesselTaken syncs); the test seas moved to z 750.
+15D (w15-rescue.md, 381b59d): one water climb rule (ledges, rocks, floating boxes, own hull over the rail, AI decks:
+mode 'aboard'), distress flares (chandlery / agents, F held, touch Flare) and the launch or a passing merchant that
+answers in 60-120 s and carries you to the dock, verified in the browser (a merchant trawler came alongside).
 
 ### Wave 14 (2026-10-14, root + 4 workers): the user's play-test notes
 Asked for: planes visible and findable at the airstrip, the parachute discoverable, cockpits that differ per airframe,
