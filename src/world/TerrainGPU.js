@@ -8,6 +8,8 @@ import { G } from '../engine/render/Frame.js';
 import { bakeTerrainMaps, buildShadowHeights } from './terrain/TerrainBake.js';
 import { getDetailTexture } from './terrain/DetailTextures.js';
 import { detailBinding } from './terrain/TerrainShading.js';
+import { heightAtlasLayout, buildHeightStrip, tileHeightWGSL, computeTileShoreFields, packShoreAtlas, shoreAtlasSample, tileShoreWGSL } from './terrain/TerrainTiles.js';
+import { WORLD } from './WorldLayout.js';
 
 // GPU-side terrain data shared by every shader that needs ground height:
 // ocean (depth attenuation / hiding under land), shore waves, terrain mesh,
@@ -33,6 +35,9 @@ import { detailBinding } from './terrain/TerrainShading.js';
 //                                                       terrainSplatLevel( xz, level )
 //   terrainShoreSample( xz: vec2f ) -> vec4f            shore field (T, dirX, dirZ, exposure), bilinear
 //   terrainSunShadowAt( P: vec3f ) -> f32               heightfield sun shadow: 0 in the hills' shadow .. 1 lit
+// The extra terrain tiles beyond the domain (TerrainTiles.js; Tidemark): terrainHeightAt, terrainNormalRock*, terrainSplat*
+// and terrainShoreSample answer from them outside the domain (heights and shore fields in rows under the domain's
+// texels of the same textures; normal / rock / sand from the tile heights): no binding or uniform of their own.
 // Bindings: terrainParams (TerrainParams: origin, size, res, shoreRes, sunBake, sunBaked), terrainHeightTex,
 // terrainNormalTex, terrainSplatTex, terrainDetailTex (tileable: sample with smpLinearRepeat / smpAnisoRepeat),
 // terrainShoreTex, terrainSunShadowTex.
@@ -42,12 +47,37 @@ const SUN_DT0 = 6;
 const SUN_GROWTH = 1.22;
 const SUN_STEPS = 24; // reaches ~3 km
 
-// the terrain's height texture is shared with the grass field (same data, same format): one 16 MB r32float, not two
+// The terrain's height texture is shared with the grass field (same data, same format): one 16 MB r32float, not two.
+// Given the TerrainData it is the height atlas: the domain's res x res texels, then the extra tiles' nodes in rows
+// under them (texture.userData.tiles: the layout, TerrainTiles.heightAtlasLayout; +1.75 MB for Tidemark).
+//   sharedHeightTexture( terrain )  or  sharedHeightTexture( heights, res )  (the domain only, as before)
+//   texture.uploadDomain()   re-uploads the domain's texels (after terrain.flatten()); the strip never changes
 const _heightTex = new WeakMap();
-export function sharedHeightTexture( heights, res ) {
+export function sharedHeightTexture( terrain, res ) {
 
+	const T = terrain && ! ArrayBuffer.isView( terrain ) && terrain.heights ? terrain : null;
+	const heights = T ? T.heights : terrain;
 	let t = _heightTex.get( heights );
-	if ( ! t ) _heightTex.set( heights, t = dataTexture( heights, res, res, 'r32float', 'terrainHeights' ) );
+	if ( t ) return t;
+	res = T ? T.res : res;
+	const layout = T ? heightAtlasLayout( T ) : { width: res, mainRows: res, stripRows: 0, texels: 0, tiles: [] };
+	if ( ! layout.stripRows ) {
+
+		t = dataTexture( heights, res, res, 'r32float', 'terrainHeights' );
+
+	} else {
+
+		t = new Texture( { label: 'terrainHeights', width: res, height: res + layout.stripRows, format: 'r32float', usage: [ 'sample', 'copyDst' ] } );
+		t.getGPU();
+		t.upload( heights, { width: res, height: res } );
+		t.upload( buildHeightStrip( layout ), { width: res, height: layout.stripRows, y: res } );
+
+	}
+
+	t.userData = t.userData || {};
+	t.userData.tiles = layout;
+	t.uploadDomain = () => t.upload( heights, { width: res, height: res } );
+	_heightTex.set( heights, t );
 	return t;
 
 }
@@ -90,8 +120,11 @@ export class TerrainGPU {
 		const res = terrain.res;
 		const t0 = performance.now();
 
-		// heights: R32F, loaded with manual bilinear filtering (no sampler / float filtering needed)
-		this.heightTexture = sharedHeightTexture( terrain.heights, res );
+		// heights: R32F, loaded with manual bilinear filtering (no sampler / float filtering needed); the extra tiles'
+		// nodes in rows under the domain's (TerrainTiles.js)
+		this.heightTexture = sharedHeightTexture( terrain );
+		this.tiles = this.heightTexture.userData.tiles;
+		this.shoreTiles = null;
 
 		const maps = bakeTerrainMaps( terrain );
 		// trilinear, clamp to edge (smpLinearClamp), linear data (no colour space)
@@ -144,7 +177,7 @@ export class TerrainGPU {
 				terrainShoreTex: { texture: () => this.shoreTexture, sampleType: 'unfilterable-float' },
 				terrainSunShadowTex: { texture: this.sunShadowTexture },
 			},
-			code: TERRAIN_WGSL,
+			code: terrainWGSL( this.tiles ),
 		} );
 
 		// the former TerrainLightingModel: multiplies the key light by the heightfield sun shadow.
@@ -155,7 +188,7 @@ export class TerrainGPU {
 			code: 'fn materialSunModulation( P: vec3f, N: vec3f ) -> vec3f { return vec3f( terrainSunShadowAt( P ) ); }',
 		} );
 
-		this.timings = { ...maps.ms, detail: this.detailTexture.userData.ms, total: performance.now() - t0 };
+		this.timings = { ...maps.ms, detail: this.detailTexture.userData.ms, tileShore: this._tileShoreMs || 0, total: performance.now() - t0 };
 
 	}
 
@@ -231,29 +264,64 @@ fn main( @builtin( global_invocation_id ) gid: vec3u ) {
 
 	}
 
-	setShoreField( f ) {
+	// The domain's shore field (ShoreField.js) with the tiles' own (computed here once: 4 m cells, the same swell) in rows
+	// under it. this.shoreTiles keeps the packed data on the CPU (shoreSampleAt, ShoreWaves.buildDirTexture).
+	setShoreField( f, { swellDir = [ WORLD.swellDir.x, WORLD.swellDir.y ] } = {} ) {
 
 		this.shoreRes = f.res;
-		if ( this.shoreTexture.width !== f.res ) {
+		const layout = this.tiles.shore || [];
+		if ( layout.length && ! this._tileShore ) {
+
+			const t0 = performance.now();
+			this._tileShore = computeTileShoreFields( this.terrain, { swellDir } );
+			this._tileShoreMs = performance.now() - t0;
+
+		}
+
+		const atlas = layout.length ? packShoreAtlas( f, layout, this._tileShore ) : { data: f.data, width: f.res, height: f.res, mainRes: f.res, tiles: [] };
+		if ( this.shoreTexture.width !== atlas.width || this.shoreTexture.height !== atlas.height ) {
 
 			this.shoreTexture.destroy();
-			this.shoreTexture = dataTexture( f.data, f.res, f.res, 'rgba32float', 'terrainShoreField' );
+			this.shoreTexture = dataTexture( atlas.data, atlas.width, atlas.height, 'rgba32float', 'terrainShoreField' );
 
 		} else {
 
-			this.shoreTexture.upload( f.data );
+			this.shoreTexture.upload( atlas.data );
 
 		}
+
+		// the CPU keeps the strip only (1.7 MB for Tidemark; the domain's field is the caller's)
+		const base = atlas.mainRes * atlas.mainRes * 4;
+		this.shoreTiles = atlas.tiles.length ? { ...atlas, data: atlas.data.slice( base ), base } : null;
 
 		this.uniforms.fields.shoreRes.value = f.res;
 
 	}
 
+	// a tile's shore field at world xz on the CPU: [ T, dirX * exposure, dirZ * exposure, shore T ], null off the tiles
+	shoreSampleAt( x, z ) {
+
+		return this.shoreTiles ? shoreAtlasSample( this.shoreTiles, x, z ) : null;
+
+	}
+
 }
 
-const TERRAIN_WGSL = /* wgsl */`
+// The module's WGSL. With extra terrain tiles (TerrainTiles.js) the lookups outside the domain answer from them, each
+// behind one branch (the domain's own path is unchanged); without tiles it is the one-domain code.
+export function terrainWGSL( layout ) {
+
+	const tiles = !! layout && layout.tiles.length > 0;
+	const onTile = ( ret ) => ( tiles ? `	if ( terrainOnTile( xz ) ) { return ${ ret }; }\n` : '' );
+	return ( tiles ? tileHeightWGSL( layout, { fn: 'terrainTile', tex: 'terrainHeightTex' } ) + tileShoreWGSL( layout.shore || [], { fn: 'terrainTile', tex: 'terrainShoreTex', res: 'terrainParams.shoreRes' } ) : '' ) + /* wgsl */`
 fn terrainUvOf( xz: vec2f ) -> vec2f {
 	return ( xz - terrainParams.origin ) / terrainParams.size;
+}
+
+// outside the domain, inside one of the terrain tiles
+fn terrainOnTile( xz: vec2f ) -> bool {
+${ tiles ? `	let uv = terrainUvOf( xz );
+	return ( uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0 ) && terrainTileHit( xz );` : '	return false;' }
 }
 
 // exact bilinear height at world xz (matches TerrainData.heightAt)
@@ -269,20 +337,20 @@ fn terrainHeightAt( xz: vec2f ) -> f32 {
 	let c = textureLoad( terrainHeightTex, ii + vec2i( 0, 1 ), 0 ).x;
 	let d = textureLoad( terrainHeightTex, ii + vec2i( 1, 1 ), 0 ).x;
 	let h = mix( mix( a, b, t.x ), mix( c, d, t.x ), t.y );
-	// outside the domain: deep ocean floor
+	// outside the domain: deep ocean floor${ tiles ? ' (or the terrain tile there)' : '' }
 	let outside = f.x < 0.0 || f.y < 0.0 || f.x > res - 1.0 || f.y > res - 1.0;
-	return select( h, -90.0, outside );
+${ tiles ? '	if ( outside ) { return terrainTileHeight( xz ); }\n' : '' }	return select( h, -90.0, outside );
 }
 
 // filtered normal (xz components), rock mask, ambient occlusion
 fn terrainNormalRock( xz: vec2f ) -> vec4f {
 	let s = textureSample( terrainNormalTex, smpLinearClamp, terrainUvOf( xz ) );
-	return vec4f( s.xy * 2.0 - 1.0, s.z, s.w );
+${ onTile( 'terrainTileNormalRock( xz )' ) }	return vec4f( s.xy * 2.0 - 1.0, s.z, s.w );
 }
 // explicit mip (e.g. in the vertex stage)
 fn terrainNormalRockLevel( xz: vec2f, level: f32 ) -> vec4f {
 	let s = textureSampleLevel( terrainNormalTex, smpLinearClamp, terrainUvOf( xz ), level );
-	return vec4f( s.xy * 2.0 - 1.0, s.z, s.w );
+${ onTile( 'terrainTileNormalRock( xz )' ) }	return vec4f( s.xy * 2.0 - 1.0, s.z, s.w );
 }
 fn terrainNormalAt( xz: vec2f ) -> vec3f {
 	let nr = terrainNormalRockLevel( xz, 0.0 );
@@ -292,15 +360,17 @@ fn terrainNormalAt( xz: vec2f ) -> vec3f {
 // loose sand, worn ground / paths, gullies (land) or seagrass (seabed), seabed rubble (the
 // eroded beach scarp face on land)
 fn terrainSplat( xz: vec2f ) -> vec4f {
-	return textureSample( terrainSplatTex, smpLinearClamp, terrainUvOf( xz ) );
+	let s = textureSample( terrainSplatTex, smpLinearClamp, terrainUvOf( xz ) );
+${ onTile( 'terrainTileSplat( xz )' ) }	return s;
 }
 fn terrainSplatLevel( xz: vec2f, level: f32 ) -> vec4f {
-	return textureSampleLevel( terrainSplatTex, smpLinearClamp, terrainUvOf( xz ), level );
+	let s = textureSampleLevel( terrainSplatTex, smpLinearClamp, terrainUvOf( xz ), level );
+${ onTile( 'terrainTileSplat( xz )' ) }	return s;
 }
 
-// shore field: (T, dirX, dirZ, exposure), bilinear via loads (float32 data)
+// shore field: (T, dirX, dirZ, exposure), bilinear via loads (float32 data)${ tiles ? '; the tiles\' own fields in the rows under it' : '' }
 fn terrainShoreSample( xz: vec2f ) -> vec4f {
-	let res = terrainParams.shoreRes;
+${ tiles ? '	if ( terrainParams.shoreRes > 1.5 && terrainOnTile( xz ) ) { return terrainTileShore( xz ); }\n' : '' }	let res = terrainParams.shoreRes;
 	let f = ( xz - terrainParams.origin ) / terrainParams.size * res - 0.5;
 	let fc = clamp( f, vec2f( 0.0 ), vec2f( max( res - 1.001, 0.0 ) ) );
 	let i = floor( fc );
@@ -330,3 +400,5 @@ fn terrainSunShadowAt( P: vec3f ) -> f32 {
 	return mix( 1.0, smoothstep( -w, w, P.y - s.x ), terrainParams.sunBaked );
 }
 `;
+
+}

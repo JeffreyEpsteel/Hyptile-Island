@@ -2,12 +2,20 @@ import * as THREE from '../../engine/index.js';
 import { Noise2D, mulberry32, smoothstep, clamp } from '../../util/Noise.js';
 import { WORLD } from '../WorldLayout.js';
 import { getDetailTexture } from '../terrain/DetailTextures.js';
+import { terrainTiles, markVegetated } from '../terrain/TerrainTiles.js';
+import { townClear } from '../islands/town/Vegetation.js';
 
 // CPU-side vegetation placement: land cover, exclusion zones and per-type scattering.
 //
 // The land cover mirrors the terrain shader's classification (Terrain.js: forest weight from
 // height, macro noise, slope and gullies; the same detail-texture fbm samples), so trees stand on
 // the forest floor, the meadow grass on the meadow and bare rock stays bare.
+//
+// The extra terrain tiles beyond the domain (TerrainTiles.js; Tidemark) are planted after the home island with the
+// same plants and rules on their own land cover (the tile's masks: sand, rock, roads, river, woodland), their own
+// random stream and occupancy (the home island's records are unchanged, first in every list), clear of the tile's
+// town, roads, strip and river (town/Vegetation.townClear); buildGrassMask adds their masks as `mask.tiles`.
+// scatterVegetation( site, seed, { tiles: false } ) / buildGrassMask( site, { tiles: false } ): the domain only.
 
 export const RULES = {
 	minHeight: 1.8, // wet sand / water below
@@ -326,7 +334,22 @@ function headland( x, z, c, sandOk = false ) {
 
 }
 
-export function scatterVegetation( site, seed = 99 ) {
+export function scatterVegetation( site, seed = 99, { tiles = true } = {} ) {
+
+	const out = scatterDomain( site, seed );
+	if ( tiles ) for ( const [ k, t ] of terrainTiles( site.terrain ).entries() ) {
+
+		const n = scatterTile( site, t, out, seed + 7919 * ( k + 1 ) );
+		( out.tileCounts || ( out.tileCounts = {} ) )[ t.id ] = n;
+		markVegetated( t );
+
+	}
+
+	return out;
+
+}
+
+function scatterDomain( site, seed ) {
 
 	_site = site;
 
@@ -635,12 +658,352 @@ export function scatterVegetation( site, seed = 99 ) {
 
 }
 
+// ------------------------------------------------------------------ the extra terrain tiles
+
+// land cover of a tile at (x, z) (the fields of VegSite.cover the rules read)
+function tileCover( t, x, z, c ) {
+
+	const q = t.src;
+	c.h = q.heightAt( x, z );
+	const n = q.normalAt( x, z );
+	c.ny = n.y;
+	c.slope = 1 - n.y;
+	const m = q.maskAt ? q.maskAt( x, z ) : null;
+	c.rock = m ? m.rock : 0;
+	c.sand = m ? m.sand : ( c.h < 1.4 ? 1 : 0 );
+	c.path = m ? m.path : 0;
+	c.river = m ? m.river : 0;
+	c.gully = 0;
+	c.scarp = 0;
+	// the tile's woodland mask (height, noise, not on rock) plus the steep slopes, as the home island's cover
+	c.forest = clamp( ( m ? m.forest : smoothstep( 14, 30, c.h ) ) + smoothstep( 0.18, 0.36, c.slope ) * 0.6, 0, 1 );
+	c.bare = Math.max( c.rock * 1.4, smoothstep( 0.42, 0.55, c.slope ) );
+	return c;
+
+}
+
+// a plant of radius `r` may stand here: the cover limits of VegSite.allowed, the river and the tile's own clearances
+function tileAllowed( t, x, z, c, { minH = RULES.minHeight, maxBare = 0.35, clear = 0, maxSand = 0.5, maxPath = 0.3 } = {} ) {
+
+	if ( c.h < minH || c.bare > maxBare || c.sand > maxSand || c.path > maxPath || c.river > 0.05 ) return false;
+	if ( t.id === 'tidemark' ) return townClear( t.src, x, z, clear, { trees: clear >= 2 } );
+	return ! t.src.pathDistance || t.src.pathDistance( x, z ) > 0.6 + clear * 0.5;
+
+}
+
+// the tile's land: the box of its nodes above the sea (+ a margin)
+function landBox( t ) {
+
+	let i0 = t.n, i1 = - 1, j0 = t.n, j1 = - 1;
+	const H = t.heights;
+	for ( let j = 0; j < t.n; j ++ ) for ( let i = 0; i < t.n; i ++ ) {
+
+		if ( H[ j * t.n + i ] <= 0 ) continue;
+		if ( i < i0 ) i0 = i;
+		if ( i > i1 ) i1 = i;
+		if ( j < j0 ) j0 = j;
+		if ( j > j1 ) j1 = j;
+
+	}
+
+	if ( i1 < 0 ) return null;
+	return [ t.x0 + i0 * t.texel - 10, t.z0 + j0 * t.texel - 10, t.x0 + i1 * t.texel + 10, t.z0 + j1 * t.texel + 10 ];
+
+}
+
+// Plants on one tile, appended to `out`: broadleaf woodland and scattered trees, coconut palms at the back of the
+// beaches (leaning to the sea) and a few inland, shrubs at the woodland edge, young palms, ferns under the trees,
+// elephant ears along the stream and the damp foot of the woods, heliconias round the town's edge.
+function scatterTile( site, t, out, seed ) {
+
+	const box = landBox( t );
+	if ( ! box ) return {};
+	const [ X0, Z0, X1, Z1 ] = box;
+	const rand = mulberry32( seed );
+	const occ = new Occupancy( 4 );
+	const occT = new Occupancy( 6 );
+	const N = site.noise, N2 = site.noise2;
+	const TAU = Math.PI * 2;
+	const c = {};
+	const q = t.src;
+	const counts = { palms: 0, trees: 0, shrubs: 0, youngPalms: 0, ferns: 0, elephantEars: 0, heliconias: 0 };
+	const groundY = ( x, z, r ) => Math.min( q.heightAt( x, z ), q.heightAt( x + r, z ), q.heightAt( x - r, z ), q.heightAt( x, z + r ), q.heightAt( x, z - r ) );
+	const downhill = ( x, z ) => {
+
+		const n = q.normalAt( x, z ), l = Math.hypot( n.x, n.z );
+		return l > 1e-4 ? [ n.x / l, n.z / l ] : [ 0, 1 ];
+
+	};
+	const beachZone = ( x, z ) => ( q.coastDistance ? q.coastDistance( x, z ).beachZone : 0 );
+
+	// --- broadleaf woodland on the hill flanks thinning at its edge, lone trees on the meadow
+	scatter( rand, X0, Z0, X1, Z1, 4.6, ( x, z ) => {
+
+		tileCover( t, x, z, c );
+		if ( c.h < 3 ) return;
+		const clump = N.fbm( x / 60, z / 60, 3 ) * 0.6 + N2.fbm( x / 17, z / 17, 2 ) * 0.4;
+		const p = c.forest > 0.5 ? 0.9 : smoothstep( 0.15, 0.5, c.forest ) * 0.38 * smoothstep( - 0.25, 0.2, clump ) + 0.012;
+		if ( rand() > p ) return;
+		if ( ! tileAllowed( t, x, z, c, { minH: 3, maxBare: 0.3, clear: 5 } ) ) return;
+		const sub = c.forest > 0.5 && rand() < 0.3;
+		const s = ( sub ? 0.55 + rand() * 0.2 : 0.8 + rand() * 0.5 ) * ( c.forest > 0.5 ? 1 : 0.85 ) * ( rand() < 0.08 ? 1.3 : 1 );
+		const sy = 0.78 + rand() * 0.34 + ( rand() < 0.1 ? 0.25 : 0 );
+		const r = 2.5 * s;
+		if ( ! occT.free( x, z, r, 1 ) ) return;
+		occT.add( x, z, r, KIND.TREE );
+		occ.add( x, z, 0.5 * s, KIND.TREE );
+		const yaw = rand() * TAU;
+		out.trees.push( { x, y: groundY( x, z, 0.6 ) - 0.15, z, s, sy, yaw, la: yaw, l: sy, H: 12.5 * s * sy, seed: rand() } );
+		counts.trees ++;
+
+	} );
+
+	// --- coconut palms along the back of the beaches (groves, leaning to the sea) and a few inland
+	const palms0 = out.palms.length;
+	scatter( rand, X0, Z0, X1, Z1, 3.4, ( x, z ) => {
+
+		tileCover( t, x, z, c );
+		if ( c.h < 1.6 || c.h > 7.5 ) return;
+		const grove = N.fbm( x / 48, z / 48, 3 ) + 0.4 * N2.fbm( x / 17, z / 17, 2 );
+		const band = smoothstep( 1.6, 2.2, c.h ) * ( 1 - smoothstep( 5.2, 7.2, c.h ) );
+		const shore = Math.max( beachZone( x, z ), smoothstep( 0.2, 0.6, c.sand ) );
+		const p = 0.55 * smoothstep( - 0.28, 0.22, grove ) * band * shore;
+		if ( rand() > p ) return;
+		if ( ! tileAllowed( t, x, z, c, { minH: 1.6, maxBare: 0.2, clear: 3, maxSand: 1.01, maxPath: 0.5 } ) || c.ny < 0.9 ) return;
+		if ( ! occ.free( x, z, 1.95, 1 ) || ! occT.free( x, z, 1.5, 1 ) ) return;
+		occ.add( x, z, 1.95, KIND.PALM );
+		const [ dhx, dhz ] = downhill( x, z );
+		const nearShore = 1 - smoothstep( 1.8, 5.5, c.h );
+		const s = 0.85 + rand() * 0.32;
+		out.palms.push( {
+			x, y: groundY( x, z, 0.35 ) - 0.05, z, s, yaw: rand() * TAU, la: Math.atan2( dhz, dhx ) + ( rand() - 0.5 ) * 1.1,
+			l: ( 0.1 + 0.32 * nearShore ) * ( 0.55 + 0.75 * rand() ), H: ( 7 + rand() * 6.5 ) * ( 0.9 + 0.2 * s ), seed: rand(),
+		} );
+
+	} );
+	scatter( rand, X0, Z0, X1, Z1, 12, ( x, z ) => {
+
+		tileCover( t, x, z, c );
+		const patch = N2.fbm( x / 110 + 3.3, z / 110 - 1.7, 3 );
+		const p = ( 0.04 + 0.4 * smoothstep( 0.0, 0.45, patch ) ) * ( 1 - smoothstep( 40, 90, c.h ) );
+		if ( rand() > p ) return;
+		if ( ! tileAllowed( t, x, z, c, { minH: 6, maxBare: 0.2, clear: 3 } ) || c.ny < 0.8 ) return;
+		if ( ! occ.free( x, z, 2.0, 1 ) || ! occT.free( x, z, 1.2, 1 ) ) return;
+		occ.add( x, z, 2.0, KIND.PALM );
+		const [ dhx, dhz ] = downhill( x, z );
+		const s = 0.8 + rand() * 0.35;
+		out.palms.push( { x, y: groundY( x, z, 0.35 ) - 0.05, z, s, yaw: rand() * TAU, la: Math.atan2( dhz, dhx ) + ( rand() - 0.5 ) * 1.5, l: 0.03 + rand() * 0.12, H: ( 8 + rand() * 7 ) * s, seed: rand() } );
+
+	} );
+	// clustered palms lean away from each other (the home island's fan groups)
+	const P = out.palms;
+	for ( let a = palms0; a < P.length; a ++ ) {
+
+		const p = P[ a ];
+		let ax = 0, az = 0;
+		for ( let b = palms0; b < P.length; b ++ ) {
+
+			const dx = p.x - P[ b ].x, dz = p.z - P[ b ].z, d2 = dx * dx + dz * dz;
+			if ( b === a || d2 >= 25 || d2 < 1e-6 ) continue;
+			const d = Math.sqrt( d2 );
+			ax += dx / d * ( 5 - d );
+			az += dz / d * ( 5 - d );
+
+		}
+
+		if ( ax !== 0 || az !== 0 ) {
+
+			const l = Math.hypot( ax, az ), w = Math.min( 1, l / 3 );
+			p.la = Math.atan2( Math.sin( p.la ) * ( 1 - w ) + az / l * w, Math.cos( p.la ) * ( 1 - w ) + ax / l * w );
+			p.l = Math.max( p.l, 0.14 + 0.1 * w );
+
+		}
+
+	}
+
+	counts.palms = P.length - palms0;
+
+	// --- shrubs: thickets at the woodland edge, the stream's banks, clumps on the meadow and behind the beach
+	scatter( rand, X0, Z0, X1, Z1, 3.0, ( x, z ) => {
+
+		tileCover( t, x, z, c );
+		if ( c.h < 2.3 ) return;
+		const thicket = N.fbm( x / 26 + 11.3, z / 26 - 4.1, 3 ) * 0.7 + N2.fbm( x / 9, z / 9, 2 ) * 0.3;
+		const edge = smoothstep( 0.2, 0.45, c.forest ) * ( 1 - smoothstep( 0.75, 0.95, c.forest ) );
+		let p = edge * 0.75 + ( c.forest > 0.9 ? 0.12 : 0 ) + 0.04 + ( c.h < 5.5 && c.sand > 0.2 ? 0.05 : 0 );
+		p *= smoothstep( - 0.2, 0.25, thicket );
+		if ( rand() > p ) return;
+		if ( ! tileAllowed( t, x, z, c, { minH: 2.3, maxBare: 0.4, clear: 1.2 } ) ) return;
+		const s = 0.75 + rand() * 0.8, sy = 0.65 + rand() * 0.65;
+		if ( ! occ.free( x, z, 0.85 * s, 1 ) ) return;
+		occ.add( x, z, 0.85 * s, KIND.SHRUB );
+		const yaw = rand() * TAU;
+		out.shrubs.push( { x, y: groundY( x, z, 0.3 ) - 0.08 * s, z, s, sy, yaw, la: yaw, l: - sy, H: 1.6 * s * sy, seed: rand() } );
+		counts.shrubs ++;
+
+	} );
+
+	// --- young palms at the grove and woodland edges, ferns on the woodland floor
+	scatter( rand, X0, Z0, X1, Z1, 6.5, ( x, z ) => {
+
+		tileCover( t, x, z, c );
+		if ( c.h < 2.3 || c.h > 90 ) return;
+		const p = 0.12 * smoothstep( - 0.3, 0.2, N.fbm( x / 48, z / 48, 3 ) ) * ( 1 - c.forest * 0.6 );
+		if ( rand() > p ) return;
+		if ( ! tileAllowed( t, x, z, c, { minH: 2.3, maxBare: 0.2, clear: 1.5 } ) ) return;
+		const s = 0.7 + rand() * 0.6;
+		if ( ! occ.free( x, z, 1.1 * s, 1 ) ) return;
+		occ.add( x, z, 1.1 * s, KIND.YOUNG );
+		out.youngPalms.push( { x, y: c.h - 0.05, z, s, yaw: rand() * TAU, la: rand() * TAU, l: rand() * 0.1, H: 0.35 * s, seed: rand() } );
+		counts.youngPalms ++;
+
+	} );
+	scatter( rand, X0, Z0, X1, Z1, 2.2, ( x, z ) => {
+
+		tileCover( t, x, z, c );
+		if ( c.h < 4 ) return;
+		const p = ( 0.08 + 0.72 * smoothstep( 0.3, 0.8, c.forest ) ) * smoothstep( - 0.35, 0.2, N2.fbm( x / 28 - 9.9, z / 28 + 3.7, 3 ) );
+		if ( rand() > p ) return;
+		if ( ! tileAllowed( t, x, z, c, { minH: 4, maxBare: 0.45, clear: 0.5 } ) ) return;
+		const s = 0.75 + rand() * 0.7;
+		if ( ! occ.free( x, z, 0.5 * s, 1 ) ) return;
+		occ.add( x, z, 0.5 * s, KIND.FERN );
+		out.ferns.push( { x, y: c.h - 0.03, z, s, yaw: rand() * TAU, la: 0, l: 0, H: 0.05, seed: rand() } );
+		counts.ferns ++;
+
+	} );
+
+	// --- elephant ears along the stream and at the damp foot of the woods; heliconias round the town's edge
+	scatter( rand, X0, Z0, X1, Z1, 3.6, ( x, z ) => {
+
+		tileCover( t, x, z, c );
+		if ( c.h < 2.6 ) return;
+		let bank = 0;
+		if ( q.maskAt ) for ( const [ dx, dz ] of [ [ 6, 0 ], [ - 6, 0 ], [ 0, 6 ], [ 0, - 6 ] ] ) bank = Math.max( bank, q.maskAt( x + dx, z + dz ).river );
+		const damp = bank * 0.9 + smoothstep( 0.25, 0.5, c.forest ) * ( 1 - smoothstep( 0.7, 0.95, c.forest ) ) * 0.25;
+		const p = damp * smoothstep( 0.05, 0.4, N.fbm( x / 30 - 3.1, z / 30 + 8.4, 3 ) );
+		if ( rand() > p ) return;
+		if ( ! tileAllowed( t, x, z, c, { minH: 2.6, maxBare: 0.3, clear: 1.0, maxSand: 0.15 } ) || c.ny < 0.8 ) return;
+		const sc = 0.95 + rand() * 0.55;
+		if ( ! occ.free( x, z, 1.1 * sc, 1 ) ) return;
+		occ.add( x, z, 1.1 * sc, KIND.BROAD );
+		out.elephantEars.push( { x, y: c.h - 0.04, z, s: sc, yaw: rand() * TAU, la: rand() * TAU, l: rand() * 0.05, H: 0.02, seed: rand() } );
+		counts.elephantEars ++;
+
+	} );
+	const town = q.local && t.id === 'tidemark' ? ( x, z ) => {
+
+		const [ u, v ] = q.local( x, z );
+		return Math.hypot( Math.max( - 172 - u, 0, u + 64 ), Math.max( - 96 - v, 0, v - 84 ) );
+
+	} : null;
+	if ( town ) scatter( rand, X0, Z0, X1, Z1, 3.4, ( x, z ) => {
+
+		const d = town( x, z );
+		if ( d > 30 ) return;
+		tileCover( t, x, z, c );
+		if ( c.h < 3 ) return;
+		const p = 0.35 * ( 1 - smoothstep( 6, 30, d ) ) * smoothstep( - 0.1, 0.3, N2.fbm( x / 18 + 2.2, z / 18 - 6.6, 2 ) );
+		if ( rand() > p ) return;
+		if ( ! tileAllowed( t, x, z, c, { minH: 3, maxBare: 0.3, clear: 1.2, maxSand: 0.25 } ) || c.ny < 0.8 ) return;
+		const sc = 0.85 + rand() * 0.35;
+		if ( ! occ.free( x, z, 0.9 * sc, 1 ) ) return;
+		occ.add( x, z, 0.9 * sc, KIND.BROAD );
+		out.heliconias.push( { x, y: c.h - 0.04, z, s: sc, yaw: rand() * TAU, la: rand() * TAU, l: rand() * 0.04, H: 0.02, seed: rand() } );
+		counts.heliconias ++;
+
+	} );
+
+	return counts;
+
+}
+
+// Grass masks of the tiles at GRASS_MASK_TEXEL, side by side: { data (RGBA8), width, height, tiles: [ { id, x0, z0,
+// texel, n, u0 } ] } (texel (i, j) of tile k is centred on ( x0 + ( i + 0.5 ) * texel, z0 + ( j + 0.5 ) * texel ), at
+// column u0 + i). Meadow grass on the open ground; dune grass, sea oats and creeper behind the beaches.
+export function buildTileGrassMasks( site ) {
+
+	const tiles = terrainTiles( site.terrain );
+	const list = [];
+	let width = 0, height = 0;
+	for ( const t of tiles ) {
+
+		const n = Math.round( t.size / GRASS_MASK_TEXEL );
+		list.push( { id: t.id, x0: t.x0, z0: t.z0, texel: t.size / n, n, u0: width, t } );
+		width += n;
+		height = Math.max( height, n );
+
+	}
+
+	const data = new Uint8Array( width * height * 4 );
+	const N = site.noise, N2 = site.noise2;
+	const c = {};
+	for ( const m of list ) {
+
+		const t = m.t, q = t.src, box = landBox( t );
+		if ( ! box ) continue;
+		for ( let j = 1; j < m.n - 1; j ++ ) {
+
+			const z = m.z0 + ( j + 0.5 ) * m.texel;
+			if ( z < box[ 1 ] || z > box[ 3 ] ) continue;
+			for ( let i = 1; i < m.n - 1; i ++ ) {
+
+				const x = m.x0 + ( i + 0.5 ) * m.texel;
+				if ( x < box[ 0 ] || x > box[ 2 ] ) continue;
+				if ( q.heightAt( x, z ) < 1.7 ) continue;
+				tileCover( t, x, z, c );
+				if ( c.bare > 0.5 || c.rock > 0.45 || c.river > 0.3 ) continue;
+				if ( t.id === 'tidemark' && ! townClear( q, x, z, 0, { trees: false } ) ) continue;
+				const keep = ( 1 - smoothstep( 0.2, 0.5, c.path ) ) * ( 1 - smoothstep( 0.25, 0.45, c.bare ) ) * ( 1 - smoothstep( 0.05, 0.3, c.river ) );
+				const clump = N.noise( x / 7.5, z / 7.5 ) * 0.65 + N2.noise( x / 19, z / 19 ) * 0.35;
+				const meadow = smoothstep( 2.5, 4.5, c.h ) * ( 1 - smoothstep( 0.45, 0.85, c.forest ) ) * ( 1 - smoothstep( 0.3, 0.7, c.sand ) ) * ( 0.75 + 0.25 * smoothstep( - 0.4, 0.3, clump ) );
+				// behind the beaches: the ragged vegetation edge, sea oats and creeper (the home bay's rules, by height)
+				let dune = 0, oats = 0, vine = 0;
+				if ( c.h < 6.5 && c.sand > 0.15 ) {
+
+					const lobe = N.noise( x / 16 + 4.4, z / 16 - 2.2 ) * 0.6 + N2.noise( x / 6 - 1.7, z / 6 + 8.1 ) * 0.4;
+					const e = c.h - ( 2.15 - lobe * 0.4 );
+					const main = smoothstep( 0.0, 0.35, e );
+					const ahead = smoothstep( - 0.45, - 0.1, e ) * ( 1 - main ) * smoothstep( 0.35, 0.6, N.noise( x / 2.6 + 9.3, z / 2.6 - 4.1 ) );
+					const inland = 1 - smoothstep( 4.8, 6.5, c.h );
+					const patch = N2.noise( x / 4.2 + 5.5, z / 4.2 - 3.3 ) * 0.6 + N.noise( x / 11 - 7.1, z / 11 + 1.9 ) * 0.4;
+					const clumpD = ( 0.3 + 0.7 * smoothstep( - 0.45, 0.25, patch ) ) * ( 0.6 + 0.4 * smoothstep( - 0.35, 0.35, clump ) );
+					dune = Math.max( main * clumpD, ahead * 0.85 ) * inland * ( 1 - smoothstep( 0.4, 0.8, c.forest ) );
+					oats = smoothstep( 0.0, 0.25, e ) * ( 1 - smoothstep( 1.4, 2.2, e ) ) * smoothstep( 0.0, 0.45, N.noise( x / 13 + 3.1, z / 13 - 7.7 ) );
+					vine = smoothstep( - 0.6, - 0.15, e ) * ( 1 - smoothstep( 1.2, 2.0, e ) ) * smoothstep( - 0.15, 0.3, N2.noise( x / 9 - 2.3, z / 9 + 5.3 ) );
+
+				}
+
+				const o = ( j * width + m.u0 + i ) * 4;
+				data[ o ] = Math.round( 255 * clamp( dune * keep, 0, 1 ) );
+				data[ o + 1 ] = Math.round( 255 * clamp( meadow * keep * ( 1 - dune ), 0, 1 ) );
+				data[ o + 2 ] = Math.round( 255 * clamp( oats * keep, 0, 1 ) );
+				data[ o + 3 ] = Math.round( 255 * clamp( vine * keep, 0, 1 ) );
+
+			}
+
+		}
+
+	}
+
+	return { data, width, height, tiles: list.map( ( { t, ...m } ) => m ) };
+
+}
+
 // Ground-flora density mask, RGBA8 over the terrain grid:
 //   R dune grass, G tall meadow grass, B sea oats, A beach creeper
 // RGBA density mask over the whole terrain at 2 m (linear filtered by the grass shader):
 //   R dune grass, G tall meadow grass, B sea oats, A beach creeper. Returns { data, res }.
 export const GRASS_MASK_TEXEL = 2;
-export function buildGrassMask( site ) {
+export function buildGrassMask( site, { tiles = true } = {} ) {
+
+	const out = buildDomainGrassMask( site );
+	if ( tiles && terrainTiles( site.terrain ).length ) out.tiles = buildTileGrassMasks( site );
+	return out;
+
+}
+
+function buildDomainGrassMask( site ) {
 
 	const t = site.terrain;
 	const res = Math.round( t.size / GRASS_MASK_TEXEL );

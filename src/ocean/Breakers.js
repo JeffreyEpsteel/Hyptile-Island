@@ -2,8 +2,12 @@ import { Vector3, Sphere, Mesh, BufferGeometry, BufferAttribute } from '../engin
 import { GPU, StorageBuffer, UniformBlock, ShaderModule, ComputeKernel, Material, Readback, commonModule, LAYERS } from '../engine/webgpu.js';
 import { GRAVITY, G } from '../engine/render/Frame.js';
 import { makeLaceTexture, LACE_TILE } from './SurfFoam.js';
+import { tileBeaches } from '../world/terrain/TerrainTiles.js';
 
-// Plunging breakers along the main beach.
+// Plunging breakers along the main beach, and along the sandy beaches of the extra terrain tiles beyond the heightmap
+// (TerrainTiles.tileBeaches: Tidemark's bay; wave 13A). The tiles' stations follow the main beach's in the same buffer,
+// each run behind a gap station (no normal: never a crest, so no lip joins two beaches); stations farther than
+// FAR_CULL from the camera skip their transect (their crests clear).
 //
 // Stations are laid out every ~0.6 m along the shoreline (CPU, once). Each frame a compute pass
 // marches every station's transect through the surf zone and finds the crests of the breaking
@@ -35,6 +39,7 @@ import { makeLaceTexture, LACE_TILE } from './SurfFoam.js';
 // sprayWrite, sprayRand), sky.module (skyReflectionRadiance), clouds.module (cloudsShadow).
 
 const NV = 20; // profile vertices across the lip (2 on the back of the crest + 18 along the curtain)
+const FAR_CULL = 1200; // m: no transect for a station this far from the camera (a lip there is under a pixel)
 
 const f = ( x ) => {
 
@@ -82,7 +87,8 @@ export class Breakers {
 		this.cameraPos = F.cameraPos;
 
 		const t0 = performance.now();
-		const st = buildStations( terrainData );
+		const shoreAt = shore && shore.terrain && typeof shore.terrain.shoreSampleAt === 'function' ? ( x, z ) => shore.terrain.shoreSampleAt( x, z ) : null;
+		const st = withTileStations( buildStations( terrainData ), terrainData, shoreAt );
 		this.NS = st.count;
 		this.spacing = st.spacing;
 		this.stationData = st.data;
@@ -293,6 +299,9 @@ fn main( @builtin( global_invocation_id ) gid: vec3u ) {
 	// clear both slots
 	breakersCrestW[ base + 2u ] = vec4f( 0.0 );
 	breakersCrestW[ base + 5u ] = vec4f( 0.0 );
+	// a gap between two beaches, or a station far from the camera: no crests
+	let toCam = o - breakersP.cameraPos.xz;
+	if ( dot( n, n ) < 0.25 || dot( toCam, toCam ) > ${ f( FAR_CULL * FAR_CULL ) } ) { return; }
 
 	var sPrev = 0.0;
 	for ( var k = 0; k < ${ K }; k++ ) {
@@ -796,6 +805,40 @@ const BRK_NV: f32 = ${ f( NV ) };
 		mesh.staticVelocity = true;
 
 	}
+
+}
+
+// The main beach's stations followed by the tiles' beaches, each run after a gap station (x, z, 0, 0). shoreAt( x, z )
+// (the tiles' shore field, TerrainGPU.shoreSampleAt): beaches in the lee of their island, where the swell never breaks
+// (exposure 25 m out under 0.1 on average), get no stations.
+export function withTileStations( st, terrain, shoreAt = null ) {
+
+	let runs = terrain ? tileBeaches( terrain, { spacing: st.spacing } ) : [];
+	if ( shoreAt ) runs = runs.filter( ( r ) => {
+
+		let e = 0, n = 0;
+		for ( let k = 0; k < r.pts.length; k += 8 ) {
+
+			const [ x, z, nx, nz ] = r.pts[ k ];
+			const s = shoreAt( x + nx * 25, z + nz * 25 );
+			if ( s ) { e += Math.hypot( s[ 1 ], s[ 2 ] ); n ++; }
+
+		}
+
+		return n === 0 || e / n >= 0.1;
+
+	} );
+	if ( ! runs.length ) return st;
+	const out = Array.from( st.data );
+	for ( const r of runs ) {
+
+		const [ x, z ] = r.pts[ 0 ];
+		out.push( x, z, 0, 0 );
+		for ( const p of r.pts ) out.push( p[ 0 ], p[ 1 ], p[ 2 ], p[ 3 ] );
+
+	}
+
+	return { data: new Float32Array( out ), count: out.length / 4, spacing: st.spacing, main: st.count, runs: runs.length };
 
 }
 

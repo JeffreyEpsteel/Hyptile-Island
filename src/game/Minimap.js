@@ -1,4 +1,5 @@
 import { WORLD } from '../world/WorldLayout.js';
+import { terrainTiles } from '../world/terrain/TerrainTiles.js';
 import { STAND } from './FishStand.js';
 import { CHANDLERY } from './Chandlery.js';
 import { PONS_STAND } from './PonsPort.js';
@@ -411,6 +412,9 @@ export class Minimap {
 		this._hot = new Set();
 		this._size = 0;
 		this._bake = new TerrainBake( this.canvas.getContext( '2d' ), { n: N, x0: X0, z0: Z0, ppm: PPM } );
+		// wave 13A: a terrain tile outside the heightmap (Tidemark) gets a bake of its own once the player stands on it
+		this._tileBake = null;
+		this._tileCanvas = null;
 		// the view's size, kept by a ResizeObserver (reading clientWidth per frame forces a style +
 		// layout pass right after last frame's transform writes)
 		this._viewSize = - 1;
@@ -504,10 +508,30 @@ export class Minimap {
 
 	}
 
+	// the terrain tile under the player (wave 13A): its canvas is made once, baked after the home chart
+	_tileAt( x, z ) {
+
+		const T = this.game.app.terrainData;
+		const tile = terrainTiles( T ).find( ( q ) => x >= q.x0 - 120 && x <= q.x0 + q.size + 120 && z >= q.z0 - 120 && z <= q.z0 + q.size + 120 ) || null;
+		if ( ! tile || ( this._tileBake && this._tileBake.id === tile.id ) ) return;
+		if ( ! this._tileCanvas ) {
+
+			this._tileCanvas = this.canvas.cloneNode( false );
+			this.canvas.after( this._tileCanvas );
+
+		}
+		const n = 512;
+		this._tileCanvas.width = this._tileCanvas.height = n;
+		this._tileBake = new TerrainBake( this._tileCanvas.getContext( '2d' ), { n, x0: tile.x0, z0: tile.z0, ppm: n / tile.size } );
+		this._tileBake.id = tile.id;
+
+	}
+
 	// ---- bake (chunked)
 	_bakeStep() {
 
 		if ( ! this._bake.done ) this._bake.step( this.game.app.terrainData, ROWS_PER_FRAME );
+		else if ( this._tileBake && ! this._tileBake.done ) this._tileBake.step( this.game.app.terrainData, ROWS_PER_FRAME );
 
 	}
 
@@ -547,6 +571,13 @@ export class Minimap {
 		const rot = - Math.PI / 2 - Math.atan2( fz, fx );
 		const s = kpm / PPM;
 		this._setStyle( this.canvas, 'transform', `translate(${ R }px, ${ R }px) rotate(${ rot }rad) scale(${ s }) translate(${ - ( x - X0 ) * PPM }px, ${ - ( z - Z0 ) * PPM }px)` );
+		this._tileAt( x, z );
+		if ( this._tileBake ) {
+
+			const b = this._tileBake, s2 = kpm / b.ppm;
+			this._setStyle( this._tileCanvas, 'transform', `translate(${ R }px, ${ R }px) rotate(${ rot }rad) scale(${ s2 }) translate(${ - ( x - b.x0 ) * b.ppm }px, ${ - ( z - b.z0 ) * b.ppm }px)` );
+
+		}
 
 		const place = ( el, dx, dz, edgeInset, arrow ) => {
 

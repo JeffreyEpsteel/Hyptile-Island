@@ -1,6 +1,8 @@
 import { Vector2 } from '../engine/math/index.js';
 import { GPU, Texture, StorageBuffer, UniformBlock, ShaderModule, ComputeKernel, commonModule } from '../engine/webgpu.js';
+import { FrameUniforms } from '../engine/render/Frame.js';
 import { makeLaceTexture, LACE_TILE } from './SurfFoam.js';
+import { tileBeaches } from '../world/terrain/TerrainTiles.js';
 
 // Eulerian state over the main beach, updated every frame on the GPU:
 //   r = foam carried by the water (made by the bore roller, the plunge point, the swash front and
@@ -21,6 +23,11 @@ import { makeLaceTexture, LACE_TILE } from './SurfFoam.js';
 //   fn shoreSimSandFoam( xz: vec2f, s: vec4f, h: f32 ) -> f32   foam left on the sand (0..1); s = shoreSimSample( xz ), h unused
 // this.depositModule (read_write atomic binding, for the spray update kernel):
 //   fn shoreSimDepositAt( xz: vec2f, n: u32 )             deposit foam where n spray drops fall back
+//
+// The region follows the camera between beaches (wave 13A): the main beach (the constructor's center / size) and the
+// sandy beaches of the extra terrain tiles (TerrainTiles.tileBeaches: Tidemark's bay). update() moves it to the nearest
+// beach when the camera is clearly nearer to another one (a fresh state there: the old one belonged to the other
+// beach); this.site is the current { center, size, tile }.
 export class ShoreSim {
 
 	constructor( renderer, { terrainGPU, shore, center = new Vector2( 10, - 25 ), size = 380, res = 768 } ) {
@@ -48,6 +55,13 @@ export class ShoreSim {
 		this.residueLife = F.residueLife;
 		this.foamGen = F.foamGen;
 		this.depositGain = F.depositGain;
+
+		// the beaches the region can move to: this one, then the extra terrain tiles' beaches
+		this.home = { center: { x: center.x, z: center.y }, size, tile: null };
+		this.site = this.home;
+		this.sites = [ this.home ];
+		const T = terrainGPU && terrainGPU.terrain;
+		if ( T ) for ( const b of tileBeaches( T ) ) this.sites.push( { center: b.center, size: b.size, tile: b.tile } );
 
 		// tileable lace (bubble strands, bubbles, mottling, per-cell random), generated once on the CPU
 		this.lace = makeLaceTexture();
@@ -248,8 +262,32 @@ fn main( @builtin( global_invocation_id ) gid: vec3u ) {
 
 	}
 
+	// the beach nearest the camera, with 120 m of hysteresis
+	_follow( cam ) {
+
+		if ( this.sites.length < 2 || ! cam ) return;
+		const d = ( s ) => Math.hypot( cam.x - s.center.x, cam.z - s.center.z );
+		let best = this.site, bd = d( this.site );
+		for ( const s of this.sites ) if ( d( s ) + 120 < bd ) { best = s; bd = d( s ); }
+		if ( best !== this.site ) this.moveTo( best );
+
+	}
+
+	moveTo( site ) {
+
+		this.site = site;
+		this.uMin.value.set( site.center.x - site.size / 2, site.center.z - site.size / 2 );
+		this.uSize.value = site.size;
+		const zero = new Uint16Array( this.res * this.res * 4 );
+		this.stateA.upload( zero );
+		this.stateB.upload( zero );
+		if ( this.shore && this.shore.buildDirTexture ) this.shore.buildDirTexture( { min: this.uMin.value.clone(), size: site.size } );
+
+	}
+
 	update() {
 
+		this._follow( FrameUniforms.fields.cameraPos.value );
 		this.kernel.dispatch( this.kernel.groups( this.res, this.res ) );
 		const size = { width: this.res, height: this.res };
 		GPU.getEncoder().copyTextureToTexture( { texture: this.stateB.getGPU() }, { texture: this.stateA.getGPU() }, size );

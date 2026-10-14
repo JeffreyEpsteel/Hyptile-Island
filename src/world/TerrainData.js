@@ -91,6 +91,13 @@ export class TerrainData {
 
 	}
 
+	// wave 13A: the extra terrain tiles outside the heightmap (Tidemark): TerrainTiles reads them
+	get tiles() {
+
+		return this._outerTiles || [];
+
+	}
+
 	// signed coast distance (m): > 0 water, < 0 land (the nearest of both islands)
 	coastDistance( x, z ) {
 

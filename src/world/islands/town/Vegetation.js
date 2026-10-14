@@ -1,33 +1,85 @@
 import { cylinder, sphere, mat4 } from '../../boat/GeoKit.js';
 import { WOOD, palm, rng } from '../IslandKit.js';
-import { TIDEMARK as I } from '../../terrain/IslandShape.js';
+import { TIDEMARK as I, tidemarkWorld } from '../../terrain/IslandShape.js';
 import { airstripRects, rectOut } from './TidemarkTerrain.js';
+import { isVegetated } from '../../terrain/TerrainTiles.js';
 
-// Tidemark's trees: coconut palms along the bay beach and the back of the dunes, broadleaf trees on the hill flanks where
-// the tile's woodland mask is (the home island's instanced vegetation system covers the 2048 m heightmap only, so the
-// tile island gets the IslandKit low-poly plants the other islands use, merged into the island's prop meshes). Clear of
-// the roads, the river, the town terrace, the graded airstrip (and its approach) and every collider.
+// Tidemark's trees. The home island's instanced vegetation covers the island's terrain tile (wave 13A: Vegetation /
+// vegetation/Scatter.js plant every terrain tile, with the grass field): then the island keeps only the palms planted
+// along its streets (the quay street, the market street). Without it (?noVeg, a test without the vegetation) the
+// IslandKit stand-ins stay: coconut palms along the bay beach and the back of the dunes, broadleaf trees on the hill
+// flanks where the tile's woodland mask is, merged into the island's prop meshes. Clear of the roads, the river, the
+// town terrace, the graded airstrip (and its approach) and every collider.
 //
-//   const veg = scatterTrees( { tile, colliders, add, addFar, budget } )   veg.palms, veg.trees (counts)
+//   const veg = scatterTrees( { tile, colliders, add, addFar, budget } )   veg.palms, veg.trees (counts), veg.street,
+//                                                                        veg.real (the instanced vegetation covers it)
+//   townClear( tile, x, z, r, { trees } ) -> bool   a plant of radius r may stand at (x, z) (Scatter.js uses it too;
+//                                                 trees: also the strip's approaches and the road margins)
 
 const TOWN = I.pads[ 0 ];
+const LOOKOUT = I.pads[ 2 ];
+const STRIP = airstripRects();
+// the planted street palms, island coordinates: the quay street's water side, the market street east of the square
+const STREET_PALMS = [ [ - 150, - 66 ], [ - 150, - 44 ], [ - 150, - 24 ], [ - 150, 38 ], [ - 150, 52 ], [ - 150, 64 ], [ - 100, 2.6 ], [ - 100, 13.4 ], [ - 88, 2.6 ], [ - 88, 13.4 ] ];
+
+export function townClear( tile, x, z, r = 0, { trees = true, lookout = true } = {} ) {
+
+	const [ u, v ] = tile.local( x, z );
+	if ( rectOut( u, v, TOWN[ 0 ], TOWN[ 1 ], TOWN[ 2 ], TOWN[ 3 ] ) < ( trees ? 6 : 1 ) ) return false;
+	if ( rectOut( u, v, - 154, - 124, - 120, - 84 ) < 4 ) return false; // the boatyard slip
+	// the lookout's top (the stand-ins keep clear of its shell through the colliders)
+	if ( lookout && rectOut( u, v, LOOKOUT[ 0 ], LOOKOUT[ 1 ], LOOKOUT[ 2 ], LOOKOUT[ 3 ] ) < 3 + r ) return false;
+	for ( const R of STRIP ) if ( rectOut( u, v, R[ 0 ], R[ 1 ], R[ 2 ], R[ 3 ] ) < ( trees ? 10 : 1.5 ) ) return false;
+	if ( trees ) {
+
+		// the take-off and landing approaches stay clear of trees for 120 m past each end
+		if ( Math.abs( v - I.airstrip.v ) < I.airstrip.width && Math.abs( u - I.airstrip.u ) < I.airstrip.length / 2 + 120 ) return false;
+		if ( tile.pathDistance( x, z ) < 2.5 + r ) return false;
+
+	}
+
+	const m = tile.maskAt( x, z );
+	return m.river <= 0.05 && m.rock <= 0.5;
+
+}
 
 export function scatterTrees( { tile, colliders = null, add, addFar = null, budget = 1 } ) {
 
 	const rnd = rng( 8812 );
-	const strip = airstripRects();
 	const placed = [];
+	const blocked = ( x, z, r ) => {
+
+		if ( colliders ) for ( const b of colliders.boxes ) {
+
+			if ( Math.abs( x - b.center.x ) > b.radius + r + 1 || Math.abs( z - b.center.z ) > b.radius + r + 1 ) continue;
+			return true;
+
+		}
+
+		return false;
+
+	};
+
+	// the street palms (always: the town planted them; their own random stream)
+	let street = 0;
+	const rs = rng( 4471 );
+	for ( const [ u, v ] of STREET_PALMS ) {
+
+		const [ x, z ] = tidemarkWorld( u, v );
+		if ( blocked( x, z, 1.2 ) ) continue;
+		const h = tile.heightAt( x, z );
+		palm( add, x, h - 0.1, z, 7 + rs() * 2.5, rs, 0.06 + rs() * 0.12 );
+		placed.push( [ x, z, 1.6 ] );
+		if ( colliders ) colliders.addCylinder( x, z, 0.25, h - 0.5, h + 3, { tag: 'tidemarkPalm' } );
+		street ++;
+
+	}
+
+	if ( isVegetated( tile ) ) return { palms: street, trees: 0, street, real: true };
+
 	const free = ( x, z, r ) => {
 
-		const [ u, v ] = tile.local( x, z );
-		if ( rectOut( u, v, TOWN[ 0 ], TOWN[ 1 ], TOWN[ 2 ], TOWN[ 3 ] ) < 6 ) return false;
-		if ( rectOut( u, v, - 154, - 124, - 120, - 84 ) < 4 ) return false; // the boatyard slip
-		for ( const R of strip ) if ( rectOut( u, v, R[ 0 ], R[ 1 ], R[ 2 ], R[ 3 ] ) < 10 ) return false;
-		// the take-off and landing approaches stay clear of trees for 120 m past each end
-		if ( Math.abs( v - I.airstrip.v ) < I.airstrip.width && Math.abs( u - I.airstrip.u ) < I.airstrip.length / 2 + 120 ) return false;
-		if ( tile.pathDistance( x, z ) < 2.5 + r ) return false;
-		const m = tile.maskAt( x, z );
-		if ( m.river > 0.05 || m.rock > 0.5 ) return false;
+		if ( ! townClear( tile, x, z, r, { lookout: false } ) ) return false;
 		for ( const p of placed ) if ( ( p[ 0 ] - x ) ** 2 + ( p[ 1 ] - z ) ** 2 < ( r + p[ 2 ] ) ** 2 ) return false;
 		if ( colliders ) {
 
@@ -83,7 +135,7 @@ export function scatterTrees( { tile, colliders = null, add, addFar = null, budg
 
 	}
 
-	return { palms, trees };
+	return { palms: palms + street, trees, street, real: false };
 
 }
 

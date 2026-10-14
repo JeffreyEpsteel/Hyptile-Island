@@ -1,5 +1,5 @@
 import { Vector2 } from '../engine/math/index.js';
-import { Texture, UniformBlock, ShaderModule, commonModule } from '../engine/webgpu.js';
+import { GPU, Texture, UniformBlock, ShaderModule, commonModule } from '../engine/webgpu.js';
 import { G, GRAVITY } from '../engine/render/Frame.js';
 
 // Depth-aware shoreline waves.
@@ -650,23 +650,39 @@ ${ evaluateCode( 'shoreEvaluateWorld', 'world' ) }
 		const field = T.shoreField || null;
 		const data = field ? field.data : T.shoreData || T.shoreTexture?.image?.data || T.shoreTexture?.pendingData;
 		const fres = field ? field.res : T.shoreRes;
-		if ( ! data || ! fres ) {
+		const origin = T.origin, tsize = T.size;
+		// a region on an extra terrain tile (beyond the domain) reads the tile's own field (TerrainGPU.shoreSampleAt)
+		const cx = min.x + size / 2, cz = min.y + size / 2;
+		const onTile = typeof T.shoreSampleAt === 'function' && ( cx < origin || cz < origin || cx > origin + tsize || cz > origin + tsize ) && T.shoreSampleAt( cx, cz );
+		if ( ! onTile && ( ! data || ! fres ) ) {
 
-			console.warn( 'ShoreWaves.buildDirTexture: no shore field data on the terrain; using terrainShoreSample instead' );
+			if ( ! this._warned ) console.warn( 'ShoreWaves.buildDirTexture: no shore field data on the terrain; using terrainShoreSample instead' );
+			this._warned = true;
+			// (a region moved back from a tile: the fallback again, as before the first build)
+			if ( this.dirTexture ) {
+
+				const old = this.dirTexture;
+				GPU.onSubmit( null, () => old.destroy() );
+				this.dirTexture = null;
+				this.uniforms.fields.dirOn.value = 0;
+
+			}
+
 			return null;
 
 		}
 
-		const origin = T.origin, tsize = T.size;
 		const out = new Float32Array( res * res * 4 );
 		for ( let j = 0; j < res; j ++ ) for ( let i = 0; i < res; i ++ ) {
 
 			const x = min.x + ( i + 0.5 ) / res * size, z = min.y + ( j + 0.5 ) / res * size;
-			const fx = Math.min( Math.max( ( x - origin ) / tsize * fres - 0.5, 0 ), fres - 1.001 );
-			const fz = Math.min( Math.max( ( z - origin ) / tsize * fres - 0.5, 0 ), fres - 1.001 );
+			const fx = onTile ? 0 : Math.min( Math.max( ( x - origin ) / tsize * fres - 0.5, 0 ), fres - 1.001 );
+			const fz = onTile ? 0 : Math.min( Math.max( ( z - origin ) / tsize * fres - 0.5, 0 ), fres - 1.001 );
 			const i0 = Math.floor( fx ), j0 = Math.floor( fz ), tx = fx - i0, tz = fz - j0;
+			const ts = onTile ? T.shoreSampleAt( x, z ) || [ 1e4, 0, 0, 0 ] : null;
 			const at = ( c ) => {
 
+				if ( ts ) return ts[ c ];
 				const a = data[ ( j0 * fres + i0 ) * 4 + c ], b = data[ ( j0 * fres + i0 + 1 ) * 4 + c ];
 				const cc = data[ ( ( j0 + 1 ) * fres + i0 ) * 4 + c ], d = data[ ( ( j0 + 1 ) * fres + i0 + 1 ) * 4 + c ];
 				return ( a * ( 1 - tx ) + b * tx ) * ( 1 - tz ) + ( cc * ( 1 - tx ) + d * tx ) * tz;
@@ -685,6 +701,9 @@ ${ evaluateCode( 'shoreEvaluateWorld', 'world' ) }
 
 		// float data, read with exact loads: no sampler binding (fragment shaders are at their sampler limit)
 		const t = new Texture( { label: 'shoreDir', width: res, height: res, format: 'rgba32float', data: out } );
+		// a rebuilt region (the shore simulation moved beaches): the old texture goes after this frame's submit
+		const old = this.dirTexture;
+		if ( old ) GPU.onSubmit( null, () => old.destroy() );
 		this.dirTexture = t;
 		this.dirMin.value.copy( min );
 		this.dirSize.value = size;

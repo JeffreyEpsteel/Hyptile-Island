@@ -5,6 +5,7 @@ import { ShaderModule } from '../../engine/gpu/Shader.js';
 import { Material } from '../../engine/render/Material.js';
 import { mulberry32 } from '../../util/Noise.js';
 import { vegModule, uCamPos, C, f } from './VegNodes.js';
+import { tileHeightWGSL } from '../terrain/TerrainTiles.js';
 
 // Camera-following ground flora: tall meadow grass (knee to waist high), dune grass, sea oats and
 // beach creeper.
@@ -14,6 +15,8 @@ import { vegModule, uCamPos, C, f } from './VegNodes.js';
 // placed at cellOrigin + slot offset, its height comes from the terrain heightmap (manual bilinear
 // textureLoad) and its presence / size from an RGBA density mask (R dune grass, G meadow grass,
 // B sea oats, A creeper). Empty cells are skipped on the CPU and cells are frustum culled.
+// The extra terrain tiles beyond the domain (TerrainTiles.js; Tidemark) have cells of their own: iCell.z = tile + 1
+// reads the tile's heights from the height atlas and its mask from grassMaskTiles (Scatter.buildGrassMask: mask.tiles).
 //
 // Three levels share the same clumps and blades (identical parameters), so switching a cell
 // between them never moves a blade:
@@ -406,15 +409,20 @@ export class GrassField {
 		const res = terrain.res;
 		const maskData = mask.data, mres = mask.res;
 
-		// terrain heights (float, loaded + bilinearly filtered manually) and density mask
-		this.heightTex = sharedHeightTexture( terrain.heights, res ); // the terrain's own height texture (TerrainGPU)
+		// terrain heights (float, loaded + bilinearly filtered manually) and density mask; the height texture is the
+		// terrain's own (TerrainGPU), with the extra terrain tiles' nodes under the domain (TerrainTiles.js)
+		this.heightTex = sharedHeightTexture( terrain );
 		// three-style handle: `heightTex.needsUpdate = true` re-uploads terrain.heights (Vegetation.refreshTerrain)
-		Object.defineProperty( this.heightTex, 'needsUpdate', { set: ( v ) => {
+		if ( ! Object.getOwnPropertyDescriptor( this.heightTex, 'needsUpdate' ) ) Object.defineProperty( this.heightTex, 'needsUpdate', { set: ( v ) => {
 
-			if ( v ) this.heightTex.upload( terrain.heights );
+			if ( v ) this.heightTex.uploadDomain();
 
 		} } );
 		this.maskTex = new Texture( { label: 'grassMask', width: mres, height: mres, format: 'rgba8unorm', data: maskData, sampler: 'linearClamp' } );
+		// the tiles' masks side by side in one texture (Scatter.buildGrassMask: mask.tiles), cells of their own
+		this.tileMask = mask.tiles && mask.tiles.tiles.length ? mask.tiles : null;
+		this.maskTilesTex = this.tileMask ? new Texture( { label: 'grassMaskTiles', width: this.tileMask.width, height: this.tileMask.height, format: 'rgba8unorm', data: this.tileMask.data, sampler: 'linearClamp' } ) : null;
+		this.tileCells = this.tileMask ? this.tileMask.tiles.map( ( t, k ) => tileCells( t, k, this.tileMask, this.heightTex.userData.tiles ) ) : [];
 
 		// per-cell occupancy + height range (for skipping empty cells and frustum tests)
 		const cellsPerSide = Math.ceil( terrain.size / CELL );
@@ -574,21 +582,54 @@ export class GrassField {
 
 					near.arr[ nc * 4 ] = x0;
 					near.arr[ nc * 4 + 1 ] = z0;
+					near.arr[ nc * 4 + 2 ] = 0;
 					nc ++;
 
 				} else if ( d < R_MID && mc < mid.max ) {
 
 					mid.arr[ mc * 4 ] = x0;
 					mid.arr[ mc * 4 + 1 ] = z0;
+					mid.arr[ mc * 4 + 2 ] = 0;
 					mc ++;
 
 				} else if ( d >= R_MID && fc < far.max ) {
 
 					far.arr[ fc * 4 ] = x0;
 					far.arr[ fc * 4 + 1 ] = z0;
+					far.arr[ fc * 4 + 2 ] = 0;
 					fc ++;
 
 				}
+
+			}
+
+		}
+
+		// the extra terrain tiles' cells (iCell.z = tile index + 1: the shader reads the tile's mask and heights)
+		for ( const tc of this.tileCells ) {
+
+			const tn = tc.n;
+			if ( cx < tc.x0 - R_FAR || cz < tc.z0 - R_FAR || cx > tc.x0 + tn * CELL + R_FAR || cz > tc.z0 + tn * CELL + R_FAR ) continue;
+			const a0 = Math.max( 0, Math.floor( ( cx - R_FAR - tc.x0 ) / CELL ) ), a1 = Math.min( tn - 1, Math.floor( ( cx + R_FAR - tc.x0 ) / CELL ) );
+			const b0 = Math.max( 0, Math.floor( ( cz - R_FAR - tc.z0 ) / CELL ) ), b1 = Math.min( tn - 1, Math.floor( ( cz + R_FAR - tc.z0 ) / CELL ) );
+			for ( let j = b0; j <= b1; j ++ ) for ( let i = a0; i <= a1; i ++ ) {
+
+				const c = j * tn + i;
+				if ( ! tc.flags[ c ] ) continue;
+				const x0 = tc.x0 + i * CELL, z0 = tc.z0 + j * CELL;
+				const dx = Math.max( x0 - cx, 0, cx - x0 - CELL );
+				const dz = Math.max( z0 - cz, 0, cz - z0 - CELL );
+				const d = Math.hypot( dx, dz );
+				if ( d > R_FAR ) continue;
+				this._box.min.set( x0, tc.minY[ c ] - 0.5, z0 );
+				this._box.max.set( x0 + CELL, tc.maxY[ c ] + 1.8, z0 + CELL );
+				if ( ! this._frustum.intersectsBox( this._box ) ) continue;
+				const lvl = d < R_NEAR && nc < near.max ? near : d < R_MID && mc < mid.max ? mid : d >= R_MID && fc < far.max ? far : null;
+				if ( ! lvl ) continue;
+				const k = lvl === near ? nc ++ : lvl === mid ? mc ++ : fc ++;
+				lvl.arr[ k * 4 ] = x0;
+				lvl.arr[ k * 4 + 1 ] = z0;
+				lvl.arr[ k * 4 + 2 ] = tc.k + 1;
 
 			}
 
@@ -618,10 +659,61 @@ export class GrassField {
 
 		this.heightTex.destroy();
 		this.maskTex.destroy();
+		if ( this.maskTilesTex ) this.maskTilesTex.destroy();
 		this.material.dispose();
 		for ( const m of this.meshes ) m.geometry.dispose();
 
 	}
+
+}
+
+// Cells over an extra terrain tile (its grass mask m: { x0, z0, texel, n (texels per side), u0 } in the packed mask
+// `M`): occupancy and height range per CELL x CELL cell from the mask and the tile's heights (atlas layout `L`).
+function tileCells( m, k, M, L ) {
+
+	const tile = L && L.tiles.find( ( t ) => t.id === m.id );
+	const span = m.n * m.texel;
+	const n = Math.ceil( span / CELL );
+	const flags = new Uint8Array( n * n ), minY = new Float32Array( n * n ), maxY = new Float32Array( n * n );
+	const mpc = CELL / m.texel;
+	for ( let cj = 0; cj < n; cj ++ ) for ( let ci = 0; ci < n; ci ++ ) {
+
+		let any = 0;
+		const i0 = Math.max( 0, Math.floor( ci * mpc ) - 1 ), i1 = Math.min( m.n - 1, Math.ceil( ( ci + 1 ) * mpc ) + 1 );
+		const j0 = Math.max( 0, Math.floor( cj * mpc ) - 1 ), j1 = Math.min( m.n - 1, Math.ceil( ( cj + 1 ) * mpc ) + 1 );
+		for ( let j = j0; j <= j1 && ! any; j ++ ) for ( let i = i0; i <= i1; i ++ ) {
+
+			const o = ( j * M.width + m.u0 + i ) * 4;
+			if ( M.data[ o ] > 8 || M.data[ o + 1 ] > 8 || M.data[ o + 2 ] > 8 || M.data[ o + 3 ] > 8 ) {
+
+				any = 1;
+				break;
+
+			}
+
+		}
+
+		const c = cj * n + ci;
+		flags[ c ] = any;
+		if ( ! any || ! tile ) continue;
+		let mn = Infinity, mx = - Infinity;
+		const x0 = m.x0 + ci * CELL, z0 = m.z0 + cj * CELL;
+		const a0 = Math.max( 0, Math.floor( ( x0 - tile.x0 ) / tile.texel ) - 1 ), a1 = Math.min( tile.n - 1, Math.ceil( ( x0 + CELL - tile.x0 ) / tile.texel ) + 1 );
+		const b0 = Math.max( 0, Math.floor( ( z0 - tile.z0 ) / tile.texel ) - 1 ), b1 = Math.min( tile.n - 1, Math.ceil( ( z0 + CELL - tile.z0 ) / tile.texel ) + 1 );
+		for ( let j = b0; j <= b1; j ++ ) for ( let i = a0; i <= a1; i ++ ) {
+
+			const h = tile.heights[ j * tile.n + i ];
+			if ( h < mn ) mn = h;
+			if ( h > mx ) mx = h;
+
+		}
+
+		minY[ c ] = mn;
+		maxY[ c ] = mx;
+
+	}
+
+	return { k, id: m.id, x0: m.x0, z0: m.z0, n, flags, minY, maxY };
 
 }
 
@@ -698,17 +790,25 @@ function createGrassMaterial( field ) {
 
 	const t = field.terrain;
 	const res = t.res;
+	// the extra terrain tiles: their heights from the height atlas, their masks from grassMaskTiles (iCell.z = tile + 1)
+	const TM = field.tileMask;
+	const tileModule = TM ? new ShaderModule( { name: 'grassTiles', code: tileHeightWGSL( field.heightTex.userData.tiles, { fn: 'grassTile', tex: 'grassHeights' } ) + /* wgsl */`
+fn grassTileMask( xz: vec2f, k: f32 ) -> vec4f {
+	var uv = vec2f( -1.0 );
+${ TM.tiles.map( ( m, k ) => `	if ( abs( k - ${ f( k + 1 ) } ) < 0.5 ) { uv = vec2f( ${ f( m.u0 ) } + ( xz.x - ${ f( m.x0 ) } ) * ${ f( 1 / m.texel ) }, ( xz.y - ${ f( m.z0 ) } ) * ${ f( 1 / m.texel ) } ) / vec2f( ${ f( TM.width ) }, ${ f( TM.height ) } ); }` ).join( '\n' ) }
+	return textureSampleLevel( grassMaskTiles, smpLinearClamp, uv, 0.0 );
+}
+` } ) : null;
+	const textures = { grassHeights: field.heightTex, grassMask: field.maskTex };
+	if ( TM ) textures.grassMaskTiles = field.maskTilesTex;
 
 	const mat = new Material( {
 		name: 'veg-grass',
 		side: 'double',
 		roughness: 0.8,
 		metalness: 0,
-		modules: [ vegModule, grassModule ],
-		textures: {
-			grassHeights: field.heightTex,
-			grassMask: field.maskTex,
-		},
+		modules: TM ? [ vegModule, grassModule, tileModule ] : [ vegModule, grassModule ],
+		textures,
 		attributes: { iCell: 'vec4f', aSlot: 'vec4f', aBlade: 'vec4f', aSide: 'vec4f' },
 		varyings: {
 			vVegGrass: 'vec4f', // hf, kind, dune fraction, rand
@@ -730,8 +830,8 @@ function createGrassMaterial( field ) {
 	let kind = blade.y;
 	let bRnd = blade.z;
 
-	let m = textureSampleLevel( grassMask, smpLinearClamp, ( xz - ${ f( t.origin ) } ) / ${ f( t.size ) }, 0.0 );
-	let isGrass = kind < 0.5;
+	${ TM ? 'var' : 'let' } m = textureSampleLevel( grassMask, smpLinearClamp, ( xz - ${ f( t.origin ) } ) / ${ f( t.size ) }, 0.0 );
+${ TM ? '	let tileK = v.iCell.z;\n	if ( tileK > 0.5 ) { m = grassTileMask( xz, tileK ); }\n' : '' }	let isGrass = kind < 0.5;
 	let isOat = kind > 0.5 && kind < 2.5;
 	let lush = m.g;
 	let dune = m.r;
@@ -789,8 +889,8 @@ function createGrassMaterial( field ) {
 	let hb = textureLoad( grassHeights, ij + vec2i( 1, 0 ), 0 ).x;
 	let hc = textureLoad( grassHeights, ij + vec2i( 0, 1 ), 0 ).x;
 	let hd = textureLoad( grassHeights, ij + vec2i( 1, 1 ), 0 ).x;
-	let ground = mix( mix( ha, hb, hfr.x ), mix( hc, hd, hfr.x ), hfr.y );
-	let base = vec3f( xz.x, ground - 0.03, xz.y );
+	${ TM ? 'var' : 'let' } ground = mix( mix( ha, hb, hfr.x ), mix( hc, hd, hfr.x ), hfr.y );
+${ TM ? '	if ( tileK > 0.5 ) { ground = grassTileHeight( xz ); }\n' : '' }	let base = vec3f( xz.x, ground - 0.03, xz.y );
 	let pl = vec3f( P.x * spread, P.y, P.z * spread );
 	let o0 = vec3f( pl.x * cy - pl.z * sy, pl.y, pl.x * sy + pl.z * cy ) * scale;
 
