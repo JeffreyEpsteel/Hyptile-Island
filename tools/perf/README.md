@@ -125,3 +125,12 @@ use Vulkan.
 `headless.mjs` (whole App on Dawn; `--boot`, `--nan-check`, `--boat-swaps`), `runner.js` + `scenarios.js` (the perf
 scenarios), `report.mjs`, `table.mjs`, `pngdiff.mjs`, `shot.mjs`, `heap-buffers.mjs` (heap snapshot ArrayBuffer owners),
 `collect.mjs`, `stub-loader.mjs`, `headless-env.mjs` (the browser stand-in).
+
+## Wave 20A additions (2026-10-15)
+
+- `cpu-scenarios.mjs`: **wave19** (in the default set): Tidemark at 19:00 under a storm front, the navy, the crew aboard at the
+  dock, the Tide & Tankard's interior loading and unloading, townlife's evening; `--sites` now samples from the first frame on.
+- `headless.mjs`: `--draw-list[=n][,root]` (draws per frame by mesh or by top group, with their passes), `--scene-groups`,
+  `--shots=<dir>` (each scenario's last frame), `--budget-off=a,b` (phone budget keys left out: a phone change's before on the
+  same tree), `--patch=farcull,eyes` (the wave's proposed root patches, to measure them). View **tidemarkTavern**
+  (`place.interior`: inside a room through interiors.enter). docs/PERF.md "Wave 20A"; `test/perf-w20.mjs` the checks.

@@ -366,6 +366,7 @@ export class SkinnedModel {
 			// update (this.bounds), and until the first pose the mesh is never culled
 			mesh.frustumCulled = false;
 			mesh.castShadow = true;
+			if ( /_(Pupil|Rim|Lid)_[lr]$/.test( mesh.name ) ) Object.defineProperty( mesh, 'castShadow', { get: () => false, set() {}, configurable: true } ); // wave 20A: eyes cast no shadow
 			mesh.receiveShadow = true;
 			this.group.add( mesh );
 			this.meshes.push( mesh );

@@ -62,6 +62,8 @@ if ( process.argv.includes( '--real-sizes' ) ) {
 
 	const cap = process.argv.includes( '--mobile' ) ? 512 : Infinity;
 	if ( process.argv.includes( '--mobile' ) && ! globalThis.__phoneBudget ) globalThis.__phoneBudget = { ...( await import( '../../src/core/Quality.js' ) ).PHONE_BUDGET }; // (the game's own: wave 16C)
+	// --budget-off=a,b (wave 20A): those phone budget keys left out (the 'before' of a phone change on the same tree)
+	if ( globalThis.__phoneBudget && arg( 'budget-off' ) ) for ( const k of arg( 'budget-off' ).split( ',' ) ) delete globalThis.__phoneBudget[ k ];
 	if ( cap < Infinity ) globalThis.__assetImageCap = cap; // (the phone's decode queue and foam size too)
 	const dims = ( b ) => {
 
@@ -468,10 +470,143 @@ const bench = new Bench( app );
 const setBenchSize = bench.setSize.bind( bench );
 bench.setSize = () => setBenchSize( W, H );
 const info = GPU.adapter && GPU.adapter.info ? GPU.adapter.info : {};
+// --draw-list[=n] (wave 20A): what each scenario draws, per frame: the draws by owner (the mesh's name, else its parent's,
+// else the geometry's label) and material, summed over every mesh pass, the n biggest printed with their pass split and
+// triangles. The renderer's per-draw CPU cost makes this the list to cut from.
+const drawList = process.argv.find( ( a ) => a === '--draw-list' || a.startsWith( '--draw-list=' ) );
+const tally = new Map();
+const drawRoot = !! drawList && drawList.endsWith( ',root' );
+if ( drawList ) {
+
+	const mr = app.engine.meshRenderer, orig = mr.drawItems;
+	mr.drawItems = function ( rp, items, pass ) {
+
+		if ( tally.on && ! this.precompiling ) for ( const it of items ) {
+
+			const o = it.object;
+			const who = o.name || ( o.parent && o.parent.name ) || it.geometry.__label || '?';
+			// (--draw-list=n,root: by the top group under the scene instead: who owns the draws)
+			let r = o;
+			while ( r.parent && r.parent.parent ) r = r.parent;
+			const key = drawRoot ? ( r.name || r.type || '?' ) + ( r.userData && r.userData.townlife ? ' (townlife)' : '' ) : who + ' · ' + ( it.material.name || it.material.type || '?' );
+			let e = tally.get( key );
+			if ( ! e ) tally.set( key, e = { n: 0, tris: 0, passes: {} } );
+			e.n ++;
+			const cnt = Number.isFinite( it.count ) ? it.count : it.geometry.index ? it.geometry.index.count : 0;
+			e.tris += ( o.isInstancedMesh ? o.count : 1 ) * cnt / 3;
+			const pk = ( pass && ( pass.label || pass.kind ) ) || 'pass';
+			e.passes[ pk ] = ( e.passes[ pk ] || 0 ) + 1;
+
+		}
+
+		return orig.call( this, rp, items, pass );
+
+	};
+
+}
+
+// --patch=farcull,eyes (wave 20A): the root patches proposed in docs/PERF.md "Wave 20A", applied by the harness to measure them
+//   farcull  App.js: the home island's town systems and the ports' small props get the distance cull Tidemark's town has
+//            (cullDistance 800 x the tier's draw scale + their own radius): src/core/Quality.js farCull
+//   eyes     engine/render/Skinning.js: a roster face's pupils, rims and lids never cast a shadow (inside the eyeball's silhouette)
+const patches = new Set( ( arg( 'patch', '' ) || '' ).split( ',' ).filter( Boolean ) );
+globalThis.__farCull = ( await import( '../../src/core/Quality.js' ) ).farCull;
+function applyPatches() {
+
+	if ( patches.has( 'farcull' ) ) {
+
+		const n = globalThis.__farCull( app.scene ).length; // (src/core/Quality.js farCull: the code the App.js patch calls)
+		console.log( `  patch farcull: ${ n } groups` );
+
+	}
+
+	if ( patches.has( 'eyes' ) ) {
+
+		let n = 0;
+		app.scene.traverse( ( o ) => {
+
+			if ( ! o.isMesh || ! /^skinned:.*_(Pupil|Rim|Lid)_[lr]$/.test( o.name ) || o.__noShadow ) return;
+			Object.defineProperty( o, 'castShadow', { get: () => false, set() {}, configurable: true } );
+			o.__noShadow = true;
+			n ++;
+
+		} );
+		if ( n ) console.log( `  patch eyes: ${ n } meshes` );
+
+	}
+
+}
+
+// --scene-groups (wave 20A): the scene's top groups as the first measured scenario sees them: meshes, the world bounds of their
+// meshes (geometry bounding spheres), the cull distance they carry: which far systems draw from everywhere
+let groupsShown = false;
+function sceneGroups() {
+
+	const { Vector3 } = globalThis.__V3;
+	const rows = [];
+	for ( const g of app.scene.children ) {
+
+		let n = 0, cull = g.cullDistance || 0, lo = [ Infinity, Infinity ], hi = [ - Infinity, - Infinity ], fc = 0;
+		const c = new Vector3();
+		g.traverse( ( o ) => {
+
+			if ( ! o.isMesh || ! o.geometry ) return;
+			n ++;
+			if ( o.frustumCulled === false ) fc ++;
+			if ( o.cullDistance && ! cull ) cull = - o.cullDistance; // (a child's)
+			const bs = o.geometry.boundingSphere;
+			if ( ! bs ) return;
+			c.copy( bs.center ).applyMatrix4( o.matrixWorld );
+			const r = bs.radius * ( o.matrixWorld.getMaxScaleOnAxis ? o.matrixWorld.getMaxScaleOnAxis() : 1 );
+			lo[ 0 ] = Math.min( lo[ 0 ], c.x - r ); lo[ 1 ] = Math.min( lo[ 1 ], c.z - r );
+			hi[ 0 ] = Math.max( hi[ 0 ], c.x + r ); hi[ 1 ] = Math.max( hi[ 1 ], c.z + r );
+
+		} );
+		if ( n ) rows.push( `  ${ ( g.name || g.type ).padEnd( 28 ) } ${ String( n ).padStart( 4 ) } meshes  x ${ lo[ 0 ].toFixed( 0 ) }..${ hi[ 0 ].toFixed( 0 ) }  z ${ lo[ 1 ].toFixed( 0 ) }..${ hi[ 1 ].toFixed( 0 ) }  at ${ g.position.x.toFixed( 0 ) },${ g.position.z.toFixed( 0 ) }  cull ${ cull }${ fc ? '  unculled ' + fc : '' }` );
+
+	}
+
+	console.log( 'scene groups:' );
+	for ( const r of rows ) console.log( r );
+
+}
+globalThis.__V3 = await import( '../../src/engine/index.js' );
+
+// --shots=<dir> (wave 20A): each scenario's last measured frame as <dir>/<scenario>.png (before / after sheets: pairs.mjs)
+const shotsDir = arg( 'shots' );
+const onMeasure = drawList || shotsDir || patches.size || process.argv.includes( '--scene-groups' ) ? async ( phase, id, n ) => {
+
+	if ( phase === 'begin' ) {
+
+		if ( process.argv.includes( '--scene-groups' ) && ! groupsShown ) { groupsShown = true; sceneGroups(); }
+		applyPatches();
+		tally.clear();
+		tally.on = true;
+		return;
+
+	}
+	tally.on = false;
+	if ( shotsDir ) {
+
+		const { canvasPNG } = await import( './shot.mjs' );
+		mkdirSync( shotsDir, { recursive: true } );
+		await GPU.queue.onSubmittedWorkDone();
+		try { await canvasPNG( GPU, join( shotsDir, id + '.png' ) ); } catch ( e ) { console.log( 'shot failed: ' + e.message ); }
+
+	}
+
+	if ( ! drawList ) return;
+	const top = parseInt( drawList.split( '=' )[ 1 ], 10 ) || 40;
+	const rows = [ ...tally ].map( ( [ k, e ] ) => ( { k, n: e.n / n, tris: e.tris / n, passes: e.passes } ) ).sort( ( a, b ) => b.n - a.n );
+	const total = rows.reduce( ( s, r ) => s + r.n, 0 );
+	console.log( `draws in ${ id }: ${ total.toFixed( 0 ) } per frame over ${ rows.length } owners` );
+	for ( const r of rows.slice( 0, top ) ) console.log( `  ${ r.n.toFixed( 1 ).padStart( 6 ) }  ${ ( r.tris / 1000 ).toFixed( 0 ).padStart( 6 ) }k tris  ${ r.k }  [${ Object.entries( r.passes ).map( ( [ p, c ] ) => p.replace( 'shadow cascade ', 'sc' ) + ' ' + ( c / n ).toFixed( 1 ) ).join( ', ' ) }]` );
+
+} : null;
 const report = await runPerf( app, {
 	scenarios: arg( 'perf', 'all' ), bench, tag, waitGpu: () => GPU.queue.onSubmittedWorkDone(),
 	frames: arg( 'frames' ) ? Number( arg( 'frames' ) ) : null, warm: arg( 'warm' ) ? Number( arg( 'warm' ) ) : null,
-	memory: () => ( memDiff(), { ...GPU.memory, groups: memGroups() } ),
+	memory: () => ( memDiff(), { ...GPU.memory, groups: memGroups() } ), onMeasure,
 } );
 // --shot=<file.png>: one scenario's view (--shot-scenario=crowd), 45 frames to settle, read back from the canvas
 if ( arg( 'shot' ) ) {

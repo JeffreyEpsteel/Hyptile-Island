@@ -115,7 +115,7 @@ class Slots {
 		if ( ! n ) return - 1;
 		let m = this.held.get( key );
 		if ( ! m ) this.held.set( key, m = new Map() );
-		for ( const [ i, who ] of m ) if ( who === id ) return i;
+		for ( const i of m.keys() ) if ( m.get( i ) === id ) return i; // (keys: no [ i, who ] pair a step; wave 20A)
 		const start = pick !== null ? pick : hashId( id ) % n;
 		for ( let k = 0; k < n; k ++ ) {
 
@@ -137,7 +137,7 @@ class Slots {
 
 	release( id ) {
 
-		for ( const m of this.held.values() ) for ( const [ i, who ] of m ) if ( who === id ) m.delete( i );
+		for ( const m of this.held.values() ) for ( const i of m.keys() ) if ( m.get( i ) === id ) m.delete( i );
 
 	}
 

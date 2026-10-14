@@ -147,6 +147,10 @@ export const PHONE_BUDGET = {
 	// wave 19A (wave 18 put the towns at 403 - 412 MB): the terrain's height atlas and shore field as half floats
 	halfTerrain: true, // terrainHeights r16float (18.6 -> 9.3 MB), terrainShoreField rgba16float (6.5 -> 3.3 MB): TerrainGPU.js
 	sunShadow: 256, // the terrain's heightfield sun shadow (512 cells of 4 m on desktop; 8 m cells and heights here, 2.7 -> 0.7 MB): TerrainGPU.js
+	// wave 20A (the towns at 370 - 379 MB after the four views): what a town holds while nobody is near it
+	nearRelease: true, // Tidemark / Blackwater free their near meshes' GPU buffers beyond 1.5 km, re-upload them from 1.3 km (TownKit NearRelease)
+	kitPlants: 'simple', // the town kit's flower boxes and planters: one dome for their leaves and flowers (TownKit.simplePlants)
+	stallTexture: 128, // the stalls' scanned-prop texture arrays (stallPropA / N / R: 5 MB each at 256; the planks stay at propTexture)
 };
 
 // at import (before the first GLB loads): a phone gets the cap unless the URL says ?tex=full; ?phone forces the budget
@@ -161,6 +165,48 @@ if ( typeof window !== 'undefined' && typeof location !== 'undefined' ) {
 		if ( max && max < 2048 ) installTextureCap( max );
 
 	}
+
+}
+
+// wave 20A: the far cull. The home island's town systems and the ports' small props (vendors, lecterns, stalls) had no distance
+// cull: at Tidemark the home village, its boatyard, the start dressing and the vendors 1.8 km away drew ~120 draws a frame in
+// the main, refraction and shadow passes. They get the one Tidemark's town has (Tidemark.js TOWN_DIST: 800 m x the tier's
+// draw scale, plus the group's own radius round its position). Root calls it once the features are installed (App.js patch,
+// docs/PERF.md "Wave 20A"); tools/perf/headless.mjs --patch=farcull applies it to measure. -> the groups changed
+export const FAR_CULL = { distance: 800, names: /^(Village|Debris|BoatYard|CaptainRoidYard|JadeLanding|StartDressover|FishStand|Chandlery|TrainingPost|PracticeRack|TradeStall:.*|Vendor:.*|AgentLectern|PonsPort|KeyPort|HavenPort|ShrinePort|TidemarkPort)$/ };
+
+export function farCull( scene, { distance = FAR_CULL.distance, names = FAR_CULL.names } = {} ) {
+
+	const out = [];
+	if ( ! scene || ! scene.children ) return out;
+	if ( scene.updateMatrixWorld ) scene.updateMatrixWorld( true );
+	for ( const g of scene.children ) {
+
+		if ( ! names.test( g.name || '' ) || g.cullDistance ) continue;
+		// the radius round the group's own position that holds every mesh (geometry bounding spheres)
+		const gp = g.matrixWorld.elements, gx = gp[ 12 ], gy = gp[ 13 ], gz = gp[ 14 ];
+		let r = 0, any = false;
+		g.traverse( ( o ) => {
+
+			if ( ! o.isMesh || ! o.geometry ) return;
+			if ( ! o.geometry.boundingSphere && o.geometry.computeBoundingSphere ) o.geometry.computeBoundingSphere();
+			const bs = o.geometry.boundingSphere;
+			if ( ! bs || ! Number.isFinite( bs.radius ) || bs.radius > 1e4 ) return;
+			const e = o.matrixWorld.elements, c = bs.center;
+			const x = e[ 0 ] * c.x + e[ 4 ] * c.y + e[ 8 ] * c.z + e[ 12 ], y = e[ 1 ] * c.x + e[ 5 ] * c.y + e[ 9 ] * c.z + e[ 13 ], z = e[ 2 ] * c.x + e[ 6 ] * c.y + e[ 10 ] * c.z + e[ 14 ];
+			const k = Math.sqrt( Math.max( e[ 0 ] ** 2 + e[ 1 ] ** 2 + e[ 2 ] ** 2, e[ 4 ] ** 2 + e[ 5 ] ** 2 + e[ 6 ] ** 2, e[ 8 ] ** 2 + e[ 9 ] ** 2 + e[ 10 ] ** 2 ) );
+			r = Math.max( r, Math.hypot( x - gx, y - gy, z - gz ) + bs.radius * k );
+			any = true;
+
+		} );
+		if ( ! any ) continue;
+		g.cullDistance = distance;
+		g.cullRadius = Math.ceil( r );
+		out.push( g );
+
+	}
+
+	return out;
 
 }
 

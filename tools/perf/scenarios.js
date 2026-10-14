@@ -2,7 +2,8 @@
 // (tools/perf/runner.js, ?bench&perf=...) and the node test (test/perf-scenarios.mjs). No DOM, no engine.
 //
 //   SCENARIOS[ id ]        { id, name, about, time, weather, intensity, place, ships, fire, peers, warm, frames, dt }
-//     place                { kind: 'helm' | 'deck' | 'walk' | 'fly', port?: id (its stand) | x, z, heading, boat?: BOATS id, pose?: { x, y, z, yaw, pitch } }
+//     place                { kind: 'helm' | 'deck' | 'walk' | 'fly', port?: id (its stand) | x, z, heading, boat?: BOATS id, pose?: { x, y, z, yaw, pitch },
+//                            interior?: id (wave 20A: inside that room, interiors.enter( id ); x, z the fallback without the feature) }
 //     ships                [ { kind: 'trawler' | 'sloop' | 'brigantine', dx, dz, state? } ]  placed around the player
 //     fire                 { every: s }  the player's guns, port and starboard in turn
 //     peers                number of stand-in remote players walking around the player (the crowd)
@@ -82,10 +83,17 @@ export const SCENARIOS = {
 		place: { kind: 'walk', x: 1819.4, z: - 22.4, heading: 1.134 },
 		ships: [], fire: null, peers: 0, frames: 180, warm: 240, weapon: 'cutlass',
 	},
+	// wave 20A: inside the Tide & Tankard at 19:00 (an interior loaded: its kit, lining and lights; the town around it)
+	tidemarkTavern: {
+		id: 'tidemarkTavern', name: 'Tidemark tavern', about: 'inside the Tide & Tankard at dusk: the interior loaded, the barkeep, the town outside',
+		time: 19, weather: 'clear', intensity: 0,
+		place: { kind: 'walk', interior: 'tidemark.tavern', x: 1844.8, z: - 43.7, heading: 1.134 },
+		ships: [], fire: null, peers: 0, frames: 180, warm: 240,
+	},
 };
 
 // the views of the wave 16C pass (not in 'every' runs of the old guard: listed explicitly)
-export const VIEW_SET = [ 'homeBay', 'tidemarkQuay', 'tidemarkSquare', 'blackwaterCove' ];
+export const VIEW_SET = [ 'homeBay', 'tidemarkQuay', 'tidemarkSquare', 'blackwaterCove', 'tidemarkTavern' ];
 
 export const SCENARIO_IDS = Object.keys( SCENARIOS );
 export const DEFAULT_SET = [ 'navalFight', 'storm', 'night', 'crowd' ];
@@ -157,6 +165,7 @@ export function validateScenario( s, { boats = null, ports = null, shipKinds = n
 	if ( s.fire && s.place && s.place.kind !== 'helm' ) out.push( 'fire needs the helm' );
 	if ( s.peers !== undefined && ! ( Number.isInteger( s.peers ) && s.peers >= 0 && s.peers <= 64 ) ) out.push( 'peers must be 0..64' );
 	if ( s.weapon !== undefined && typeof s.weapon !== 'string' ) out.push( 'weapon must be a weapon id' );
+	if ( p && p.interior !== undefined && ( typeof p.interior !== 'string' || p.kind !== 'walk' ) ) out.push( 'place.interior must be a room id, on foot' );
 	for ( const k of [ 'warm', 'frames' ] ) if ( s[ k ] !== undefined && ! ( Number.isInteger( s[ k ] ) && s[ k ] > 0 ) ) out.push( `${ k } must be a positive integer` );
 	return out;
 

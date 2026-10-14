@@ -54,6 +54,8 @@ export class NavGrid {
 		this._f = new Float32Array( n );
 		this._cache = new Map();
 		this.expansions = 0;
+		this.unreachable = 0; // routes answered 'none' by components() (wave 20A)
+		this._comp = null;
 
 	}
 
@@ -264,6 +266,15 @@ export class NavGrid {
 		if ( ! this.ready ) return null;
 		const s = this.nearestFreeIndex( ax, az, 8 ), t = this.nearestFreeIndex( bx, bz, 8 );
 		if ( s < 0 || t < 0 ) return null;
+		// wave 20A: two cells in different pieces of the grid have no route (A* searched up to 60,000 cells to find that out,
+		// again every time: Tidemark's evening tavern-goers, ~11 ms a frame)
+		const comp = this.components();
+		if ( comp[ s ] !== comp[ t ] ) {
+
+			this.unreachable ++;
+			return null;
+
+		}
 		const end = { x: bx, z: bz };
 		const tk = this.index( bx, bz );
 		const exact = tk === t || ( tk >= 0 && ! this.sea[ tk ] && Math.hypot( this.centre( t ).x - bx, this.centre( t ).z - bz ) < 2.5 );
@@ -290,6 +301,47 @@ export class NavGrid {
 		}
 
 		return pts;
+
+	}
+
+	// the connected pieces of the free cells under A*'s moves (8 neighbours, no squeezing between two blocked corners: the
+	// moves are symmetric), labelled once the grid is built; comp[ k ] -1 for a blocked cell
+	components() {
+
+		if ( this._comp ) return this._comp;
+		const nu = this.nu, nv = this.nv, cost = this.cost, comp = new Int32Array( this.n ).fill( - 1 ), stack = new Int32Array( this.n );
+		let id = 0;
+		for ( let k0 = 0; k0 < this.n; k0 ++ ) {
+
+			if ( cost[ k0 ] <= 0 || comp[ k0 ] >= 0 ) continue;
+			let sp = 0;
+			stack[ sp ++ ] = k0;
+			comp[ k0 ] = id;
+			while ( sp > 0 ) {
+
+				const k = stack[ -- sp ];
+				const i = k % nu, j = ( k - i ) / nu;
+				for ( let dj = - 1; dj <= 1; dj ++ ) for ( let di = - 1; di <= 1; di ++ ) {
+
+					if ( ! di && ! dj ) continue;
+					const ni = i + di, nj = j + dj;
+					if ( ni < 0 || nj < 0 || ni >= nu || nj >= nv ) continue;
+					const nk = nj * nu + ni;
+					if ( cost[ nk ] <= 0 || comp[ nk ] >= 0 ) continue;
+					if ( di && dj && ( cost[ j * nu + ni ] <= 0 || cost[ nj * nu + i ] <= 0 ) ) continue;
+					comp[ nk ] = id;
+					stack[ sp ++ ] = nk;
+
+				}
+
+			}
+
+			id ++;
+
+		}
+
+		this.componentCount = id;
+		return ( this._comp = comp );
 
 	}
 

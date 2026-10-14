@@ -11,6 +11,12 @@
 //   NavGrid built before the run, bodies on stand-in avatars), a cutlass drawn (weapons + firearms + melee, no raiders), the
 //   harbour and its residents, trade with the rivals, destruction (the Tidemark props) and the 12 AI ships. The player
 //   strolls round the square. (TownKit is static draws: nothing on the CPU after its merge.)
+// wave19 (wave 20A): Tidemark at 19:00, the tavern busy - wave 19's systems at once: the navy (its frigate and cutters on the
+//   Tidemark approach, naval's 12 AI ships besides), the player's brigantine moored at the Tidemark dock with four of the crew
+//   aboard (gunner, angler, cook, lookout: crew lives ticking), a storm front crossing the town (the weather feature's fronts:
+//   squall, band, lightning), Tidemark's shells registered with their hollow colliders and the interiors feature loading the
+//   Tide & Tankard as the player strolls past its door (in and out of the load radius), townlife's evening (tavern-goers on
+//   the NavGrid built over those colliders), the harbour, trade and destruction.
 // 3600 frames at 60 Hz per scenario. Pass 1 times every module's update (performance.now around each call); pass 2 runs
 // a fresh world again and counts the bytes each update allocates (a minor GC before every frame, a 64 MB young
 // generation: no collection inside a frame, so heapUsed deltas are the allocations).
@@ -26,6 +32,7 @@ if ( typeof globalThis.gc !== 'function' ) {
 
 }
 
+globalThis.__quietKit = true; // (the shells' town kit loads no GLB here)
 const { performance } = await import( 'node:perf_hooks' );
 const { writeFileSync } = await import( 'node:fs' );
 const { Vector3, Quaternion, Group, PerspectiveCamera } = await import( '../../src/engine/index.js' );
@@ -44,6 +51,13 @@ const piratesModule = await import( '../../src/features/pirates/index.js' );
 const crewModule = await import( '../../src/features/crew/index.js' );
 const tradeModule = await import( '../../src/features/trade/index.js' );
 const harbourModule = await import( '../../src/features/harbour/index.js' );
+const navyModule = await import( '../../src/features/navy/index.js' );
+const weatherModule = await import( '../../src/features/weather/index.js' );
+const { frontAt, influence } = await import( '../../src/features/weather/Fronts.js' );
+const { InteriorsFeature } = await import( '../../src/world/interiors/index.js' );
+const { buildShells } = await import( '../../src/world/islands/town/Buildings.js' );
+const { clearShells } = await import( '../../src/world/interiors/Shells.js' );
+const { createPropMaterial } = await import( '../../src/game/GameMaterials.js' );
 const destructionModule = await import( '../../src/features/destruction/index.js' );
 const agentsModule = await import( '../../src/features/agents/index.js' );
 const hijackModule = await import( '../../src/features/hijack/index.js' );
@@ -65,7 +79,7 @@ const args = Object.fromEntries( process.argv.slice( 2 ).map( ( a ) => {
 } ) );
 const FRAMES = Number( args.frames ) || 3600;
 const DT = 1 / 60;
-const SCENARIOS = String( args.scenario || 'sea,shore,wave15,wave18' ).split( ',' );
+const SCENARIOS = String( args.scenario || 'sea,shore,wave15,wave18,wave19' ).split( ',' );
 // --cap=n: naval's awake-ship cap (Quality: Low 8, phones 6; none by default) for the before / after of the cap
 const CAP = args.cap !== undefined ? Number( args.cap ) : null;
 const DETAIL = !! args.detail;
@@ -126,16 +140,41 @@ function arena( cx, cz ) {
 
 }
 
+// the clock a scenario starts at (wave19: 19:00 on the day of its front)
+function hourOf( scenario ) {
+
+	return scenario === 'wave19' ? WAVE19_HOUR % 24 : scenario === 'wave18' ? 12 : 10;
+
+}
+
 // ---------------------------------------------------------------- the world
 
 const SEA = { x: 40, z: 520 }; // amid the patrols, outside the safe zones
 const SHORE = { x: 60, z: - 70 }; // the old camp by the village (residents near)
 const SQUARE = tidemarkAt( - 120, 8 ); // Tidemark's market square (wave18)
+const TAVERN = tidemarkAt( - 120, 38 ); // the Tide & Tankard's shell (wave19: the player strolls a circle past its door)
+const STROLL = { ...tidemarkAt( - 120 + 26, 38 ), r: 22, w: 0.15 }; // centre on the street in front, 22 m round, 0.15 rad/s
+// the absolute island hour of the wave19 run: 19:00 of the first day whose front has its band over the tavern then (searched
+// once; a pure function of the hour, Fronts.js)
+const WAVE19_HOUR = ( () => {
+
+	for ( let day = 1; day < 400; day ++ ) {
+
+		const A = day * 24 + 19, f = frontAt( A );
+		if ( ! f ) continue;
+		const q = influence( f, TAVERN.x, TAVERN.z, A );
+		if ( q.depth > - 250 && q.depth < 200 ) return A; // the squall at the edge reaches the town as the run starts
+
+	}
+
+	return 19;
+
+} )();
 // the two-tile world for wave18 only (the other scenarios keep the terrain their fingerprints were taken on)
 let tileTerrain = null;
 const terrainFor = ( scenario ) => {
 
-	if ( scenario !== 'wave18' ) return terrain;
+	if ( scenario !== 'wave18' && scenario !== 'wave19' ) return terrain;
 	if ( ! tileTerrain ) { tileTerrain = new TerrainData(); ensureTidemark( tileTerrain ); ensureBlackwater( tileTerrain ); }
 	return tileTerrain;
 
@@ -148,17 +187,20 @@ async function makeWorld( scenario ) {
 	state.money = 5000;
 	state.character = 'hyptile';
 	state.unlocked = [ 'hyptile', 'pepe', 'doge', 'pengu', 'bonk' ];
-	const wave15 = scenario === 'wave15', wave18 = scenario === 'wave18';
+	const wave15 = scenario === 'wave15', wave19 = scenario === 'wave19', wave18 = scenario === 'wave18' || wave19;
 	const terrain = terrainFor( scenario );
-	const at = scenario === 'shore' ? SHORE : wave18 ? SQUARE : SEA;
+	const at = scenario === 'shore' ? SHORE : wave19 ? { x: STROLL.x + STROLL.r, z: STROLL.z } : wave18 ? SQUARE : SEA;
 	const atSea = scenario !== 'shore' && ! wave18;
+	if ( wave19 ) state.boat = 'brigantine'; // (four berths: the crew aboard)
 	const player = {
 		mode: atSea ? 'boat' : 'walk', camMode: 'third', position: new Vector3( at.x, atSea ? 1 : terrain.heightAt( at.x, at.z ), at.z ), velocity: new Vector3(), yaw: 0, pitch: 0,
 		stamina: 1, grounded: true, prompt: null, busy: false, seat: null, action: null, launched: 0,
 		leaveHelm() { this.mode = 'deck'; }, groundAt: ( x, z ) => terrain.heightAt( x, z ),
 	};
+	// (wave19: moored at the Tidemark dock, the crew aboard)
+	const dock = wave19 && WORLD.tidemark && WORLD.tidemark.dock && WORLD.tidemark.dock.position ? WORLD.tidemark.dock.position : WORLD.boatDock.position;
 	const boat = {
-		position: new Vector3( atSea ? at.x : WORLD.boatDock.position.x, 0, atSea ? at.z : WORLD.boatDock.position.z ), quaternion: new Quaternion(), velocity: new Vector3( 0, 0, atSea ? 3 : 0 ),
+		position: new Vector3( atSea ? at.x : dock.x, 0, atSea ? at.z : dock.z ), quaternion: new Quaternion(), velocity: new Vector3( 0, 0, atSea ? 3 : 0 ),
 		angular: new Vector3(), speed: atSea ? 3 : 0, driven: atSea, moored: ! atSea, enabled: true,
 		getYaw() { return 0; }, toWorld( l, out ) { return out.copy( l ).add( this.position ); }, reset() { this.moored = true; },
 	};
@@ -170,13 +212,24 @@ async function makeWorld( scenario ) {
 	const app = {
 		player, input, boatCtl: boat, boat: { dimensions: { length: 8.2, beam: 2.9, draft: 0.85, freeboard: 0.9 } },
 		camera: new PerspectiveCamera( 60, 16 / 9, 0.1, 2000 ), scene: null,
-		game: { state, hour: wave18 ? 12 : 10, rod: { equipped: false, equip() {} }, toast() {}, cancelLine() {}, contracts: { onCatch() {} }, habitatAtPoint: null },
-		terrainData: terrain, colliders: new Colliders(), settings: { timeOfDay: wave18 ? 12 : 10, timeSpeed: 1 }, mode: 'campaign', paused: false, menuOpen: false, freeCam: false,
+		game: { state, hour: hourOf( scenario ), rod: { equipped: false, equip() {} }, toast() {}, cancelLine() {}, contracts: { onCatch() {} }, habitatAtPoint: null },
+		terrainData: terrain, colliders: new Colliders(), settings: { timeOfDay: hourOf( scenario ), timeSpeed: 1 }, mode: 'campaign', paused: false, menuOpen: false, freeCam: false,
 		avatar: { character: 'hyptile', model: new FakeModel(), playMontage: () => ( { stop() {} } ) }, ui: null, cameraFeel: { kick() { return true; } }, audio: null, query: null, spray: null,
 		residents: R,
 		netsync: { sendWorldEvent() {} },
 	};
 	app.camera.position.set( at.x, 6, at.z - 12 );
+	if ( wave19 ) {
+
+		// Tidemark's shells (their hollow colliders, the three interiors registered) on the colliders townlife's grid is built
+		// over, as the island builds them in the game (stand-in village materials: the meshes are not drawn here)
+		clearShells();
+		const mats = {};
+		for ( const k of [ 'wood', 'hard', 'roofMetal', 'thatch', 'stone', 'fabric', 'net' ] ) mats[ k ] = createPropMaterial( 'perf ' + k );
+		const tile = terrain.tiles ? terrain.tiles.find( ( q ) => q.id === 'tidemark' ) : null;
+		buildShells( { terrain: tile || ensureTidemark( terrain ), colliders: app.colliders, village: { materials: mats, textures: { bake() {} } }, propMaterial: createPropMaterial( 'perf' ) } );
+	}
+
 	const features = new Features( app );
 	const add = ( name, mod, opts ) => features.add( name, { install: ( a, f ) => mod.install( a, f, opts ) } );
 	const trade = add( 'trade', tradeModule, { seed: 4, toasts: false, stalls: false, ...( wave15 || wave18 ? { rivals: true } : {} ) } );
@@ -188,7 +241,7 @@ async function makeWorld( scenario ) {
 	const pirates = add( 'pirates', piratesModule, { seed: 3, hud: false, avatarFactory } );
 	const crew = add( 'crew', crewModule, { rng: makeRng( 11 ), deck: false, doc: dom.doc } );
 	const destruction = features.add( 'destruction', destructionModule );
-	let agents = null, hijack = null, rescue = null, townlife = null, weapons = null;
+	let agents = null, hijack = null, rescue = null, townlife = null, weapons = null, navy = null, weather = null, interiors = null;
 	if ( wave18 ) {
 
 		const vfx = {};
@@ -200,6 +253,15 @@ async function makeWorld( scenario ) {
 		add( 'firearms', firearmsModule, { audio: { report: yes, click: yes }, mesh: false, hud: false, seed: 11 } );
 		weapons = add( 'weapons', weaponsModule, { audio: { blast: yes, shatter: yes, hiss: yes, whoosh: yes, clang: yes, thud: yes, report: yes, click: yes }, mesh: false, seed: 11 } );
 		townlife = add( 'townlife', townlifeModule, { avatarFactory, rand: makeRng( 18 ) } );
+
+	}
+
+	if ( wave19 ) {
+
+		navy = features.add( 'navy', { install: ( a, f ) => navyModule.install( a, f, { seed: 3, jetty: false, models: false } ) } );
+		weather = features.add( 'weather', { install: ( a, f ) => new weatherModule.Weather( a, f, { rng: makeRng( 19 ), now: () => 0 } ) } );
+		weather.day = Math.floor( WAVE19_HOUR / 24 );
+		interiors = features.add( 'interiors', { install: ( a, f ) => new InteriorsFeature( a, f, { meshes: false } ) } );
 
 	}
 
@@ -249,11 +311,17 @@ async function makeWorld( scenario ) {
 	}
 
 	if ( CAP !== null && naval.setShipCap ) naval.setShipCap( CAP );
-	// two crew gunners on the lobster boat, with the swivel gun
+	// two crew gunners on the lobster boat, with the swivel gun (wave19: four hands aboard the brigantine at the dock)
 	naval.playerGun.owned = true;
 	const ctx = crew.ctx ? crew.ctx() : null;
 	crew.setPost( 'pepe', 'gunner', ctx );
-	crew.setPost( 'pengu', 'gunner', ctx );
+	crew.setPost( 'pengu', wave19 ? 'cook' : 'gunner', ctx );
+	if ( wave19 ) {
+
+		crew.setPost( 'doge', 'angler', ctx );
+		crew.setPost( 'bonk', 'lookout', ctx );
+
+	}
 	// settle: destruction builds; ashore the camp spawns while the player is 40 m off (raiders appear out of sight), then
 	// the player walks in
 	if ( ! atSea ) player.position.set( at.x + 40, terrain.heightAt( at.x + 40, at.z ), at.z );
@@ -267,7 +335,7 @@ async function makeWorld( scenario ) {
 
 	if ( ! atSea ) player.position.set( at.x, terrain.heightAt( at.x, at.z ), at.z );
 	dom.reset();
-	return { app, features, R, naval, melee, trade, harbour, boarding, pirates, crew, destruction, agents, hijack, rescue, townlife, weapons, terrain, scenario, player, boat, input, dom };
+	return { app, features, R, naval, melee, trade, harbour, boarding, pirates, crew, destruction, agents, hijack, rescue, townlife, weapons, navy, weather, interiors, terrain, scenario, player, boat, input, dom };
 
 }
 
@@ -355,7 +423,7 @@ class Recorder {
 
 }
 
-async function run( scenario, mode ) {
+async function run( scenario, mode, ready = null ) {
 
 	const w = await makeWorld( scenario );
 	const rec = new Recorder( mode );
@@ -372,6 +440,7 @@ async function run( scenario, mode ) {
 	}
 
 	instrument( w, rec );
+	if ( ready ) await ready(); // (--sites: the sampling starts here, after the world is built)
 	const total = rec.slot( 'frame' );
 	const start = { x: w.boat.position.x, z: w.boat.position.z };
 	globalThis.gc();
@@ -382,7 +451,13 @@ async function run( scenario, mode ) {
 		if ( mode === 'alloc' ) globalThis.gc( { type: 'minor' } );
 		// the player sails a slow circle at sea / strolls about the arena ashore
 		const a = i * DT * 0.05;
-		if ( scenario === 'wave18' ) {
+		if ( scenario === 'wave19' ) {
+
+			// round the street in front of the tavern: in and out of its interior's load radius once a lap
+			const b = i * DT * STROLL.w, x = STROLL.x + Math.cos( b ) * STROLL.r, z = STROLL.z + Math.sin( b ) * STROLL.r;
+			w.player.position.set( x, w.terrain.heightAt( x, z ), z );
+
+		} else if ( scenario === 'wave18' ) {
 
 			const x = SQUARE.x + Math.sin( a * 3 ) * 8, z = SQUARE.z + Math.cos( a * 3 ) * 8;
 			w.player.position.set( x, w.terrain.heightAt( x, z ), z );
@@ -413,7 +488,8 @@ async function run( scenario, mode ) {
 		if ( ( w.naval._asleep || 0 ) > ( w._maxAsleep || 0 ) ) w._maxAsleep = w.naval._asleep;
 		w.input.endFrame();
 		if ( args.trace && mode === 'time' && i % 600 === 0 ) console.log( i, JSON.stringify( { hull: w.naval.playerHull, ok: w.naval.target.ok, ships: w.naval.ships.map( ( s ) => `${ s.kind[ 0 ] } ${ s.state } ${ Math.round( Math.hypot( s.x - w.boat.position.x, s.z - w.boat.position.z ) ) }` ) } ) );
-		w.app.settings.timeOfDay = ( ( scenario === 'wave18' ? 12 : 10 ) + i * DT / 60 ) % 24; // a game minute per second
+		w.app.settings.timeOfDay = ( hourOf( scenario ) + i * DT / 60 ) % 24; // a game minute per second
+		if ( w.interiors ) { const r = w.interiors.rooms.byId.get( 'tidemark.tavern' ); if ( r && r.loaded !== w._roomWas ) { w._roomWas = r.loaded; w._roomToggles = ( w._roomToggles || 0 ) + 1; } }
 		w.app.game.hour = w.app.settings.timeOfDay;
 
 	}
@@ -429,6 +505,7 @@ async function run( scenario, mode ) {
 	for ( const k in dom ) dom[ k ] = +( dom[ k ] / FRAMES ).toFixed( 2 );
 	const stats = { ships: w.naval.ships.length, alive: w.naval.ships.filter( ( s ) => s.alive ).length, maxShips: w._maxShips || 0, asleep: w._maxAsleep || 0, raiders: w.melee.raiders.length, residents: w.R.list.length, shipShots: w.naval.stats.shots, crewShots: w.naval.crewShots, contacts: w._contacts || 0, hull: Math.round( w.naval.playerHull.hp ) };
 	if ( w.townlife ) Object.assign( stats, { townsfolk: w.townlife.towns.reduce( ( n, t ) => n + t.sim.list.length, 0 ), bodies: w.townlife.bound.size, hand: w.weapons.hand + ':' + w.weapons.melee } );
+	if ( w.navy ) Object.assign( stats, { navy: w.navy.ships.size, front: w.weather.front ? w.weather.front.id : null, squall: w.weather.local ? +( w.weather.local.squall || 0 ).toFixed( 3 ) : 0, room: w._roomToggles || 0, crew: Object.keys( w.crew.posts || {} ).length, unreachable: w.townlife.towns.reduce( ( n, t ) => n + ( t.grid ? t.grid.unreachable || 0 : 0 ), 0 ), expansions: w.townlife.towns.reduce( ( n, t ) => n + ( t.grid ? t.grid.expansions : 0 ), 0 ) } );
 	if ( w.rescue ) Object.assign( stats, { rescue: w.rescue.job ? w.rescue.job.phase : 'none', rivals: w.trade.rivals && w.trade.rivals.snapshot ? JSON.stringify( w.trade.rivals.snapshot() ).length : 0, hunters: w.pirates.retaliation && w.pirates.retaliation.active ? w.pirates.retaliation.active.length : 0 } );
 	// a fingerprint of where everything ended up: equal before / after an optimisation = the same behaviour
 	let fp = 0;
@@ -438,6 +515,12 @@ async function run( scenario, mode ) {
 	fp += w.naval.playerHull.hp + w.app.game.state.money;
 	if ( w.townlife ) for ( const t of w.townlife.towns ) for ( const c of t.sim.list ) fp += ( c.x || 0 ) * 0.11 + ( c.z || 0 ) * 0.13;
 	if ( w.rescue && w.rescue.job && w.rescue.job.ship ) fp += w.rescue.job.ship.x * 0.3 + w.rescue.job.ship.z * 0.7;
+	if ( w.navy ) {
+
+		fp += w.navy.standing * 5.3 + ( w.weather.hours || 0 ) * 0.01 + ( w._roomToggles || 0 ) * 7.1;
+		for ( const id of Object.keys( w.crew.posts || {} ) ) { const m = w.crew.member ? w.crew.member( id ) : null; if ( m ) fp += ( m.morale || 0 ) * 0.37 + ( m.food || 0 ) * 0.11 + ( m.rest || 0 ) * 0.07; }
+
+	}
 	stats.fingerprint = fp.toFixed( 6 );
 	try { w.features.dispose && w.features.dispose(); } catch ( e ) { /* stand-ins */ }
 	return { out, wall, heapGrowth: heap1 - heap0, stats, dom };
@@ -454,8 +537,8 @@ if ( args.sites ) {
 	session.connect();
 	for ( const sc of SCENARIOS ) {
 
-		await session.post( 'HeapProfiler.startSampling', { samplingInterval: 512, includeObjectsCollectedByMajorGC: true, includeObjectsCollectedByMinorGC: true } );
-		await run( sc, 'time' );
+		// (wave 20A: from the first frame on, not the world's build)
+		await run( sc, 'time', () => session.post( 'HeapProfiler.startSampling', { samplingInterval: 512, includeObjectsCollectedByMajorGC: true, includeObjectsCollectedByMinorGC: true } ) );
 		const { profile } = await session.post( 'HeapProfiler.stopSampling' );
 		const sites = new Map();
 		const name = ( f ) => `${ f.functionName || '(anon)' } ${ f.url.replace( /^.*[\/]src[\/]/, 'src/' ) }:${ f.lineNumber + 1 }`;

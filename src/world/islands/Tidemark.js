@@ -13,6 +13,7 @@ import { buildAirstrip } from './town/Airstrip.js';
 import { scatterTrees } from './town/Vegetation.js';
 import { TownDamage } from './town/Damage.js';
 import { BUILDINGS, SPOTS, townProps } from './town/Layout.js';
+import { NearRelease } from '../village/TownKit.js';
 
 // Tidemark, the big town island east of the archipelago (terrain/IslandShape.js TIDEMARK, WORLD.tidemark): a ~420 m
 // green island beyond the 2048 m heightmap on its own terrain tile, a sheltered bay on its lee (east-south-east) side
@@ -29,6 +30,7 @@ import { BUILDINGS, SPOTS, townProps } from './town/Layout.js';
 //   tm.damage (TownDamage: hit( x, y, z, energy ) / state( id ) / toJSON / fromJSON), tm.buildings (shells),
 //   tm.connect( features ) (cannonballImpact / explosion / planeCrashed damage the shells; the vfx feature's smoke),
 //   tm.airstrip / tm.bay / tm.dock (WORLD.tidemark), tm.stats { triangles, palms, trees, edgeLights, lights }
+//   tm.release (TownKit NearRelease, phones: the near meshes' GPU buffers freed beyond 1.5 km, re-uploaded from 1.3 km)
 
 const NEAR_TERRAIN = 1100; // m: the 4 m terrain mesh within this, the 16 m one beyond (the far one is the landmark)
 const TOWN_DIST = 800; // the shells, the props and the airstrip
@@ -134,6 +136,9 @@ export class Tidemark {
 		};
 		this.distance = Infinity;
 		this._spots = SPOTS;
+		// wave 20A (phones): the near terrain, the shells (the kit hangs under the paving), the props, trees, lamps and the stream
+		// let their GPU buffers go while the town is far; the far terrain, the far shells and the far crowns stay
+		this.release = new NearRelease( { roots: [ nearT, river, ...shells.meshes, props, trees, lamps ] } );
 
 	}
 
@@ -162,6 +167,7 @@ export class Tidemark {
 		const e = 0.15 + 3.2 * night;
 		this.lampMaterial.emissive = [ e, e * 0.82, e * 0.55 ];
 		if ( town && G.windDir ) this.windsock.updateWind( G.windDir.value );
+		this.release.update( d ); // (after the visibility above: a released town's near meshes stay hidden)
 		this.damage.update( dt, this.features && this.features.get ? this.features.get( 'vfx' ) : null );
 
 	}

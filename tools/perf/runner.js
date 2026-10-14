@@ -164,9 +164,14 @@ export async function setupScenario( app, s ) {
 
 		} else if ( s.place.kind === 'walk' ) {
 
-			const y = groundAt( app, pl.x, pl.z ) + 0.1;
-			if ( typeof app._placePlayer === 'function' ) app._placePlayer( pl.x, y, pl.z, pl.heading );
-			else if ( p && p.position ) p.position.set( pl.x, y, pl.z );
+			// wave 20A: inside a room (the interiors feature's spawn point and floor), else on the ground at x, z
+			const it = s.place.interior && app.features && app.features.get ? app.features.get( 'interiors' ) : null;
+			const room = it && it.enter ? it.enter( s.place.interior ) : null;
+			if ( s.place.interior && ! room ) info.notes.push( 'no interior ' + s.place.interior );
+			const y = room ? room.y + 0.05 : groundAt( app, pl.x, pl.z ) + 0.1;
+			const x = room ? room.x : pl.x, z = room ? room.z : pl.z, yaw = room ? room.yaw : pl.heading;
+			if ( typeof app._placePlayer === 'function' ) app._placePlayer( x, y, z, yaw );
+			else if ( p && p.position ) p.position.set( x, y, z );
 
 		} else {
 
@@ -341,7 +346,7 @@ async function frames( app, n, dt, tick, t0, onFrame, waitGpu ) {
 
 }
 
-export async function runPerf( app, { scenarios = 'default', frames: nFrames = null, warm = null, dt = 1 / 60, bench = null, url = null, tag = 'perf', waitGpu = undefined, memory = null } = {} ) {
+export async function runPerf( app, { scenarios = 'default', frames: nFrames = null, warm = null, dt = 1 / 60, bench = null, url = null, tag = 'perf', waitGpu = undefined, memory = null, onMeasure = null } = {} ) {
 
 	const ids = Array.isArray( scenarios ) ? scenarios.filter( ( id ) => SCENARIOS[ id ] ) : parsePerfQuery( scenarios );
 	if ( app.engine && app.engine.stop ) app.engine.stop();
@@ -368,6 +373,7 @@ export async function runPerf( app, { scenarios = 'default', frames: nFrames = n
 				const cpu = [], perFrame = [];
 				const sink = {};
 				const unscope = installScopes( app, sink );
+				if ( onMeasure ) onMeasure( 'begin', id );
 				if ( gpuOn ) { bench.frames = []; bench._capture = true; }
 				try {
 
@@ -382,6 +388,7 @@ export async function runPerf( app, { scenarios = 'default', frames: nFrames = n
 				} finally {
 
 					unscope();
+					if ( onMeasure ) await onMeasure( 'end', id, n );
 
 				}
 

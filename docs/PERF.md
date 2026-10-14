@@ -248,3 +248,104 @@ views), weapons and firearms with a cutlass drawn ~0.006 ms.
 - No browser or phone: the half-float heights rely on r16float being sampleable as unfilterable-float with textureLoad
   (core WebGPU; Dawn / Vulkan here); Safari's Float16Array path converts in one call, the fallback loop ~4 M values at load.
 - Chrome's per-draw CPU cost (Node's is higher): Medium's CPU frame at Tidemark's quay is 18 - 19 ms here with GPU 3.9 ms.
+
+# Wave 20A (2026-10-15): phone headroom at the towns; the CPU frame at Tidemark
+
+## How it was measured
+
+- GPU memory: `node tools/perf/headless.mjs --perf=views --mobile --real-sizes --quality=low --size=852x393` on the RTX 5070 Ti
+  (Vulkan), the four views of 19A plus **tidemarkTavern** (new: inside the Tide & Tankard at 19:00, `place.interior`), in that
+  order. Before = the same tree with `--budget-off=nearRelease,kitPlants,stallTexture` (new: phone budget keys left out).
+  Reports `tools/perf/out/perf-phone-w20-before.json`, `perf-phone-w20.json`.
+- CPU (Node + Dawn, Medium, 1920x1080, Tidemark's quay, square and tavern): before = a copy of the tree with this wave's four CPU
+  files restored (NavGrid.js, townlife/index.js, Citizens.js, Interiors.js), after = the tree, patched = the tree plus the two
+  root patches below applied by the harness (`--patch=farcull,eyes`); four interleaved rounds, the median. Reports
+  `tools/perf/out/perf-medium-w20-before.json`, `perf-medium-w20.json`, `perf-medium-w20-patched.json`. **The machine was under
+  heavy shared load: frame means moved 12 - 31 ms between rounds of one configuration**; compare the draw counts and scopes.
+- Where the frame goes: `--draw-list[=n][,root]` (new: draws per frame by mesh or by top group, with their passes),
+  `--scene-groups` (the top groups' bounds and culls), V8's `--cpu-prof`. CPU scenarios: `cpu-scenarios.mjs` with the new
+  **wave19** (below). Pictures: `--shots=<dir>` (each scenario's last frame) and `pairs.mjs`.
+
+## Where the time was (before)
+
+At Tidemark's quay on Medium the renderer is ~60 % of the CPU frame: `drawItems` alone 30 % self (the Dawn calls: 2.75 us a
+setBindGroup, 1.9 a setVertexBuffer / setIndexBuffer, 1.4 a draw: ~12 us of native calls a draw, `--trace-calls`), the scene
+walks 8 %, queue submit 9 %, skinning 7 %. 470 - 510 draws a frame, of which: avatars' eye parts (pupils, rims, lids: 6 - 8
+meshes a roster face, each in every shadow cascade) ~80; the home island 1.8 km away (village, boatyard, start dressing,
+vendors, debris: no distance cull, several `frustumCulled = false`) ~120 across the passes; the parked planes ~50.
+Hiding the home island's groups alone took 3.4 ms off. In the evening the tavern view spent **8.8 - 11 ms a frame in townlife**:
+Tidemark's tavern door and patio are cut off from the streets in its NavGrid, and every tavern-goer's failed A* searched up to
+60,000 cells, again and again (145.8 M expansions in a 60 s run).
+
+## What changed
+
+- Phones (PHONE_BUDGET, Quality.js): `nearRelease` - Tidemark and Blackwater free their near meshes' GPU buffers (the near
+  terrain, the shells with the kit under the paving, the props, trees, lamps, the stream; Blackwater's props and near land)
+  beyond 1.5 km and re-upload them from 1.3 km, 2 MB a frame (~7 frames), all at once on a teleport inside 900 m (TownKit.js
+  `NearRelease`: the same arrays under new attribute objects, so the renderer's caches never meet a stale buffer; colliders
+  and the CPU geometry stay); `kitPlants: 'simple'` - the kit's flower boxes and planters keep their box and one bloom colour,
+  the leaves and the other blooms become one green dome (1,596 -> 372 vertices; the merged Tidemark kit 3.3 -> 1.4 MB);
+  `stallTexture: 128` - the stalls' scanned-prop arrays (3 x 5 -> 1.25 MB; the planks stay at 256).
+- townlife: NavGrid `components()` (the free cells' connected pieces under A*'s own moves, labelled once): a goal in another
+  piece is answered at once (the same answers as A*: test/perf-w20.mjs); the townsfolk's pupils, rims and lids cast no shadow
+  (`EYE_PART`); a standing citizen's ground is not looked up again; slot claims without a pair per step.
+- Interiors: one room starts loading a frame (a room you stand in never waits); a room's seats are made once.
+- Quality.js `farCull( scene )`: the far cull of the App.js patch below (not called by the game until root applies it).
+
+## Before / after
+
+| phone, GPU MB | home bay | Tidemark quay | Tidemark square | Blackwater cove | Tidemark tavern |
+|---|---|---|---|---|---|
+| before | 348.4 | 372.5 | 373.9 | 384.1 | **389.5** |
+| after | 336.6 | 359.1 | 360.6 | **358.5** | 372.9 |
+
+Phone GPU time unchanged (1.6 - 2.1 ms); the run's peak 411.0 -> 399.1 MB. Pictures: `tools/perf/out/w20/phone-sheet.png`
+(five views, before | after: mean difference 0.04 - 0.23 / 255, the clouds and gulls), `flowerbox-crop.png` (a window box
+up close, 4x: the dome with its red blooms against the full box).
+
+| Medium, Node + Dawn (median of 4) | before | after | after + root patches |
+|---|---|---|---|
+| Tidemark quay: frame / draws | 24.7 ms / 426 | 22.8 ms / 408 | 19.6 ms / 280 (best round 13.4) |
+| Tidemark square: frame / draws | 23.6 ms / 404 | 21.4 ms / 373 | 18.6 ms / 264 (best round 11.5) |
+| Tidemark tavern (19:00): frame / draws | 31.2 ms / 465 | 22.8 ms / 418 | 20.3 ms / 299 (best round 16.2) |
+| tavern: townlife / scene render / shadows | 8.81 / 7.81 / 6.16 | 1.24 / 7.90 / 5.50 | 1.32 / 6.01 / 4.77 |
+
+Pictures: `tools/perf/out/w20/medium-before-A.png`, `medium-before-P.png` (before | after; identical: 0.000 - 0.005 / 255).
+
+| CPU scenarios (3600 frames, median of 3) | before | after |
+|---|---|---|
+| wave19: all features, ms / frame | 8.82 | 0.285 (the same fingerprint, 65675.890444) |
+| wave19: townlife, ms / frame (A* expansions) | 8.28 (145.8 M) | 0.062 (32 k) |
+| wave18: all features, ms / frame | 0.189 | 0.183 (the same fingerprint, 54770.688244) |
+
+`tools/perf/out/cpu-w20-before.json`, `cpu-w20.json`. **wave19** (new): Tidemark at 19:00 on the day a storm front crosses it,
+the navy (3 ships) and naval's 12, the brigantine at the Tidemark dock with four hands aboard (gunner, cook, angler, lookout),
+Tidemark's shells with their hollow colliders, the interiors feature loading the Tide & Tankard as the player strolls past its
+door, townlife's evening, harbour, trade, destruction; deterministic (test/perf-w20.mjs). Navy 0.01 - 0.03, crew 0.01 - 0.05,
+weather 0.015 - 0.05, interiors 0.003 - 0.013 ms a frame: no throttle needed there.
+
+**Target not met:** the Medium town frame is not under 12 ms in Node on this machine (best rounds 11.5 - 13.4 ms with the
+patches). What is left is the renderer's cost per draw (the engine, root's): see the proposals.
+
+## Patches proposed (not applied; root's files)
+
+- src/App.js, after `this.ports?.tidemark?.connect( this.features );` add
+  `import( './core/Quality.js' ).then( ( q ) => q.farCull( this.scene ) );` (or a static import of `farCull`). The home island's
+  town groups and the ports' small props get Tidemark's town cull (800 m x draw scale + their radius); measured above (-120
+  draws at Tidemark). Visual: from Tidemark looking west, the home village's specks at 1.8 km are gone, as Tidemark's own town
+  is from the home bay.
+- src/engine/render/Skinning.js, after `mesh.castShadow = true;` add
+  `if ( /_(Pupil|Rim|Lid)_[lr]$/.test( mesh.name ) ) Object.defineProperty( mesh, 'castShadow', { get: () => false, set() {}, configurable: true } );`
+  (Residents.js re-sets castShadow by distance; the property ignores it for these). ~40 draws at Tidemark.
+- Engine, larger (estimates from `--trace-calls`): static geometry in shared vertex / index buffers drawn with baseVertex /
+  firstIndex (no setVertexBuffer / setIndexBuffer a draw: ~3.7 us a draw); the per-draw slot through `firstInstance` and a
+  storage buffer instead of a dynamic-offset setBindGroup (~2.7 us a draw); an interior cull (inside a room the outdoors
+  still draws 300 - 400 draws).
+- townlife / Tidemark data: the tavern's door and patio are a separate NavGrid piece from the streets (the hollow shell and
+  porch colliders close them off): the evening's tavern-goers never get there (7,187 goals answered unreachable in wave19).
+- Parked planes (owner): ~50 draws at Tidemark's quay (every part its own mesh): one mesh per material per plane.
+
+## Not verified
+
+- No browser or phone: Chrome's per-draw cost, a real phone's re-upload time (2 MB a frame) and its memory.
+- An unlabelled 1.3 MB GPU buffer appears with each place visited (before and after this wave's changes; not this wave's).

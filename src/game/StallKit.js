@@ -62,7 +62,10 @@ async function pixels( url ) {
 function arrayTexture( label, imgs, srgb ) {
 
 	const pb = globalThis.__phoneBudget; // phones: 256 px layers (three 20 MB arrays -> 5 MB each)
-	if ( pb && pb.propTexture ) imgs = imgs.map( ( im ) => capImage( im, pb.propTexture ) );
+	// wave 20A: the scanned props' arrays at stallTexture (128 px: 5 -> 1.25 MB each); the planks (the stalls' and the interiors'
+	// surfaces, seen up close) stay at propTexture
+	const cap = pb ? ( label.startsWith( 'stallProp' ) && pb.stallTexture ) || pb.propTexture : null;
+	if ( cap ) imgs = imgs.map( ( im ) => capImage( im, cap ) );
 	const w = imgs[ 0 ].width, h = imgs[ 0 ].height;
 	const data = new Uint8Array( w * h * 4 * imgs.length );
 	imgs.forEach( ( im, i ) => {

@@ -10,6 +10,7 @@ import { rngFor } from '../../features/destruction/Kinds.js';
 import { ensureBlackwater } from './BlackwaterTerrain.js';
 import { openCottage } from '../interiors/Shells.js';
 import { blackwaterLandGeometry } from './BlackwaterMesh.js';
+import { NearRelease } from '../village/TownKit.js';
 
 // Blackwater, the pirates' island (terrain/IslandShape.js BLACKWATER; wave 12B). The pirate town on the black-sand crescent
 // inside the caldera cove - the Rum Hole tavern, the black market, the plunder store, huts, three timber docks - and the
@@ -25,6 +26,8 @@ import { blackwaterLandGeometry } from './BlackwaterMesh.js';
 //                     destruction feature does not own them (setStructuresDrawn( false ) once it does); setBroken( id, on )
 //   isle.setSilenced( batteryId, on )   the guns of a broken battery slump on their carriages
 //   isle.setBell( k )                   the bell swings (0..1) while the alarm rings; isle.setFlag( holder ) 'pirates' | 'player'
+//   isle.release                        (wave 20A, phones) TownKit NearRelease: the town's props (the kit under them) and the near land
+//                                       free their GPU buffers beyond 1.5 km and come back from 1.3 km
 
 const NEAR = 900; // m: the town, the fort and the guns
 const NEAR_TERRAIN = 1100; // m: the 2 m land mesh within this, the 8 m one (the whole island and its shelf) always
@@ -91,6 +94,7 @@ export class Blackwater {
 		this._structParts = [];
 		for ( const m of this.structures.values() ) this._structParts.push( { object: m, dist: NEAR } );
 		this._drawStructures = true;
+		this.release = new NearRelease( { roots: [ near, this.land.near ] } );
 
 	}
 
@@ -416,6 +420,7 @@ export class Blackwater {
 
 		this._t += dt;
 		this.distance = cullParts( this.center, this.parts );
+		this.release.update( this.distance ); // (after cullParts: a released town's near meshes stay hidden)
 		const drop = this.land.near.visible ? - 1 : 0;
 		if ( this.land.far.position.y !== drop ) {
 

@@ -1,0 +1,4205 @@
+{
+	"tag": "phone-w20-before",
+	"at": "2026-10-14T21:55:49.559Z",
+	"ua": "node-dawn",
+	"size": [
+		852,
+		393
+	],
+	"gpuTimestamps": true,
+	"scenarios": {
+		"homeBay": {
+			"name": "Home bay",
+			"frames": 180,
+			"cpu": {
+				"n": 180,
+				"mean": 16.764,
+				"p50": 16.3,
+				"p95": 21.715,
+				"p99": 34.908,
+				"min": 10.985,
+				"max": 42.519
+			},
+			"gpu": {
+				"n": 180,
+				"mean": 1.841,
+				"p50": 1.769,
+				"p95": 2.097,
+				"p99": 2.294,
+				"min": 1.704,
+				"max": 2.425
+			},
+			"budget": {
+				"ms": 16.67,
+				"over": 83,
+				"share": 0.461
+			},
+			"scopes": [
+				{
+					"name": "tris:opaque",
+					"mean": 2114185.067,
+					"p95": 2132210,
+					"max": 2132210,
+					"nested": true,
+					"share": 144214.534
+				},
+				{
+					"name": "tris:shadow cascade 0",
+					"mean": 1054185.333,
+					"p95": 1077493,
+					"max": 1077493,
+					"nested": true,
+					"share": 71908.959
+				},
+				{
+					"name": "tris:refraction",
+					"mean": 868779,
+					"p95": 868779,
+					"max": 868779,
+					"nested": true,
+					"share": 59261.869
+				},
+				{
+					"name": "tris:water + transparent",
+					"mean": 610779.5,
+					"p95": 610784,
+					"max": 610784,
+					"nested": true,
+					"share": 41662.995
+				},
+				{
+					"name": "tris:shadow cascade 1",
+					"mean": 173829.5,
+					"p95": 1042977,
+					"max": 1042977,
+					"nested": true,
+					"share": 11857.401
+				},
+				{
+					"name": "tris:shadow cascade 2",
+					"mean": 97560.583,
+					"p95": 1170727,
+					"max": 1170727,
+					"nested": true,
+					"share": 6654.883
+				},
+				{
+					"name": "draws:opaque",
+					"mean": 137.45,
+					"p95": 140,
+					"max": 140,
+					"nested": true,
+					"share": 9.376
+				},
+				{
+					"name": "draws:shadow cascade 0",
+					"mean": 70.367,
+					"p95": 72,
+					"max": 72,
+					"nested": true,
+					"share": 4.8
+				},
+				{
+					"name": "draws:refraction",
+					"mean": 35,
+					"p95": 35,
+					"max": 35,
+					"nested": true,
+					"share": 2.387
+				},
+				{
+					"name": "draws:shadow cascade 1",
+					"mean": 13.667,
+					"p95": 82,
+					"max": 82,
+					"nested": true,
+					"share": 0.932
+				},
+				{
+					"name": "draws:water + transparent",
+					"mean": 10.928,
+					"p95": 11,
+					"max": 11,
+					"nested": true,
+					"share": 0.745
+				},
+				{
+					"name": "draws:shadow cascade 2",
+					"mean": 10.333,
+					"p95": 124,
+					"max": 124,
+					"nested": true,
+					"share": 0.705
+				},
+				{
+					"name": "scene render",
+					"mean": 5.884,
+					"p95": 8.293,
+					"max": 29.248,
+					"share": 0.401
+				},
+				{
+					"name": "pass:opaque",
+					"mean": 3.483,
+					"p95": 4.957,
+					"max": 6.675,
+					"nested": true,
+					"share": 0.238
+				},
+				{
+					"name": "shadows",
+					"mean": 2.992,
+					"p95": 5.216,
+					"max": 6.398,
+					"share": 0.204
+				},
+				{
+					"name": "pass:shadow cascade 0",
+					"mean": 2.518,
+					"p95": 3.4,
+					"max": 3.893,
+					"nested": true,
+					"share": 0.172
+				},
+				{
+					"name": "pass:refraction",
+					"mean": 1.415,
+					"p95": 2.162,
+					"max": 2.567,
+					"nested": true,
+					"share": 0.097
+				},
+				{
+					"name": "pass:water + transparent",
+					"mean": 0.776,
+					"p95": 1.15,
+					"max": 23.529,
+					"nested": true,
+					"share": 0.053
+				},
+				{
+					"name": "game",
+					"mean": 0.62,
+					"p95": 0.844,
+					"max": 1.163,
+					"share": 0.042
+				},
+				{
+					"name": "post",
+					"mean": 0.613,
+					"p95": 0.856,
+					"max": 1.259,
+					"share": 0.042
+				},
+				{
+					"name": "wildlife",
+					"mean": 0.544,
+					"p95": 0.787,
+					"max": 1.053,
+					"share": 0.037
+				},
+				{
+					"name": "residents",
+					"mean": 0.466,
+					"p95": 0.664,
+					"max": 1.013,
+					"share": 0.032
+				},
+				{
+					"name": "avatar",
+					"mean": 0.371,
+					"p95": 0.507,
+					"max": 0.692,
+					"share": 0.025
+				},
+				{
+					"name": "feature:naval",
+					"mean": 0.367,
+					"p95": 0.506,
+					"max": 0.841,
+					"share": 0.025
+				},
+				{
+					"name": "pass:shadow cascade 1",
+					"mean": 0.264,
+					"p95": 1.746,
+					"max": 2.509,
+					"nested": true,
+					"share": 0.018
+				},
+				{
+					"name": "feature:townlife",
+					"mean": 0.257,
+					"p95": 0.377,
+					"max": 1.952,
+					"share": 0.018
+				},
+				{
+					"name": "feature:seaplane",
+					"mean": 0.248,
+					"p95": 0.346,
+					"max": 0.542,
+					"share": 0.017
+				},
+				{
+					"name": "caustics",
+					"mean": 0.221,
+					"p95": 0.295,
+					"max": 0.399,
+					"share": 0.015
+				},
+				{
+					"name": "player",
+					"mean": 0.217,
+					"p95": 0.29,
+					"max": 0.409,
+					"share": 0.015
+				},
+				{
+					"name": "fft",
+					"mean": 0.197,
+					"p95": 0.318,
+					"max": 0.546,
+					"share": 0.013
+				},
+				{
+					"name": "pass:shadow cascade 2",
+					"mean": 0.177,
+					"p95": 1.788,
+					"max": 2.897,
+					"nested": true,
+					"share": 0.012
+				},
+				{
+					"name": "clouds",
+					"mean": 0.173,
+					"p95": 0.231,
+					"max": 0.561,
+					"share": 0.012
+				},
+				{
+					"name": "feature:life",
+					"mean": 0.095,
+					"p95": 0.124,
+					"max": 1.361,
+					"share": 0.006
+				},
+				{
+					"name": "feature:sfx",
+					"mean": 0.094,
+					"p95": 0.119,
+					"max": 0.251,
+					"share": 0.006
+				},
+				{
+					"name": "feature:weather",
+					"mean": 0.093,
+					"p95": 0.122,
+					"max": 0.299,
+					"share": 0.006
+				},
+				{
+					"name": "ocean lod",
+					"mean": 0.092,
+					"p95": 0.173,
+					"max": 0.683,
+					"share": 0.006
+				},
+				{
+					"name": "terrain",
+					"mean": 0.087,
+					"p95": 0.134,
+					"max": 0.309,
+					"share": 0.006
+				},
+				{
+					"name": "feature:melee",
+					"mean": 0.075,
+					"p95": 0.103,
+					"max": 0.298,
+					"share": 0.005
+				},
+				{
+					"name": "shore sim",
+					"mean": 0.061,
+					"p95": 0.088,
+					"max": 0.199,
+					"share": 0.004
+				},
+				{
+					"name": "breakers",
+					"mean": 0.059,
+					"p95": 0.087,
+					"max": 0.146,
+					"share": 0.004
+				},
+				{
+					"name": "water query",
+					"mean": 0.056,
+					"p95": 0.095,
+					"max": 0.202,
+					"share": 0.004
+				},
+				{
+					"name": "feature:crew",
+					"mean": 0.048,
+					"p95": 0.059,
+					"max": 0.215,
+					"share": 0.003
+				},
+				{
+					"name": "feature:stronghold",
+					"mean": 0.045,
+					"p95": 0.055,
+					"max": 0.197,
+					"share": 0.003
+				},
+				{
+					"name": "feature:firearms",
+					"mean": 0.044,
+					"p95": 0.056,
+					"max": 0.16,
+					"share": 0.003
+				},
+				{
+					"name": "feature:pirates",
+					"mean": 0.041,
+					"p95": 0.051,
+					"max": 0.337,
+					"share": 0.003
+				},
+				{
+					"name": "feature:rescue",
+					"mean": 0.036,
+					"p95": 0.063,
+					"max": 0.254,
+					"share": 0.002
+				},
+				{
+					"name": "feature:harbour",
+					"mean": 0.035,
+					"p95": 0.07,
+					"max": 0.148,
+					"share": 0.002
+				},
+				{
+					"name": "spray",
+					"mean": 0.034,
+					"p95": 0.059,
+					"max": 0.111,
+					"share": 0.002
+				},
+				{
+					"name": "feature:vfx",
+					"mean": 0.032,
+					"p95": 0.05,
+					"max": 0.449,
+					"share": 0.002
+				},
+				{
+					"name": "feature:weapons",
+					"mean": 0.03,
+					"p95": 0.038,
+					"max": 0.128,
+					"share": 0.002
+				},
+				{
+					"name": "village",
+					"mean": 0.03,
+					"p95": 0.05,
+					"max": 0.327,
+					"share": 0.002
+				},
+				{
+					"name": "reef",
+					"mean": 0.028,
+					"p95": 0.057,
+					"max": 0.202,
+					"share": 0.002
+				},
+				{
+					"name": "feature:navy",
+					"mean": 0.027,
+					"p95": 0.034,
+					"max": 0.2,
+					"share": 0.002
+				},
+				{
+					"name": "boat model",
+					"mean": 0.027,
+					"p95": 0.039,
+					"max": 0.077,
+					"share": 0.002
+				},
+				{
+					"name": "feature:boarding",
+					"mean": 0.022,
+					"p95": 0.026,
+					"max": 0.175,
+					"share": 0.002
+				},
+				{
+					"name": "feature:hijack",
+					"mean": 0.022,
+					"p95": 0.031,
+					"max": 0.196,
+					"share": 0.002
+				},
+				{
+					"name": "feature:interiors",
+					"mean": 0.021,
+					"p95": 0.029,
+					"max": 0.125,
+					"share": 0.001
+				},
+				{
+					"name": "local lights",
+					"mean": 0.021,
+					"p95": 0.031,
+					"max": 0.051,
+					"share": 0.001
+				},
+				{
+					"name": "feature:netsync",
+					"mean": 0.02,
+					"p95": 0.026,
+					"max": 0.068,
+					"share": 0.001
+				},
+				{
+					"name": "vegetation",
+					"mean": 0.02,
+					"p95": 0.027,
+					"max": 0.18,
+					"share": 0.001
+				},
+				{
+					"name": "atmosphere",
+					"mean": 0.018,
+					"p95": 0.111,
+					"max": 0.23,
+					"share": 0.001
+				},
+				{
+					"name": "feature:story",
+					"mean": 0.016,
+					"p95": 0.028,
+					"max": 0.11,
+					"share": 0.001
+				},
+				{
+					"name": "feature:trade",
+					"mean": 0.014,
+					"p95": 0.019,
+					"max": 0.051,
+					"share": 0.001
+				},
+				{
+					"name": "boat yard",
+					"mean": 0.014,
+					"p95": 0.012,
+					"max": 0.86,
+					"share": 0.001
+				},
+				{
+					"name": "feature:dressing",
+					"mean": 0.011,
+					"p95": 0.015,
+					"max": 0.02,
+					"share": 0.001
+				},
+				{
+					"name": "feature:inverted",
+					"mean": 0.011,
+					"p95": 0.013,
+					"max": 0.058,
+					"share": 0.001
+				},
+				{
+					"name": "feature:notices",
+					"mean": 0.01,
+					"p95": 0.009,
+					"max": 0.318,
+					"share": 0.001
+				},
+				{
+					"name": "feature:destruction",
+					"mean": 0.01,
+					"p95": 0.016,
+					"max": 0.177,
+					"share": 0.001
+				},
+				{
+					"name": "feature:night",
+					"mean": 0.01,
+					"p95": 0.012,
+					"max": 0.027,
+					"share": 0.001
+				},
+				{
+					"name": "feature:customs",
+					"mean": 0.009,
+					"p95": 0.011,
+					"max": 0.037,
+					"share": 0.001
+				},
+				{
+					"name": "feature:worldmap",
+					"mean": 0.009,
+					"p95": 0.02,
+					"max": 0.213,
+					"share": 0.001
+				},
+				{
+					"name": "camera feel",
+					"mean": 0.008,
+					"p95": 0.009,
+					"max": 0.052,
+					"share": 0.001
+				},
+				{
+					"name": "feature:exploration",
+					"mean": 0.007,
+					"p95": 0.012,
+					"max": 0.02,
+					"share": 0
+				},
+				{
+					"name": "debris",
+					"mean": 0.006,
+					"p95": 0.007,
+					"max": 0.01,
+					"share": 0
+				},
+				{
+					"name": "feature:death",
+					"mean": 0.005,
+					"p95": 0.006,
+					"max": 0.043,
+					"share": 0
+				},
+				{
+					"name": "environment",
+					"mean": 0.005,
+					"p95": 0.027,
+					"max": 0.057,
+					"share": 0
+				},
+				{
+					"name": "wake",
+					"mean": 0.004,
+					"p95": 0.006,
+					"max": 0.018,
+					"share": 0
+				},
+				{
+					"name": "rocks",
+					"mean": 0.004,
+					"p95": 0.005,
+					"max": 0.007,
+					"share": 0
+				},
+				{
+					"name": "audio",
+					"mean": 0.004,
+					"p95": 0.006,
+					"max": 0.008,
+					"share": 0
+				},
+				{
+					"name": "feature:start",
+					"mean": 0.003,
+					"p95": 0.005,
+					"max": 0.009,
+					"share": 0
+				},
+				{
+					"name": "feature:crafting",
+					"mean": 0.003,
+					"p95": 0.004,
+					"max": 0.015,
+					"share": 0
+				},
+				{
+					"name": "feature:emotes",
+					"mean": 0.003,
+					"p95": 0.004,
+					"max": 0.014,
+					"share": 0
+				},
+				{
+					"name": "air motes",
+					"mean": 0.003,
+					"p95": 0.004,
+					"max": 0.017,
+					"share": 0
+				},
+				{
+					"name": "feature:agents",
+					"mean": 0.002,
+					"p95": 0.002,
+					"max": 0.019,
+					"share": 0
+				},
+				{
+					"name": "feature:tips",
+					"mean": 0.002,
+					"p95": 0.002,
+					"max": 0.014,
+					"share": 0
+				},
+				{
+					"name": "sea detail",
+					"mean": 0.002,
+					"p95": 0.003,
+					"max": 0.037,
+					"share": 0
+				},
+				{
+					"name": "feature:debug",
+					"mean": 0.001,
+					"p95": 0.001,
+					"max": 0.004,
+					"share": 0
+				},
+				{
+					"name": "marine snow",
+					"mean": 0.001,
+					"p95": 0.002,
+					"max": 0.037,
+					"share": 0
+				}
+			],
+			"passes": [
+				[
+					"opaque",
+					0.468
+				],
+				[
+					"Clouds Trace",
+					0.183
+				],
+				[
+					"shadow cascade 0",
+					0.152
+				],
+				[
+					"water + transparent",
+					0.147
+				],
+				[
+					"Ocean FFT",
+					0.121
+				],
+				[
+					"refraction",
+					0.115
+				],
+				[
+					"Clouds Panorama",
+					0.104
+				],
+				[
+					"Surf Crests",
+					0.055
+				],
+				[
+					"causticsFine",
+					0.051
+				],
+				[
+					"Shore Sim",
+					0.047
+				],
+				[
+					"Underwater Light Map 0",
+					0.036
+				],
+				[
+					"Underwater Light Map 1",
+					0.03
+				],
+				[
+					"bloom down",
+					0.022
+				],
+				[
+					"final (grade + tonemap)",
+					0.018
+				],
+				[
+					"shadow cascade 1",
+					0.018
+				],
+				[
+					"causticsBroad",
+					0.015
+				],
+				[
+					"Water Queries",
+					0.014
+				],
+				[
+					"Clouds Resolve",
+					0.013
+				],
+				[
+					"Clouds Shadow",
+					0.013
+				],
+				[
+					"bloom up",
+					0.013
+				],
+				[
+					"Caustics Mips",
+					0.012
+				],
+				[
+					"shadow cascade 2",
+					0.011
+				],
+				[
+					"beauty (AO + haze + underwater)",
+					0.011
+				],
+				[
+					"medium",
+					0.011
+				],
+				[
+					"Auto Exposure",
+					0.011
+				]
+			],
+			"setup": {
+				"ships": 0,
+				"peers": 0,
+				"weather": "clear",
+				"place": "walk",
+				"notes": []
+			},
+			"vegetation": {
+				"triangles": 575440,
+				"drawCalls": 11,
+				"types": {
+					"palms": [
+						13,
+						232
+					],
+					"bananas": [
+						27,
+						0
+					],
+					"understory": [
+						20,
+						0
+					],
+					"monsteras": [
+						2,
+						0
+					],
+					"broadleaf": [
+						26,
+						0
+					],
+					"canopy": [
+						2,
+						18463
+					],
+					"grass": [
+						10,
+						26,
+						58
+					]
+				}
+			},
+			"memory": {
+				"total": 348.4,
+				"buffers": 174.4,
+				"textures": 174,
+				"peak": 411,
+				"groups": {
+					"vegetation": 12.7,
+					"terrain": 36.7,
+					"islands": 0.8,
+					"characters": 49.2
+				}
+			}
+		},
+		"tidemarkQuay": {
+			"name": "Tidemark quay",
+			"frames": 180,
+			"cpu": {
+				"n": 180,
+				"mean": 18.855,
+				"p50": 18.742,
+				"p95": 24.092,
+				"p99": 28.74,
+				"min": 13.775,
+				"max": 29.204
+			},
+			"gpu": {
+				"n": 180,
+				"mean": 2.065,
+				"p50": 2.032,
+				"p95": 2.359,
+				"p99": 2.556,
+				"min": 1.835,
+				"max": 2.621
+			},
+			"budget": {
+				"ms": 16.67,
+				"over": 136,
+				"share": 0.756
+			},
+			"scopes": [
+				{
+					"name": "tris:opaque",
+					"mean": 1737132,
+					"p95": 1737132,
+					"max": 1737132,
+					"nested": true,
+					"share": 104495.428
+				},
+				{
+					"name": "tris:shadow cascade 0",
+					"mean": 963557,
+					"p95": 963557,
+					"max": 963557,
+					"nested": true,
+					"share": 57961.802
+				},
+				{
+					"name": "tris:water + transparent",
+					"mean": 610809.122,
+					"p95": 610842,
+					"max": 610848,
+					"nested": true,
+					"share": 36742.608
+				},
+				{
+					"name": "tris:refraction",
+					"mean": 508071,
+					"p95": 508071,
+					"max": 508071,
+					"nested": true,
+					"share": 30562.5
+				},
+				{
+					"name": "tris:shadow cascade 1",
+					"mean": 178620.833,
+					"p95": 1071725,
+					"max": 1071725,
+					"nested": true,
+					"share": 10744.757
+				},
+				{
+					"name": "tris:shadow cascade 2",
+					"mean": 89895.917,
+					"p95": 1078751,
+					"max": 1078751,
+					"nested": true,
+					"share": 5407.598
+				},
+				{
+					"name": "tris:hull mask",
+					"mean": 1812,
+					"p95": 1812,
+					"max": 1812,
+					"nested": true,
+					"share": 108.999
+				},
+				{
+					"name": "draws:opaque",
+					"mean": 194,
+					"p95": 194,
+					"max": 194,
+					"nested": true,
+					"share": 11.67
+				},
+				{
+					"name": "draws:shadow cascade 0",
+					"mean": 65,
+					"p95": 65,
+					"max": 65,
+					"nested": true,
+					"share": 3.91
+				},
+				{
+					"name": "draws:refraction",
+					"mean": 36,
+					"p95": 36,
+					"max": 36,
+					"nested": true,
+					"share": 2.166
+				},
+				{
+					"name": "draws:shadow cascade 1",
+					"mean": 13.167,
+					"p95": 79,
+					"max": 79,
+					"nested": true,
+					"share": 0.792
+				},
+				{
+					"name": "draws:water + transparent",
+					"mean": 10,
+					"p95": 10,
+					"max": 10,
+					"nested": true,
+					"share": 0.602
+				},
+				{
+					"name": "draws:shadow cascade 2",
+					"mean": 8.25,
+					"p95": 99,
+					"max": 99,
+					"nested": true,
+					"share": 0.496
+				},
+				{
+					"name": "scene render",
+					"mean": 7.871,
+					"p95": 10.159,
+					"max": 14.544,
+					"share": 0.473
+				},
+				{
+					"name": "pass:opaque",
+					"mean": 5.097,
+					"p95": 6.683,
+					"max": 11.251,
+					"nested": true,
+					"share": 0.307
+				},
+				{
+					"name": "shadows",
+					"mean": 3.314,
+					"p95": 5.915,
+					"max": 7.615,
+					"share": 0.199
+				},
+				{
+					"name": "pass:shadow cascade 0",
+					"mean": 2.785,
+					"p95": 3.612,
+					"max": 4.729,
+					"nested": true,
+					"share": 0.168
+				},
+				{
+					"name": "pass:refraction",
+					"mean": 1.676,
+					"p95": 2.245,
+					"max": 3.337,
+					"nested": true,
+					"share": 0.101
+				},
+				{
+					"name": "draws:hull mask",
+					"mean": 1,
+					"p95": 1,
+					"max": 1,
+					"nested": true,
+					"share": 0.06
+				},
+				{
+					"name": "pass:water + transparent",
+					"mean": 0.716,
+					"p95": 1.137,
+					"max": 1.506,
+					"nested": true,
+					"share": 0.043
+				},
+				{
+					"name": "post",
+					"mean": 0.601,
+					"p95": 0.828,
+					"max": 1.549,
+					"share": 0.036
+				},
+				{
+					"name": "game",
+					"mean": 0.526,
+					"p95": 0.697,
+					"max": 1.042,
+					"share": 0.032
+				},
+				{
+					"name": "feature:townlife",
+					"mean": 0.499,
+					"p95": 0.732,
+					"max": 1.139,
+					"share": 0.03
+				},
+				{
+					"name": "feature:naval",
+					"mean": 0.425,
+					"p95": 0.599,
+					"max": 2.603,
+					"share": 0.026
+				},
+				{
+					"name": "avatar",
+					"mean": 0.362,
+					"p95": 0.484,
+					"max": 0.687,
+					"share": 0.022
+				},
+				{
+					"name": "wildlife",
+					"mean": 0.321,
+					"p95": 0.462,
+					"max": 0.806,
+					"share": 0.019
+				},
+				{
+					"name": "pass:shadow cascade 1",
+					"mean": 0.311,
+					"p95": 2.064,
+					"max": 2.925,
+					"nested": true,
+					"share": 0.019
+				},
+				{
+					"name": "residents",
+					"mean": 0.26,
+					"p95": 0.41,
+					"max": 0.863,
+					"share": 0.016
+				},
+				{
+					"name": "caustics",
+					"mean": 0.235,
+					"p95": 0.368,
+					"max": 0.615,
+					"share": 0.014
+				},
+				{
+					"name": "player",
+					"mean": 0.23,
+					"p95": 0.305,
+					"max": 0.501,
+					"share": 0.014
+				},
+				{
+					"name": "fft",
+					"mean": 0.198,
+					"p95": 0.272,
+					"max": 0.561,
+					"share": 0.012
+				},
+				{
+					"name": "pass:shadow cascade 2",
+					"mean": 0.181,
+					"p95": 1.941,
+					"max": 3.042,
+					"nested": true,
+					"share": 0.011
+				},
+				{
+					"name": "clouds",
+					"mean": 0.177,
+					"p95": 0.239,
+					"max": 0.434,
+					"share": 0.011
+				},
+				{
+					"name": "pass:hull mask",
+					"mean": 0.13,
+					"p95": 0.2,
+					"max": 0.883,
+					"nested": true,
+					"share": 0.008
+				},
+				{
+					"name": "ocean lod",
+					"mean": 0.118,
+					"p95": 0.164,
+					"max": 0.41,
+					"share": 0.007
+				},
+				{
+					"name": "feature:sfx",
+					"mean": 0.114,
+					"p95": 0.168,
+					"max": 1.195,
+					"share": 0.007
+				},
+				{
+					"name": "feature:seaplane",
+					"mean": 0.108,
+					"p95": 0.142,
+					"max": 0.397,
+					"share": 0.006
+				},
+				{
+					"name": "feature:weather",
+					"mean": 0.097,
+					"p95": 0.123,
+					"max": 0.388,
+					"share": 0.006
+				},
+				{
+					"name": "feature:melee",
+					"mean": 0.085,
+					"p95": 0.112,
+					"max": 0.202,
+					"share": 0.005
+				},
+				{
+					"name": "feature:life",
+					"mean": 0.074,
+					"p95": 0.12,
+					"max": 0.266,
+					"share": 0.004
+				},
+				{
+					"name": "shore sim",
+					"mean": 0.064,
+					"p95": 0.085,
+					"max": 0.464,
+					"share": 0.004
+				},
+				{
+					"name": "breakers",
+					"mean": 0.064,
+					"p95": 0.086,
+					"max": 0.211,
+					"share": 0.004
+				},
+				{
+					"name": "water query",
+					"mean": 0.059,
+					"p95": 0.088,
+					"max": 0.387,
+					"share": 0.004
+				},
+				{
+					"name": "feature:firearms",
+					"mean": 0.052,
+					"p95": 0.077,
+					"max": 0.305,
+					"share": 0.003
+				},
+				{
+					"name": "feature:crew",
+					"mean": 0.05,
+					"p95": 0.065,
+					"max": 0.131,
+					"share": 0.003
+				},
+				{
+					"name": "feature:stronghold",
+					"mean": 0.045,
+					"p95": 0.057,
+					"max": 0.321,
+					"share": 0.003
+				},
+				{
+					"name": "feature:pirates",
+					"mean": 0.041,
+					"p95": 0.06,
+					"max": 0.156,
+					"share": 0.002
+				},
+				{
+					"name": "feature:harbour",
+					"mean": 0.037,
+					"p95": 0.061,
+					"max": 0.212,
+					"share": 0.002
+				},
+				{
+					"name": "feature:rescue",
+					"mean": 0.037,
+					"p95": 0.064,
+					"max": 0.19,
+					"share": 0.002
+				},
+				{
+					"name": "spray",
+					"mean": 0.035,
+					"p95": 0.053,
+					"max": 0.087,
+					"share": 0.002
+				},
+				{
+					"name": "feature:vfx",
+					"mean": 0.032,
+					"p95": 0.056,
+					"max": 0.113,
+					"share": 0.002
+				},
+				{
+					"name": "feature:weapons",
+					"mean": 0.032,
+					"p95": 0.045,
+					"max": 0.071,
+					"share": 0.002
+				},
+				{
+					"name": "feature:navy",
+					"mean": 0.032,
+					"p95": 0.05,
+					"max": 0.139,
+					"share": 0.002
+				},
+				{
+					"name": "feature:boarding",
+					"mean": 0.029,
+					"p95": 0.041,
+					"max": 0.385,
+					"share": 0.002
+				},
+				{
+					"name": "terrain",
+					"mean": 0.029,
+					"p95": 0.038,
+					"max": 0.071,
+					"share": 0.002
+				},
+				{
+					"name": "village",
+					"mean": 0.029,
+					"p95": 0.051,
+					"max": 0.079,
+					"share": 0.002
+				},
+				{
+					"name": "boat model",
+					"mean": 0.027,
+					"p95": 0.036,
+					"max": 0.043,
+					"share": 0.002
+				},
+				{
+					"name": "feature:interiors",
+					"mean": 0.024,
+					"p95": 0.032,
+					"max": 0.157,
+					"share": 0.001
+				},
+				{
+					"name": "feature:netsync",
+					"mean": 0.023,
+					"p95": 0.03,
+					"max": 0.052,
+					"share": 0.001
+				},
+				{
+					"name": "local lights",
+					"mean": 0.023,
+					"p95": 0.031,
+					"max": 0.06,
+					"share": 0.001
+				},
+				{
+					"name": "feature:hijack",
+					"mean": 0.022,
+					"p95": 0.031,
+					"max": 0.142,
+					"share": 0.001
+				},
+				{
+					"name": "vegetation",
+					"mean": 0.021,
+					"p95": 0.03,
+					"max": 0.079,
+					"share": 0.001
+				},
+				{
+					"name": "atmosphere",
+					"mean": 0.019,
+					"p95": 0.107,
+					"max": 0.187,
+					"share": 0.001
+				},
+				{
+					"name": "reef",
+					"mean": 0.018,
+					"p95": 0.024,
+					"max": 0.031,
+					"share": 0.001
+				},
+				{
+					"name": "feature:dressing",
+					"mean": 0.014,
+					"p95": 0.018,
+					"max": 0.118,
+					"share": 0.001
+				},
+				{
+					"name": "feature:story",
+					"mean": 0.013,
+					"p95": 0.018,
+					"max": 0.038,
+					"share": 0.001
+				},
+				{
+					"name": "feature:trade",
+					"mean": 0.012,
+					"p95": 0.015,
+					"max": 0.031,
+					"share": 0.001
+				},
+				{
+					"name": "feature:night",
+					"mean": 0.011,
+					"p95": 0.014,
+					"max": 0.022,
+					"share": 0.001
+				},
+				{
+					"name": "feature:inverted",
+					"mean": 0.011,
+					"p95": 0.014,
+					"max": 0.024,
+					"share": 0.001
+				},
+				{
+					"name": "feature:destruction",
+					"mean": 0.01,
+					"p95": 0.014,
+					"max": 0.046,
+					"share": 0.001
+				},
+				{
+					"name": "camera feel",
+					"mean": 0.009,
+					"p95": 0.013,
+					"max": 0.02,
+					"share": 0.001
+				},
+				{
+					"name": "feature:notices",
+					"mean": 0.009,
+					"p95": 0.01,
+					"max": 0.388,
+					"share": 0.001
+				},
+				{
+					"name": "feature:customs",
+					"mean": 0.008,
+					"p95": 0.011,
+					"max": 0.014,
+					"share": 0
+				},
+				{
+					"name": "feature:worldmap",
+					"mean": 0.007,
+					"p95": 0.015,
+					"max": 0.022,
+					"share": 0
+				},
+				{
+					"name": "feature:exploration",
+					"mean": 0.007,
+					"p95": 0.012,
+					"max": 0.018,
+					"share": 0
+				},
+				{
+					"name": "wake",
+					"mean": 0.006,
+					"p95": 0.008,
+					"max": 0.01,
+					"share": 0
+				},
+				{
+					"name": "environment",
+					"mean": 0.006,
+					"p95": 0.028,
+					"max": 0.049,
+					"share": 0
+				},
+				{
+					"name": "debris",
+					"mean": 0.006,
+					"p95": 0.008,
+					"max": 0.031,
+					"share": 0
+				},
+				{
+					"name": "feature:death",
+					"mean": 0.005,
+					"p95": 0.007,
+					"max": 0.009,
+					"share": 0
+				},
+				{
+					"name": "feature:emotes",
+					"mean": 0.004,
+					"p95": 0.006,
+					"max": 0.008,
+					"share": 0
+				},
+				{
+					"name": "air motes",
+					"mean": 0.004,
+					"p95": 0.005,
+					"max": 0.008,
+					"share": 0
+				},
+				{
+					"name": "rocks",
+					"mean": 0.004,
+					"p95": 0.005,
+					"max": 0.011,
+					"share": 0
+				},
+				{
+					"name": "feature:crafting",
+					"mean": 0.003,
+					"p95": 0.004,
+					"max": 0.006,
+					"share": 0
+				},
+				{
+					"name": "boat yard",
+					"mean": 0.003,
+					"p95": 0.004,
+					"max": 0.005,
+					"share": 0
+				},
+				{
+					"name": "audio",
+					"mean": 0.003,
+					"p95": 0.004,
+					"max": 0.006,
+					"share": 0
+				},
+				{
+					"name": "feature:start",
+					"mean": 0.002,
+					"p95": 0.003,
+					"max": 0.005,
+					"share": 0
+				},
+				{
+					"name": "feature:agents",
+					"mean": 0.002,
+					"p95": 0.003,
+					"max": 0.026,
+					"share": 0
+				},
+				{
+					"name": "feature:tips",
+					"mean": 0.002,
+					"p95": 0.004,
+					"max": 0.005,
+					"share": 0
+				},
+				{
+					"name": "sea detail",
+					"mean": 0.002,
+					"p95": 0.003,
+					"max": 0.005,
+					"share": 0
+				},
+				{
+					"name": "feature:debug",
+					"mean": 0.001,
+					"p95": 0.001,
+					"max": 0.002,
+					"share": 0
+				},
+				{
+					"name": "marine snow",
+					"mean": 0.001,
+					"p95": 0.002,
+					"max": 0.003,
+					"share": 0
+				}
+			],
+			"passes": [
+				[
+					"opaque",
+					0.414
+				],
+				[
+					"water + transparent",
+					0.278
+				],
+				[
+					"Clouds Trace",
+					0.187
+				],
+				[
+					"shadow cascade 0",
+					0.179
+				],
+				[
+					"refraction",
+					0.136
+				],
+				[
+					"Ocean FFT",
+					0.113
+				],
+				[
+					"Clouds Panorama",
+					0.102
+				],
+				[
+					"Surf Crests",
+					0.079
+				],
+				[
+					"Shore Sim",
+					0.062
+				],
+				[
+					"causticsFine",
+					0.047
+				],
+				[
+					"Underwater Light Map 0",
+					0.044
+				],
+				[
+					"Underwater Light Map 1",
+					0.041
+				],
+				[
+					"shadow cascade 1",
+					0.027
+				],
+				[
+					"bloom down",
+					0.025
+				],
+				[
+					"Water Queries",
+					0.023
+				],
+				[
+					"causticsBroad",
+					0.022
+				],
+				[
+					"final (grade + tonemap)",
+					0.02
+				],
+				[
+					"Spray Update",
+					0.016
+				],
+				[
+					"Auto Exposure",
+					0.015
+				],
+				[
+					"beauty (AO + haze + underwater)",
+					0.013
+				],
+				[
+					"shadow cascade 2",
+					0.013
+				],
+				[
+					"medium",
+					0.013
+				],
+				[
+					"bloom up",
+					0.012
+				],
+				[
+					"Clouds Resolve",
+					0.011
+				],
+				[
+					"Caustics Mips",
+					0.008
+				]
+			],
+			"setup": {
+				"ships": 0,
+				"peers": 0,
+				"weather": "clear",
+				"place": "walk",
+				"notes": []
+			},
+			"vegetation": {
+				"triangles": 129438,
+				"drawCalls": 7,
+				"types": {
+					"palms": [
+						2,
+						117
+					],
+					"bananas": [
+						0,
+						0
+					],
+					"understory": [
+						6,
+						0
+					],
+					"monsteras": [
+						0,
+						0
+					],
+					"broadleaf": [
+						10,
+						0
+					],
+					"canopy": [
+						0,
+						1047
+					],
+					"grass": [
+						0,
+						1,
+						78
+					]
+				}
+			},
+			"memory": {
+				"total": 372.5,
+				"buffers": 197.6,
+				"textures": 174.9,
+				"peak": 411,
+				"groups": {
+					"vegetation": 12.7,
+					"terrain": 38.5,
+					"islands": 14.2,
+					"characters": 49.9
+				}
+			}
+		},
+		"tidemarkSquare": {
+			"name": "Tidemark square",
+			"frames": 180,
+			"cpu": {
+				"n": 180,
+				"mean": 15.595,
+				"p50": 15.153,
+				"p95": 20.271,
+				"p99": 21.081,
+				"min": 11.767,
+				"max": 21.387
+			},
+			"gpu": {
+				"n": 180,
+				"mean": 1.954,
+				"p50": 1.901,
+				"p95": 2.163,
+				"p99": 2.294,
+				"min": 1.769,
+				"max": 2.359
+			},
+			"budget": {
+				"ms": 16.67,
+				"over": 60,
+				"share": 0.333
+			},
+			"scopes": [
+				{
+					"name": "tris:opaque",
+					"mean": 1347633,
+					"p95": 1347633,
+					"max": 1347633,
+					"nested": true,
+					"share": 98966.953
+				},
+				{
+					"name": "tris:shadow cascade 0",
+					"mean": 1056370,
+					"p95": 1056370,
+					"max": 1056370,
+					"nested": true,
+					"share": 77577.293
+				},
+				{
+					"name": "tris:water + transparent",
+					"mean": 621197.956,
+					"p95": 621232,
+					"max": 621240,
+					"nested": true,
+					"share": 45619.296
+				},
+				{
+					"name": "tris:refraction",
+					"mean": 508223,
+					"p95": 508223,
+					"max": 508223,
+					"nested": true,
+					"share": 37322.685
+				},
+				{
+					"name": "tris:shadow cascade 1",
+					"mean": 193059.167,
+					"p95": 1158355,
+					"max": 1158355,
+					"nested": true,
+					"share": 14177.805
+				},
+				{
+					"name": "tris:shadow cascade 2",
+					"mean": 105858.417,
+					"p95": 1270301,
+					"max": 1270301,
+					"nested": true,
+					"share": 7773.99
+				},
+				{
+					"name": "tris:hull mask",
+					"mean": 1812,
+					"p95": 1812,
+					"max": 1812,
+					"nested": true,
+					"share": 133.069
+				},
+				{
+					"name": "draws:opaque",
+					"mean": 144,
+					"p95": 144,
+					"max": 144,
+					"nested": true,
+					"share": 10.575
+				},
+				{
+					"name": "draws:shadow cascade 0",
+					"mean": 71,
+					"p95": 71,
+					"max": 71,
+					"nested": true,
+					"share": 5.214
+				},
+				{
+					"name": "draws:refraction",
+					"mean": 37,
+					"p95": 37,
+					"max": 37,
+					"nested": true,
+					"share": 2.717
+				},
+				{
+					"name": "draws:shadow cascade 1",
+					"mean": 13.333,
+					"p95": 80,
+					"max": 80,
+					"nested": true,
+					"share": 0.979
+				},
+				{
+					"name": "draws:water + transparent",
+					"mean": 10,
+					"p95": 10,
+					"max": 10,
+					"nested": true,
+					"share": 0.734
+				},
+				{
+					"name": "draws:shadow cascade 2",
+					"mean": 9.25,
+					"p95": 111,
+					"max": 111,
+					"nested": true,
+					"share": 0.679
+				},
+				{
+					"name": "scene render",
+					"mean": 5.755,
+					"p95": 7.628,
+					"max": 8.402,
+					"share": 0.423
+				},
+				{
+					"name": "pass:opaque",
+					"mean": 3.54,
+					"p95": 4.575,
+					"max": 5.203,
+					"nested": true,
+					"share": 0.26
+				},
+				{
+					"name": "shadows",
+					"mean": 2.982,
+					"p95": 4.762,
+					"max": 5.789,
+					"share": 0.219
+				},
+				{
+					"name": "pass:shadow cascade 0",
+					"mean": 2.563,
+					"p95": 3.441,
+					"max": 4.15,
+					"nested": true,
+					"share": 0.188
+				},
+				{
+					"name": "pass:refraction",
+					"mean": 1.37,
+					"p95": 2.022,
+					"max": 2.584,
+					"nested": true,
+					"share": 0.101
+				},
+				{
+					"name": "draws:hull mask",
+					"mean": 1,
+					"p95": 1,
+					"max": 1,
+					"nested": true,
+					"share": 0.073
+				},
+				{
+					"name": "feature:townlife",
+					"mean": 0.64,
+					"p95": 0.923,
+					"max": 2.371,
+					"share": 0.047
+				},
+				{
+					"name": "pass:water + transparent",
+					"mean": 0.555,
+					"p95": 0.811,
+					"max": 1.215,
+					"nested": true,
+					"share": 0.041
+				},
+				{
+					"name": "post",
+					"mean": 0.539,
+					"p95": 0.716,
+					"max": 1.287,
+					"share": 0.04
+				},
+				{
+					"name": "game",
+					"mean": 0.421,
+					"p95": 0.561,
+					"max": 0.769,
+					"share": 0.031
+				},
+				{
+					"name": "avatar",
+					"mean": 0.33,
+					"p95": 0.434,
+					"max": 0.551,
+					"share": 0.024
+				},
+				{
+					"name": "feature:naval",
+					"mean": 0.308,
+					"p95": 0.391,
+					"max": 0.848,
+					"share": 0.023
+				},
+				{
+					"name": "residents",
+					"mean": 0.275,
+					"p95": 0.399,
+					"max": 0.617,
+					"share": 0.02
+				},
+				{
+					"name": "pass:shadow cascade 1",
+					"mean": 0.229,
+					"p95": 1.467,
+					"max": 2.039,
+					"nested": true,
+					"share": 0.017
+				},
+				{
+					"name": "wildlife",
+					"mean": 0.217,
+					"p95": 0.296,
+					"max": 0.425,
+					"share": 0.016
+				},
+				{
+					"name": "player",
+					"mean": 0.211,
+					"p95": 0.277,
+					"max": 0.375,
+					"share": 0.015
+				},
+				{
+					"name": "caustics",
+					"mean": 0.207,
+					"p95": 0.296,
+					"max": 0.786,
+					"share": 0.015
+				},
+				{
+					"name": "fft",
+					"mean": 0.178,
+					"p95": 0.253,
+					"max": 0.541,
+					"share": 0.013
+				},
+				{
+					"name": "clouds",
+					"mean": 0.166,
+					"p95": 0.227,
+					"max": 0.463,
+					"share": 0.012
+				},
+				{
+					"name": "pass:shadow cascade 2",
+					"mean": 0.161,
+					"p95": 1.607,
+					"max": 2.803,
+					"nested": true,
+					"share": 0.012
+				},
+				{
+					"name": "ocean lod",
+					"mean": 0.114,
+					"p95": 0.158,
+					"max": 0.435,
+					"share": 0.008
+				},
+				{
+					"name": "feature:seaplane",
+					"mean": 0.099,
+					"p95": 0.128,
+					"max": 0.258,
+					"share": 0.007
+				},
+				{
+					"name": "pass:hull mask",
+					"mean": 0.092,
+					"p95": 0.159,
+					"max": 0.206,
+					"nested": true,
+					"share": 0.007
+				},
+				{
+					"name": "feature:sfx",
+					"mean": 0.088,
+					"p95": 0.106,
+					"max": 0.39,
+					"share": 0.006
+				},
+				{
+					"name": "feature:melee",
+					"mean": 0.083,
+					"p95": 0.11,
+					"max": 0.423,
+					"share": 0.006
+				},
+				{
+					"name": "feature:weather",
+					"mean": 0.069,
+					"p95": 0.084,
+					"max": 0.126,
+					"share": 0.005
+				},
+				{
+					"name": "feature:life",
+					"mean": 0.061,
+					"p95": 0.094,
+					"max": 0.361,
+					"share": 0.004
+				},
+				{
+					"name": "shore sim",
+					"mean": 0.057,
+					"p95": 0.075,
+					"max": 0.161,
+					"share": 0.004
+				},
+				{
+					"name": "breakers",
+					"mean": 0.057,
+					"p95": 0.075,
+					"max": 0.117,
+					"share": 0.004
+				},
+				{
+					"name": "water query",
+					"mean": 0.051,
+					"p95": 0.084,
+					"max": 0.351,
+					"share": 0.004
+				},
+				{
+					"name": "feature:crew",
+					"mean": 0.046,
+					"p95": 0.059,
+					"max": 0.261,
+					"share": 0.003
+				},
+				{
+					"name": "feature:firearms",
+					"mean": 0.045,
+					"p95": 0.06,
+					"max": 0.136,
+					"share": 0.003
+				},
+				{
+					"name": "feature:stronghold",
+					"mean": 0.041,
+					"p95": 0.052,
+					"max": 0.17,
+					"share": 0.003
+				},
+				{
+					"name": "feature:weapons",
+					"mean": 0.04,
+					"p95": 0.053,
+					"max": 0.144,
+					"share": 0.003
+				},
+				{
+					"name": "feature:pirates",
+					"mean": 0.034,
+					"p95": 0.041,
+					"max": 0.084,
+					"share": 0.002
+				},
+				{
+					"name": "feature:rescue",
+					"mean": 0.032,
+					"p95": 0.053,
+					"max": 0.076,
+					"share": 0.002
+				},
+				{
+					"name": "feature:harbour",
+					"mean": 0.031,
+					"p95": 0.045,
+					"max": 0.149,
+					"share": 0.002
+				},
+				{
+					"name": "spray",
+					"mean": 0.031,
+					"p95": 0.042,
+					"max": 0.169,
+					"share": 0.002
+				},
+				{
+					"name": "boat model",
+					"mean": 0.025,
+					"p95": 0.034,
+					"max": 0.073,
+					"share": 0.002
+				},
+				{
+					"name": "terrain",
+					"mean": 0.024,
+					"p95": 0.031,
+					"max": 0.039,
+					"share": 0.002
+				},
+				{
+					"name": "feature:navy",
+					"mean": 0.022,
+					"p95": 0.03,
+					"max": 0.067,
+					"share": 0.002
+				},
+				{
+					"name": "feature:netsync",
+					"mean": 0.021,
+					"p95": 0.026,
+					"max": 0.045,
+					"share": 0.002
+				},
+				{
+					"name": "village",
+					"mean": 0.021,
+					"p95": 0.028,
+					"max": 0.031,
+					"share": 0.002
+				},
+				{
+					"name": "feature:boarding",
+					"mean": 0.02,
+					"p95": 0.024,
+					"max": 0.056,
+					"share": 0.001
+				},
+				{
+					"name": "local lights",
+					"mean": 0.02,
+					"p95": 0.03,
+					"max": 0.038,
+					"share": 0.001
+				},
+				{
+					"name": "feature:vfx",
+					"mean": 0.019,
+					"p95": 0.029,
+					"max": 0.047,
+					"share": 0.001
+				},
+				{
+					"name": "feature:hijack",
+					"mean": 0.019,
+					"p95": 0.029,
+					"max": 0.078,
+					"share": 0.001
+				},
+				{
+					"name": "reef",
+					"mean": 0.018,
+					"p95": 0.022,
+					"max": 0.295,
+					"share": 0.001
+				},
+				{
+					"name": "atmosphere",
+					"mean": 0.017,
+					"p95": 0.099,
+					"max": 0.171,
+					"share": 0.001
+				},
+				{
+					"name": "vegetation",
+					"mean": 0.017,
+					"p95": 0.023,
+					"max": 0.048,
+					"share": 0.001
+				},
+				{
+					"name": "feature:interiors",
+					"mean": 0.013,
+					"p95": 0.019,
+					"max": 0.055,
+					"share": 0.001
+				},
+				{
+					"name": "feature:story",
+					"mean": 0.012,
+					"p95": 0.016,
+					"max": 0.042,
+					"share": 0.001
+				},
+				{
+					"name": "feature:night",
+					"mean": 0.012,
+					"p95": 0.013,
+					"max": 0.245,
+					"share": 0.001
+				},
+				{
+					"name": "feature:trade",
+					"mean": 0.011,
+					"p95": 0.013,
+					"max": 0.029,
+					"share": 0.001
+				},
+				{
+					"name": "feature:dressing",
+					"mean": 0.01,
+					"p95": 0.013,
+					"max": 0.046,
+					"share": 0.001
+				},
+				{
+					"name": "feature:inverted",
+					"mean": 0.01,
+					"p95": 0.013,
+					"max": 0.018,
+					"share": 0.001
+				},
+				{
+					"name": "feature:notices",
+					"mean": 0.009,
+					"p95": 0.008,
+					"max": 0.288,
+					"share": 0.001
+				},
+				{
+					"name": "feature:destruction",
+					"mean": 0.009,
+					"p95": 0.012,
+					"max": 0.024,
+					"share": 0.001
+				},
+				{
+					"name": "camera feel",
+					"mean": 0.008,
+					"p95": 0.011,
+					"max": 0.014,
+					"share": 0.001
+				},
+				{
+					"name": "feature:exploration",
+					"mean": 0.008,
+					"p95": 0.012,
+					"max": 0.249,
+					"share": 0.001
+				},
+				{
+					"name": "feature:customs",
+					"mean": 0.007,
+					"p95": 0.008,
+					"max": 0.026,
+					"share": 0.001
+				},
+				{
+					"name": "feature:worldmap",
+					"mean": 0.006,
+					"p95": 0.015,
+					"max": 0.02,
+					"share": 0
+				},
+				{
+					"name": "debris",
+					"mean": 0.006,
+					"p95": 0.007,
+					"max": 0.018,
+					"share": 0
+				},
+				{
+					"name": "wake",
+					"mean": 0.005,
+					"p95": 0.007,
+					"max": 0.014,
+					"share": 0
+				},
+				{
+					"name": "feature:death",
+					"mean": 0.005,
+					"p95": 0.006,
+					"max": 0.071,
+					"share": 0
+				},
+				{
+					"name": "environment",
+					"mean": 0.005,
+					"p95": 0.02,
+					"max": 0.037,
+					"share": 0
+				},
+				{
+					"name": "feature:emotes",
+					"mean": 0.004,
+					"p95": 0.005,
+					"max": 0.005,
+					"share": 0
+				},
+				{
+					"name": "rocks",
+					"mean": 0.004,
+					"p95": 0.005,
+					"max": 0.027,
+					"share": 0
+				},
+				{
+					"name": "feature:crafting",
+					"mean": 0.003,
+					"p95": 0.004,
+					"max": 0.025,
+					"share": 0
+				},
+				{
+					"name": "boat yard",
+					"mean": 0.003,
+					"p95": 0.003,
+					"max": 0.004,
+					"share": 0
+				},
+				{
+					"name": "sea detail",
+					"mean": 0.003,
+					"p95": 0.003,
+					"max": 0.129,
+					"share": 0
+				},
+				{
+					"name": "air motes",
+					"mean": 0.003,
+					"p95": 0.005,
+					"max": 0.014,
+					"share": 0
+				},
+				{
+					"name": "feature:start",
+					"mean": 0.002,
+					"p95": 0.003,
+					"max": 0.005,
+					"share": 0
+				},
+				{
+					"name": "feature:agents",
+					"mean": 0.002,
+					"p95": 0.003,
+					"max": 0.02,
+					"share": 0
+				},
+				{
+					"name": "feature:tips",
+					"mean": 0.002,
+					"p95": 0.003,
+					"max": 0.005,
+					"share": 0
+				},
+				{
+					"name": "audio",
+					"mean": 0.002,
+					"p95": 0.003,
+					"max": 0.009,
+					"share": 0
+				},
+				{
+					"name": "feature:debug",
+					"mean": 0.001,
+					"p95": 0.001,
+					"max": 0.003,
+					"share": 0
+				},
+				{
+					"name": "marine snow",
+					"mean": 0.001,
+					"p95": 0.002,
+					"max": 0.003,
+					"share": 0
+				}
+			],
+			"passes": [
+				[
+					"opaque",
+					0.358
+				],
+				[
+					"water + transparent",
+					0.255
+				],
+				[
+					"Clouds Trace",
+					0.193
+				],
+				[
+					"shadow cascade 0",
+					0.188
+				],
+				[
+					"refraction",
+					0.132
+				],
+				[
+					"Ocean FFT",
+					0.11
+				],
+				[
+					"Clouds Panorama",
+					0.103
+				],
+				[
+					"Surf Crests",
+					0.087
+				],
+				[
+					"Shore Sim",
+					0.061
+				],
+				[
+					"causticsFine",
+					0.048
+				],
+				[
+					"Underwater Light Map 0",
+					0.038
+				],
+				[
+					"Underwater Light Map 1",
+					0.037
+				],
+				[
+					"shadow cascade 1",
+					0.027
+				],
+				[
+					"Water Queries",
+					0.022
+				],
+				[
+					"bloom down",
+					0.022
+				],
+				[
+					"causticsBroad",
+					0.021
+				],
+				[
+					"final (grade + tonemap)",
+					0.019
+				],
+				[
+					"shadow cascade 2",
+					0.015
+				],
+				[
+					"beauty (AO + haze + underwater)",
+					0.013
+				],
+				[
+					"Auto Exposure",
+					0.012
+				],
+				[
+					"Spray Update",
+					0.012
+				],
+				[
+					"Clouds Shadow",
+					0.012
+				],
+				[
+					"bloom up",
+					0.012
+				],
+				[
+					"medium",
+					0.011
+				],
+				[
+					"Caustics Mips",
+					0.01
+				]
+			],
+			"setup": {
+				"ships": 0,
+				"peers": 0,
+				"weather": "clear",
+				"place": "walk",
+				"notes": [],
+				"weapon": "cutlass"
+			},
+			"vegetation": {
+				"triangles": 285566,
+				"drawCalls": 8,
+				"types": {
+					"palms": [
+						4,
+						116
+					],
+					"bananas": [
+						0,
+						0
+					],
+					"understory": [
+						11,
+						0
+					],
+					"monsteras": [
+						0,
+						0
+					],
+					"broadleaf": [
+						17,
+						0
+					],
+					"canopy": [
+						3,
+						1047
+					],
+					"grass": [
+						0,
+						25,
+						93
+					]
+				}
+			},
+			"memory": {
+				"total": 373.9,
+				"buffers": 199,
+				"textures": 174.9,
+				"peak": 411,
+				"groups": {
+					"vegetation": 12.7,
+					"terrain": 38.5,
+					"islands": 14.2,
+					"characters": 49.9
+				}
+			}
+		},
+		"blackwaterCove": {
+			"name": "Blackwater cove",
+			"frames": 180,
+			"cpu": {
+				"n": 180,
+				"mean": 13.291,
+				"p50": 13.11,
+				"p95": 16.952,
+				"p99": 19.571,
+				"min": 9.066,
+				"max": 21.003
+			},
+			"gpu": {
+				"n": 180,
+				"mean": 1.588,
+				"p50": 1.573,
+				"p95": 1.704,
+				"p99": 1.901,
+				"min": 1.507,
+				"max": 2.032
+			},
+			"budget": {
+				"ms": 16.67,
+				"over": 12,
+				"share": 0.067
+			},
+			"scopes": [
+				{
+					"name": "tris:water + transparent",
+					"mean": 644750.956,
+					"p95": 644752,
+					"max": 644752,
+					"nested": true,
+					"share": 56197.242
+				},
+				{
+					"name": "tris:opaque",
+					"mean": 581229.933,
+					"p95": 581823,
+					"max": 581823,
+					"nested": true,
+					"share": 50660.676
+				},
+				{
+					"name": "tris:refraction",
+					"mean": 387310,
+					"p95": 387310,
+					"max": 387310,
+					"nested": true,
+					"share": 33758.389
+				},
+				{
+					"name": "tris:shadow cascade 0",
+					"mean": 361130,
+					"p95": 361130,
+					"max": 361130,
+					"nested": true,
+					"share": 31476.51
+				},
+				{
+					"name": "tris:shadow cascade 1",
+					"mean": 64100.333,
+					"p95": 384602,
+					"max": 384602,
+					"nested": true,
+					"share": 5587.059
+				},
+				{
+					"name": "tris:shadow cascade 2",
+					"mean": 58520,
+					"p95": 702240,
+					"max": 702240,
+					"nested": true,
+					"share": 5100.671
+				},
+				{
+					"name": "draws:opaque",
+					"mean": 67,
+					"p95": 67,
+					"max": 67,
+					"nested": true,
+					"share": 5.84
+				},
+				{
+					"name": "draws:shadow cascade 0",
+					"mean": 32,
+					"p95": 32,
+					"max": 32,
+					"nested": true,
+					"share": 2.789
+				},
+				{
+					"name": "draws:refraction",
+					"mean": 23,
+					"p95": 23,
+					"max": 23,
+					"nested": true,
+					"share": 2.005
+				},
+				{
+					"name": "draws:water + transparent",
+					"mean": 8,
+					"p95": 8,
+					"max": 8,
+					"nested": true,
+					"share": 0.697
+				},
+				{
+					"name": "draws:shadow cascade 1",
+					"mean": 6.833,
+					"p95": 41,
+					"max": 41,
+					"nested": true,
+					"share": 0.596
+				},
+				{
+					"name": "draws:shadow cascade 2",
+					"mean": 6.25,
+					"p95": 75,
+					"max": 75,
+					"nested": true,
+					"share": 0.545
+				},
+				{
+					"name": "scene render",
+					"mean": 4.183,
+					"p95": 5.89,
+					"max": 8.881,
+					"share": 0.365
+				},
+				{
+					"name": "shadows",
+					"mean": 2.556,
+					"p95": 4.307,
+					"max": 6.576,
+					"share": 0.223
+				},
+				{
+					"name": "pass:opaque",
+					"mean": 2.241,
+					"p95": 3.149,
+					"max": 5.81,
+					"nested": true,
+					"share": 0.195
+				},
+				{
+					"name": "pass:shadow cascade 0",
+					"mean": 2.192,
+					"p95": 2.779,
+					"max": 3.545,
+					"nested": true,
+					"share": 0.191
+				},
+				{
+					"name": "pass:refraction",
+					"mean": 1.212,
+					"p95": 1.755,
+					"max": 2.005,
+					"nested": true,
+					"share": 0.106
+				},
+				{
+					"name": "post",
+					"mean": 0.598,
+					"p95": 0.79,
+					"max": 1.429,
+					"share": 0.052
+				},
+				{
+					"name": "pass:water + transparent",
+					"mean": 0.548,
+					"p95": 0.814,
+					"max": 1.185,
+					"nested": true,
+					"share": 0.048
+				},
+				{
+					"name": "feature:melee",
+					"mean": 0.419,
+					"p95": 0.607,
+					"max": 0.922,
+					"share": 0.037
+				},
+				{
+					"name": "feature:naval",
+					"mean": 0.37,
+					"p95": 0.476,
+					"max": 0.695,
+					"share": 0.032
+				},
+				{
+					"name": "avatar",
+					"mean": 0.324,
+					"p95": 0.433,
+					"max": 0.729,
+					"share": 0.028
+				},
+				{
+					"name": "player",
+					"mean": 0.288,
+					"p95": 0.372,
+					"max": 0.674,
+					"share": 0.025
+				},
+				{
+					"name": "game",
+					"mean": 0.256,
+					"p95": 0.326,
+					"max": 0.495,
+					"share": 0.022
+				},
+				{
+					"name": "caustics",
+					"mean": 0.238,
+					"p95": 0.31,
+					"max": 0.812,
+					"share": 0.021
+				},
+				{
+					"name": "fft",
+					"mean": 0.209,
+					"p95": 0.277,
+					"max": 0.789,
+					"share": 0.018
+				},
+				{
+					"name": "wildlife",
+					"mean": 0.208,
+					"p95": 0.264,
+					"max": 0.544,
+					"share": 0.018
+				},
+				{
+					"name": "feature:townlife",
+					"mean": 0.19,
+					"p95": 0.255,
+					"max": 0.552,
+					"share": 0.017
+				},
+				{
+					"name": "clouds",
+					"mean": 0.183,
+					"p95": 0.25,
+					"max": 0.614,
+					"share": 0.016
+				},
+				{
+					"name": "pass:shadow cascade 1",
+					"mean": 0.182,
+					"p95": 1.168,
+					"max": 2.448,
+					"nested": true,
+					"share": 0.016
+				},
+				{
+					"name": "pass:shadow cascade 2",
+					"mean": 0.155,
+					"p95": 1.657,
+					"max": 3.566,
+					"nested": true,
+					"share": 0.014
+				},
+				{
+					"name": "ocean lod",
+					"mean": 0.132,
+					"p95": 0.164,
+					"max": 0.382,
+					"share": 0.012
+				},
+				{
+					"name": "feature:sfx",
+					"mean": 0.096,
+					"p95": 0.117,
+					"max": 0.638,
+					"share": 0.008
+				},
+				{
+					"name": "feature:seaplane",
+					"mean": 0.085,
+					"p95": 0.115,
+					"max": 0.161,
+					"share": 0.007
+				},
+				{
+					"name": "feature:weather",
+					"mean": 0.077,
+					"p95": 0.092,
+					"max": 0.349,
+					"share": 0.007
+				},
+				{
+					"name": "breakers",
+					"mean": 0.07,
+					"p95": 0.085,
+					"max": 0.314,
+					"share": 0.006
+				},
+				{
+					"name": "shore sim",
+					"mean": 0.062,
+					"p95": 0.079,
+					"max": 0.128,
+					"share": 0.005
+				},
+				{
+					"name": "water query",
+					"mean": 0.06,
+					"p95": 0.099,
+					"max": 0.305,
+					"share": 0.005
+				},
+				{
+					"name": "feature:stronghold",
+					"mean": 0.057,
+					"p95": 0.071,
+					"max": 0.104,
+					"share": 0.005
+				},
+				{
+					"name": "feature:weapons",
+					"mean": 0.056,
+					"p95": 0.072,
+					"max": 0.153,
+					"share": 0.005
+				},
+				{
+					"name": "feature:crew",
+					"mean": 0.047,
+					"p95": 0.058,
+					"max": 0.109,
+					"share": 0.004
+				},
+				{
+					"name": "feature:life",
+					"mean": 0.042,
+					"p95": 0.051,
+					"max": 0.101,
+					"share": 0.004
+				},
+				{
+					"name": "feature:firearms",
+					"mean": 0.038,
+					"p95": 0.05,
+					"max": 0.096,
+					"share": 0.003
+				},
+				{
+					"name": "spray",
+					"mean": 0.037,
+					"p95": 0.048,
+					"max": 0.158,
+					"share": 0.003
+				},
+				{
+					"name": "feature:pirates",
+					"mean": 0.035,
+					"p95": 0.043,
+					"max": 0.094,
+					"share": 0.003
+				},
+				{
+					"name": "feature:rescue",
+					"mean": 0.035,
+					"p95": 0.041,
+					"max": 0.258,
+					"share": 0.003
+				},
+				{
+					"name": "feature:harbour",
+					"mean": 0.034,
+					"p95": 0.067,
+					"max": 0.132,
+					"share": 0.003
+				},
+				{
+					"name": "feature:navy",
+					"mean": 0.034,
+					"p95": 0.043,
+					"max": 0.092,
+					"share": 0.003
+				},
+				{
+					"name": "reef",
+					"mean": 0.029,
+					"p95": 0.054,
+					"max": 0.105,
+					"share": 0.003
+				},
+				{
+					"name": "local lights",
+					"mean": 0.026,
+					"p95": 0.034,
+					"max": 0.228,
+					"share": 0.002
+				},
+				{
+					"name": "village",
+					"mean": 0.024,
+					"p95": 0.03,
+					"max": 0.08,
+					"share": 0.002
+				},
+				{
+					"name": "boat model",
+					"mean": 0.024,
+					"p95": 0.032,
+					"max": 0.104,
+					"share": 0.002
+				},
+				{
+					"name": "feature:boarding",
+					"mean": 0.023,
+					"p95": 0.028,
+					"max": 0.294,
+					"share": 0.002
+				},
+				{
+					"name": "feature:netsync",
+					"mean": 0.023,
+					"p95": 0.028,
+					"max": 0.047,
+					"share": 0.002
+				},
+				{
+					"name": "terrain",
+					"mean": 0.022,
+					"p95": 0.027,
+					"max": 0.047,
+					"share": 0.002
+				},
+				{
+					"name": "atmosphere",
+					"mean": 0.021,
+					"p95": 0.125,
+					"max": 0.185,
+					"share": 0.002
+				},
+				{
+					"name": "feature:vfx",
+					"mean": 0.02,
+					"p95": 0.027,
+					"max": 0.047,
+					"share": 0.002
+				},
+				{
+					"name": "feature:hijack",
+					"mean": 0.02,
+					"p95": 0.029,
+					"max": 0.145,
+					"share": 0.002
+				},
+				{
+					"name": "residents",
+					"mean": 0.017,
+					"p95": 0.031,
+					"max": 0.114,
+					"share": 0.001
+				},
+				{
+					"name": "vegetation",
+					"mean": 0.016,
+					"p95": 0.021,
+					"max": 0.065,
+					"share": 0.001
+				},
+				{
+					"name": "camera feel",
+					"mean": 0.015,
+					"p95": 0.011,
+					"max": 1.152,
+					"share": 0.001
+				},
+				{
+					"name": "feature:trade",
+					"mean": 0.013,
+					"p95": 0.015,
+					"max": 0.054,
+					"share": 0.001
+				},
+				{
+					"name": "feature:story",
+					"mean": 0.013,
+					"p95": 0.015,
+					"max": 0.026,
+					"share": 0.001
+				},
+				{
+					"name": "feature:interiors",
+					"mean": 0.013,
+					"p95": 0.017,
+					"max": 0.027,
+					"share": 0.001
+				},
+				{
+					"name": "feature:inverted",
+					"mean": 0.012,
+					"p95": 0.014,
+					"max": 0.042,
+					"share": 0.001
+				},
+				{
+					"name": "feature:notices",
+					"mean": 0.011,
+					"p95": 0.009,
+					"max": 0.341,
+					"share": 0.001
+				},
+				{
+					"name": "feature:destruction",
+					"mean": 0.011,
+					"p95": 0.014,
+					"max": 0.039,
+					"share": 0.001
+				},
+				{
+					"name": "feature:dressing",
+					"mean": 0.011,
+					"p95": 0.014,
+					"max": 0.022,
+					"share": 0.001
+				},
+				{
+					"name": "feature:night",
+					"mean": 0.01,
+					"p95": 0.012,
+					"max": 0.023,
+					"share": 0.001
+				},
+				{
+					"name": "feature:customs",
+					"mean": 0.008,
+					"p95": 0.01,
+					"max": 0.023,
+					"share": 0.001
+				},
+				{
+					"name": "feature:worldmap",
+					"mean": 0.008,
+					"p95": 0.018,
+					"max": 0.079,
+					"share": 0.001
+				},
+				{
+					"name": "debris",
+					"mean": 0.008,
+					"p95": 0.01,
+					"max": 0.025,
+					"share": 0.001
+				},
+				{
+					"name": "feature:exploration",
+					"mean": 0.007,
+					"p95": 0.014,
+					"max": 0.019,
+					"share": 0.001
+				},
+				{
+					"name": "wake",
+					"mean": 0.006,
+					"p95": 0.008,
+					"max": 0.039,
+					"share": 0.001
+				},
+				{
+					"name": "environment",
+					"mean": 0.006,
+					"p95": 0.029,
+					"max": 0.061,
+					"share": 0.001
+				},
+				{
+					"name": "feature:death",
+					"mean": 0.005,
+					"p95": 0.006,
+					"max": 0.008,
+					"share": 0
+				},
+				{
+					"name": "air motes",
+					"mean": 0.005,
+					"p95": 0.005,
+					"max": 0.129,
+					"share": 0
+				},
+				{
+					"name": "feature:emotes",
+					"mean": 0.004,
+					"p95": 0.005,
+					"max": 0.021,
+					"share": 0
+				},
+				{
+					"name": "feature:agents",
+					"mean": 0.003,
+					"p95": 0.003,
+					"max": 0.021,
+					"share": 0
+				},
+				{
+					"name": "feature:crafting",
+					"mean": 0.003,
+					"p95": 0.003,
+					"max": 0.021,
+					"share": 0
+				},
+				{
+					"name": "feature:tips",
+					"mean": 0.003,
+					"p95": 0.003,
+					"max": 0.047,
+					"share": 0
+				},
+				{
+					"name": "boat yard",
+					"mean": 0.003,
+					"p95": 0.004,
+					"max": 0.006,
+					"share": 0
+				},
+				{
+					"name": "feature:start",
+					"mean": 0.002,
+					"p95": 0.003,
+					"max": 0.005,
+					"share": 0
+				},
+				{
+					"name": "sea detail",
+					"mean": 0.002,
+					"p95": 0.003,
+					"max": 0.004,
+					"share": 0
+				},
+				{
+					"name": "marine snow",
+					"mean": 0.002,
+					"p95": 0.002,
+					"max": 0.003,
+					"share": 0
+				},
+				{
+					"name": "rocks",
+					"mean": 0.002,
+					"p95": 0.003,
+					"max": 0.003,
+					"share": 0
+				},
+				{
+					"name": "audio",
+					"mean": 0.002,
+					"p95": 0.004,
+					"max": 0.005,
+					"share": 0
+				},
+				{
+					"name": "feature:debug",
+					"mean": 0.001,
+					"p95": 0.001,
+					"max": 0.015,
+					"share": 0
+				}
+			],
+			"passes": [
+				[
+					"water + transparent",
+					0.225
+				],
+				[
+					"opaque",
+					0.207
+				],
+				[
+					"Clouds Trace",
+					0.177
+				],
+				[
+					"Ocean FFT",
+					0.111
+				],
+				[
+					"Clouds Panorama",
+					0.099
+				],
+				[
+					"Surf Crests",
+					0.09
+				],
+				[
+					"refraction",
+					0.081
+				],
+				[
+					"shadow cascade 0",
+					0.077
+				],
+				[
+					"Shore Sim",
+					0.051
+				],
+				[
+					"causticsFine",
+					0.047
+				],
+				[
+					"final (grade + tonemap)",
+					0.044
+				],
+				[
+					"Underwater Light Map 1",
+					0.043
+				],
+				[
+					"Underwater Light Map 0",
+					0.039
+				],
+				[
+					"bloom down",
+					0.024
+				],
+				[
+					"Water Queries",
+					0.022
+				],
+				[
+					"underwater shafts",
+					0.02
+				],
+				[
+					"causticsBroad",
+					0.018
+				],
+				[
+					"Clouds Shadow",
+					0.013
+				],
+				[
+					"beauty (AO + haze + underwater)",
+					0.013
+				],
+				[
+					"Caustics Mips",
+					0.013
+				],
+				[
+					"bloom up",
+					0.012
+				],
+				[
+					"shadow cascade 2",
+					0.012
+				],
+				[
+					"Spray Update",
+					0.011
+				],
+				[
+					"Clouds Resolve",
+					0.011
+				],
+				[
+					"medium",
+					0.009
+				]
+			],
+			"setup": {
+				"ships": 0,
+				"peers": 0,
+				"weather": "clear",
+				"place": "walk",
+				"notes": []
+			},
+			"vegetation": {
+				"triangles": 140240,
+				"drawCalls": 7,
+				"types": {
+					"palms": [
+						7,
+						36
+					],
+					"bananas": [
+						0,
+						0
+					],
+					"understory": [
+						7,
+						0
+					],
+					"monsteras": [
+						0,
+						0
+					],
+					"broadleaf": [
+						0,
+						0
+					],
+					"canopy": [
+						3,
+						493
+					],
+					"grass": [
+						0,
+						10,
+						88
+					]
+				}
+			},
+			"memory": {
+				"total": 384.1,
+				"buffers": 205.9,
+				"textures": 178.2,
+				"peak": 411,
+				"groups": {
+					"vegetation": 12.7,
+					"terrain": 38.8,
+					"islands": 17,
+					"characters": 50.1
+				}
+			}
+		},
+		"tidemarkTavern": {
+			"name": "Tidemark tavern",
+			"frames": 180,
+			"cpu": {
+				"n": 180,
+				"mean": 19.62,
+				"p50": 19.049,
+				"p95": 25.612,
+				"p99": 35.237,
+				"min": 13.308,
+				"max": 39.533
+			},
+			"gpu": {
+				"n": 180,
+				"mean": 2.013,
+				"p50": 1.966,
+				"p95": 2.294,
+				"p99": 2.49,
+				"min": 1.835,
+				"max": 2.621
+			},
+			"budget": {
+				"ms": 16.67,
+				"over": 143,
+				"share": 0.794
+			},
+			"scopes": [
+				{
+					"name": "tris:opaque",
+					"mean": 1487545.789,
+					"p95": 1566507,
+					"max": 1566507,
+					"nested": true,
+					"share": 85722.687
+				},
+				{
+					"name": "tris:shadow cascade 0",
+					"mean": 1130325.367,
+					"p95": 1168300,
+					"max": 1168300,
+					"nested": true,
+					"share": 65137.173
+				},
+				{
+					"name": "tris:water + transparent",
+					"mean": 615769.833,
+					"p95": 615886,
+					"max": 615918,
+					"nested": true,
+					"share": 35484.921
+				},
+				{
+					"name": "tris:refraction",
+					"mean": 508071,
+					"p95": 508071,
+					"max": 508071,
+					"nested": true,
+					"share": 29278.569
+				},
+				{
+					"name": "tris:shadow cascade 1",
+					"mean": 188822.878,
+					"p95": 1170280,
+					"max": 1170280,
+					"nested": true,
+					"share": 10881.282
+				},
+				{
+					"name": "tris:shadow cascade 2",
+					"mean": 113870.906,
+					"p95": 1350714,
+					"max": 1407585,
+					"nested": true,
+					"share": 6562.03
+				},
+				{
+					"name": "tris:hull mask",
+					"mean": 1812,
+					"p95": 1812,
+					"max": 1812,
+					"nested": true,
+					"share": 104.42
+				},
+				{
+					"name": "draws:opaque",
+					"mean": 161.689,
+					"p95": 168,
+					"max": 168,
+					"nested": true,
+					"share": 9.318
+				},
+				{
+					"name": "draws:shadow cascade 0",
+					"mean": 68.2,
+					"p95": 69,
+					"max": 69,
+					"nested": true,
+					"share": 3.93
+				},
+				{
+					"name": "draws:refraction",
+					"mean": 36,
+					"p95": 36,
+					"max": 36,
+					"nested": true,
+					"share": 2.075
+				},
+				{
+					"name": "draws:water + transparent",
+					"mean": 14,
+					"p95": 14,
+					"max": 14,
+					"nested": true,
+					"share": 0.807
+				},
+				{
+					"name": "draws:shadow cascade 1",
+					"mean": 11.7,
+					"p95": 71,
+					"max": 71,
+					"nested": true,
+					"share": 0.674
+				},
+				{
+					"name": "draws:shadow cascade 2",
+					"mean": 9.017,
+					"p95": 109,
+					"max": 109,
+					"nested": true,
+					"share": 0.52
+				},
+				{
+					"name": "scene render",
+					"mean": 7.758,
+					"p95": 10.599,
+					"max": 23.911,
+					"share": 0.447
+				},
+				{
+					"name": "pass:opaque",
+					"mean": 4.75,
+					"p95": 6.619,
+					"max": 20.236,
+					"nested": true,
+					"share": 0.274
+				},
+				{
+					"name": "shadows",
+					"mean": 3.622,
+					"p95": 6.181,
+					"max": 9.686,
+					"share": 0.209
+				},
+				{
+					"name": "pass:shadow cascade 0",
+					"mean": 3.073,
+					"p95": 4.038,
+					"max": 4.812,
+					"nested": true,
+					"share": 0.177
+				},
+				{
+					"name": "pass:refraction",
+					"mean": 1.749,
+					"p95": 2.338,
+					"max": 4.767,
+					"nested": true,
+					"share": 0.101
+				},
+				{
+					"name": "draws:hull mask",
+					"mean": 1,
+					"p95": 1,
+					"max": 1,
+					"nested": true,
+					"share": 0.058
+				},
+				{
+					"name": "feature:townlife",
+					"mean": 0.898,
+					"p95": 1.181,
+					"max": 5.824,
+					"share": 0.052
+				},
+				{
+					"name": "pass:water + transparent",
+					"mean": 0.877,
+					"p95": 1.376,
+					"max": 3.854,
+					"nested": true,
+					"share": 0.051
+				},
+				{
+					"name": "post",
+					"mean": 0.603,
+					"p95": 0.88,
+					"max": 1.563,
+					"share": 0.035
+				},
+				{
+					"name": "game",
+					"mean": 0.573,
+					"p95": 0.752,
+					"max": 1.085,
+					"share": 0.033
+				},
+				{
+					"name": "avatar",
+					"mean": 0.365,
+					"p95": 0.486,
+					"max": 3.319,
+					"share": 0.021
+				},
+				{
+					"name": "feature:naval",
+					"mean": 0.344,
+					"p95": 0.443,
+					"max": 0.817,
+					"share": 0.02
+				},
+				{
+					"name": "pass:shadow cascade 1",
+					"mean": 0.302,
+					"p95": 2.047,
+					"max": 3.395,
+					"nested": true,
+					"share": 0.017
+				},
+				{
+					"name": "residents",
+					"mean": 0.283,
+					"p95": 0.47,
+					"max": 1.999,
+					"share": 0.016
+				},
+				{
+					"name": "player",
+					"mean": 0.244,
+					"p95": 0.348,
+					"max": 0.508,
+					"share": 0.014
+				},
+				{
+					"name": "caustics",
+					"mean": 0.237,
+					"p95": 0.369,
+					"max": 0.806,
+					"share": 0.014
+				},
+				{
+					"name": "pass:shadow cascade 2",
+					"mean": 0.218,
+					"p95": 2.048,
+					"max": 6.178,
+					"nested": true,
+					"share": 0.013
+				},
+				{
+					"name": "fft",
+					"mean": 0.21,
+					"p95": 0.289,
+					"max": 0.683,
+					"share": 0.012
+				},
+				{
+					"name": "wildlife",
+					"mean": 0.197,
+					"p95": 0.268,
+					"max": 0.569,
+					"share": 0.011
+				},
+				{
+					"name": "clouds",
+					"mean": 0.175,
+					"p95": 0.283,
+					"max": 0.512,
+					"share": 0.01
+				},
+				{
+					"name": "feature:night",
+					"mean": 0.174,
+					"p95": 0.249,
+					"max": 0.482,
+					"share": 0.01
+				},
+				{
+					"name": "pass:hull mask",
+					"mean": 0.133,
+					"p95": 0.215,
+					"max": 0.49,
+					"nested": true,
+					"share": 0.008
+				},
+				{
+					"name": "ocean lod",
+					"mean": 0.119,
+					"p95": 0.157,
+					"max": 0.339,
+					"share": 0.007
+				},
+				{
+					"name": "local lights",
+					"mean": 0.118,
+					"p95": 0.165,
+					"max": 0.498,
+					"share": 0.007
+				},
+				{
+					"name": "feature:sfx",
+					"mean": 0.102,
+					"p95": 0.136,
+					"max": 0.383,
+					"share": 0.006
+				},
+				{
+					"name": "feature:interiors",
+					"mean": 0.102,
+					"p95": 0.149,
+					"max": 0.239,
+					"share": 0.006
+				},
+				{
+					"name": "feature:melee",
+					"mean": 0.092,
+					"p95": 0.124,
+					"max": 0.335,
+					"share": 0.005
+				},
+				{
+					"name": "feature:seaplane",
+					"mean": 0.092,
+					"p95": 0.126,
+					"max": 0.413,
+					"share": 0.005
+				},
+				{
+					"name": "feature:weather",
+					"mean": 0.082,
+					"p95": 0.127,
+					"max": 0.436,
+					"share": 0.005
+				},
+				{
+					"name": "shore sim",
+					"mean": 0.064,
+					"p95": 0.097,
+					"max": 0.194,
+					"share": 0.004
+				},
+				{
+					"name": "breakers",
+					"mean": 0.063,
+					"p95": 0.084,
+					"max": 0.141,
+					"share": 0.004
+				},
+				{
+					"name": "water query",
+					"mean": 0.058,
+					"p95": 0.089,
+					"max": 0.277,
+					"share": 0.003
+				},
+				{
+					"name": "feature:life",
+					"mean": 0.056,
+					"p95": 0.099,
+					"max": 0.265,
+					"share": 0.003
+				},
+				{
+					"name": "feature:crew",
+					"mean": 0.053,
+					"p95": 0.075,
+					"max": 0.161,
+					"share": 0.003
+				},
+				{
+					"name": "feature:firearms",
+					"mean": 0.048,
+					"p95": 0.058,
+					"max": 0.632,
+					"share": 0.003
+				},
+				{
+					"name": "feature:stronghold",
+					"mean": 0.038,
+					"p95": 0.048,
+					"max": 0.28,
+					"share": 0.002
+				},
+				{
+					"name": "feature:weapons",
+					"mean": 0.037,
+					"p95": 0.047,
+					"max": 0.113,
+					"share": 0.002
+				},
+				{
+					"name": "feature:vfx",
+					"mean": 0.036,
+					"p95": 0.05,
+					"max": 1.492,
+					"share": 0.002
+				},
+				{
+					"name": "feature:rescue",
+					"mean": 0.035,
+					"p95": 0.059,
+					"max": 0.129,
+					"share": 0.002
+				},
+				{
+					"name": "spray",
+					"mean": 0.035,
+					"p95": 0.059,
+					"max": 0.085,
+					"share": 0.002
+				},
+				{
+					"name": "feature:pirates",
+					"mean": 0.033,
+					"p95": 0.042,
+					"max": 0.164,
+					"share": 0.002
+				},
+				{
+					"name": "feature:harbour",
+					"mean": 0.031,
+					"p95": 0.038,
+					"max": 0.245,
+					"share": 0.002
+				},
+				{
+					"name": "terrain",
+					"mean": 0.028,
+					"p95": 0.037,
+					"max": 0.092,
+					"share": 0.002
+				},
+				{
+					"name": "feature:navy",
+					"mean": 0.026,
+					"p95": 0.038,
+					"max": 0.095,
+					"share": 0.001
+				},
+				{
+					"name": "boat model",
+					"mean": 0.026,
+					"p95": 0.033,
+					"max": 0.07,
+					"share": 0.001
+				},
+				{
+					"name": "feature:netsync",
+					"mean": 0.024,
+					"p95": 0.032,
+					"max": 0.057,
+					"share": 0.001
+				},
+				{
+					"name": "feature:hijack",
+					"mean": 0.022,
+					"p95": 0.029,
+					"max": 0.077,
+					"share": 0.001
+				},
+				{
+					"name": "feature:boarding",
+					"mean": 0.021,
+					"p95": 0.027,
+					"max": 0.083,
+					"share": 0.001
+				},
+				{
+					"name": "atmosphere",
+					"mean": 0.02,
+					"p95": 0.115,
+					"max": 0.21,
+					"share": 0.001
+				},
+				{
+					"name": "village",
+					"mean": 0.019,
+					"p95": 0.026,
+					"max": 0.057,
+					"share": 0.001
+				},
+				{
+					"name": "reef",
+					"mean": 0.018,
+					"p95": 0.024,
+					"max": 0.027,
+					"share": 0.001
+				},
+				{
+					"name": "feature:story",
+					"mean": 0.014,
+					"p95": 0.017,
+					"max": 0.31,
+					"share": 0.001
+				},
+				{
+					"name": "feature:trade",
+					"mean": 0.012,
+					"p95": 0.017,
+					"max": 0.147,
+					"share": 0.001
+				},
+				{
+					"name": "feature:dressing",
+					"mean": 0.012,
+					"p95": 0.015,
+					"max": 0.061,
+					"share": 0.001
+				},
+				{
+					"name": "feature:inverted",
+					"mean": 0.011,
+					"p95": 0.015,
+					"max": 0.037,
+					"share": 0.001
+				},
+				{
+					"name": "feature:notices",
+					"mean": 0.01,
+					"p95": 0.009,
+					"max": 0.304,
+					"share": 0.001
+				},
+				{
+					"name": "feature:destruction",
+					"mean": 0.01,
+					"p95": 0.013,
+					"max": 0.02,
+					"share": 0.001
+				},
+				{
+					"name": "feature:exploration",
+					"mean": 0.01,
+					"p95": 0.012,
+					"max": 0.602,
+					"share": 0.001
+				},
+				{
+					"name": "camera feel",
+					"mean": 0.009,
+					"p95": 0.011,
+					"max": 0.035,
+					"share": 0.001
+				},
+				{
+					"name": "feature:customs",
+					"mean": 0.008,
+					"p95": 0.011,
+					"max": 0.014,
+					"share": 0
+				},
+				{
+					"name": "feature:worldmap",
+					"mean": 0.008,
+					"p95": 0.016,
+					"max": 0.095,
+					"share": 0
+				},
+				{
+					"name": "debris",
+					"mean": 0.008,
+					"p95": 0.009,
+					"max": 0.026,
+					"share": 0
+				},
+				{
+					"name": "vegetation",
+					"mean": 0.008,
+					"p95": 0.012,
+					"max": 0.028,
+					"share": 0
+				},
+				{
+					"name": "environment",
+					"mean": 0.007,
+					"p95": 0.023,
+					"max": 0.292,
+					"share": 0
+				},
+				{
+					"name": "wake",
+					"mean": 0.006,
+					"p95": 0.008,
+					"max": 0.01,
+					"share": 0
+				},
+				{
+					"name": "feature:emotes",
+					"mean": 0.005,
+					"p95": 0.006,
+					"max": 0.116,
+					"share": 0
+				},
+				{
+					"name": "feature:death",
+					"mean": 0.005,
+					"p95": 0.006,
+					"max": 0.01,
+					"share": 0
+				},
+				{
+					"name": "air motes",
+					"mean": 0.004,
+					"p95": 0.005,
+					"max": 0.043,
+					"share": 0
+				},
+				{
+					"name": "feature:start",
+					"mean": 0.003,
+					"p95": 0.004,
+					"max": 0.006,
+					"share": 0
+				},
+				{
+					"name": "feature:agents",
+					"mean": 0.003,
+					"p95": 0.003,
+					"max": 0.029,
+					"share": 0
+				},
+				{
+					"name": "feature:crafting",
+					"mean": 0.003,
+					"p95": 0.004,
+					"max": 0.023,
+					"share": 0
+				},
+				{
+					"name": "boat yard",
+					"mean": 0.003,
+					"p95": 0.004,
+					"max": 0.06,
+					"share": 0
+				},
+				{
+					"name": "rocks",
+					"mean": 0.003,
+					"p95": 0.003,
+					"max": 0.111,
+					"share": 0
+				},
+				{
+					"name": "audio",
+					"mean": 0.003,
+					"p95": 0.005,
+					"max": 0.008,
+					"share": 0
+				},
+				{
+					"name": "feature:tips",
+					"mean": 0.002,
+					"p95": 0.003,
+					"max": 0.049,
+					"share": 0
+				},
+				{
+					"name": "sea detail",
+					"mean": 0.002,
+					"p95": 0.003,
+					"max": 0.058,
+					"share": 0
+				},
+				{
+					"name": "marine snow",
+					"mean": 0.002,
+					"p95": 0.002,
+					"max": 0.003,
+					"share": 0
+				},
+				{
+					"name": "feature:debug",
+					"mean": 0.001,
+					"p95": 0.001,
+					"max": 0.002,
+					"share": 0
+				}
+			],
+			"passes": [
+				[
+					"opaque",
+					0.437
+				],
+				[
+					"shadow cascade 0",
+					0.206
+				],
+				[
+					"water + transparent",
+					0.168
+				],
+				[
+					"Clouds Trace",
+					0.162
+				],
+				[
+					"refraction",
+					0.135
+				],
+				[
+					"Ocean FFT",
+					0.118
+				],
+				[
+					"Clouds Panorama",
+					0.103
+				],
+				[
+					"causticsFine",
+					0.096
+				],
+				[
+					"Surf Crests",
+					0.085
+				],
+				[
+					"Shore Sim",
+					0.061
+				],
+				[
+					"Underwater Light Map 1",
+					0.04
+				],
+				[
+					"Underwater Light Map 0",
+					0.036
+				],
+				[
+					"Water Queries",
+					0.031
+				],
+				[
+					"shadow cascade 1",
+					0.028
+				],
+				[
+					"bloom down",
+					0.022
+				],
+				[
+					"final (grade + tonemap)",
+					0.022
+				],
+				[
+					"causticsBroad",
+					0.018
+				],
+				[
+					"shadow cascade 2",
+					0.016
+				],
+				[
+					"Clouds Resolve",
+					0.016
+				],
+				[
+					"Caustics Mips",
+					0.015
+				],
+				[
+					"Clouds Shadow",
+					0.013
+				],
+				[
+					"beauty (AO + haze + underwater)",
+					0.013
+				],
+				[
+					"Spray Update",
+					0.011
+				],
+				[
+					"Auto Exposure",
+					0.011
+				],
+				[
+					"medium",
+					0.009
+				]
+			],
+			"setup": {
+				"ships": 0,
+				"peers": 0,
+				"weather": "clear",
+				"place": "walk",
+				"notes": []
+			},
+			"vegetation": {
+				"triangles": 241716,
+				"drawCalls": 8,
+				"types": {
+					"palms": [
+						13,
+						107
+					],
+					"bananas": [
+						0,
+						0
+					],
+					"understory": [
+						11,
+						0
+					],
+					"monsteras": [
+						0,
+						0
+					],
+					"broadleaf": [
+						18,
+						0
+					],
+					"canopy": [
+						1,
+						1047
+					],
+					"grass": [
+						0,
+						13,
+						92
+					]
+				}
+			},
+			"memory": {
+				"total": 389.5,
+				"buffers": 210.6,
+				"textures": 178.9,
+				"peak": 411,
+				"groups": {
+					"vegetation": 12.7,
+					"terrain": 38.8,
+					"islands": 18,
+					"characters": 50.4
+				}
+			}
+		}
+	},
+	"candidates": [
+		{
+			"kind": "wildlife and dressing",
+			"scope": "wildlife",
+			"mean": 0.544,
+			"p95": 0.787,
+			"share": 0.037,
+			"scenario": "homeBay",
+			"fix": "distance-cull schools and harbour props, update flocks every other frame"
+		}
+	],
+	"unverified": [],
+	"adapter": "nvidia blackwell nvidia-geforce-rtx-5070-ti-laptop-gpu NVIDIA: 616.92 616.92.0.0",
+	"quality": "Tablet · Low 70% · target 60",
+	"headless": true,
+	"jsAfterInit": {
+		"heap": 291,
+		"arrayBuffers": 355.3
+	},
+	"sceneStats": {
+		"objects": 1162,
+		"meshes": 898,
+		"visibleMeshes": 429,
+		"matrixAutoUpdate": 1110
+	}
+}

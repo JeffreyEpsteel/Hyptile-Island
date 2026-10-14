@@ -23,7 +23,7 @@ import { shells } from './Shells.js';
 //   it.setDestroyed( id, on ) -> bool    a destroyed room unloads, its doorway is barred; it.enter( id ) (tests, shots)
 //   it.dispose()
 
-export const LOAD = { desktop: 30, phone: 20 }; // m from the shell's centre
+export const LOAD = { desktop: 30, phone: 20, perFrame: 1 }; // m from the shell's centre; rooms starting to load a frame (wave 20A)
 export const UNLOAD_PAD = 15;
 export const ARM_INDOOR = 2.4; // the closer third person indoors
 export const KIT_URL = 'models/interiors/kit.glb';
@@ -139,12 +139,14 @@ export class Interiors {
 
 	seats( room ) {
 
-		return room.R.seats.map( ( s ) => {
+		// (a room's seats never move: made once, not a fresh list each time townlife's tavern-goers ask; wave 20A)
+		if ( room._seats ) return room._seats;
+		return ( room._seats = room.R.seats.map( ( s ) => {
 
 			const p = this.world( room, s.x, s.z );
 			return { id: `interior.${ room.id }.${ s.n }`, interior: room.id, port: room.def.port, x: p.x, y: room.floorY + s.y, z: p.z, h: s.y, floor: room.floorY, yaw: room.F.yaw + s.yaw };
 
-		} );
+		} ) );
 
 	}
 
@@ -172,11 +174,15 @@ export class Interiors {
 
 		if ( this.list.length < INTERIORS.length ) this.bind();
 		const reach = this.phone ? LOAD.phone : LOAD.desktop;
-		let inside = null;
+		let inside = null, loads = 0;
 		for ( const room of this.list ) {
 
 			const d = viewer ? Math.hypot( viewer.x - room.F.x, viewer.z - room.F.z ) : Infinity;
 			const want = ! room.destroyed && d < ( room.wanted ? reach + UNLOAD_PAD : reach );
+			// (wave 20A: one room starts loading a frame - its colliders, lights and the build of its meshes - the next waits a
+			// frame; a room the viewer stands in never waits)
+			if ( want && ! room.wanted && loads >= LOAD.perFrame && ! ( viewer && this.contains( room, viewer.x, viewer.y, viewer.z, 0.5 ) ) ) continue;
+			if ( want && ! room.wanted ) loads ++;
 			if ( want !== room.wanted ) {
 
 				room.wanted = want;
