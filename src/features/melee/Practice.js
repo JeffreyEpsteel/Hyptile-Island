@@ -58,7 +58,7 @@ export class Practice {
 
 	}
 
-	start() {
+	start( opts = {} ) {
 
 		const m = this.melee, p = m.player && m.player.position;
 		if ( ! p || this.active ) return false;
@@ -99,7 +99,7 @@ export class Practice {
 		}
 
 		m.combat.hp = m.combat.maxHp;
-		m.toast( 'Practice fight · wooden swords · guard the gold ring, punish the opening', 3200 );
+		if ( opts.toast !== false ) m.toast( 'Practice fight · wooden swords · guard the gold ring, punish the opening', 3200 );
 		m.emit( 'practiceStarted', { count: PRACTICE.count } );
 		return true;
 

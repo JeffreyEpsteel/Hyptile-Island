@@ -260,7 +260,7 @@ section( '3. hulls and rules' );
 	ok( hullFor( 'trawler' ) === 'trawler' && hullFor( 'sloop' ) === 'sloop' && hullFor( 'brigantine' ) === 'brigantine', 'each AI class is a player hull already (Boats.js shipClass)' );
 	ok( hullFor( 'skiff' ) === 'skiff' && hullFor( 'nothing' ) === null, 'a small boat id maps to itself, an unknown class to nothing' );
 	ok( watchChance( { night: true } ) < watchChance( {} ) && watchChance( { night: true, level: 3 } ) > watchChance( { night: true } ) && watchChance( { night: true, blackwater: true } ) > watchChance( { night: true } ), `the watch: night ${ watchChance( { night: true } ) }, day ${ watchChance( {} ) }, more with notoriety and at Blackwater` );
-	ok( repaintFee( 'trawler' ) === 2640 && repaintFee( 'skiff' ) === HIJACK.repaint.min && fencePrice( 'sloop' ) === 12600, `repaint $${ repaintFee( 'trawler' ) } (trawler), the fence pays $${ fencePrice( 'sloop' ) } for a sloop` );
+	ok( repaintFee( 'trawler' ) === 2640 && repaintFee( 'skiff' ) === HIJACK.repaint.min && fencePrice( 'sloop' ) === 2880, `repaint $${ repaintFee( 'trawler' ) } (trawler), the fence pays $${ fencePrice( 'sloop' ) } for a sloop` );
 	const sk = skiffSites( terrain );
 	ok( sk.length === WORLD.ports.length && sk.every( ( k ) => BOATS[ k.kind ] && ( k.kind === 'skiff' || k.kind === 'canoe' ) ), `a resident's skiff or canoe at every port (${ sk.length })` );
 	ok( sk.filter( ( k ) => terrain.heightAt( k.x, k.z ) < - 0.4 ).length >= sk.length - 2, 'afloat beside the jetties', sk.map( ( k ) => k.port + ' ' + terrain.heightAt( k.x, k.z ).toFixed( 1 ) ).join( ' ' ) );

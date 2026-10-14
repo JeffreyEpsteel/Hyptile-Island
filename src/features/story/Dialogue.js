@@ -1,15 +1,19 @@
 import { CHAINS, ITEMS, NPCS, portName } from './StoryData.js';
 import { gate } from './Rules.js';
 import { moodWord } from './Memory.js';
+import { L } from './Lang.js';
 
 // Conversations (pure: Story.js holds the state, DialogueUI.js draws them). A conversation is a node: what the person
 // says (`line`) and the player's choices. The nodes are built each time from the quest chains (offers, reminders,
 // hand-ins), the person's memory of the player and the authored lines below, so every choice reflects the state now.
 //
 //   buildModel( story, npc, node = 'root', said = null ) -> { npc, name, role, port, portName, mood, line, said, choices }
-//     choices: [ { id, label, kind: 'turnin' | 'offer' | 'accept' | 'ask' | 'topic' | 'service' | 'gift' | 'back' | 'bye',
+//     choices: [ { id, label, kind: 'turnin' | 'pick' | 'offer' | 'accept' | 'ask' | 'topic' | 'service' | 'gift' | 'back' | 'bye',
 //                  hint?, disabled? } ]
 //   applyChoice( story, npc, id ) -> { node, said, close }   runs the choice's effect through the story
+//
+// Wave 20: a choice step (step.choices, the court-martial) shows one 'pick:<chain>:<option>' per option where a hand-in would be;
+// applyChoice runs story.decide. Chain lines, labels and names go through Lang.L (the player's language).
 //
 // Nodes: 'root' (greeting + everything there is to talk about), 'offer:<chain>' (the pitch; accept or not now),
 // 'ask:<chain>' (a running chain: the reminder, where to go next, drop it).
@@ -143,7 +147,8 @@ function rewardText( r ) {
 	if ( r.money ) bits.push( `+$${ r.money }` );
 	if ( r.xp ) bits.push( `+${ r.xp } XP` );
 	for ( const [ p, n ] of Object.entries( r.rep || {} ) ) if ( n ) bits.push( `${ portName( p ) } +${ n }` );
-	if ( r.item && ITEMS[ r.item ] ) bits.push( ITEMS[ r.item ].name );
+	if ( r.item && ITEMS[ r.item ] ) bits.push( L( ITEMS[ r.item ].name ) );
+	if ( r.sailor && r.sailor.name ) bits.push( `${ r.sailor.name } ${ L( 'signs on' ) }` );
 	if ( r.unlockItem && ITEMS[ r.unlockItem ] ) bits.push( `${ ITEMS[ r.unlockItem ].name } for sale` );
 	if ( r.unlock ) bits.push( 'a new crew member' );
 	return bits.join( ' · ' );
@@ -155,7 +160,7 @@ export function buildModel( story, npc, node = 'root', said = null ) {
 	const spec = story.npc( npc );
 	if ( ! spec ) return null;
 	const ctx = story.ctx( npc ), mem = ctx.mem;
-	const base = { npc, name: spec.name, role: spec.role, port: spec.port, portName: portName( spec.port ), mood: moodWord( mem.disposition ), said: said || null };
+	const base = { npc, name: L( spec.name ), role: L( spec.role ), port: spec.port, portName: portName( spec.port ), mood: moodWord( mem.disposition ), said: said || null };
 	const back = { id: 'back', label: 'Back', kind: 'back' };
 	const bye = { id: 'bye', label: 'Goodbye.', kind: 'bye' };
 
@@ -164,7 +169,7 @@ export function buildModel( story, npc, node = 'root', said = null ) {
 		const id = node.slice( 6 ), c = story.chain( id );
 		if ( c && story.canAccept( id ) ) {
 
-			return { ...base, node, line: c.offer, reward: rewardText( c.reward ), choices: [ { id: `accept:${ id }`, label: c.accept, kind: 'accept' }, { id: 'back', label: 'Not now.', kind: 'back' } ] };
+			return { ...base, node, line: L( c.offer ), reward: rewardText( c.reward ), choices: [ { id: `accept:${ id }`, label: L( c.accept ), kind: 'accept' }, { id: 'back', label: L( 'Not now.' ), kind: 'back' } ] };
 
 		}
 
@@ -178,7 +183,7 @@ export function buildModel( story, npc, node = 'root', said = null ) {
 		if ( c && story.isActive( id ) ) {
 
 			const p = story.pendingAt( npc ).find( ( x ) => x.id === id );
-			const line = p && p.kind === 'deliver' && ! p.ready ? p.step.missing || c.remind : c.remind;
+			const line = L( p && p.kind === 'deliver' && ! p.ready ? p.step.missing || c.remind : c.remind );
 			return { ...base, node, line, hint: story.stepText( id ), choices: [ back, { id: `drop:${ id }`, label: 'I am giving this one up.', kind: 'ask' } ] };
 
 		}
@@ -198,21 +203,23 @@ export function buildModel( story, npc, node = 'root', said = null ) {
 			const c = story.chain( p.id );
 			if ( p.ready ) {
 
-				if ( ! pendingLine ) pendingLine = p.kind === 'talk' ? p.step.say : p.step.ready;
-				choices.push( { id: `turnin:${ p.id }`, label: p.step.response || 'Here.', kind: 'turnin', hint: c.title } );
+				if ( ! pendingLine ) pendingLine = L( p.kind === 'talk' ? p.step.say : p.step.ready );
+				// a choice step: one answer per option (the path the chain takes)
+				if ( Array.isArray( p.step.choices ) && p.step.choices.length ) for ( const o of p.step.choices ) choices.push( { id: `pick:${ p.id }:${ o.id }`, label: L( o.label ), kind: 'pick', hint: L( c.title ) } );
+				else choices.push( { id: `turnin:${ p.id }`, label: L( p.step.response || 'Here.' ), kind: 'turnin', hint: L( c.title ) } );
 
-			} else choices.push( { id: `ask:${ p.id }`, label: `About ${ c.title.toLowerCase() }...`, kind: 'ask', hint: story.stepText( p.id ) } );
+			} else choices.push( { id: `ask:${ p.id }`, label: `${ L( 'About' ) } ${ L( c.title ).toLowerCase() }...`, kind: 'ask', hint: story.stepText( p.id ) } );
 
 		}
 
 		for ( const id of story.runningFrom( npc ) ) {
 
 			if ( choices.some( ( ch ) => ch.id.endsWith( `:${ id }` ) ) ) continue;
-			choices.push( { id: `ask:${ id }`, label: `About ${ story.chain( id ).title.toLowerCase() }...`, kind: 'ask', hint: story.stepText( id ) } );
+			choices.push( { id: `ask:${ id }`, label: `${ L( 'About' ) } ${ L( story.chain( id ).title ).toLowerCase() }...`, kind: 'ask', hint: story.stepText( id ) } );
 
 		}
 
-		for ( const id of story.offers( npc ) ) choices.push( { id: `offer:${ id }`, label: `Any work? (${ story.chain( id ).title })`, kind: 'offer' } );
+		for ( const id of story.offers( npc ) ) choices.push( { id: `offer:${ id }`, label: `${ L( 'Any work?' ) } (${ L( story.chain( id ).title ) })`, kind: 'offer' } );
 
 	}
 
@@ -251,7 +258,7 @@ export function applyChoice( story, npc, id ) {
 
 			const c = story.chain( arg );
 			const ok = story.accept( arg, npc );
-			return { node: 'root', said: ok ? c.accepted : story.lastError || 'Not now.' };
+			return { node: 'root', said: ok ? L( c.accepted ) : story.lastError || 'Not now.' };
 
 		}
 
@@ -265,6 +272,17 @@ export function applyChoice( story, npc, id ) {
 		case 'turnin': {
 
 			const r = story.turnIn( arg, npc );
+			if ( ! r ) return { node: 'root', said: story.lastError || 'Not yet.' };
+			const extra = r.done ? rewardText( r.reward ) : '';
+			return { node: 'root', said: `${ r.done ? L( r.said ) : r.said }${ extra ? ` (${ extra })` : '' }` };
+
+		}
+
+		case 'pick': {
+
+			// a choice step: 'pick:<chain>:<option>'
+			const [ chain, option ] = String( arg || '' ).split( ':' );
+			const r = typeof story.decide === 'function' ? story.decide( chain, option, npc ) : null;
 			if ( ! r ) return { node: 'root', said: story.lastError || 'Not yet.' };
 			const extra = r.done ? rewardText( r.reward ) : '';
 			return { node: 'root', said: `${ r.said }${ extra ? ` (${ extra })` : '' }` };

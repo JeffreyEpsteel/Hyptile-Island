@@ -339,14 +339,16 @@ section( 'the universe anti-cheat lets the honest big sales through' );
 	u.state.captains[ k ].lastSaveAt = t0 - 2500; // the last save went 2.5 s ago (Universe.js SAVE_GAP)
 	// the fence buys a stolen brigantine: the client relays 'stolenSold' (hijack patch) and saves 2.5 s later
 	const price = fencePrice( 'brigantine' );
-	ok( price > MONEY_BURST && rewardFor( 'stolenSold', { hull: 'brigantine', price } ) === price && rewardFor( 'stolenSold', { hull: 'brigantine', price: 1e9 } ) === price && rewardFor( 'stolenSold', { hull: 'nope', price: 9999 } ) === 0, `rewardFor: the fence's price for a brigantine is the server's own ($${ price }, more than the $${ MONEY_BURST } burst), never the client's` );
+	ok( price > 0 && rewardFor( 'stolenSold', { hull: 'brigantine', price } ) === price && rewardFor( 'stolenSold', { hull: 'brigantine', price: 1e9 } ) === price && rewardFor( 'stolenSold', { hull: 'nope', price: 9999 } ) === 0, `rewardFor: the fence's price for a brigantine is the server's own ($${ price }), never the client's` );
 	ok( rewardFor( 'bountyClaimed', { id: 'x', reward: 1e7 } ) === REWARD_MAX && rewardFor( 'propDestroyed', { id: 'x' } ) === 0, 'other events: their `reward`, at most REWARD_MAX' );
 	u.recordEvent( k, 'c1', 'stolenSold', { hull: 'brigantine', name: 'Grey Widow', price } );
 	const r1 = u.storeProfile( k, { ...base, money: 1000 + price }, { startedAt: t0 - 60000 } );
 	ok( r1.ok && ! r1.fix && u.loadProfile( k ).money === 1000 + price, `a $${ price } fence sale is not clamped once it is relayed` );
 	u.state.captains[ k ].lastSaveAt = Date.now() - 2500;
-	const r2 = u.storeProfile( k, { ...base, money: 1000 + price * 2 }, { startedAt: t0 - 60000 } );
-	ok( r2.fix && r2.fix.money < 1000 + price * 2, 'the same sale saved twice without a second relay is clamped' );
+	// (a second unrelayed sale beyond the burst: the fence pays under the burst since wave 20C's FENCE 0.08)
+	const twice = 1000 + price * 2 + MONEY_BURST;
+	const r2 = u.storeProfile( k, { ...base, money: twice }, { startedAt: t0 - 60000 } );
+	ok( r2.fix && r2.fix.money < twice, 'the same sale saved twice without a second relay (and past the burst) is clamped' );
 	// a quest payout: the biggest single reward money of any chain plus a step payout, inside the burst
 	const most = Object.values( CHAINS ).reduce( ( a, c ) => Math.max( a, ( c.reward && c.reward.money ) || 0, ...c.steps.map( ( x ) => ( x.payout && x.payout.money ) || 0 ) ), 0 );
 	ok( most > 0 && most * 2 < MONEY_BURST, `the biggest quest payout ($${ most }) fits the $${ MONEY_BURST } burst twice over` );

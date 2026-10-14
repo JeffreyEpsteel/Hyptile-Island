@@ -1,5 +1,6 @@
 import { FISH, FISH_IDS } from '../../game/FishTable.js';
 import { WORLD } from '../../world/WorldLayout.js';
+import { L } from '../story/Lang.js';
 
 // Notice board data and generation (pure: no DOM, no engine state; the Notices class and the tests use it).
 //
@@ -60,6 +61,8 @@ const BOUNTY_RANGE = [ null, [ 250, 650 ], [ 650, 1300 ], [ 1300, 2200 ] ]; // m
 // tier weights by standing level 0..4: bounties get higher tiers as the board trusts you
 const TIER_WEIGHTS = [ [ 1, 0, 0 ], [ 0.8, 0.2, 0 ], [ 0.5, 0.4, 0.1 ], [ 0.25, 0.45, 0.3 ], [ 0.1, 0.4, 0.5 ] ];
 const NON_RAIDERS = new Set( [ 'animal', 'wildlife', 'fish', 'shark', 'gull' ] );
+// the bounty numbers by tier, for the balance pass (story/Balance.js reads them; the board uses the constants above)
+export const BOUNTY_TIERS = { base: BOUNTY_BASE, rep: BOUNTY_REP, life: BOUNTY_LIFE, range: BOUNTY_RANGE };
 
 // ---------------------------------------------------------------- small helpers
 
@@ -600,12 +603,24 @@ export const W16_NOTICES = [
 	{ chain: 'saltRoad', ports: [ 'home', 'tidemark' ], client: 'Ethena Prosper, for the trade guild', title: 'The salt road', text: 'The guild takes members who make routes pay: three profitable runs on the board\'s best loads, a licence, a bulk lot in the Tidemark warehouse.' },
 ];
 
+// wave 20C: the lines of StoryW20 (the navy lieutenant, the Tide & Tankard, Wren on the porch, Old Pepe's storm fronts) and their
+// follow-ups, posted once their first chain is done (Convoy duty only for a captain who handed the deserter over: the story's gate)
+export const W20_NOTICES = [
+	{ chain: 'kingsWater', ports: [ 'tidemark', 'home' ], client: 'Lieutenant Hale, the naval jetty', title: 'Navy business', text: 'Captains wanted for convoy work, a raider hunt and dispatches by air. Report to the naval jetty at Tidemark.' },
+	{ chain: 'diceNight', ports: [ 'tidemark' ], client: 'Brine, the Tide & Tankard', title: 'Dice night', text: 'Lost: one sailor, last seen leaving with the dice winners. Also wanted: a steady pair of fists, and a captain who does not mind weather.' },
+	{ chain: 'wrensPast', ports: [ 'tidemark' ], client: 'Wren Calloway, on the porch', title: 'Wren\'s past', text: 'Former navy helm seeks a berth and one storm. Ask on the Tide & Tankard porch.' },
+	{ chain: 'chasingTheLine', ports: [ 'home' ], client: 'Old Pepe, weather prophet', title: 'Chasing the line', text: 'Somebody young, with a boat and a plane, to go and look at the storm lines up close. Ask on the bench by the plaza.' },
+	{ chain: 'convoyDuty', ports: [ 'tidemark' ], client: 'Lieutenant Hale, the naval jetty', title: 'Convoy duty', text: 'Another convoy is due through the lanes. Bring her through and collect the Crown\'s bounty.' },
+	{ chain: 'stormRun', ports: [ 'tidemark' ], client: 'Brine, the Tide & Tankard', title: 'Another stormy night', text: 'Casks for Pons, same arrangement as before. Wait for weather.' },
+	{ chain: 'frontLine', ports: [ 'home', 'tidemark' ], client: 'Old Pepe, weather prophet', title: 'Another line', text: 'Another storm line is coming. Fly up and look at its lightning for an old man.' },
+];
+
 // the quest notices on `port`'s board now (story: the story feature; hours: the board's clock): board-card shaped
 export function storyPostings( port, story, hours = 0 ) {
 
 	if ( ! story || typeof story.canAccept !== 'function' ) return [];
 	const day = Math.floor( num( hours ) / DAY_HOURS ), out = [];
-	[ ...QUEST_NOTICES, ...W16_NOTICES ].forEach( ( q, i ) => {
+	[ ...QUEST_NOTICES, ...W16_NOTICES, ...W20_NOTICES ].forEach( ( q, i ) => {
 
 		if ( ! q.ports.includes( port ) ) return;
 		const c = typeof story.chain === 'function' ? story.chain( q.chain ) : null;
@@ -615,7 +630,7 @@ export function storyPostings( port, story, hours = 0 ) {
 		const expires = ( day + 1 ) * DAY_HOURS; // pinned afresh each day
 		out.push( {
 			id: `story:${ q.chain }`, port, day, slot: 100 + i, kind: 'quest', type: 'story', story: true, chain: q.chain,
-			title: q.title, client: q.client, text: q.text, params: {}, goal: 1,
+			title: L( q.title ), client: L( q.client ), text: L( q.text ), params: {}, goal: 1,
 			reward: { money, rep: num( r.rep && r.rep[ port ] ), unlock: null }, issued: day * DAY_HOURS, expires, left: expires - num( hours ),
 		} );
 

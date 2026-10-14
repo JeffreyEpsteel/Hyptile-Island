@@ -211,7 +211,11 @@ export class Tavern {
 	pool() {
 
 		const notices = this.features && this.features.get ? this.features.get( 'notices' ) : null;
-		return [ ...bountyRumours( notices ), ...fishRumours(), ...portRumours() ];
+		// wave 20C: the story's quest givers are talked about too (pinned on the map)
+		const story = this.features && this.features.get ? this.features.get( 'story' ) : null;
+		let quests = [];
+		try { quests = ( story && story.rumours && story.rumours() ) || []; } catch ( e ) { /* the story is optional */ }
+		return [ ...quests, ...bountyRumours( notices ), ...fishRumours(), ...portRumours() ];
 
 	}
 
@@ -223,10 +227,11 @@ export class Tavern {
 		const fresh = pool.filter( ( r ) => ! this.heard.some( ( h ) => h.id === r.id ) );
 		const from = fresh.length ? fresh : pool;
 		const bounties = from.filter( ( r ) => r.kind === 'bounty' );
-		const pick = bounties.length && this.rng() < 0.5 ? bounties : from;
+		const quests = from.filter( ( q ) => q.kind === 'quest' );
+		const pick = quests.length && this.rng() < 0.5 ? quests : bounties.length && this.rng() < 0.5 ? bounties : from;
 		const r = { ...pick[ Math.floor( this.rng() * pick.length ) % pick.length ], port, at: r1( this.hours ) };
 		this.heard = [ r, ...this.heard.filter( ( h ) => h.id !== r.id ) ].slice( 0, MAX_HEARD );
-		if ( this.features && this.features.emit ) this.features.emit( 'rumourHeard', { kind: r.kind, text: r.text, x: r.x, z: r.z } );
+		if ( this.features && this.features.emit ) this.features.emit( 'rumourHeard', { id: r.id, kind: r.kind, text: r.text, x: r.x, z: r.z } );
 		return r;
 
 	}

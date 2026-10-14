@@ -14,6 +14,7 @@ import { effectiveMatch, portAt } from './StoryData.js';
 //     { night: bool }                 after dark now              { hostile: bool }          the speaker's port is hostile
 //     { any: [ req ] }  { not: req }  { met: bool }               { debt: true }             the speaker is owed money
 //     { corsair: n }                  pirates.standing() >= n (wave 13: the black-market dealer's work)
+//     { path: [ chain, option ] }     that chain is done and its choice step took that option (wave 20: the court-martial)
 //   ctx: { story, state, npc, mem, night, features }
 //   sandboxGate( req ) -> req         the gates the sandbox keeps (only { feature }: the sandbox plays everything else)
 //
@@ -68,6 +69,7 @@ export function gate( req, ctx = {} ) {
 			case 'chain': pass = !! ( story && story.isDone( v ) ); break;
 			case 'chains': pass = list( v ).every( ( id ) => story && story.isDone( id ) ); break;
 			case 'active': pass = !! ( story && story.isActive( v ) ); break;
+			case 'path': pass = !! ( story && story.isDone( v[ 0 ] ) && typeof story.pathOf === 'function' && story.pathOf( v[ 0 ] ) === v[ 1 ] ); break;
 			case 'discovered': pass = v === 'home' || !! ( st && Array.isArray( st.discovered ) && st.discovered.includes( v ) ); break;
 			case 'feature': pass = !! ( ctx.features && ctx.features.get && ctx.features.get( v ) ); break;
 			case 'career': pass = compare( st && st.career ? st.career[ v[ 0 ] ] : 0, v[ 1 ], v[ 2 ] ); break;

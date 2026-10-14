@@ -8,6 +8,8 @@ import { POUCH } from '../firearms/FirearmsData.js';
 import { buildModel, applyChoice, chainsOf } from './Dialogue.js';
 import { DialogueUI, journalHTML } from './DialogueUI.js';
 import { RESIDENTS } from '../../world/residents/ResidentData.js';
+import { w20Start, w20Tick, w20Event, w20StepDone, w20Rumours, standingEffect, crewTrait, hire } from './StoryW20.js';
+import { L } from './Lang.js';
 
 // The story: quest chains (StoryData.CHAINS + one errand per extra port), conversations (Dialogue.js), what each
 // person remembers of the player (Memory.js) and the consequences of what the player does (per-port grudges).
@@ -50,6 +52,11 @@ import { RESIDENTS } from '../../world/residents/ResidentData.js';
 //   story.pullCastaway()            -> bool; emits castawayRescued { id, resident, x, z, by: 'player', chain }
 //   story.runs                      the salt road's open runs [ { good, from, to } ]: a load of the board's top ROUTE_TOP bought at
 //                                   `from`, sold at `to` at a profit: routeRun { good, from, to, profit } (the step counts those)
+// Wave 20C (StoryW20.js: Navy business, Dice night, Wren's past, Chasing the line and their follow-ups):
+//   story.decide( chain, option, npc? ) -> { said, done, reward } | null   a choice step (the court-martial): progress.path
+//   story.pathOf( chain ) -> option id | null      story.rumours( port ) -> tavern rumours that point at a line not yet taken
+//   story.L( text )                                the text in the player's language (Lang.js: the wave 20 Romanian table, i18n tx)
+// A rumour heard (rumourHeard { kind: 'quest', id: 'quest:<chain>' }) pins its giver (questPin id 'rumour:<chain>') until taken.
 // Hold the line arms a raid: naval.spawn( 'sloop', { id: StoryData.RAID_ID, ... } ) off Tidemark's bay on a loop route,
 //   and while she is afloat and within 330 m of the pier Story fires her guns at the town's intact props through
 //   naval.launchFrom (leadAim); 6 props broken in Tidemark (propDestroyed port 'tidemark') loses it, sinking or crippling
@@ -82,7 +89,8 @@ const POLL = 0.5;
 const LISTEN = [ 'fishCaught', 'fishSold', 'cargoSold', 'cargoBought', 'portVisited', 'shipSunk', 'bountyClaimed', 'propDestroyed',
 	'planeTookOff', 'planeLanded', 'enemyDefeated', 'noticeCompleted', 'lootCollected', 'playerBoatSunk', 'residentPrank',
 	'prisonerRansomed', 'denRaided', 'customsInspected', 'rumourHeard', 'contrabandSold',
-	'vesselTaken', 'rescueDelivered', 'harbourDues' ]; // (wave 16: the letter of marque, the free launch, the guild's dues)
+	'vesselTaken', 'rescueDelivered', 'harbourDues', // (wave 16: the letter of marque, the free launch, the guild's dues)
+	'convoyAttacked', 'practiceEnded' ]; // (wave 20: the convoy's pin, a lost brawl)
 const LEAD = new Set( [ ...Object.keys( W13_CHAINS ), ...Object.keys( W16_CHAINS ) ] ); // offered first: a giver pitches at most OFFERS_PER_NPC at once
 const MAX_RUNS = 6;
 const RAID = { fire: 7, reach: 330, muzzleY: 3, out: 420, loop: 110 }; // the raiding sloop's guns (s, m) and her route (m)
@@ -90,6 +98,22 @@ const MAX_ENTRIES = 24;
 const num = ( v, d = 0 ) => ( typeof v === 'number' && Number.isFinite( v ) ? v : d );
 const clamp = ( v, a, b ) => Math.max( a, Math.min( b, v ) );
 const RES_BY_ID = new Map( RESIDENTS.map( ( r ) => [ r.id, r ] ) );
+// a running step's notes from a save: at most 8 short keys of short strings or finite numbers
+function cleanVars( v ) {
+
+	if ( ! v || typeof v !== 'object' || Array.isArray( v ) ) return null;
+	const out = {};
+	for ( const [ k, x ] of Object.entries( v ).slice( 0, 8 ) ) {
+
+		if ( ! /^\w{1,16}$/.test( k ) ) continue;
+		if ( typeof x === 'string' ) out[ k ] = x.slice( 0, 40 );
+		else if ( typeof x === 'number' && Number.isFinite( x ) ) out[ k ] = Math.max( - 1e6, Math.min( 1e6, x ) );
+
+	}
+
+	return Object.keys( out ).length ? out : null;
+
+}
 
 export class Story {
 
@@ -116,6 +140,10 @@ export class Story {
 		this._castT = 0;
 		this._duesSeen = null; // trade.dues.paid at the last harbourDues (a fee that became a debt is not refunded)
 		this._resume = true; // a step's pin / raid is (re)started on the first update
+		this._rumourPins = new Set(); // wave 20: givers a tavern rumour pointed at
+		this._convoyT = 0;
+		this._brawlT = 0;
+		this._hireT = 0;
 		const names = new Set( LISTEN );
 		for ( const c of Object.values( this.chains ) ) {
 
@@ -427,7 +455,7 @@ export class Story {
 		const s = this._step( id ), p = this.progress[ id ];
 		if ( ! s ) return this.isDone( id ) ? 'Done' : '';
 		const goal = s.goal || 1;
-		let text = String( s.text || '' ).replace( '{species}', speciesLabel( s.match || s.deliver, goal ) ).replace( '{n}', goal );
+		let text = String( L( s.text || '' ) ).replace( '{species}', speciesLabel( s.match || s.deliver, goal ) ).replace( '{n}', goal ).replace( '{who}', ( p.v && p.v.whoName ) || L( 'the missing hand' ) );
 		if ( s.on && goal > 1 ) text += s.count === 'total' || s.count === 'value' ? ` ($${ Math.floor( p.n ) } / $${ goal })` : ` (${ Math.floor( p.n ) } / ${ goal })`;
 		if ( s.deliver ) {
 
@@ -449,9 +477,10 @@ export class Story {
 		if ( npc && c.giver !== npc ) return this._fail( 'Ask the right person' );
 		if ( ! this.canAccept( id ) ) return this._fail( this.hostileTo( c.giver ) ? 'They will not give you work' : 'Not yet' );
 		this.progress[ id ] = { s: 'active', step: 0, n: 0, at: this.day, end: - 1 };
+		this._clearRumourPin( id );
 		this._touch( c.giver );
 		this.features.emit( 'questAccepted', { id, title: c.title, giver: c.giver, port: c.port } );
-		this._toast( `Quest: ${ c.title } · ${ this.stepText( id ) }`, 3200 );
+		this._toast( `${ L( 'Quest' ) }: ${ L( c.title ) } · ${ this.stepText( id ) }`, 3200 );
 		this._startStep( id );
 		this._poll(); // a step that already holds (own a boat, be somewhere) completes now
 		this._changed();
@@ -483,6 +512,7 @@ export class Story {
 		const s = this._step( id ), c = this.chains[ id ];
 		if ( ! s ) return this._fail( 'Nothing to hand in' );
 		if ( s.talk !== npc && ! ( s.deliver && s.at === npc ) ) return this._fail( 'That is for someone else' );
+		if ( Array.isArray( s.choices ) && s.choices.length ) return this._fail( 'Choose what to say' );
 		if ( s.deliver ) {
 
 			const goal = s.goal || 1, st = this.state;
@@ -497,9 +527,63 @@ export class Story {
 		let done = false;
 		try { done = this._advance( id ); } finally { this._turning = false; }
 		const next = done ? '' : this.stepText( id );
-		const r = { said: done ? c.thanks : `${ s.deliver ? 'Good. ' : '' }${ next ? `Next: ${ next }.` : '' }`.trim(), done, reward: done ? c.reward : null };
+		const r = { said: done ? this.thanksOf( id ) : `${ s.deliver ? 'Good. ' : '' }${ next ? `Next: ${ next }.` : '' }`.trim(), done, reward: done ? this.rewardOf( id ) : null };
 		this._changed();
 		return r;
+
+	}
+
+	// a choice step (wave 20: the court-martial): the option taken is the chain's path; its effect applies now, the step is done
+	decide( id, option, npc = null ) {
+
+		this.lastError = '';
+		const s = this._step( id ), c = this.chains[ id ], p = this.progress[ id ];
+		if ( ! s || ! Array.isArray( s.choices ) ) return this._fail( 'Nothing to decide' );
+		if ( npc && s.talk !== npc ) return this._fail( 'That is for someone else' );
+		const o = s.choices.find( ( x ) => x.id === option );
+		if ( ! o ) return this._fail( 'Choose what to say' );
+		p.path = o.id;
+		standingEffect( this, o.effect );
+		if ( o.effect && o.effect.disposition ) this._dispose( c.giver, o.effect.disposition );
+		this._turning = true;
+		let done = false;
+		try { done = this._advance( id ); } finally { this._turning = false; }
+		const said = done ? `${ L( o.said || '' ) } ${ L( this.thanksOf( id ) ) }`.trim() : L( o.said || '' );
+		const r = { said, done, reward: done ? this.rewardOf( id ) : null, path: o.id };
+		this._changed();
+		return r;
+
+	}
+
+	// the giver's thanks, by the path a choice took
+	thanksOf( id ) {
+
+		const c = this.chains[ id ], path = this.pathOf( id );
+		return ( c && c.thanksBy && path && c.thanksBy[ path ] ) || ( c ? c.thanks : '' );
+
+	}
+
+	// the chain's reward with its path's part added (money, xp, disposition and rep add up; the rest is the path's own)
+	rewardOf( id ) {
+
+		const c = this.chains[ id ];
+		const r = ( c && c.reward ) || {}, path = this.pathOf( id ), add = r.paths && path ? r.paths[ path ] : null;
+		const out = { ...r };
+		delete out.paths;
+		if ( ! add ) return out;
+		for ( const [ k, v ] of Object.entries( add ) ) {
+
+			if ( k === 'rep' ) {
+
+				out.rep = { ...( r.rep || {} ) };
+				for ( const [ port, n ] of Object.entries( v || {} ) ) out.rep[ port ] = num( out.rep[ port ] ) + n;
+
+			} else if ( ( k === 'money' || k === 'xp' || k === 'disposition' || k === 'navy' ) && typeof v === 'number' ) out[ k ] = num( r[ k ] ) + v;
+			else out[ k ] = v;
+
+		}
+
+		return out;
 
 	}
 
@@ -509,6 +593,7 @@ export class Story {
 		const p = this.progress[ id ], c = this.chains[ id ];
 		const s = c.steps[ p.step ] || null;
 		this.features.emit( 'questStep', { id, step: s ? s.id : '' } );
+		try { w20StepDone( this, id, s ); } catch ( e ) { console.warn( 'story: wave 20 step hook failed', e ); }
 		// a step's own payout: now, or (clean) after its window when nothing spoiled it
 		if ( s && s.payout ) {
 
@@ -527,9 +612,10 @@ export class Story {
 		p.n = 0;
 		p.f = 0;
 		p.t = 0;
+		p.d = 0;
 		if ( p.step < c.steps.length ) {
 
-			this._toast( `${ c.title } · ${ this.stepText( id ) }`, 2800 );
+			this._toast( `${ L( c.title ) } · ${ this.stepText( id ) }`, 2800 );
 			if ( this._raid && this._raid.chain === id && c.steps[ p.step ].start !== 'raid' ) this._endRaid( false );
 			if ( this.castaway && this.castaway.chain === id && c.steps[ p.step ].start !== 'castaway' ) this._clearCastaway();
 			this._startStep( id );
@@ -556,13 +642,15 @@ export class Story {
 
 	_complete( id ) {
 
-		const c = this.chains[ id ], p = this.progress[ id ], r = c.reward || {}, st = this.state;
+		const c = this.chains[ id ], p = this.progress[ id ], r = this.rewardOf( id ), st = this.state;
 		p.s = 'done';
 		p.end = this.day;
 		delete p.step;
 		delete p.n;
 		delete p.f;
 		delete p.t;
+		delete p.d;
+		delete p.v;
 		if ( this._raid && this._raid.chain === id ) this._endRaid( false );
 		if ( this.castaway && this.castaway.chain === id ) this._clearCastaway();
 		this._unpin( id );
@@ -592,9 +680,9 @@ export class Story {
 		this.stats.done ++;
 		this._log( id, 'done' );
 		this.features.emit( 'questCompleted', { id, title: c.title, giver: c.giver, port: c.port, reward: { ...r } } );
-		this._toast( `${ c.title } · done${ r.money ? ` · +$${ r.money }` : '' }${ r.xp ? ` · +${ r.xp } XP` : '' }`, 3600 );
+		this._toast( `${ L( c.title ) } · ${ L( 'done' ) }${ r.money ? ` · +$${ r.money }` : '' }${ r.xp ? ` · +${ r.xp } XP` : '' }`, 3600 );
 		// finished out in the world, away from the giver: their word comes as a note (in a conversation they say it)
-		if ( ! this._turning && c.thanks && NPCS[ c.giver ] ) this._toast( `${ NPCS[ c.giver ].name }: ${ c.thanks }`, 4600 );
+		if ( ! this._turning && c.thanks && NPCS[ c.giver ] ) this._toast( `${ L( NPCS[ c.giver ].name ) }: ${ L( this.thanksOf( id ) ) }`, 4600 );
 
 	}
 
@@ -620,6 +708,10 @@ export class Story {
 
 		if ( r.repairTown ) this._repairTown( r.repairTown );
 		if ( r.launchFree > 0 ) this.launchUntil = Math.max( this.launchUntil, this.day + r.launchFree );
+		// wave 20: a hand changed (Wren), a hand signed on (Garrow), the navy's and the brotherhood's view of you
+		if ( r.crewTrait ) try { crewTrait( this, r.crewTrait ); } catch ( e ) { /* the crew is optional */ }
+		if ( r.sailor ) try { hire( this, r.sailor ); } catch ( e ) { /* the crew is optional */ }
+		if ( r.navy || r.heat ) standingEffect( this, { navy: r.navy, heat: r.heat } );
 		if ( r.cartridges > 0 ) {
 
 			const fa = this._feature( 'firearms' );
@@ -705,7 +797,13 @@ export class Story {
 		if ( ! s || ! c ) return null;
 		const label = ( q ) => ( q && q.label ) || c.title;
 		const P = ( q ) => ( q && Number.isFinite( q.x ) && Number.isFinite( q.z ) ? { x: q.x, z: q.z, label: label( q ) } : null );
-		if ( s.pin ) return P( typeof s.pin === 'function' ? s.pin() : s.pin );
+		if ( s.pin ) {
+
+			const q = typeof s.pin === 'function' ? s.pin( this ) : s.pin;
+			if ( q || typeof s.pin !== 'function' ) return P( q );
+
+		}
+
 		if ( s.reach ) return P( s.reach );
 		if ( s.match && s.match.near ) return P( s.match.near );
 		const who = NPCS[ s.talk || s.at ];
@@ -720,9 +818,31 @@ export class Story {
 		if ( q ) {
 
 			this._pins.add( key );
-			this.features.emit( 'questPin', { id: key, x: Math.round( q.x * 10 ) / 10, z: Math.round( q.z * 10 ) / 10, label: q.label, chain: id, step: this._step( id ).id } );
+			this.features.emit( 'questPin', { id: key, x: Math.round( q.x * 10 ) / 10, z: Math.round( q.z * 10 ) / 10, label: L( q.label ), chain: id, step: this._step( id ).id } );
 
 		} else this._unpin( id );
+
+	}
+
+	// a tavern rumour about a line: its giver on the map until the line is taken
+	_rumourPin( chain ) {
+
+		const c = this.chains[ chain ];
+		if ( ! c || ! this.canAccept( chain ) ) return;
+		const who = NPCS[ c.giver ], q = who && who.pin ? who.pin() : null;
+		if ( ! q ) return;
+		const key = 'rumour:' + chain;
+		this._rumourPins.add( key );
+		this.features.emit( 'questPin', { id: key, x: Math.round( q.x * 10 ) / 10, z: Math.round( q.z * 10 ) / 10, label: L( who.name ), chain, step: 'rumour' } );
+
+	}
+
+	_clearRumourPin( chain ) {
+
+		const key = 'rumour:' + chain;
+		if ( ! this._rumourPins.has( key ) ) return;
+		this._rumourPins.delete( key );
+		this.features.emit( 'questPinClear', { id: key } );
 
 	}
 
@@ -744,6 +864,7 @@ export class Story {
 		this._pin( id );
 		if ( s.start === 'raid' ) this._armRaid( id );
 		if ( s.start === 'castaway' ) this._armCastaway( id, resume );
+		if ( s.start && s.start !== 'raid' && s.start !== 'castaway' ) try { w20Start( this, id, s, resume ); } catch ( e ) { console.warn( 'story: wave 20 start failed', e ); }
 
 	}
 
@@ -753,11 +874,15 @@ export class Story {
 		const c = this.chains[ id ], p = this.progress[ id ];
 		if ( ! c || ! p || p.s !== 'active' ) return;
 		const f = c.fail || {};
-		if ( f.then === 'restart' ) {
+		if ( f.then === 'restart' || f.then === 'retry' ) {
 
-			p.step = 0;
+			// restart: the first step; retry: the step named `from` (wave 20: the storm night before the run)
+			const back = f.then === 'retry' ? c.steps.findIndex( ( x ) => x.id === f.from ) : 0;
+			p.step = Math.max( 0, back );
 			p.n = 0;
-			this._toast( `${ c.title } · ${ why || f.text || 'start again' }`, 3600 );
+			p.f = 0;
+			p.d = 0;
+			this._toast( `${ L( c.title ) } · ${ L( why || f.text || 'start again' ) }`, 3600 );
 			this._startStep( id );
 			this._changed();
 			return;
@@ -771,7 +896,7 @@ export class Story {
 		this.stats.dropped ++;
 		this._log( id, 'failed' );
 		this.features.emit( 'questFailed', { id, why: why || f.text || 'failed' } );
-		this._toast( `${ c.title } · failed: ${ why || f.text || 'too late' }`, 4200 );
+		this._toast( `${ L( c.title ) } · ${ L( 'failed' ) }: ${ L( why || f.text || 'too late' ) }`, 4200 );
 		this._changed();
 
 	}
@@ -893,6 +1018,7 @@ export class Story {
 
 		this._tickRaid( dt );
 		this._tickCastaway( dt );
+		try { w20Tick( this, dt ); } catch ( e ) { console.warn( 'story: wave 20 tick failed', e ); }
 
 	}
 
@@ -918,7 +1044,7 @@ export class Story {
 		const p = this.player, w = this.features.get && this.features.get( 'weather' );
 		let weather = null;
 		try { weather = w ? w.kind : null; } catch ( e ) { weather = null; }
-		return { night: isNight( this.tod ), dawnDusk: isDawnDusk( this.tod ), weather, player: p ? { x: p.position.x, z: p.position.z } : null, event: name, features: this.features, story: this, state: this.state };
+		return { night: isNight( this.tod ), dawnDusk: isDawnDusk( this.tod ), weather, player: p ? { x: p.position.x, z: p.position.z, mode: p.mode } : null, event: name, features: this.features, story: this, state: this.state };
 
 	}
 
@@ -927,6 +1053,7 @@ export class Story {
 		e = e && typeof e === 'object' ? e : {};
 		try { this._consequence( name, e ); } catch ( err ) { console.warn( 'story: consequence failed', err ); }
 		try { this._w16( name, e ); } catch ( err ) { console.warn( 'story: wave 16 hook failed', err ); }
+		try { w20Event( this, name, e ); } catch ( err ) { console.warn( 'story: wave 20 hook failed', err ); }
 		const ctx = this._evCtx( name );
 		let changed = false;
 		for ( const id of Object.keys( this.progress ) ) {
@@ -1075,7 +1202,15 @@ export class Story {
 
 			case 'noticeCompleted': this._dispose( KEEPERS[ e.port ], 1 ); break;
 			// tavern talk turns to Blackwater: the board posts its rumour (Rumours from Blackwater)
-			case 'rumourHeard': if ( ! this.flags.includes( 'blackwaterRumour' ) ) this.flags.push( 'blackwaterRumour' ); break;
+			case 'rumourHeard': {
+
+				// wave 20: a rumour about a line points at its giver (a map pin until the line is taken)
+				const chain = e.kind === 'quest' && typeof e.id === 'string' ? e.id.replace( /^quest:/, '' ) : null;
+				if ( chain ) { this._rumourPin( chain ); break; }
+				if ( ! this.flags.includes( 'blackwaterRumour' ) ) this.flags.push( 'blackwaterRumour' );
+				break;
+
+			}
 			case 'contrabandSold': if ( ! e.polled ) { this._fenceEvent = true; this._fence = null; } break;
 			default: break;
 
@@ -1105,6 +1240,15 @@ export class Story {
 				if ( done && r.night ) done = isNight( this.tod );
 				if ( done && r.port ) done = portAt( x, z ) === r.port;
 				if ( done && r.mode ) done = [].concat( r.mode ).includes( p.mode );
+
+			}
+
+			// wave 20: a state that must hold a while (ride the squall, the storm with Wren aboard)
+			if ( s.dwell ) {
+
+				const pr = this.progress[ id ];
+				pr.d = done ? num( pr.d ) + POLL : 0;
+				done = pr.d >= s.dwell;
 
 			}
 
@@ -1496,6 +1640,39 @@ export class Story {
 
 	}
 
+	L( text ) {
+
+		return L( text );
+
+	}
+
+	night() {
+
+		return isNight( this.tod );
+
+	}
+
+	// the option a choice step took ('hand' | 'free' for the court-martial), done or still running
+	pathOf( id ) {
+
+		const p = this.progress[ id ];
+		return p && typeof p.path === 'string' ? p.path : null;
+
+	}
+
+	_brawlOn( id ) {
+
+		const p = this.progress[ id ];
+		return !! ( p && p.v && p.v.brawl );
+
+	}
+
+	rumours( port = null ) {
+
+		return w20Rumours( this, port );
+
+	}
+
 	perk( name ) {
 
 		let v = 0;
@@ -1578,20 +1755,21 @@ export class Story {
 				const s = this._step( id ), p = this.progress[ id ];
 				const who = s && ( s.talk || s.at );
 				active.push( {
-					id, title: c.title, region: c.region, giver: NPCS[ c.giver ] ? NPCS[ c.giver ].name : c.giver, port: portName( c.port ),
+					id, title: L( c.title ), region: c.region, giver: NPCS[ c.giver ] ? L( NPCS[ c.giver ].name ) : c.giver, port: portName( c.port ),
 					step: this.stepText( id ), frac: s && s.on ? clamp( p.n / ( s.goal || 1 ), 0, 1 ) : 0,
 					where: who && NPCS[ who ] ? `${ NPCS[ who ].name }, ${ portName( NPCS[ who ].port ) }` : '',
 				} );
 
 			} else if ( offers.length < 6 && this.canAccept( id ) && ! offers.some( ( o ) => o.giverId === c.giver ) ) {
 
-				offers.push( { id, title: c.title, giverId: c.giver, giver: NPCS[ c.giver ] ? NPCS[ c.giver ].name : c.giver, port: portName( c.port ) } );
+				offers.push( { id, title: L( c.title ), giverId: c.giver, giver: NPCS[ c.giver ] ? L( NPCS[ c.giver ].name ) : c.giver, port: portName( c.port ) } );
 
 			}
 
 		}
 
-		return { active, offers, regions, done: this.stats.done, total: Object.keys( this.chains ).length, log: this.log.slice( 0, 4 ), entries: this.entries.slice( 0, 6 ) };
+		const entries = this.entries.slice( 0, 6 ).map( ( e ) => ( { ...e, title: L( e.title ), text: L( e.text ) } ) );
+		return { active, offers, regions, done: this.stats.done, total: Object.keys( this.chains ).length, log: this.log.slice( 0, 4 ), entries };
 
 	}
 
@@ -1631,6 +1809,7 @@ export class Story {
 
 					// a spot of their own (the fence beside his counter, Ethena beside her stall)
 					const q = spec.spot(), t = this.app && this.app.terrainData;
+					if ( q && Number.isFinite( q.y ) ) return { x: q.x, y: q.y, z: q.z }; // (wave 20: Hale on the jetty's deck)
 					return q ? { x: q.x, y: t && t.heightAt ? Math.max( 0, t.heightAt( q.x, q.z ) ) : undefined, z: q.z } : null;
 
 				}
@@ -1646,8 +1825,8 @@ export class Story {
 
 			this._offs.push( this.features.interactable( {
 				id: `story:${ id }`, position: pos, radius: 3,
-				when: () => ! this.isOpen && !! port(),
-				prompt: () => `Talk to ${ spec.name }${ this.pendingAt( id ).some( ( q ) => q.ready ) || this.offers( id ).length ? ' · work' : '' }`,
+				when: () => ! this.isOpen && !! port() && ! ( typeof spec.hidden === 'function' && spec.hidden( this ) ),
+				prompt: () => `${ L( 'Talk to' ) } ${ L( spec.name ) }${ this.pendingAt( id ).some( ( q ) => q.ready ) || this.offers( id ).length ? ` · ${ L( 'work' ) }` : '' }`,
 				onInteract: () => { this.talkTo( id, { force: true } ); },
 			} ) );
 
@@ -1749,6 +1928,9 @@ export class Story {
 		for ( const [ id, p ] of Object.entries( this.progress ) ) {
 
 			const o = p.s === 'done' ? { s: 'done', at: p.at, end: p.end } : { s: 'active', step: p.step, n: Math.round( p.n * 100 ) / 100, at: p.at };
+			// wave 20: the path a choice took, a running step's small notes (the missing hand, the convoy's place, the brawl)
+			if ( typeof p.path === 'string' ) o.path = p.path;
+			if ( p.s === 'active' && p.v && Object.keys( p.v ).length ) o.v = { ...p.v };
 			// wave 13: a fail count, the time on a timed step, a clean step's payout window
 			if ( p.s === 'active' && num( p.f ) > 0 ) o.f = p.f;
 			if ( p.s === 'active' && num( p.t ) > 0 ) o.t = Math.round( p.t * 10 ) / 10;
@@ -1789,6 +1971,8 @@ export class Story {
 			}
 
 			const w = p.watch, pr = this.progress[ id ];
+			if ( pr && typeof p.path === 'string' && /^[\w-]{1,24}$/.test( p.path ) ) pr.path = p.path;
+			if ( pr && pr.s === 'active' ) { const v = cleanVars( p.v ); if ( v ) pr.v = v; }
 			if ( pr && w && typeof w.step === 'string' && num( w.left ) > 0 && c && c.steps.some( ( x ) => x.id === w.step ) ) pr.watch = { step: w.step, left: num( w.left ) };
 
 		}
@@ -1803,7 +1987,7 @@ export class Story {
 
 		for ( const [ port, v ] of Object.entries( d.grudge && typeof d.grudge === 'object' ? d.grudge : {} ) ) if ( typeof port === 'string' && port.length < 24 && num( v ) > 0 ) this.grudge[ port ] = clamp( num( v ), 0, 100 );
 		const ids = ( a, ok ) => ( Array.isArray( a ) ? [ ...new Set( a.filter( ( x ) => typeof x === 'string' && ok( x ) ) ) ] : [] );
-		this.flags = ids( d.flags, ( x ) => x.length < 24 ).slice( 0, 32 );
+		this.flags = ids( d.flags, ( x ) => x.length < 24 ).slice( 0, 48 );
 		this.items = ids( d.items, ( x ) => !! ITEMS[ x ] );
 		this.unlocks = ids( d.unlocks, ( x ) => !! ITEMS[ x ] );
 		this.log = ( Array.isArray( d.log ) ? d.log : [] ).filter( ( l ) => l && typeof l.id === 'string' ).slice( 0, 8 ).map( ( l ) => ( { id: l.id.slice( 0, 40 ), title: String( l.title || '' ).slice( 0, 60 ), outcome: String( l.outcome || '' ).slice( 0, 12 ), day: num( l.day ) | 0 } ) );
@@ -1819,8 +2003,9 @@ export class Story {
 		const word = ( v ) => typeof v === 'string' && v.length > 0 && v.length <= 24;
 		this.runs = ( Array.isArray( d.runs ) ? d.runs : [] ).filter( ( r ) => r && word( r.good ) && word( r.from ) && word( r.to ) ).slice( - MAX_RUNS )
 			.map( ( r ) => ( { good: r.good, from: r.from, to: r.to } ) );
-		for ( const id of [ ...this._pins ] ) this.features.emit( 'questPinClear', { id } );
+		for ( const id of [ ...this._pins, ...this._rumourPins ] ) this.features.emit( 'questPinClear', { id } );
 		this._pins.clear();
+		this._rumourPins.clear();
 		this._raid = null;
 		this.castaway = null;
 		this._duesSeen = null;
@@ -1834,8 +2019,9 @@ export class Story {
 
 	reset() {
 
-		for ( const id of [ ...this._pins ] ) this.features.emit( 'questPinClear', { id } );
+		for ( const id of [ ...this._pins, ...this._rumourPins ] ) this.features.emit( 'questPinClear', { id } );
 		this._pins.clear();
+		this._rumourPins.clear();
 		if ( this._raid ) this._endRaid( true );
 		this._fence = null;
 		this.castaway = null;

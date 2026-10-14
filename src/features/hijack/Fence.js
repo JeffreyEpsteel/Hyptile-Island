@@ -2,7 +2,7 @@
 // fence sale without pulling the hijack rules, the ship classes and the engine into its image (test/deploy-config.mjs).
 import { BOATS } from '../../game/Boats.js';
 
-export const FENCE = 0.35; // the fraction of the yard price the fence pays
+export const FENCE = 0.08; // the fraction of the yard price the fence pays
 
 export function fencePrice( hull ) {
 

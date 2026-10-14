@@ -1006,7 +1006,7 @@ export class CrewFeature {
 		const m = this.crew.life.get( id );
 		if ( ! m || ! m.absent || ( port && m.absent.port !== port ) ) return { ok: false, text: 'Not here' };
 		const st = this.state;
-		if ( ! this._free() && st && typeof st.spend === 'function' && ! st.spend( TAB ) ) return { ok: false, text: `The keeper wants the ${ money( TAB ) } tab settled first` };
+		if ( ! this._free() && st && typeof st.spend === 'function' && ! ( this.features?.get?.( 'story' )?.discount?.( 'tab' ) >= 1 ) && ! st.spend( TAB ) ) return { ok: false, text: `The keeper wants the ${ money( TAB ) } tab settled first` };
 		m.absent = null;
 		moraleEvent( m, 'fetched' );
 		const text = `${ this.crew.nameOf( id ) } is back aboard, a little green`;

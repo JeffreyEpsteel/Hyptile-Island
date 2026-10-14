@@ -3,6 +3,7 @@ import { WORLD } from '../../world/WorldLayout.js';
 import { SPOTS as TOWN_SPOTS, at as townAt } from '../../world/islands/town/Layout.js';
 import { strongholdLayout } from '../../world/islands/stronghold/Layout.js';
 import { TRAINING_POST } from '../melee/MeleeData.js';
+import { W20_CHAINS, W20_NPCS, W20_ITEMS } from './StoryW20.js';
 
 // The story's data (pure: no DOM, no engine state): the people who give and take quests, the items a chain can
 // give, and the quest chains themselves. Story.js runs them; Dialogue.js turns them into conversations.
@@ -876,6 +877,12 @@ export const W16_CHAINS = {
 };
 
 Object.assign( CHAINS, W16_CHAINS );
+
+// wave 20C: a line per wave 19 system (StoryW20.js: the navy, the Tide & Tankard, a sailor with a past, the storm fronts)
+Object.assign( NPCS, W20_NPCS );
+Object.assign( ITEMS, W20_ITEMS );
+Object.assign( CHAINS, W20_CHAINS );
+export { W20_CHAINS };
 
 // one errand per port beyond the first four (WORLD.ports is read when the story starts: islands added later get theirs)
 export function errandChains( ports = WORLD.ports ) {

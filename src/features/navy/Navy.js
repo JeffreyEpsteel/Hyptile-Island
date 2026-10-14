@@ -675,7 +675,7 @@ export class Navy {
 	// the chandler's rows: { id, label, price, ok, note }
 	chandlerRows() {
 
-		const s = this.standing, off = discount( s ), free = this.sandbox;
+		const s = this.standing, off = Math.min( 0.9, discount( s ) + ( this.get( 'story' )?.discount?.( 'navy' ) || 0 ) ), free = this.sandbox;
 		const open = s >= CHANDLER.open || free;
 		const rows = [];
 		const guns = this._moduleRow( 'heavyGuns' );

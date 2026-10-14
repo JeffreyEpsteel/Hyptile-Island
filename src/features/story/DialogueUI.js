@@ -28,8 +28,8 @@ const CSS = /* css */`
 .sd-choice:hover { border-color: rgba(var(--tw-aqua-rgb), 0.6); }
 .sd-choice b { font-family: var(--tw-mono); color: var(--tw-ink-3); font-weight: 500; }
 .sd-choice small { display: block; color: var(--tw-ink-3); font-size: var(--tw-fs-xs); }
-.sd-choice.is-turnin, .sd-choice.is-accept { border-color: rgba(var(--tw-sun-rgb), 0.55); }
-.sd-choice.is-turnin span, .sd-choice.is-accept span { color: var(--tw-sun); }
+.sd-choice.is-turnin, .sd-choice.is-accept, .sd-choice.is-pick { border-color: rgba(var(--tw-sun-rgb), 0.55); }
+.sd-choice.is-turnin span, .sd-choice.is-accept span, .sd-choice.is-pick span { color: var(--tw-sun); }
 .sd-choice.is-offer span { color: var(--tw-aqua); }
 .sd-choice.is-bye, .sd-choice.is-back { background: transparent; }
 .sd-chain { display: grid; grid-template-columns: 1fr auto; gap: 2px var(--tw-3); padding: var(--tw-2) 0; border-bottom: 1px solid var(--tw-line); }
