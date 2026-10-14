@@ -92,6 +92,13 @@ export const PORT_IDENTITY = {
 		wants: [ 'fish', 'eels', 'dyes', 'iron', 'incense', 'carvings', 'shells', 'glass', 'fruit', 'reeds', 'wicks', 'resin' ],
 		eats: [ 'wrasse', 'redSnapper', 'tuna', 'crookedcod' ], note: 'The big market: everything at a fair price, bigger swings, and the mainland\'s luxuries.',
 	},
+	// wave 21: Meridian, the city: workshops and glassworks, and a rich city's appetite for the luxuries and the catch
+	meridian: {
+		name: 'Meridian', title: 'Meridian exchange', size: 2.0, swing: 1.3, fee: 1.6,
+		signature: [ 'tools', 'glass' ], produces: [ 'tools', 'glass', 'ice' ],
+		wants: [ 'wine', 'silk', 'clocks', 'fish', 'eels', 'timber', 'rum', 'fruit', 'pearls', 'tobacco', 'spices', 'coconuts' ],
+		eats: [ 'tuna', 'mahi', 'redSnapper' ], note: 'The city: workshops and glassworks, and money for the finer things.',
+	},
 	// no stall: the pirates' fence sells these (BlackMarket.js); listed so the goods have an origin and the panel can say so
 	blackwater: {
 		name: 'Blackwater', market: false, size: 0.6, swing: 1, fee: 0,
