@@ -250,7 +250,8 @@ const extra = {
 	breakers: ( st.count - main.count ) * ( 16 + 6 * 16 ),
 };
 const total = Object.values( extra ).reduce( ( a, b ) => a + b, 0 );
-ok( total < 9 * 1024 * 1024, 'the two tiles cost under 9 MB of GPU memory', JSON.stringify( Object.fromEntries( Object.entries( extra ).map( ( [ k, v ] ) => [ k, ( v / 1048576 ).toFixed( 2 ) + ' MB' ] ) ) ) );
+// (wave 21: three tiles with Meridian, the biggest island; phones halve the heights and the shore field, wave 19A)
+ok( total < 18 * 1024 * 1024, 'the three tiles cost under 18 MB of GPU memory', JSON.stringify( Object.fromEntries( Object.entries( extra ).map( ( [ k, v ] ) => [ k, ( v / 1048576 ).toFixed( 2 ) + ' MB' ] ) ) ) );
 
 // ---------------------------------------------------------------- 6. the shaders compose (no new binding)
 {
