@@ -141,7 +141,7 @@ section( '2. posting: rules, rows, the HTML control, persistence' );
 	ok( crew.posts.pepe === undefined && clicks.length === 1, 'bindPosts: a click posts and re-renders' );
 	crew.setPost( 'pepe', 'gunner' );
 	const saved = JSON.parse( JSON.stringify( features.toJSON() ) );
-	ok( saved.crew && saved.crew.v === 1 && saved.crew.posts.length === 2, 'the posts are in the features save (toJSON)' );
+	ok( saved.crew && saved.crew.v === 2 && saved.crew.posts.length === 2, 'the posts are in the features save (toJSON)' );
 	const b = setup();
 	b.features.fromJSON( saved );
 	ok( JSON.stringify( b.crew.posts ) === JSON.stringify( { pengu: 'angler', pepe: 'gunner' } ), 'and come back on load, in posting order' );
@@ -286,7 +286,8 @@ section( '4. anglers: timing, water, capacity' );
 	for ( ; t < 600; t += 0.5 ) for ( const e of c.tickAnglers( 0.5, opts ) ) if ( e.species ) times.push( { t: t + 0.5, e } );
 	const gaps = times.map( ( x, i ) => x.t - ( i ? times[ i - 1 ].t : 0 ) );
 	ok( times.length >= 6 && times.length <= 14, `10 minutes at rest: ${ times.length } fish` );
-	ok( gaps.every( ( g ) => g >= 44.5 && g <= 90.5 ), `every fish 45-90 s after the last (${ gaps.map( ( g ) => g.toFixed( 0 ) ).join( ', ' ) })` );
+	// (wave 19C: the angler's skill shortens the wait, x1.08 for PENGU's 20 angling up to x1.4 at full; Life.anglingMul)
+	ok( gaps.every( ( g ) => g >= 45 / 1.4 - 0.5 && g <= 90.5 ), `every fish 45-90 s after the last, less the angler's skill (${ gaps.map( ( g ) => g.toFixed( 0 ) ).join( ', ' ) })` );
 	ok( times.every( ( x ) => FISH[ x.e.species ] && ( FISH[ x.e.species ].habitat.reef || FISH[ x.e.species ].habitat.bay ) ), 'over the reef: reef (and bay) fish' );
 	ok( times.every( ( x ) => x.e.kg >= FISH[ x.e.species ].kg[ 0 ] - 0.01 && x.e.kg <= FISH[ x.e.species ].kg[ 1 ] + 0.01 ), 'weights from the species\' own roll' );
 	ok( baits === times.length + 1, `a bait per cast (${ baits } for ${ times.length } fish)` );
@@ -317,6 +318,7 @@ section( '4. anglers: timing, water, capacity' );
 	features.add( 'trade', { install: () => trade } );
 	crew.setPost( 'pengu', 'angler' );
 	const st = app.game.state;
+	app.game.hour = 16; // (wave 19C: PENGU keeps the night watch and sleeps 9-15; at 16 he is at his post)
 	run( features, 100, 0.25 );
 	const fc = events.filter( ( e ) => e[ 0 ] === 'fishCaught' );
 	ok( fc.length >= 1 && fc.every( ( e ) => e[ 1 ].crew === 'pengu' && e[ 1 ].aboard === true && Number.isFinite( e[ 1 ].x ) ), `fishCaught { crew: pengu, aboard, x, z } (${ fc.length } in 100 s)` );

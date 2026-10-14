@@ -23,15 +23,24 @@
 //   crew.toJSON() / fromJSON( d ) / reset()
 //   deckPoint( boatId, post, slot, side, deckY ) -> { x, y, z, yaw }   where a posted member stands (boat frame), facing outboard
 //   anglerRate( { atSea, speed, anchored } ) -> 1 | 0.5 | 0          catchInterval( habitat, rng, bait ) -> s
+//
+// Wave 19C (a crew with lives, Life.js): two more posts (a cook at the stove, a lookout; one each), a life record per member
+// (crew.member( id ): morale, rest, food, skills, traits, leaving / ashore / absent), tavern hands beside the roster
+// (crew.sailors Map id -> { id, name, look, port, traits, wage, ... }; crew.hire( sailor ) / dismiss( id )), and the skills at
+// work: a gunner's reload / spread (Life.gunneryMuls), an angler's bite rate (anglingMul); both grow with use.
+//   crew.known( id ) / nameOf( id ) / lookOf( id ) (the roster GLB a hand wears)   crew.isHired( id, ctx )   crew.present( id )
+//   tickAnglers( dt, { ..., onDuty: ( id ) => bool } )   an angler off duty (asleep, at a meal) leaves the line in
 
 import { BOATS } from '../../game/Boats.js';
 import { CHARACTERS } from '../../game/Characters.js';
 import { FISH } from '../../game/FishTable.js';
 import { pickSpecies, rollWeight } from '../../game/Bites.js';
+import { LIFE, rosterMember, newMember, grow, gunneryMuls, anglingMul } from './Life.js';
 
 export const BERTHS = { skiff: 0, canoe: 0, cutter: 1, launch: 1, lobster: 2, trawler: 3, sloop: 3, brigantine: 4 };
-export const POSTS = [ 'off', 'gunner', 'angler' ];
-export const POST_LABELS = { off: 'Off', gunner: 'Gunner', angler: 'Angler' };
+export const POSTS = [ 'off', 'gunner', 'angler', 'cook', 'lookout' ];
+export const POST_LABELS = { off: 'Off', gunner: 'Gunner', angler: 'Angler', cook: 'Cook', lookout: 'Lookout' };
+const ONE_EACH = { cook: 'cook taken', lookout: 'lookout taken' }; // one cook, one lookout aboard
 export const CREW_RULES = {
 	reloadMul: 1.6, // a gunner's reload against the skipper's
 	spreadMul: 1.5, // and his spread
@@ -49,8 +58,24 @@ export const CREW_RULES = {
 
 // per-hull deck spots where the generic layout would put someone inside a wheelhouse (boat frame, port side; mirrored)
 const DECK = {
-	lobster: { gunner: { x: 1.15, z: - 1.35 }, angler: { x: 1.0, z: - 2.3 }, row: 1.0 },
+	lobster: { gunner: { x: 1.15, z: - 1.35 }, angler: { x: 1.0, z: - 2.3 }, row: 1.0, cook: { x: - 0.75, z: - 1.9, yaw: - Math.PI / 2 }, lookout: { x: 0, z: 2.9 }, rest: { z: - 2.9, r: 0.55 } },
 };
+
+// where the hands off duty gather (boat frame): a ring round a spot aft of amidships, each facing its middle (dice, a meal, a
+// yarn; asleep under the awning). Small boats have no room: null (they rest at their post).
+export function restPoint( boatId, slot = 0, n = 1, deckY = null ) {
+
+	const b = BOATS[ boatId ];
+	if ( ! b ) return null;
+	const o = DECK[ boatId ];
+	const y = Number.isFinite( deckY ) ? deckY : b.deckY;
+	const c = o && o.rest ? o.rest : b.kind === 'ship' ? { z: - b.length * 0.22, r: 0.95 } : null;
+	if ( ! c ) return null;
+	const a = ( slot / Math.max( 1, n ) ) * Math.PI * 2 + 0.4;
+	const x = Math.sin( a ) * c.r, z = c.z + Math.cos( a ) * c.r;
+	return { x, y, z, yaw: Math.atan2( - x, c.z - z ) };
+
+}
 
 const clamp = ( v, a, b ) => ( v < a ? a : v > b ? b : v );
 const sideName = ( s ) => ( s === 'starboard' ? 'stbd' : 'port' );
@@ -85,6 +110,22 @@ export function deckPoint( boatId, post, slot = 0, side = 'port', deckY = null )
 
 		// beside the swivel gun (12 % of the length forward of amidships, Naval._gunPlan), a step aft of it
 		return { x: sg * Math.max( 0.3, b.beam / 2 - 0.45 ), y, z: b.length * 0.12 - 0.55, yaw: sg * Math.PI / 2 };
+
+	}
+
+	// the cook at the stove (amidships on a ship, by the wheelhouse on the lobster boat, beside the helm seat on a small boat), the
+	// lookout in the bows facing ahead
+	if ( post === 'cook' ) {
+
+		if ( o && o.cook ) return { x: o.cook.x, y, z: o.cook.z, yaw: o.cook.yaw ?? Math.PI };
+		return ship ? { x: 0.6, y, z: - b.length * 0.05, yaw: - Math.PI / 2 } : { x: Math.max( 0.3, b.beam / 2 - 0.5 ), y, z: 0.5, yaw: Math.PI / 2 };
+
+	}
+
+	if ( post === 'lookout' ) {
+
+		if ( o && o.lookout ) return { x: o.lookout.x, y, z: o.lookout.z, yaw: 0 };
+		return { x: 0, y, z: b.length * ( ship ? 0.36 : 0.26 ), yaw: 0 };
 
 	}
 
@@ -142,11 +183,64 @@ export class Crew {
 	constructor( { rng = Math.random } = {} ) {
 
 		this.rng = rng;
-		this.posts = new Map(); // id -> 'gunner' | 'angler' (insertion order = posting order)
+		this.posts = new Map(); // id -> 'gunner' | 'angler' | 'cook' | 'lookout' (insertion order = posting order)
 		this.sides = new Map(); // gunner id -> 'port' | 'starboard'
 		this.wait = new Map(); // angler id -> { t, full }
 		this.stats = new Map(); // id -> { shots, catches }
+		this.life = new Map(); // id -> Life member (morale, rest, food, skills, traits, ...): made on first use
+		this.sailors = new Map(); // tavern hands signed on: id -> { id, name, look, port, traits, wage, watch, hiredDay }
+		this.gone = new Set(); // tavern hands who signed off (never offered again)
 		this._lastSide = 'port';
+
+	}
+
+	known( id ) {
+
+		return !! ( CHARACTERS[ id ] || this.sailors.has( id ) );
+
+	}
+
+	nameOf( id ) {
+
+		const c = CHARACTERS[ id ], s = this.sailors.get( id );
+		return c ? c.name : s ? s.name : String( id );
+
+	}
+
+	// the roster GLB the figure wears (a tavern hand wears one of the harbour folk's)
+	lookOf( id ) {
+
+		const s = this.sailors.get( id );
+		return s && CHARACTERS[ s.look ] ? s.look : id;
+
+	}
+
+	member( id ) {
+
+		let m = this.life.get( id );
+		if ( ! m && this.known( id ) ) {
+
+			const s = this.sailors.get( id );
+			m = s ? newMember( { traits: s.traits, skills: s.skills, watch: s.watch } ) : rosterMember( id );
+			this.life.set( id, m );
+
+		}
+
+		return m || null;
+
+	}
+
+	// aboard and able to work: not walked off, not asleep under a tavern table
+	present( id ) {
+
+		const m = this.life.get( id );
+		return ! m || ( ! m.ashore && ! m.absent );
+
+	}
+
+	isHired( id, ctx = {} ) {
+
+		return this.sailors.has( id ) || ( !! CHARACTERS[ id ] && ( ctx.unlocked || [] ).includes( id ) );
 
 	}
 
@@ -158,11 +252,13 @@ export class Crew {
 
 	hired( ctx = {} ) {
 
-		return ( ctx.unlocked || [] ).filter( ( id ) => CHARACTERS[ id ] && id !== ctx.character );
+		const out = ( ctx.unlocked || [] ).filter( ( id ) => CHARACTERS[ id ] && id !== ctx.character );
+		for ( const id of this.sailors.keys() ) out.push( id );
+		return out;
 
 	}
 
-	// the posted members of a post, in posting order; with ctx only the ones on duty (hired, not the one being played)
+	// the posted members of a post, in posting order; with ctx only the ones on duty (hired, aboard, not the one being played)
 	_of( post, ctx ) {
 
 		// (a plain walk in posting order: this runs several times a frame; no entry arrays, no spread copies)
@@ -170,7 +266,7 @@ export class Crew {
 		for ( const id of this.posts.keys() ) {
 
 			if ( this.posts.get( id ) !== post ) continue;
-			if ( ctx && ( id === ctx.character || ! un.includes( id ) ) ) continue;
+			if ( ctx && ( id === ctx.character || ! ( this.sailors.has( id ) || un.includes( id ) ) || ! this.present( id ) ) ) continue;
 			out.push( id );
 
 		}
@@ -191,13 +287,24 @@ export class Crew {
 
 	}
 
+	// every posted hand aboard (any post), in posting order
+	aboard( ctx = null ) {
+
+		const out = [];
+		for ( const p of POSTS ) if ( p !== 'off' ) for ( const id of this._of( p, ctx ) ) out.push( id );
+		return out;
+
+	}
+
 	canPost( id, post, ctx = {} ) {
 
 		if ( ! POSTS.includes( post ) ) return { ok: false, reason: 'unknown' };
 		if ( post === 'off' ) return { ok: true };
-		if ( ! CHARACTERS[ id ] ) return { ok: false, reason: 'unknown' };
+		if ( ! this.known( id ) ) return { ok: false, reason: 'unknown' };
 		if ( id === ctx.character ) return { ok: false, reason: 'playing' };
-		if ( ! ( ctx.unlocked || [] ).includes( id ) ) return { ok: false, reason: 'not hired' };
+		if ( ! this.isHired( id, ctx ) ) return { ok: false, reason: 'not hired' };
+		const m = this.life.get( id );
+		if ( m && m.ashore ) return { ok: false, reason: 'ashore' };
 		const berths = berthsOf( ctx.boat );
 		if ( berths <= 0 ) return { ok: false, reason: 'no berths' };
 		const cur = this.postOf( id );
@@ -205,7 +312,32 @@ export class Crew {
 		const used = this.posts.size - ( cur !== 'off' ? 1 : 0 );
 		if ( used >= berths ) return { ok: false, reason: 'full' };
 		if ( post === 'gunner' && this.gunners().length - ( cur === 'gunner' ? 1 : 0 ) >= CREW_RULES.maxGunners ) return { ok: false, reason: 'guns manned' };
+		if ( ONE_EACH[ post ] && this._of( post, null ).length ) return { ok: false, reason: ONE_EACH[ post ] };
 		return { ok: true };
+
+	}
+
+	// a tavern hand signs on (the money is the caller's); false when the crew is full or he is already aboard
+	hire( s, day = 0 ) {
+
+		if ( ! s || ! s.id || this.sailors.has( s.id ) || this.gone.has( s.id ) || this.sailors.size >= LIFE.maxHands ) return false;
+		this.sailors.set( s.id, { id: s.id, name: s.name, look: s.look, port: s.port, traits: [ ...( s.traits || [] ) ], skills: { ...( s.skills || {} ) }, wage: s.wage | 0, watch: s.watch || 'day', hiredDay: day } );
+		this.life.delete( s.id );
+		this.member( s.id );
+		return true;
+
+	}
+
+	// a tavern hand signs off (dismissed, or fed up): off the ship for good
+	dismiss( id ) {
+
+		if ( ! this.sailors.has( id ) ) return false;
+		this._clear( id );
+		this.sailors.delete( id );
+		this.life.delete( id );
+		this.stats.delete( id );
+		this.gone.add( id );
+		return true;
 
 	}
 
@@ -260,9 +392,9 @@ export class Crew {
 	rows( ctx = {} ) {
 
 		const berths = berthsOf( ctx.boat );
-		return Object.keys( CHARACTERS ).map( ( id ) => {
+		return [ ...Object.keys( CHARACTERS ), ...this.sailors.keys() ].map( ( id ) => {
 
-			const playing = id === ctx.character, hired = ( ctx.unlocked || [] ).includes( id );
+			const playing = id === ctx.character, hired = this.isHired( id, ctx );
 			const post = this.postOf( id );
 			const choices = POSTS.map( ( p ) => {
 
@@ -270,7 +402,7 @@ export class Crew {
 				return { post: p, label: POST_LABELS[ p ], on: post === p, enabled: r.ok, why: r.ok ? null : WHY[ r.reason ] ? WHY[ r.reason ]( ctx, berths ) : r.reason };
 
 			} );
-			return { id, name: CHARACTERS[ id ].name, hired, playing, post, side: this.sides.get( id ) || null, choices };
+			return { id, name: this.nameOf( id ), hired, playing, post, side: this.sides.get( id ) || null, choices, sailor: this.sailors.has( id ) };
 
 		} );
 
@@ -304,9 +436,13 @@ export class Crew {
 
 			const side = this.sides.get( id );
 			if ( ! side ) continue;
-			const t = naval.crewFire( side, { reloadMul: CREW_RULES.reloadMul, spreadMul: CREW_RULES.spreadMul, crew: id } );
+			// the gunner's own hand: reload x1.6 / spread x1.5 for a green one, down to x1.1 / x1.0 at full gunnery (Life.gunneryMuls)
+			const m = this.member( id );
+			const k = m ? gunneryMuls( m ) : { reloadMul: CREW_RULES.reloadMul, spreadMul: CREW_RULES.spreadMul };
+			const t = naval.crewFire( side, { reloadMul: k.reloadMul, spreadMul: k.spreadMul, crew: id } );
 			if ( ! t ) continue;
 			this._stat( id ).shots ++;
+			if ( m ) grow( m, 'gunnery', LIFE.xp.shot );
 			out.push( { id, side, target: t.id ?? null } );
 
 		}
@@ -315,21 +451,24 @@ export class Crew {
 
 	}
 
-	tickAnglers( dt, { rate = 0, habitat = () => ( {} ), hour = 12, fits = () => true, bait = () => 1, ctx = null } = {} ) {
+	tickAnglers( dt, { rate = 0, habitat = () => ( {} ), hour = 12, fits = () => true, bait = () => 1, ctx = null, onDuty = null } = {} ) {
 
 		const out = [];
 		for ( const id of this.anglers( ctx ) ) {
 
+			const m = this.member( id );
+			// a better angler (and a lucky one) gets bites sooner (Life.anglingMul)
+			const mul = m ? anglingMul( m ) : 1;
 			let w = this.wait.get( id );
 			if ( ! w ) {
 
 				// a fresh line goes over the side: the first fish takes a full wait
-				w = { t: catchInterval( habitat(), this.rng, bait() ), full: false };
+				w = { t: catchInterval( habitat(), this.rng, bait() ) / mul, full: false };
 				this.wait.set( id, w );
 
 			}
 
-			if ( ! ( rate > 0 ) ) continue;
+			if ( ! ( rate > 0 ) || ( onDuty && ! onDuty( id ) ) ) continue;
 			w.t -= dt * rate;
 			if ( w.t > 0 ) continue;
 			const h = habitat();
@@ -342,7 +481,7 @@ export class Crew {
 			}
 
 			const kg = Math.round( rollWeight( species, this.rng ) * 100 ) / 100;
-			const name = CHARACTERS[ id ] ? CHARACTERS[ id ].name : id;
+			const name = this.nameOf( id );
 			if ( ! fits( kg ) ) {
 
 				// no room: it goes back; say so once until a fish fits again
@@ -354,8 +493,9 @@ export class Crew {
 			}
 
 			w.full = false;
-			w.t = catchInterval( h, this.rng, bait() );
+			w.t = catchInterval( h, this.rng, bait() ) / mul;
 			this._stat( id ).catches ++;
+			if ( m ) grow( m, 'angling', LIFE.xp.catch );
 			out.push( { id, species, kg, habitat: mainHabitat( h ), text: `${ name } landed a ${ kg.toFixed( 1 ) } kg ${ FISH[ species ] ? FISH[ species ].name : species }` } );
 
 		}
@@ -371,7 +511,7 @@ export class Crew {
 		const parts = g.map( ( id ) => {
 
 			const side = this.sides.get( id );
-			const name = CHARACTERS[ id ] ? CHARACTERS[ id ].name : id;
+			const name = this.nameOf( id );
 			if ( ! side ) return `${ name } (standing by)`;
 			const left = naval && naval.reloadLeft ? Math.max( 0, naval.reloadLeft[ side ] || 0 ) : 0;
 			return `${ name } (${ sideName( side ) }, ${ left > 0 ? left.toFixed( 1 ) + ' s' : 'ready' })`;
@@ -383,19 +523,44 @@ export class Crew {
 
 	toJSON() {
 
-		return { v: 1, posts: [ ...this.posts ].map( ( [ id, post ] ) => [ id, post ] ) };
+		const r1 = ( v ) => Math.round( v * 10 ) / 10;
+		const life = {};
+		for ( const [ id, m ] of this.life ) {
+
+			const sk = {};
+			for ( const k in m.skills ) sk[ k ] = r1( m.skills[ k ] );
+			life[ id ] = { morale: r1( m.morale ), rest: r1( m.rest ), food: r1( m.food ), skills: sk, leaving: m.leaving || undefined, ashore: m.ashore || undefined, absent: m.absent || undefined };
+
+		}
+
+		return {
+			v: 2, posts: [ ...this.posts ].map( ( [ id, post ] ) => [ id, post ] ), life,
+			sailors: [ ...this.sailors.values() ].map( ( s ) => ( { ...s, traits: [ ...s.traits ], skills: { ...s.skills } } ) ), gone: [ ...this.gone ].slice( - 64 ),
+		};
 
 	}
 
 	fromJSON( d ) {
 
 		this.reset();
-		if ( ! d || typeof d !== 'object' || ! Array.isArray( d.posts ) ) return;
-		for ( const e of d.posts ) {
+		if ( ! d || typeof d !== 'object' ) return;
+		// the hands first (their posts need them known), then the posts, then each one's life
+		if ( Array.isArray( d.sailors ) ) for ( const s of d.sailors ) if ( s && typeof s.id === 'string' && typeof s.name === 'string' && ! CHARACTERS[ s.id ] ) this.hire( s, s.hiredDay | 0 );
+		if ( Array.isArray( d.gone ) ) for ( const id of d.gone ) if ( typeof id === 'string' ) this.gone.add( id );
+		if ( Array.isArray( d.posts ) ) for ( const e of d.posts ) {
 
 			if ( ! Array.isArray( e ) ) continue;
 			const [ id, post ] = e;
-			if ( CHARACTERS[ id ] && ( post === 'gunner' || post === 'angler' ) && ! this.posts.has( id ) ) this.posts.set( id, post );
+			if ( this.known( id ) && POSTS.includes( post ) && post !== 'off' && ! this.posts.has( id ) ) this.posts.set( id, post );
+
+		}
+
+		if ( d.life && typeof d.life === 'object' ) for ( const id in d.life ) {
+
+			const base = this.member( id ), x = d.life[ id ];
+			if ( ! base || ! x || typeof x !== 'object' ) continue;
+			// traits and watch are the character's own (never from the save); the rest is the life lived
+			this.life.set( id, newMember( { ...x, traits: base.traits, watch: base.watch, skills: { ...base.skills, ...( x.skills || {} ) } } ) );
 
 		}
 
@@ -407,6 +572,9 @@ export class Crew {
 		this.sides.clear();
 		this.wait.clear();
 		this.stats.clear();
+		this.life.clear();
+		this.sailors.clear();
+		this.gone.clear();
 		this._lastSide = 'port';
 
 	}
@@ -421,4 +589,7 @@ const WHY = {
 	'no berths': ( ctx ) => ( BOATS[ ctx.boat ] ? `The ${ BOATS[ ctx.boat ].name.toLowerCase() } has no crew berths` : 'No boat to crew' ),
 	'full': ( ctx, n ) => `Every berth is taken (${ n })`,
 	'guns manned': () => 'Both broadsides are manned',
+	'ashore': () => 'Ashore: left the ship (morale)',
+	'cook taken': () => 'There is a cook aboard already',
+	'lookout taken': () => 'There is a lookout aboard already',
 };

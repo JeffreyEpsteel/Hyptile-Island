@@ -660,7 +660,8 @@ export class Game {
 			const st = s.stats;
 			const k = nv && Number.isFinite( nv.speedFactor ) ? nv.speedFactor : 1;
 			const op = this.app.features && this.app.features.get( 'trade' ), k2 = op && op.operating ? op.operating.speedFactor() : 1; // unpaid upkeep slows the boat
-			if ( Number.isFinite( st.maxThrust ) ) b.maxThrust = st.maxThrust * k * k2;
+			const cw = this.app.features && this.app.features.get( 'crew' ), k3 = cw && cw.speedFactor ? cw.speedFactor() : 1; // wave 19C: the crew's best sailor trims her
+			if ( Number.isFinite( st.maxThrust ) ) b.maxThrust = st.maxThrust * k * k2 * k3;
 
 		}
 

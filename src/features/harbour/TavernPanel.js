@@ -6,7 +6,7 @@ import { MENU, ASK_PRICE, isNightish } from './Tavern.js';
 // buffs running now), Dice (the no-wager round against the innkeeper: two dice faces, Roll, the tally),
 // Rumours (ask around for a drink, the rumours heard). Everything it shows comes from the harbour (index.js).
 
-const TABS = [ [ 'menu', 'Menu' ], [ 'dice', 'Dice' ], [ 'rumours', 'Rumours' ] ];
+const TABS = [ [ 'menu', 'Menu' ], [ 'dice', 'Dice' ], [ 'rumours', 'Rumours' ], [ 'hands', 'Hands' ] ];
 
 export class TavernPanel extends GlassPanel {
 
@@ -70,6 +70,12 @@ export class TavernPanel extends GlassPanel {
 				<div class="hb-center"><button class="hb-btn is-gold" data-act="roll"${ d.ready( h.time ) ? '' : ' disabled' }>Roll</button></div>`;
 			this.rolling = false;
 
+		} else if ( this.tab === 'hands' ) {
+
+			// wave 19C: sailors for hire (the keeper vouches), and any of your crew found asleep under a table
+			const cw = h.features && h.features.get ? h.features.get( 'crew' ) : null;
+			body += cw && cw.tavernHtml ? cw.tavernHtml( s.port || 'home', keeper || 'The keeper' ) : '<div class="hb-empty">Nobody is looking for a berth.</div>';
+
 		} else {
 
 			body += `<div class="hb-row"><div><b>Ask around</b><small>Buy a drink for whoever knows something: a fishing spot, a wanted captain.</small></div>
@@ -101,6 +107,12 @@ export class TavernPanel extends GlassPanel {
 
 			const r = h.askRumour( port );
 			this.say( r.ok ? ( r.rumour ? r.rumour.text : 'Nobody knows anything tonight.' ) : r.message, ! r.ok );
+
+		} else if ( act === 'crew-hire' || act === 'crew-fetch' ) {
+
+			const cw = h.features && h.features.get ? h.features.get( 'crew' ) : null;
+			const r = cw && cw.tavernAct ? cw.tavernAct( act, el.dataset.id, port ) : null;
+			if ( r ) this.say( r.text, ! r.ok );
 
 		} else if ( act === 'roll' ) {
 

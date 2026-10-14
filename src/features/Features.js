@@ -34,6 +34,7 @@
 //   residentTalked / harbourBuff / rumourHeard / diceRolled / shelfMade (harbour)   townsfolkTalked { id, name, role, port } (townlife)   itemCrafted / lureWorn (crafting)
 //   treasureFound { id, kind, how } / treasureClaimed { id, kind, money, trinket } (exploration)   invertedEgg (world event)
 //   planeCrashed { id, cause, x, z, cost }   seaplaneBought { id, price }
+//   crewHired / crewQuit / crewDrunk / crewFetched / crewBanter / crewLevel (crew life, wave 19C)
 //   (death) playerDied { cause, by, x, y, z } / playerRespawned / crateClaimed / crateExpired / wreckSalvaged / wreckLooted; world events wreck / wreckSalvaged
 //   (trade v3) marketEvent, loanTaken / loanRepaid / loanOverdue / loanDefaulted / debtCollected, merchantStanding, haulAccepted / haulDelivered /
 //   haulFailed, licenceBought, rivalVoyage / rivalArrived / rivalLost, smugglerDeal / smugglerGear, baitBought / baitOut, wagesPaid / wagesMissed,

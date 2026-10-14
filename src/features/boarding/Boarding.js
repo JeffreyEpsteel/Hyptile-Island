@@ -615,7 +615,11 @@ export class Boarding {
 		const pose = this._pose( s );
 		const from = this.sneak || ! b || ! b.position ? p.position : b.position; // (sneaked aboard: where he stands)
 		const bl = toLocal( pose, from.x, from.z, {} );
-		const n = this.melee && this.melee.enabled ? ( s.boarding ? s.boarding.crewLeft : this._crewFor( s ) ) : 0;
+		let n = this.melee && this.melee.enabled ? ( s.boarding ? s.boarding.crewLeft : this._crewFor( s ) ) : 0;
+		// wave 19C: the brave hands of the skipper's crew cross with the skipper; each holds one defender off the fight
+		const cw = ! this.sneak && this.features && this.features.get ? this.features.get( 'crew' ) : null;
+		const party = cw && typeof cw.boardingParty === 'function' ? cw.boardingParty( s, n ) : null;
+		if ( party && party.held > 0 ) n = Math.max( 0, n - party.held );
 		const lay = layout( this.deck, bl, n );
 		s.state = 'boarded';
 		s.wantSpeed = 0;

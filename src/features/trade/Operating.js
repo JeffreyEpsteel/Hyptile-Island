@@ -106,7 +106,9 @@ export class Operating {
 			crew = Math.max( 0, crew - gunners );
 
 		}
-		return crew * OPERATING.wage;
+		// wave 19C: the hands signed on at the taverns draw their own wages
+		const cw = this.trade && this.trade._feature ? this.trade._feature( 'crew' ) : null;
+		return crew * OPERATING.wage + ( cw && typeof cw.wagesPerDay === 'function' ? cw.wagesPerDay() : 0 );
 
 	}
 

@@ -602,12 +602,13 @@ function crewCards( s, crew, note ) {
 			<div class="gm-crew-face"><img src="${ portraitUrl( id ) }" alt="" draggable="false"></div>
 			<div class="gm-crew-name"><span>${ c.name }</span>${ state }</div>
 			<div class="gm-crew-tag">${ c.tagline }</div>
+			${ crew && unlocked && ! playing && crew.lifeHtml ? crew.lifeHtml( id ) : '' }
 			${ crew && unlocked && ! playing ? crew.postHtml( id ) : '' }
 			${ action }
 		</div>`;
 
 	} ).join( '' );
-	return `<div class="gm-crew">${ cards }</div>${ crew ? `<p class="gm-sub">${ crew.berthNote() }</p>` : '' }${ note ? `<p class="gm-sub">${ note }</p>` : '' }`;
+	return `<div class="gm-crew">${ cards }</div>${ crew && crew.handsHtml ? crew.handsHtml() : '' }${ crew ? `<p class="gm-sub">${ crew.berthNote() }</p>` : '' }${ note ? `<p class="gm-sub">${ note }</p>` : '' }`;
 
 }
 
