@@ -25,6 +25,11 @@ export const GESTURE_FALLBACK = {
 	Inspect_Catch: 'Look_Around', Offer_Finger: 'Wave', Prank_Laugh: 'Cheer_Clap', Laugh: 'Cheer_Clap',
 	Shrug: 'Talk', Point: 'Wave', Swagger_Idle: 'Idle_Breathe', Airborne_Tumble: 'Jump',
 	Fishing_Hold: 'Idle_Breathe', Fishing_Reel: 'Idle_Breathe', Seated_Idle: 'Idle_Breathe',
+	// wave 18E's way-of-life clips (Characters.js), until every roster GLB carries them
+	Sit_Chair: 'Sit_Down', Sit_Down: 'Seated_Idle', Sit_Chair_Idle: 'Seated_Idle', Stand_From_Chair: 'Stand_Up', Stand_Up: 'Idle_Breathe',
+	Lean_Wall: 'Swagger_Idle', Drink: 'Chat_Gesture', Eat: 'Inspect_Catch', Carry_Box: 'Walk_InPlace', Kneel_Work: 'Crouch',
+	Crouch: 'Inspect_Catch', Talk_Group: 'Chat_Gesture', Clap: 'Cheer_Clap', Point_Out: 'Point', Sweep: 'Sweep_Work', Hammer: 'Kneel_Work',
+	Fish_Net: 'Kneel_Work', Drunk_Walk: 'Walk_InPlace', Lamp_Light: 'Point',
 };
 
 // clips that loop (played for LOOP_GESTURE_S seconds as a gesture); everything else is a one-shot
@@ -32,6 +37,7 @@ export const LOOP_CLIPS = new Set( [
 	'Idle_Breathe', 'Walk_InPlace', 'Run_InPlace', 'Fishing_Hold', 'Fishing_Reel', 'Swim_Idle', 'Swim_Forward',
 	'Swim_Fast', 'Helm_Idle', 'Seated_Idle', 'Talk', 'Dance', 'Look_Around', 'Chat_Gesture', 'Sweep_Work',
 	'Airborne_Tumble', 'Laugh', 'Swagger_Idle', 'Fall_Loop',
+	'Sit_Chair_Idle', 'Lean_Wall', 'Talk_Group', 'Kneel_Work', 'Crouch', 'Sweep', 'Hammer', 'Fish_Net', 'Carry_Box', 'Drunk_Walk', 'Drink', 'Eat',
 ] );
 
 export const PATROL_SPEED = 0.6; // m/s

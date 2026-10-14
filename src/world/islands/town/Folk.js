@@ -1,4 +1,4 @@
-import { SPOTS, at } from './Layout.js';
+import { SPOTS, FACE, at } from './Layout.js';
 
 // Tidemark's named residents (the harbour feature's PORT_FOLK format, world/residents/ResidentData.js): the tavern keeper
 // of the Tide & Tankard (service 'tavern', the dice), the harbourmaster, a net-mender and the boatwright. The harbour
@@ -8,6 +8,14 @@ import { SPOTS, at } from './Layout.js';
 //
 //   TIDEMARK_FOLK            the entries (port 'tidemark')
 //   registerTidemarkFolk( PORT_FOLK )   adds them once (idempotent); Ports calls it so the harbour feature finds them
+
+// the yaw (Player.yaw: -Z at 0) that looks from island (u, v) toward (tu, tv)
+const look = ( u, v, tu, tv ) => {
+
+	const a = at( u, v ), b = at( tu, tv );
+	return Math.atan2( - ( b.x - a.x ), - ( b.z - a.z ) );
+
+};
 
 export const TIDEMARK_FOLK = [
 	{
@@ -32,6 +40,11 @@ export const TIDEMARK_FOLK = [
 	{
 		id: 'wenna', name: 'Wenna', port: 'tidemark', character: 'pengu', scale: 0.92, role: 'fisher',
 		near: [ 16, 24 ], at: at( - 136, - 24 ), base: 'Idle_Breathe', gestures: [ 'Inspect_Catch', 'Fishing_Reel', 'Shrug' ],
+		// wave 18B: mending nets at the quay's edge, then sorting the catch by her door (clips through GESTURE_FALLBACK)
+		work: [
+			{ ...at( - 153, - 25 ), yaw: FACE + Math.PI, base: 'Fish_Net', gestures: [ 'Inspect_Catch', 'Look_Around' ], dwell: 70 },
+			{ ...at( - 136, - 24 ), yaw: FACE, base: 'Idle_Breathe', gestures: [ 'Inspect_Catch', 'Shrug' ], dwell: 20, makes: 'bait' },
+		],
 		lines: [
 			'Nets do not mend themselves. Neither do fishermen.',
 			'Reef fish sell best here. Hana pays a fifth over.',
@@ -41,6 +54,11 @@ export const TIDEMARK_FOLK = [
 	{
 		id: 'tobiah', name: 'Tobiah', port: 'tidemark', character: 'hyptile', scale: 0.96, role: 'dockworker',
 		near: [ 12, 20 ], at: at( - 134, - 98 ), base: 'Idle_Breathe', gestures: [ 'Sweep_Work', 'Inspect_Catch' ],
+		// wave 18B: at the hull in the shed with a hammer, then planing at the slip
+		work: [
+			{ ...at( - 134, - 95.5 ), yaw: look( - 134, - 95.5, - 134, - 102 ), base: 'Hammer', gestures: [ 'Inspect_Catch', 'Shrug' ], dwell: 50, work: true },
+			{ ...at( - 129.5, - 109 ), yaw: look( - 129.5, - 109, - 136, - 109 ), base: 'Kneel_Work', gestures: [ 'Inspect_Catch' ], dwell: 30, work: true },
+		],
 		lines: [
 			'Boatwright. That hull in the shed will float by spring.',
 			'Who broke my shed doors? Again?',

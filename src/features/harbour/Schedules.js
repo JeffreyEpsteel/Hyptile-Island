@@ -10,6 +10,7 @@ import { PORTS as TRADE_PORTS } from '../trade/goods.js';
 //   const d = new Director( { places, shelf } );     places: { [ portId ]: { homes, plaza, patio, tavern, mouth } }
 //   d.tick( residents.list, hour, dt )                assigns tasks when an activity changes, advances work loops
 //   d.activityOf( r ) / d.atWork( id )                what someone is doing now
+//   d.alarm( residents.list, port, seconds, near? )   everyone of the port runs home and stays in (a raid, cannon fire)
 //
 // A resident is managed when its data has a role. Its activity comes from its schedule (Roles.js). "work"
 // keeps a resident with its own spot or patrol there (task null); one with work stations (data.work) walks
@@ -140,7 +141,33 @@ export class Director {
 
 		const i = r && this.info.get( r.id );
 		if ( ! i ) return true; // unmanaged: always there
-		return i.act === 'work' && ! r.hidden;
+		return i.act === 'work' && ! r.hidden && ! ( i.alarm > 0 );
+
+	}
+
+	// cannon fire, a raid (townlife calls it through the harbour feature): the port's people run home and stay in for
+	// `seconds` (near: { x, z, radius } only those within it); then their day picks up where the clock is
+	alarm( list, port, seconds = 90, near = null ) {
+
+		let n = 0;
+		for ( const r of list ) {
+
+			if ( ( r.port || 'home' ) !== port || ! ( r.role || ( r.data && r.data.role ) ) ) continue;
+			if ( near && Math.hypot( r.x - near.x, r.z - near.z ) > near.radius ) continue;
+			let i = this.info.get( r.id );
+			if ( ! i ) this.info.set( r.id, i = { act: null, station: 0, dwell: 0 } );
+			const was = i.alarm > 0;
+			i.alarm = Math.max( i.alarm || 0, seconds );
+			if ( was ) continue;
+			const home = this._home( r, this.place( r ) );
+			if ( ! home ) continue;
+			this.slots.release( r.id );
+			r.setTask( { id: 'shelter', x: home.x, z: home.z, yaw: home.yaw, indoors: true, run: true } );
+			n ++;
+
+		}
+
+		return n;
 
 	}
 
@@ -161,6 +188,16 @@ export class Director {
 
 				i = { act: null, station: 0, dwell: 0 };
 				this.info.set( r.id, i );
+
+			}
+
+			if ( i.alarm > 0 ) {
+
+				// sheltering: the schedule waits; afterwards the current activity is assigned afresh
+				i.alarm -= step;
+				if ( i.alarm > 0 ) continue;
+				i.alarm = 0;
+				i.act = null;
 
 			}
 

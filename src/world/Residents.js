@@ -31,7 +31,7 @@ import {
 // player first comes within 220 m (the far islands' people cost nothing until you sail there).
 //
 // Tasks (the harbour feature's schedules, src/features/harbour/Schedules.js):
-//   r.setTask( { id, x, z, yaw?, base?, gestures?, indoors?, work? } )  walk there (route around the
+//   r.setTask( { id, x, z, yaw?, base?, gestures?, indoors?, work?, run? } )  walk (run: run) there (route around the
 //       village buildings), then idle there with that base clip and gestures; indoors: go inside (hidden)
 //   r.setTask( null )            back to the resident's own spot or patrol (walks back first)
 //   r.arrived, r.taskT (s since arriving), r.task, r.hidden
@@ -45,6 +45,8 @@ import {
 const _yAxis = new Vector3( 0, 1, 0 );
 const SPAWN_D2 = 220 * 220; // (the animate / update / hide radii: Residents.setRadii)
 const walkClipSpeed = ( v ) => Math.max( 0.6, Math.min( 2.4, v / CLIP_SPEED.walk ) );
+const RUN_SPEED = 3.0; // m/s: a task with run (sheltering from a raid: harbour Director.alarm)
+const GREET_R2 = 4 * 4, GREET_S = 120; // a wave to the player passing within 4 m, once per 2 minutes each
 const WALK_CLIP_SPEED = walkClipSpeed( PATROL_SPEED );
 
 const wrap = ( a ) => Math.atan2( Math.sin( a ), Math.cos( a ) );
@@ -348,6 +350,7 @@ export class Resident {
 		this.arrived = true;
 		this.taskT = 0;
 		this.hidden = false; // indoors
+		this.greetT = 0; // s until the next wave at the passing player
 		this._shown = true;
 		this.model = null;
 		this.avatar = null;
@@ -534,6 +537,7 @@ export class Resident {
 	update( dt, p, d2 ) {
 
 		if ( this.prankT > 0 ) this.prankT -= dt;
+		if ( this.greetT > 0 ) this.greetT -= dt;
 		if ( this.arrived ) this.taskT += dt;
 		if ( this.gesture && this.gestureLoopT > 0 ) {
 
@@ -579,7 +583,7 @@ export class Resident {
 				}
 
 				const dx = n.x - this.x, dz = n.z - this.z, dist = Math.hypot( dx, dz );
-				const step = this.commute * dt;
+				const step = ( this.task && this.task.run ? RUN_SPEED : this.commute ) * dt;
 				if ( dist <= step + 1e-6 ) {
 
 					this.x = n.x; this.z = n.z;
@@ -640,6 +644,14 @@ export class Resident {
 				break;
 
 			default: // idle
+				// a wave to the player walking past
+				if ( p && d2 < GREET_R2 && this.greetT <= 0 && ! this.gesture && ! this.prank ) {
+
+					this.greetT = GREET_S;
+					this._gesture( 'Friendly_Wave' );
+
+				}
+
 				this.gestureT -= dt;
 				if ( this.gestureT <= 0 ) {
 
@@ -674,6 +686,7 @@ export class Resident {
 
 		let clip = this.base, speed = 1, loop = true, fade = 0.3;
 		if ( this.state === 'walk' ) { clip = this._clip( CLIPS.walk ); speed = WALK_CLIP_SPEED; }
+		else if ( this.state === 'go' && this.task && this.task.run ) { clip = this._clip( CLIPS.run ); speed = Math.max( 0.8, Math.min( 1.6, RUN_SPEED / CLIP_SPEED.run ) ); }
 		else if ( this.state === 'go' ) { clip = this._clip( CLIPS.walk ); speed = walkClipSpeed( this.commute ); }
 		else if ( this.state === 'talk' ) clip = this.gesture || this._clip( 'Chat_Gesture' );
 		else if ( this.gesture ) { clip = this.gesture; loop = LOOP_CLIPS.has( clip ); fade = 0.2; }

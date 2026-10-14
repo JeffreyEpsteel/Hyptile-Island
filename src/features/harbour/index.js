@@ -25,6 +25,7 @@ import { clockText } from './PanelKit.js';
 //   hb.shelf[ port ]              { bait, rope, coin } made by the residents' work loops (crafting sells it)
 //   hb.memoryOf( residentId )     { talks, firstDay, lastDay } plus the story's record when the story has one
 //   hb.order( item, port ) / askRumour( port ) / rollDice( port )     what the tavern window calls
+//   hb.alarm( port, seconds, near? )   the port's residents run home and stay in (townlife: cannon fire, raids)
 //   hb.isOpen / close() / update( dt ) / toJSON() / fromJSON() / reset() / dispose()
 //
 // Events emitted: residentTalked { id, name, role, port, talks }, harbourBuff { id, name, hours, port },
@@ -481,13 +482,22 @@ export class Harbour {
 
 	}
 
-	// how full a tavern is (0..1): residents on its patio or inside
+	// how full a tavern is (0..1): residents on its patio or inside, and the townsfolk there (townlife)
 	crowd( port = 'home' ) {
 
-		if ( ! this.R ) return 0.3;
+		const tl = this.features && this.features.get ? this.features.get( 'townlife' ) : null;
+		const town = tl && tl.crowd ? tl.crowd( port ) : 0;
+		if ( ! this.R ) return town ? Math.min( 1, town / 8 ) : 0.3;
 		let n = 0;
 		for ( const r of this.R.list ) if ( ( r.port || 'home' ) === port && this.director.activityOf( r ) === 'tavern' ) n ++;
-		return Math.min( 1, n / 6 );
+		return Math.min( 1, n / 6 + town / 10 );
+
+	}
+
+	// a raid or cannon fire at a port: its residents run home and stay in (townlife calls this)
+	alarm( port = 'home', seconds = 90, near = null ) {
+
+		return this.R ? this.director.alarm( this.R.list, port, seconds, near ) : 0;
 
 	}
 

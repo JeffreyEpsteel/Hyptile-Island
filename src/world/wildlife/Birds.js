@@ -55,8 +55,11 @@ export class Birds {
 		};
 
 		// ---- gulls: perched on the pier and the huts, a loafing group on the beach, a few aloft
-		const gullPerches = this.perches.filter( ( p ) => p.kinds.includes( 'gull' ) && p.kind !== 'sand' );
+		const gullPerches = this.perches.filter( ( p ) => p.kinds.includes( 'gull' ) && p.kind !== 'sand' && p.kind !== 'townRoof' );
 		for ( let i = 0; i < 7; i ++ ) add( 'gull', BIRD.GULL, ( a ) => this.settle( a, gullPerches[ Math.floor( i * gullPerches.length / 7 ) ] ) );
+		// a few more loafing on the village roofs (they join the bay's perches once flushed)
+		const roofs = this.perches.filter( ( p ) => p.kind === 'townRoof' );
+		for ( let i = 0; i < Math.min( 5, roofs.length ); i ++ ) add( 'gull', BIRD.GULL, ( a ) => this.settle( a, roofs[ Math.floor( ( i + 0.5 ) * roofs.length / 5 ) ] ) );
 		const sand = this.perches.filter( ( p ) => p.kind === 'sand' );
 		for ( let i = 0; i < 4 && i < sand.length; i ++ ) add( 'gull', BIRD.GULL, ( a ) => this.settle( a, sand[ i ] ) );
 		for ( let i = 0; i < 4; i ++ ) add( 'gull', BIRD.GULL, ( a ) => this.startRoam( a, - 60 + rng() * 200, 10 + rng() * 25, - 40 + rng() * 100 ) );
@@ -135,13 +138,13 @@ export class Birds {
 
 		}
 
-		// ridges of the stilt huts by the pier
+		// ridges of the stilt huts by the pier, and (wave 18B) of the village's cottages and sheds: gulls on the roofs
 		if ( village && village.buildings ) {
 
 			for ( const b of village.buildings ) {
 
-				if ( ! b.stilts || ! b.roofTop ) continue;
-				add( b.x, b.roofTop - 0.13, b.z, 'roof', [ 'gull' ] );
+				if ( ! b.roofTop ) continue;
+				add( b.x, b.roofTop - 0.13, b.z, b.stilts ? 'roof' : 'townRoof', [ 'gull' ] );
 
 			}
 

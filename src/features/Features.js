@@ -31,7 +31,7 @@
 //   questAccepted / questStep / questCompleted / questAbandoned { id, ... }   reputationChanged { port, rep, delta }
 //   denRaided / captainKilled / notorietyChanged / retaliationRaid / highBountyAccepted / highBountyFailed (pirates)
 //   hostileBoarding / grappleBroken / boardersRepelled / boardersWon / ransomPaid (boarding Hostile)
-//   residentTalked / harbourBuff / rumourHeard / diceRolled / shelfMade (harbour)   itemCrafted / lureWorn (crafting)
+//   residentTalked / harbourBuff / rumourHeard / diceRolled / shelfMade (harbour)   townsfolkTalked { id, name, role, port } (townlife)   itemCrafted / lureWorn (crafting)
 //   treasureFound { id, kind, how } / treasureClaimed { id, kind, money, trinket } (exploration)   invertedEgg (world event)
 //   planeCrashed { id, cause, x, z, cost }   seaplaneBought { id, price }
 //   (death) playerDied { cause, by, x, y, z } / playerRespawned / crateClaimed / crateExpired / wreckSalvaged / wreckLooted; world events wreck / wreckSalvaged
