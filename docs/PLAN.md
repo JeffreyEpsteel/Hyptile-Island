@@ -433,6 +433,22 @@ the chute, stray and parked planes), StrongholdLink (host-authoritative Blackwat
 hostRequest / askHost), server messages plane / fort / ask with rate limits; the fort state does not survive a universe
 server restart yet.
 
+### Wave 18 (2026-10-14, root + 5 workers): visuals, way of life, city looks, weapons, animation library
+Asked for: improve all aspects of the visuals, the way of life and the looks of the cities, expand weaponry, continue the
+animations; Blender, BlenderKit and found assets allowed (permissive licences only, no logins). 18A visuals
+(w18-visuals.md), 18B town life (w18-townlife.md), 18C city looks (w18-citylooks.md), 18D weapons (w18-weapons.md), 18E
+animation library (w18-animlib.md); common rules in w18-common.md. In progress.
+
+### Wave 17 (2026-10-14, root + 1 worker): no A-pose
+Asked for: fix the animations (even the jump was an A-pose), using ComfyUI SkinTokens / NVIDIA Kimodo. Found: 22 roster
+clips from the old procedural motion pack moved 11-13 of 48 joints and left the spine, neck, head and hands at the bind
+pose; the rig itself was fine (no re-rig needed). Root (97f734f): 19 clips replaced with Kimodo takes through the approved
+roster pipeline (direction retarget, per-character arm collision fix) and spliced into all eight GLBs
+(tools/roster/kimodo-splice.ps1; unpitch-swim.mjs stands the prone swim takes up), GetUp_Back added, Fall_Air pose clip for
+the fall, the jump / hit / get-up timings, the ragdoll picks the front or back get-up; rejected: the Kimodo fall, the
+floor-height sits, the arms-down helm. 17B audit (w17-anim-audit.md): chute hang, rowing / paddling stroke loops, the
+water pull-up, gun aim / kick / reload poses, gunners at the guns, the coxswain on the wheel, test/feature-anim-audit.mjs.
+
 ### Wave 16 (2026-10-14/15, root + 4 workers): polish, onboarding, perf, saves
 Root verified wave 15 in the browser first (a merchant taken with her cargo, a calm-zone pirate turning back, a flare
 answered by a trawler and the ride to the dock on her deck, the mail Petrel's schedule). 16B onboarding
