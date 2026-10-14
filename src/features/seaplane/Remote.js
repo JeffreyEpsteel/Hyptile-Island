@@ -6,6 +6,11 @@
 //   const remote = new RemotePlanes( { models } );
 //   remote.ingest( list );   // array of states ({ id, plane }), or a Map id -> { plane } / peer records
 //   remote.update( dt );     remote.count;   remote.dispose()
+// Wave 14B, planes standing still: ParkedPlane is the one look of a parked airframe, the local fleet's (Seaplane.parked:
+// the Kestrel on the airstrip pad, a seaplane at the ramp) and the other players' 'parked' entries (netsync PlaneLink,
+// through seaplane.parkedVisual). A PlaneVisual with the propellers still, with PlaneVisual's own setPose / setVisible /
+// spin / dispose (so PlaneLink drives it unchanged) plus place( x, y, z, heading ) and set( af, liv ).
+//   const pp = new ParkedPlane( models, 'kestrel', 2 );  pp.place( x, y, z, heading );  pp.set( 'jade', 0 );  pp.dispose()
 
 import { Quaternion, Vector3 } from '../../engine/index.js';
 
@@ -13,7 +18,7 @@ export const INTERP = 150; // ms
 const KEEP = 8;
 const STALE = 3000; // ms without a sample: the plane is gone (landed and climbed out, or left)
 
-const _p = new Vector3(), _q = new Quaternion(), _q2 = new Quaternion();
+const _p = new Vector3(), _q = new Quaternion(), _q2 = new Quaternion(), _Y = new Vector3( 0, 1, 0 );
 const finite = ( a, n ) => Array.isArray( a ) && a.length >= n && a.slice( 0, n ).every( Number.isFinite );
 const now = () => ( typeof performance !== 'undefined' ? performance.now() : Date.now() );
 
@@ -125,6 +130,85 @@ export class RemotePlanes {
 
 		for ( const r of this.peers.values() ) if ( r.visual ) r.visual.dispose();
 		this.peers.clear();
+
+	}
+
+}
+
+export class ParkedPlane {
+
+	constructor( models = null, af = 'jade', liv = 0 ) {
+
+		this.models = models;
+		this.af = af;
+		this.liv = liv | 0;
+		this.position = new Vector3();
+		this.quaternion = new Quaternion();
+		this.heading = 0;
+		this.visible = true;
+		this.visual = models && models.create ? models.create( af, this.liv ) : null;
+
+	}
+
+	// another airframe: a new model in the same spot; another paint: repainted
+	set( af, liv = 0 ) {
+
+		liv = liv | 0;
+		if ( af !== this.af ) {
+
+			if ( this.visual ) this.visual.dispose();
+			this.af = af;
+			this.liv = liv;
+			this.visual = this.models && this.models.create ? this.models.create( af, liv ) : null;
+			if ( this.visual ) {
+
+				this.visual.setPose( this.position, this.quaternion );
+				this.visual.setVisible( this.visible );
+
+			}
+
+		} else if ( liv !== this.liv ) {
+
+			this.liv = liv;
+			if ( this.visual && this.visual.setLivery ) this.visual.setLivery( liv );
+
+		}
+
+		return this;
+
+	}
+
+	// at rest: level, nose along heading (the boatDock convention, as Flight.place)
+	place( x, y, z, heading = 0 ) {
+
+		this.heading = heading;
+		return this.setPose( _p.set( x, y, z ), _q.setFromAxisAngle( _Y, heading ) );
+
+	}
+
+	setPose( p, q ) {
+
+		this.position.copy( p );
+		this.quaternion.copy( q );
+		if ( this.visual ) this.visual.setPose( this.position, this.quaternion );
+		return this;
+
+	}
+
+	setVisible( v ) {
+
+		this.visible = !! v;
+		if ( this.visual ) this.visual.setVisible( this.visible );
+
+	}
+
+	// parked: the propellers stand still (the brakes are set, the engine cold)
+	spin() {}
+
+	dispose() {
+
+		if ( this.visual ) this.visual.dispose();
+		this.visual = null;
 
 	}
 

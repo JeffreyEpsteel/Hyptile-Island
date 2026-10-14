@@ -47,6 +47,14 @@
 // runs dry and glides down (sp.abandoned). The Kestrel brakes on B (read on the ground only, not claimed). Events:
 // seaplaneBought { airframe }, seaplaneUpgraded { airframe, upgrade, tier, price }, planeBailedOut { x, y, z },
 // chuteLanded { x, z, mode }, planeEngineFailed { engine }.
+// Wave 14B, planes you can find: the airframes that are not out stand at their bases (Remote.js ParkedPlane): the Kestrel
+// on the airstrip pad whenever another airframe is out (for sale, or yours: E flies it, the one out goes into its
+// hangar), a seaplane at the ramp's berth while the Kestrel is out (the one last out there, or the Jade for sale).
+// sp.parked (Map 'strip' | 'ramp' -> { af, owned, liv, x, y, z, heading, door, view }), sp.parkedAt( slot ),
+// sp.useParked( slot ), sp.parkedVisual( af, liv ) (the same look for netsync's remote 'parked' entries). A toast once a
+// session on reaching the airstrip points at its hangar office. Delivery: sp.takeOut( af, { at } ) / sp.recall( { at } )
+// with at 'home' | 'strip' | { x, z, heading, water: true } (sp.spot( at )): a seaplane put in a bay floats moored there
+// (never more than MOOR_RADIUS off) until boarded. sp.bailHint() is the chase strip's / the placard's bail-out line.
 
 import { Vector3, Quaternion } from '../../engine/index.js';
 import { Flight, GEOM } from './Flight.js';
@@ -62,7 +70,7 @@ import { Pilot, judge, MAX_HP } from './Pilot.js';
 import { SITE, SeaplaneSite, jettyPoint, distToBerth } from './Site.js';
 import { PlaneModels } from './Model.js';
 import { PlaneAudio } from './PlaneAudio.js';
-import { RemotePlanes } from './Remote.js';
+import { RemotePlanes, ParkedPlane } from './Remote.js';
 import { SeaplanePanel } from './Panel.js';
 import { Systems, refuelCost, FUEL } from './Systems.js';
 import { Cockpit } from './Cockpit.js';
@@ -81,6 +89,9 @@ export const BRAKE = 'KeyB'; // the Kestrel's wheel brakes: read on the ground o
 export const COCKPIT_KEYS = { KeyO: 'engine', KeyU: 'master', KeyN: 'nav', Semicolon: 'landing', KeyY: 'ap', BracketLeft: 'flapsUp', BracketRight: 'flapsDown', Digit3: 'panel', Quote: 'bail' };
 export const SEARCH_HOLD = 0.3; // s: holding ; this long sweeps the searchlight instead of toggling the landing light
 const RADIO_ID = 'seaplane-radio-';
+export const MOOR_RADIUS = 15; // m: a plane put in a bay swings on its line, never further from the spot
+export const STRIP_TIP_RANGE = 60; // m from the pad: "arrived at the airstrip" (the hangar office toast)
+const FAR = { x: 1e9, y: - 1e9, z: 1e9 };
 
 const _v = new Vector3(), _v2 = new Vector3(), _v3 = new Vector3(), _nose = new Vector3(), _q = new Quaternion();
 const WRECK_ID = 'seaplane-wreck';
@@ -138,6 +149,12 @@ export class Seaplane {
 		this._prevNose = null;
 		this._perchBox = null;
 		this._perchHint = false;
+		// wave 14B: the airframes standing at their bases, which one stood there last, a bay mooring, the strip's toast
+		this.parked = new Map();
+		this.last = { ramp: 'jade', strip: 'kestrel' };
+		this._moor = null;
+		this._stripTip = false;
+		this._stripT = 0;
 		this.stun = new Stun( this.app );
 
 		const terrain = this.app.terrainData || null;
@@ -160,7 +177,7 @@ export class Seaplane {
 		this.site = opts.site === false ? null : new SeaplaneSite( { scene, terrain, colliders: this.app.colliders || null, mesh: !! scene } );
 		const strip = this.strip;
 		this.stripSite = strip && opts.site !== false ? new StripSite( { strip, scene, terrain, colliders: this.app.colliders || null, mesh: !! scene } ) : null;
-		this.models = opts.models === false || ! scene ? null : new PlaneModels( { scene } );
+		this.models = opts.models && typeof opts.models.create === 'function' ? opts.models : opts.models === false || ! scene ? null : new PlaneModels( { scene } );
 		this.visual = this.models ? this.models.create() : null;
 		this.remote = new RemotePlanes( { models: this.models } );
 		this.audio = new PlaneAudio( this.app );
@@ -193,6 +210,8 @@ export class Seaplane {
 
 		this.keys = {};
 		if ( this.features && this.features.claimKey ) for ( const k of KEYS ) this.keys[ k ] = this.features.claimKey( k, ID );
+		// wave 14B: X bails out too, when it is free (naval claims it for the starboard guns first: then ' alone)
+		this.keys.KeyX = !! ( this.features && this.features.claimKey && this.features.claimKey( 'KeyX', ID ) );
 
 		this._interact = [];
 		if ( this.features && this.features.interactable ) {
@@ -223,7 +242,7 @@ export class Seaplane {
 					return o ? { x: o.x, y: o.y, z: o.z } : { x: 1e9, y: - 1e9, z: 1e9 };
 
 				},
-				radius: 3.0,
+				radius: 4.0, // (easy to find: wave 14B)
 				when: () => ! this.piloted && !! this.strip,
 				prompt: () => t( 'seaplane.stripHangar', 'Airstrip hangar' ),
 				onInteract: () => this.open( 'strip' ),
@@ -241,6 +260,15 @@ export class Seaplane {
 					if ( r && r.text ) this._toast( r.text, 2600 );
 
 				},
+			} ) );
+			// wave 14B: the parked airframes (for sale: their hangar's window; yours: fly it)
+			for ( const slot of [ 'strip', 'ramp' ] ) this._interact.push( this.features.interactable( {
+				id: 'seaplane-parked-' + slot,
+				position: () => ( this.parked.has( slot ) ? this.parked.get( slot ).door : FAR ),
+				radius: 4.0,
+				when: () => ! this.piloted && ! this.chute && this.parked.has( slot ),
+				prompt: () => this.parkedPrompt( slot ),
+				onInteract: () => this.useParked( slot ),
 			} ) );
 
 		}
@@ -284,6 +312,166 @@ export class Seaplane {
 
 		const A = AIRFRAMES[ af ];
 		return !! A && ( A.base !== 'strip' || !! this.strip );
+
+	}
+
+	// ------------------------------------------------------------------ wave 14B: parked airframes, delivery
+
+	// what stands at a base ('strip' | 'ramp') while none of its own airframes is out: the one of yours last out there
+	// (not wrecked), else the first for sale; null when one of its own is out, none is had here, or yours are wrecked
+	parkedAt( slot ) {
+
+		const ids = AIRFRAME_IDS.filter( ( id ) => ( AIRFRAMES[ id ].base === 'strip' ) === ( slot === 'strip' ) && this.available( id ) );
+		if ( ! ids.length || ids.includes( this.af ) ) return null;
+		const mine = ids.filter( ( id ) => this.owns( id ) && ! ( this.fleet[ id ] && this.fleet[ id ].lost ) );
+		if ( mine.length ) return { af: mine.includes( this.last[ slot ] ) ? this.last[ slot ] : mine[ 0 ], owned: true };
+		if ( ids.some( ( id ) => this.owns( id ) ) ) return null; // (wrecked: recovered at the hangar first)
+		return { af: ids[ 0 ], owned: false };
+
+	}
+
+	// the parked look of an airframe (also netsync's remote 'parked' entries)
+	parkedVisual( af = 'jade', liv = 0 ) {
+
+		return new ParkedPlane( this.models, AIRFRAMES[ af ] ? af : 'jade', liv );
+
+	}
+
+	// the parked airframes follow the fleet: placed, swapped, repainted or removed when it changes
+	_syncParked() {
+
+		for ( const slot of [ 'strip', 'ramp' ] ) {
+
+			const want = this.parkedAt( slot );
+			let w = this.parked.get( slot );
+			if ( ! want ) {
+
+				if ( w && w.view ) w.view.dispose();
+				this.parked.delete( slot );
+				continue;
+
+			}
+
+			const rec = this.fleet[ want.af ];
+			const liv = want.owned && rec && rec.upgrades ? ( rec.upgrades.livery | 0 ) : 0;
+			const b = this.base( want.af ), g = b.kind === 'strip' ? this._groundAt( b.x, b.z ) : NaN;
+			const y = Number.isFinite( g ) ? g : b.y;
+			const sig = `${ want.af }|${ want.owned }|${ liv }|${ b.x }|${ y }|${ b.z }|${ b.heading }`;
+			if ( w && w.sig === sig && ( w.view || ! this.models ) ) continue;
+			if ( ! w ) {
+
+				w = { slot, view: null };
+				this.parked.set( slot, w );
+
+			}
+
+			if ( w.view ) w.view.set( want.af, liv );
+			else if ( this.models ) w.view = this.parkedVisual( want.af, liv );
+			if ( w.view ) w.view.place( b.x, y, b.z, b.heading );
+			// the E spot: beside the door (port side), on the apron / the jetty where a player stands
+			const dr = composeSpec( want.af ).geom.door || GEOM.door, c = Math.cos( b.heading ), sn = Math.sin( b.heading );
+			const door = { x: b.x + dr[ 0 ] * c + dr[ 2 ] * sn, y: b.kind === 'strip' ? y : SITE.jetty.y, z: b.z - dr[ 0 ] * sn + dr[ 2 ] * c };
+			Object.assign( w, { af: want.af, owned: want.owned, liv, x: b.x, y, z: b.z, heading: b.heading, door, sig } );
+
+		}
+
+	}
+
+	parkedPrompt( slot ) {
+
+		const w = this.parked.get( slot );
+		if ( ! w ) return null;
+		const name = AIRFRAMES[ w.af ].name;
+		if ( w.owned ) return t( 'seaplane.parkedFly', 'Fly the {name}', { name } );
+		return slot === 'strip' ? t( 'seaplane.parkedSaleStrip', '{name} for sale · ask at the airstrip hangar', { name } ) : t( 'seaplane.parkedSaleRamp', '{name} for sale · ask at the hangar', { name } );
+
+	}
+
+	// E at a parked airframe: not yours -> its hangar's window; yours -> out it goes (the one out into its hangar), aboard
+	useParked( slot ) {
+
+		const w = this.parked.get( slot );
+		if ( ! w || this.piloted || this.chute ) return { ok: false, text: '' };
+		if ( ! w.owned ) {
+
+			this.open( slot === 'strip' ? 'strip' : 'ramp' );
+			return { ok: true, text: '', opened: this.panel.scope };
+
+		}
+
+		const r = this.takeOut( w.af );
+		if ( ! r.ok ) {
+
+			if ( r.text ) this._toast( r.text, 2200 );
+			return r;
+
+		}
+
+		return { ...r, boarded: this.board() };
+
+	}
+
+	// where a delivered plane goes (takeOut / recall at): 'home', 'strip' or nothing -> its own base (the ramp's berth
+	// for a seaplane, the pad for the Kestrel: a floatplane is not left on the pad, a land plane does not float);
+	// { x, z, heading, water: true } -> a bay where a seaplane floats moored (a land plane: its base); { x, z } without
+	// water -> a stand on the ground for a land plane (a seaplane floats there)
+	spot( at = null, af = this.af ) {
+
+		const A = AIRFRAMES[ af ] || AIRFRAMES.jade, b = this.base( af );
+		if ( ! at || typeof at !== 'object' || ! Number.isFinite( at.x ) || ! Number.isFinite( at.z ) ) return b;
+		const heading = Number.isFinite( at.heading ) ? at.heading : 0;
+		if ( A.base !== 'strip' ) return { kind: 'bay', x: at.x, z: at.z, heading, y: - 0.2 };
+		if ( at.water === true ) return b;
+		return { kind: 'ground', x: at.x, z: at.z, heading, y: Number.isFinite( at.y ) ? at.y : 0 };
+
+	}
+
+	_whereText( kind ) {
+
+		return kind === 'strip' ? t( 'seaplane.whereStrip', 'on the airstrip pad' ) : kind === 'bay' ? t( 'seaplane.whereBay', 'moored in the bay' ) : kind === 'ground' ? t( 'seaplane.whereGround', 'standing here' ) : t( 'seaplane.onRamp', 'out at the ramp' );
+
+	}
+
+	// the chase strip's / the cockpit placard's line while bailing out is possible (null otherwise)
+	bailHint() {
+
+		if ( ! this.canBail() ) return null;
+		return this.keys.KeyX ? t( 'seaplane.bailHintX', "' or X: bail out (press twice)" ) : t( 'seaplane.bailHint', "' bail out (press twice)" );
+
+	}
+
+	// once a session, on reaching the airstrip (on it, or near the pad): where the Kestrel is sold
+	_stripTipUpdate( dt ) {
+
+		if ( this._stripTip ) return;
+		this._stripT -= dt;
+		if ( this._stripT > 0 ) return;
+		this._stripT = 0.5;
+		const s = this.strip, p = this.app.player;
+		if ( ! s || ! p || ! p.position || this.piloted || this.chute ) return;
+		const pad = stripPad( s ), x = p.position.x, z = p.position.z;
+		if ( ! onStrip( s, x, z ) && ! ( pad && Math.hypot( pad.x - x, pad.z - z ) < STRIP_TIP_RANGE ) ) return;
+		this._stripTip = true;
+		this._toast( t( 'seaplane.stripTip', 'The airstrip hangar sells the Kestrel · E at the office by the shed' ), 4200 );
+
+	}
+
+	// a plane moored in a bay: the line holds it within MOOR_RADIUS of the spot
+	_tether() {
+
+		const m = this._moor, f = this.flight;
+		if ( ! m || f.airborne ) return;
+		const dx = f.position.x - m.x, dz = f.position.z - m.z, d = Math.hypot( dx, dz );
+		if ( d <= MOOR_RADIUS ) return;
+		const nx = dx / d, nz = dz / d, out = f.velocity.x * nx + f.velocity.z * nz;
+		f.position.x = m.x + nx * MOOR_RADIUS;
+		f.position.z = m.z + nz * MOOR_RADIUS;
+		if ( out > 0 ) {
+
+			f.velocity.x -= nx * out;
+			f.velocity.z -= nz * out;
+
+		}
 
 	}
 
@@ -355,6 +543,7 @@ export class Seaplane {
 
 		const r = this.fleet[ af ] || { owned: false };
 		this.af = af;
+		this.last[ AIRFRAMES[ af ] && AIRFRAMES[ af ].base === 'strip' ? 'strip' : 'ramp' ] = af;
 		this.owned = r.owned === true;
 		this.hp = Number.isFinite( r.hp ) ? Math.max( 0, Math.min( MAX_HP, r.hp ) ) : MAX_HP;
 		this.flight.fuel = Number.isFinite( r.fuel ) ? Math.max( 0, Math.min( 1, r.fuel ) ) : 1;
@@ -378,22 +567,33 @@ export class Seaplane {
 
 	}
 
-	// the airframe in the hangar goes out onto the ramp / the pad (the one out goes in: towed home if it was away)
-	takeOut( af ) {
+	// the airframe in the hangar goes out onto the ramp / the pad (the one out goes in: towed home if it was away);
+	// wave 14B: { at } delivers it there instead (spot(): 'home' | 'strip' | { x, z, heading, water: true }); the one
+	// already out with an `at` is towed there
+	takeOut( af, { at = null } = {} ) {
 
 		if ( ! AIRFRAMES[ af ] ) return { ok: false, text: '' };
 		if ( this.piloted || this.chute ) return { ok: false, text: t( 'seaplane.flyingNow', 'Not while you are flying' ) };
 		if ( ! this.owns( af ) ) return { ok: false, text: t( 'seaplane.notOwned', 'Not yours yet' ) };
-		if ( af === this.af ) return { ok: true, text: t( 'seaplane.alreadyOut', 'Already out' ) };
+		if ( af === this.af ) {
+
+			if ( ! at ) return { ok: true, text: t( 'seaplane.alreadyOut', 'Already out' ) };
+			if ( this.lost ) return { ok: false, text: t( 'seaplane.recoverFirst', 'Recover the wreck first' ) };
+			this._place( at );
+			return { ok: true, text: `${ AIRFRAMES[ af ].name }: ${ this._whereText( this.spot( at ).kind ) }` };
+
+		}
+
 		if ( ! this.available( af ) ) return { ok: false, text: t( 'seaplane.noStrip', 'There is no airstrip for it' ) };
 		this._stash();
 		this._clearWreck();
 		this.abandoned = false;
 		this._unstash( af );
-		this._place();
+		this._place( at );
 		if ( this.lost && this.visual ) this.visual.setVisible( false );
 		this._save();
-		return { ok: true, text: `${ AIRFRAMES[ af ].name }: ${ AIRFRAMES[ af ].base === 'strip' ? t( 'seaplane.onPad', 'out on the pad' ) : t( 'seaplane.onRamp', 'out at the ramp' ) }` };
+		const kind = this.spot( at ).kind;
+		return { ok: true, text: `${ AIRFRAMES[ af ].name }: ${ kind === 'strip' && ! at ? t( 'seaplane.onPad', 'out on the pad' ) : this._whereText( kind ) }` };
 
 	}
 
@@ -724,9 +924,11 @@ export class Seaplane {
 
 	// tow it home (left out at sea, or drifted off); a wreck is raised and towed by Captain Roid's crew for the recovery
 	// fee and comes back to the ramp in pieces (the repair as before)
-	recall() {
+	// wave 14B: { at } ('home' | 'strip' | { x, z, heading, water: true }: spot()) delivers it there instead of its base
+	recall( { at = null } = {} ) {
 
 		if ( this.piloted ) return { ok: false, text: '' };
+		const kind = this.spot( at ).kind;
 		if ( this.lost ) {
 
 			const cost = this.recoveryCost();
@@ -734,16 +936,17 @@ export class Seaplane {
 			if ( cost > 0 && ( ! st || ! st.spend || ! st.spend( cost ) ) ) return { ok: false, text: t( 'seaplane.short', 'Not enough money yet' ) + ` (${ money$( cost ) })` };
 			this._clearWreck();
 			this.lost = false;
-			this._place();
+			this._place( at );
 			this._save();
-			this._emit( 'seaplaneRecovered', { cost } );
+			this._emit( 'seaplaneRecovered', { cost, at: kind } );
 			const rep = this.repairCost();
-			return { ok: true, text: t( 'seaplane.recovered', "Captain Roid's crew raised the wreck and towed it to the ramp" ) + ( rep > 0 ? ` · ${ t( 'seaplane.repairNext', 'repair' ) } ${ money$( rep ) }` : '' ) };
+			const said = kind === 'ramp' ? t( 'seaplane.recovered', "Captain Roid's crew raised the wreck and towed it to the ramp" ) : t( 'seaplane.recoveredTo', "Captain Roid's crew raised the wreck: {where}", { where: this._whereText( kind ) } );
+			return { ok: true, text: said + ( rep > 0 ? ` · ${ t( 'seaplane.repairNext', 'repair' ) } ${ money$( rep ) }` : '' ) };
 
 		}
 
-		this._place();
-		return { ok: true, text: t( 'seaplane.towed', 'Towed back to the ramp' ) };
+		this._place( at );
+		return { ok: true, text: kind === 'ramp' ? t( 'seaplane.towed', 'Towed back to the ramp' ) : t( 'seaplane.towedTo', 'Towed: {where}', { where: this._whereText( kind ) } ) };
 
 	}
 
@@ -754,17 +957,18 @@ export class Seaplane {
 
 	}
 
-	_place() {
+	_place( at = null ) {
 
-		const f = this.flight, b = this.base();
-		if ( b.kind === 'strip' ) {
+		const f = this.flight, b = this.spot( at );
+		if ( b.kind === 'strip' || b.kind === 'ground' ) {
 
-			// on the pad, nose down the runway, the wheels on the ground (brakes set)
+			// on the pad (or a stand), nose down the runway, the wheels on the ground (brakes set)
 			const g = this._groundAt( b.x, b.z );
 			f.place( b.x, b.z, b.heading, Number.isFinite( g ) ? g : b.y );
 			f.controls.brake = 1;
 
 		} else f.place( b.x, b.z, b.heading );
+		this._moor = b.kind === 'bay' ? { x: b.x, z: b.z, heading: b.heading } : null;
 		this.abandoned = false;
 		f.engineOn = false;
 		f.flaps = f.flapPos = 0;
@@ -773,6 +977,7 @@ export class Seaplane {
 		if ( this.systems ) this.systems.reset();
 		this._wasAir = false;
 		this._syncVisual( 0 );
+		this._syncParked();
 
 	}
 
@@ -793,6 +998,7 @@ export class Seaplane {
 		const f = this.flight;
 		this.piloted = true;
 		this.abandoned = false;
+		this._moor = null; // (aboard: the mooring line is cast off)
 		// the engine is cold: it starts on the starter (O, the panel's START, or opening the throttle)
 		f.clearStrikes();
 		this.pilot.reset();
@@ -958,6 +1164,8 @@ export class Seaplane {
 			if ( inp.hit( code ) ) this.act( COCKPIT_KEYS[ code ], 'key' );
 
 		}
+
+		if ( this.keys.KeyX && ! open && inp.hit( 'KeyX' ) ) this.act( 'bail', 'keyX' );
 
 	}
 
@@ -1186,7 +1394,7 @@ export class Seaplane {
 				} else if ( now - this._bailArm > 2 ) {
 
 					this._bailArm = now;
-					text = how === 'key' ? t( 'seaplane.bailArm', "Press ' again to bail out" ) : t( 'seaplane.bailArmPanel', 'Bail out? Press again' );
+					text = how === 'key' ? t( 'seaplane.bailArm', "Press ' again to bail out" ) : how === 'keyX' ? t( 'seaplane.bailArmX', 'Press X again to bail out' ) : t( 'seaplane.bailArmPanel', 'Bail out? Press again' );
 
 				} else {
 
@@ -1923,6 +2131,8 @@ export class Seaplane {
 		}
 
 		this._radioUpdate( dt );
+		this._syncParked();
+		this._stripTipUpdate( dt );
 		this.cockpit.update( dt );
 		this.remote.update( dt );
 
@@ -2012,6 +2222,13 @@ export class Seaplane {
 				dh = Math.atan2( Math.sin( dh ), Math.cos( dh ) );
 				f.angular.y += ( dh * 0.4 - f.angular.y ) * k;
 
+			} else if ( this._moor ) {
+
+				// moored in a bay: the line draws it gently back towards the spot
+				const m = this._moor;
+				f.velocity.x += ( ( m.x - f.position.x ) * 0.05 - f.velocity.x ) * k;
+				f.velocity.z += ( ( m.z - f.position.z ) * 0.05 - f.velocity.z ) * k;
+
 			} else {
 
 				f.velocity.x -= f.velocity.x * k;
@@ -2022,6 +2239,7 @@ export class Seaplane {
 		}
 
 		this._step( dt );
+		this._tether();
 
 	}
 
@@ -2071,7 +2289,7 @@ export class Seaplane {
 
 		}
 
-		return { owned: this.owned, hp: Math.round( this.hp ), fuel: Math.round( this.flight.fuel * 1000 ) / 1000, switches: this.systems.toJSON(), stats: { ...this.stats }, lost: this.lost, sprung: [ sp[ 0 ], sp[ 1 ] ], af: this.af, fleet };
+		return { owned: this.owned, hp: Math.round( this.hp ), fuel: Math.round( this.flight.fuel * 1000 ) / 1000, switches: this.systems.toJSON(), stats: { ...this.stats }, lost: this.lost, sprung: [ sp[ 0 ], sp[ 1 ] ], af: this.af, fleet, last: { ...this.last } };
 
 	}
 
@@ -2082,6 +2300,9 @@ export class Seaplane {
 		this.fleet = {};
 		if ( d.fleet && typeof d.fleet === 'object' ) for ( const id of AIRFRAME_IDS ) if ( d.fleet[ id ] && typeof d.fleet[ id ] === 'object' ) this.fleet[ id ] = { ...d.fleet[ id ] };
 		const af = AIRFRAMES[ d.af ] && this.available( d.af ) ? d.af : 'jade';
+		// wave 14B: which airframe stands at each base (the one last out there)
+		if ( d.last && typeof d.last === 'object' ) for ( const k of [ 'ramp', 'strip' ] ) if ( AIRFRAMES[ d.last[ k ] ] && ( AIRFRAMES[ d.last[ k ] ].base === 'strip' ) === ( k === 'strip' ) ) this.last[ k ] = d.last[ k ];
+		this.last[ AIRFRAMES[ af ].base === 'strip' ? 'strip' : 'ramp' ] = af;
 		if ( af !== this.af ) {
 
 			this._clearWreck();
@@ -2138,6 +2359,7 @@ export class Seaplane {
 		this.abandoned = false;
 		this.fleet = {};
 		this.af = 'jade';
+		this.last = { ramp: 'jade', strip: 'kestrel' };
 		this.upgrades = defaultUpgrades();
 		this.cargo = [];
 		this._respec();
@@ -2162,7 +2384,9 @@ export class Seaplane {
 		this.audio.dispose();
 		this.remote.dispose();
 		if ( this.visual ) this.visual.dispose();
-		if ( this.models ) this.models.dispose();
+		for ( const w of this.parked.values() ) if ( w.view ) w.view.dispose();
+		this.parked.clear();
+		if ( this.models && this.models.dispose ) this.models.dispose();
 		if ( this.site ) this.site.dispose();
 
 	}

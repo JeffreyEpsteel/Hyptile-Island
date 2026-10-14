@@ -357,7 +357,7 @@ export class PlaneLink {
 		const sp = this._sp(), make = this.sync.opts && this.sync.opts.planeVisual;
 		try {
 
-			return make ? make( { key: v.key, kind: v.kind, af: v.af, liv: v.liv, model: v.af } ) : sp && sp.models && sp.models.create ? sp.models.create( v.af, v.liv ) : null;
+			return make ? make( { key: v.key, kind: v.kind, af: v.af, liv: v.liv, model: v.af } ) : sp && v.kind === 'parked' && sp.parkedVisual ? sp.parkedVisual( v.af, v.liv ) : sp && sp.models && sp.models.create ? sp.models.create( v.af, v.liv ) : null;
 
 		} catch ( e ) {
 

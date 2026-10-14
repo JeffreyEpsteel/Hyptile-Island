@@ -27,5 +27,8 @@ export { NODE_PART, BODY_PARTS, meshParts, propHubs } from './Model.js';
 export { AIRFRAMES, AIRFRAME_IDS, UPGRADES, UPGRADE_IDS, LIVERIES, RADIO_RANGE, spec, upgradePrice, upgradeFits, capacity, cargoMass, defaultUpgrades, cleanUpgrades } from './Airframes.js';
 export { Chute, CHUTE, buildCanopy } from './Chute.js';
 export { findAirstrip, stripPad, stripOffice, onStrip } from './Site.js';
+// wave 14B: parked airframes (one look for the local fleet and netsync's remote 'parked' entries), bay moorings
+export { ParkedPlane, RemotePlanes } from './Remote.js';
+export { MOOR_RADIUS, STRIP_TIP_RANGE } from './Seaplane.js';
 
 export default { install };
