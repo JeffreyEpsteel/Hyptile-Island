@@ -21,6 +21,7 @@ import * as destruction from './destruction/index.js';
 import * as pirates from './pirates/index.js';
 import * as stronghold from './pirates/Stronghold.js';
 import * as harbour from './harbour/index.js';
+import * as agents from './agents/index.js';
 import * as crafting from './crafting/index.js';
 import * as inverted from './inverted/index.js';
 import * as life from './life/index.js';
@@ -41,6 +42,7 @@ export const MODULES = [
 	[ 'notices', notices ],
 	[ 'story', story ], // quest chains, conversations, NPC memory (after notices: it lists on their boards)
 	[ 'harbour', harbour ], // after trade / notices / story; needs app.residents
+	[ 'agents', agents ], // wave 14C: Roid & Co. harbour agents at every dock (after harbour: the ports' vendors)
 	[ 'crafting', crafting ], // after harbour
 	[ 'melee', melee ],
 	[ 'destruction', destruction ], // breakable props (Rapier physics): before naval so its raycast is ready for the balls

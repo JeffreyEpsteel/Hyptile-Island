@@ -108,8 +108,9 @@ export function installHudPanels( GameHUD ) {
 
 		}
 
+		this.yardPort = vendor && vendor.kind === 'yard' ? vendor.port || null : null; // wave 14C: a harbour agent's yard window
 		baseOpenStand.call( this, vendor );
-		if ( vendor && vendor.kind === 'yard' ) roidClicks( this, 'open' );
+		if ( vendor && vendor.kind === 'yard' && ! vendor.port ) roidClicks( this, 'open' );
 
 	};
 
@@ -293,6 +294,10 @@ export function installHudPanels( GameHUD ) {
 	}
 
 	P.renderYard = function () {
+
+		// wave 14C: at a harbour agent the agents feature draws the window
+		const ag = this.yardPort && this.game.app && this.game.app.features ? this.game.app.features.get( 'agents' ) : null;
+		if ( ag && ag.renderYard( this ) ) return;
 
 		const s = this.game.state;
 		const v = this.vendor || { name: 'Captain Roid · Boat yard', greeting: '' };

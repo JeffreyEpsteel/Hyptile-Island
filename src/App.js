@@ -514,7 +514,7 @@ fn terrainWetness( xz: vec2f, h: f32 ) -> vec2f {
 	// Put the boat of the catalog at the dock (or none: hidden, unboardable). The controller keeps
 	// its slots; the spray body, the hull mask, the lights, the floodlights and the gulls' perch follow
 	// the new hull.
-	setBoat( id ) {
+	setBoat( id, { dock = null } = {} ) {
 
 		const scene = this.scene;
 		if ( id && ! BOATS[ id ] ) id = null;
@@ -558,6 +558,8 @@ fn terrainWetness( xz: vec2f, h: f32 ) -> vec2f {
 		this.boatCtl.enabled = !! id;
 		this.player.setBoat( id ? this.boatCtl : null );
 		this.setBoatLights( this.boatLightsOn );
+		// wave 14C: bought or recovered at a harbour agent: moored at that port's dock
+		if ( id && dock && dock.position ) this._placeBoat( { x: dock.position.x, z: dock.position.z, heading: dock.heading, moored: true } );
 
 	}
 
