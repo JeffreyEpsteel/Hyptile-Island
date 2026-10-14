@@ -93,6 +93,24 @@ beside dawn.node from one DirectX Shader Compiler release (https://github.com/mi
 given without --backend). Not tried: Dawn may refuse a DXC version it was not built against (it refused Chrome's copy);
 use Vulkan.
 
+## Wave 16C additions (2026-10-14)
+
+- `cpu-scenarios.mjs`: the **wave15** scenario (default set: sea, shore, wave15): the sea fight in the two-tile world with
+  the economy's rivals, the harbour agents, a wanted stolen hull (hijack's hunters), a rescue under way and the 12 AI ships;
+  `--cap=n` sets naval's awake-ship cap (Quality: Low 8, Medium 12, phones 6). The fake DOM also counts attribute and
+  title / disabled writes (`attr`, `prop`).
+- `headless.mjs --perf=views`: the three places of the two-tile world on foot at noon (`homeBay`, `tidemarkQuay`,
+  `blackwaterCove`; not in `every`). The bench now renders at `--size` (it always rendered 2560x1267, so a phone run
+  measured a desktop canvas), each scenario records its GPU memory (`memory`: total, buffers, textures, and by owner:
+  vegetation, terrain, the tile islands, characters) and the vegetation drawn (`vegetation`: instances near / far per
+  type, triangles). `--mobile` keeps the phone Quality (a `--quality` no longer replaces it with the desktop tier) and
+  takes the game's own `PHONE_BUDGET`.
+- `--mem-top[=n]` after a perf run too, `--mem-diff` (what each scenario built on arrival), `--mem-match=<regex>` (every
+  live label that matches), `--hide=<regex>` (objects hidden for the run: what one system costs, `--hide=veg-canopy-far`).
+- Before / after on one machine: a copy of `src` with the wave's files restored under `out/before` (with a junction to
+  `public`: remove it with `rmdir` before deleting the folder, or the delete follows it) and the runs interleaved;
+  docs/PERF.md "Wave 16C" has the table.
+
 ## Other tools
 
 `headless.mjs` (whole App on Dawn; `--boot`, `--nan-check`, `--boat-swaps`), `runner.js` + `scenarios.js` (the perf

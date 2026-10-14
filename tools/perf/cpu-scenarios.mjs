@@ -4,6 +4,9 @@
 //   naval (12 ships: 4 merchants on the lane, 8 pirates on the patrols, collisions, brains, balls), crew (2 gunners),
 //   pirates + boarding, melee (20 raiders in an arena), trade (market ticks, rivals, events), harbour (the residents'
 //   schedules) + residents, destruction (Rapier, the port props).
+// wave15 (wave 16C): the sea scenario in the two-tile world (TerrainData carries Tidemark's and Blackwater's tiles) with the
+//   economy's rivals sailing, the harbour agents, a wanted stolen hull (hijack: the hunters), a rescue under way (a flare
+//   answered: the launch or a merchant inbound) and the 12 AI ships.
 // 3600 frames at 60 Hz per scenario. Pass 1 times every module's update (performance.now around each call); pass 2 runs
 // a fresh world again and counts the bytes each update allocates (a minor GC before every frame, a 64 MB young
 // generation: no collection inside a frame, so heapUsed deltas are the allocations).
@@ -38,6 +41,9 @@ const crewModule = await import( '../../src/features/crew/index.js' );
 const tradeModule = await import( '../../src/features/trade/index.js' );
 const harbourModule = await import( '../../src/features/harbour/index.js' );
 const destructionModule = await import( '../../src/features/destruction/index.js' );
+const agentsModule = await import( '../../src/features/agents/index.js' );
+const hijackModule = await import( '../../src/features/hijack/index.js' );
+const rescueModule = await import( '../../src/features/rescue/index.js' );
 const { initPhysics } = await import( '../../src/physics/World.js' );
 const { makeDoc } = await import( './fake-dom.mjs' );
 
@@ -49,7 +55,9 @@ const args = Object.fromEntries( process.argv.slice( 2 ).map( ( a ) => {
 } ) );
 const FRAMES = Number( args.frames ) || 3600;
 const DT = 1 / 60;
-const SCENARIOS = String( args.scenario || 'sea,shore' ).split( ',' );
+const SCENARIOS = String( args.scenario || 'sea,shore,wave15' ).split( ',' );
+// --cap=n: naval's awake-ship cap (Quality: Low 8, phones 6; none by default) for the before / after of the cap
+const CAP = args.cap !== undefined ? Number( args.cap ) : null;
 const DETAIL = !! args.detail;
 const terrain = new TerrainData();
 
@@ -120,8 +128,9 @@ async function makeWorld( scenario ) {
 	state.money = 5000;
 	state.character = 'hyptile';
 	state.unlocked = [ 'hyptile', 'pepe', 'doge', 'pengu', 'bonk' ];
-	const at = scenario === 'sea' ? SEA : SHORE;
-	const atSea = scenario === 'sea';
+	const wave15 = scenario === 'wave15';
+	const at = scenario === 'shore' ? SHORE : SEA;
+	const atSea = scenario !== 'shore';
 	const player = {
 		mode: atSea ? 'boat' : 'walk', camMode: 'third', position: new Vector3( at.x, atSea ? 1 : terrain.heightAt( at.x, at.z ), at.z ), velocity: new Vector3(), yaw: 0, pitch: 0,
 		stamina: 1, grounded: true, prompt: null, busy: false, seat: null, action: null, launched: 0,
@@ -149,7 +158,7 @@ async function makeWorld( scenario ) {
 	app.camera.position.set( at.x, 6, at.z - 12 );
 	const features = new Features( app );
 	const add = ( name, mod, opts ) => features.add( name, { install: ( a, f ) => mod.install( a, f, opts ) } );
-	const trade = add( 'trade', tradeModule, { seed: 4, toasts: false, stalls: false } );
+	const trade = add( 'trade', tradeModule, { seed: 4, toasts: false, stalls: false, ...( wave15 ? { rivals: true } : {} ) } );
 	const harbour = add( 'harbour', harbourModule, { rng: makeRng( 21 ), toasts: false, audio: false } );
 	const melee = add( 'melee', meleeModule, { avatarFactory, doc: dom.doc, hudElement: hudEl, fx: false, seed: 5, captain: false, slots: arena( SHORE.x, SHORE.z ), peaceZone: false,
 		audio: { play() { return true; }, lead: () => 0.1, preload() {} } } );
@@ -158,6 +167,15 @@ async function makeWorld( scenario ) {
 	const pirates = add( 'pirates', piratesModule, { seed: 3, hud: false, avatarFactory } );
 	const crew = add( 'crew', crewModule, { rng: makeRng( 11 ), deck: false, doc: dom.doc } );
 	const destruction = features.add( 'destruction', destructionModule );
+	let agents = null, hijack = null, rescue = null;
+	if ( wave15 ) {
+
+		app.game.vendors = [];
+		agents = features.add( 'agents', agentsModule );
+		hijack = add( 'hijack', hijackModule, { models: false, seed: 5 } );
+		rescue = add( 'rescue', rescueModule, { rng: makeRng( 13 ) } );
+
+	}
 	await initPhysics();
 	await new Promise( ( r ) => setTimeout( r, 0 ) );
 
@@ -177,6 +195,15 @@ async function makeWorld( scenario ) {
 
 	}
 
+	if ( wave15 ) {
+
+		// a stolen hull, wanted (her faction keeps sending hunters), and a flare answered near the player
+		hijack.vessel = { hull: state.boat, name: 'Perf Prize', kind: 'trawler', faction: 'merchant', port: 'home', at: 8, stolen: true, wanted: true, repaintAt: null, laundered: false, seen: false };
+		rescue._dispatch( at.x, at.z, 'adrift' );
+
+	}
+
+	if ( CAP !== null && naval.setShipCap ) naval.setShipCap( CAP );
 	// two crew gunners on the lobster boat, with the swivel gun
 	naval.playerGun.owned = true;
 	const ctx = crew.ctx ? crew.ctx() : null;
@@ -195,7 +222,7 @@ async function makeWorld( scenario ) {
 
 	if ( ! atSea ) player.position.set( at.x, terrain.heightAt( at.x, at.z ), at.z );
 	dom.reset();
-	return { app, features, R, naval, melee, trade, harbour, boarding, pirates, crew, destruction, player, boat, input, dom };
+	return { app, features, R, naval, melee, trade, harbour, boarding, pirates, crew, destruction, agents, hijack, rescue, player, boat, input, dom };
 
 }
 
@@ -310,7 +337,7 @@ async function run( scenario, mode ) {
 		if ( mode === 'alloc' ) globalThis.gc( { type: 'minor' } );
 		// the player sails a slow circle at sea / strolls about the arena ashore
 		const a = i * DT * 0.05;
-		if ( scenario === 'sea' ) {
+		if ( scenario !== 'shore' ) {
 
 			w.boat.position.set( start.x + Math.sin( a ) * 60, 0, start.z + ( 1 - Math.cos( a ) ) * 60 );
 			w.boat.velocity.set( Math.cos( a ) * 3, 0, Math.sin( a ) * 3 );
@@ -332,6 +359,8 @@ async function run( scenario, mode ) {
 		w.R.update( DT, w.player );
 		total.leave();
 		w._contacts = ( w._contacts || 0 ) + w.naval.contacts.length;
+		if ( w.naval.ships.length > ( w._maxShips || 0 ) ) w._maxShips = w.naval.ships.length;
+		if ( ( w.naval._asleep || 0 ) > ( w._maxAsleep || 0 ) ) w._maxAsleep = w.naval._asleep;
 		w.input.endFrame();
 		if ( args.trace && mode === 'time' && i % 600 === 0 ) console.log( i, JSON.stringify( { hull: w.naval.playerHull, ok: w.naval.target.ok, ships: w.naval.ships.map( ( s ) => `${ s.kind[ 0 ] } ${ s.state } ${ Math.round( Math.hypot( s.x - w.boat.position.x, s.z - w.boat.position.z ) ) }` ) } ) );
 		w.app.settings.timeOfDay = ( 10 + i * DT / 60 ) % 24; // a game minute per second
@@ -348,13 +377,15 @@ async function run( scenario, mode ) {
 		: { bytesPerFrame: s.bytes / FRAMES, gcHit: s.gcHit };
 	const dom = { ...w.dom.counts };
 	for ( const k in dom ) dom[ k ] = +( dom[ k ] / FRAMES ).toFixed( 2 );
-	const stats = { ships: w.naval.ships.length, alive: w.naval.ships.filter( ( s ) => s.alive ).length, raiders: w.melee.raiders.length, residents: w.R.list.length, shipShots: w.naval.stats.shots, crewShots: w.naval.crewShots, contacts: w._contacts || 0, hull: Math.round( w.naval.playerHull.hp ) };
+	const stats = { ships: w.naval.ships.length, alive: w.naval.ships.filter( ( s ) => s.alive ).length, maxShips: w._maxShips || 0, asleep: w._maxAsleep || 0, raiders: w.melee.raiders.length, residents: w.R.list.length, shipShots: w.naval.stats.shots, crewShots: w.naval.crewShots, contacts: w._contacts || 0, hull: Math.round( w.naval.playerHull.hp ) };
+	if ( w.rescue ) Object.assign( stats, { rescue: w.rescue.job ? w.rescue.job.phase : 'none', rivals: w.trade.rivals && w.trade.rivals.snapshot ? JSON.stringify( w.trade.rivals.snapshot() ).length : 0, hunters: w.pirates.retaliation && w.pirates.retaliation.active ? w.pirates.retaliation.active.length : 0 } );
 	// a fingerprint of where everything ended up: equal before / after an optimisation = the same behaviour
 	let fp = 0;
 	for ( const s of w.naval.ships ) fp += s.x * 1.3 + s.z * 1.7 + s.hp * 2.9 + s.yaw;
 	for ( const r of w.melee.raiders ) fp += ( r.x || 0 ) * 3.1 + ( r.z || 0 ) * 3.7 + ( r.hp || 0 );
 	for ( const r of w.R.list ) fp += ( r.x || 0 ) * 0.7 + ( r.z || 0 ) * 0.9;
 	fp += w.naval.playerHull.hp + w.app.game.state.money;
+	if ( w.rescue && w.rescue.job && w.rescue.job.ship ) fp += w.rescue.job.ship.x * 0.3 + w.rescue.job.ship.z * 0.7;
 	stats.fingerprint = fp.toFixed( 6 );
 	try { w.features.dispose && w.features.dispose(); } catch ( e ) { /* stand-ins */ }
 	return { out, wall, heapGrowth: heap1 - heap0, stats, dom };

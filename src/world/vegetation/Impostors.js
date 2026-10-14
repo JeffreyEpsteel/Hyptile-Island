@@ -1,5 +1,6 @@
 import * as THREE from '../../engine/index.js';
 import { Texture } from '../../engine/gpu/Texture.js';
+import { GPU } from '../../engine/gpu/GPU.js';
 import { generateMipmaps } from '../../engine/gpu/Mipmaps.js';
 import { Material } from '../../engine/render/Material.js';
 import { MeshRenderer } from '../../engine/render/MeshRenderer.js';
@@ -166,6 +167,30 @@ export class ImpostorAtlas {
 
 		this.baked = true;
 		this.bakeMs = performance.now() - t0;
+		this._freeDepth();
+
+	}
+
+	// wave 16C: the depth buffer only serves the bake (2.8 MB on a phone, 11 MB on desktop): freed once the frame that
+	// recorded the bake has been submitted and done (GPU.frame moved on); a later bake makes it again (Texture.view)
+	_freeDepth() {
+
+		if ( ! GPU.queue || typeof setTimeout !== 'function' ) return;
+		const f0 = GPU.frame, depth = this.depth;
+		const poll = () => {
+
+			if ( GPU.frame <= f0 ) {
+
+				const h = setTimeout( poll, 50 );
+				if ( h && h.unref ) h.unref(); // (a test that never draws another frame still exits)
+				return;
+
+			}
+
+			GPU.queue.onSubmittedWorkDone().then( () => depth.destroy() ).catch( () => {} );
+
+		};
+		poll();
 
 	}
 

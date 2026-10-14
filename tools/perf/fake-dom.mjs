@@ -3,12 +3,12 @@
 // innerHTML / style / class writes a frame makes and how many of them set the value it already had (a browser still
 // replaces the text node of a same-value textContent write and relayouts; a same-value style write is skipped by Blink
 // but its string was built for nothing).
-//   const dom = makeDoc();  dom.doc  (pass as opts.doc)   dom.counts  { text, textSame, html, htmlSame, style, styleSame, cls }
+//   const dom = makeDoc();  dom.doc  (pass as opts.doc)   dom.counts  { text, textSame, html, htmlSame, style, styleSame, cls, attr, attrSame, prop, propSame }
 //   dom.reset()
 
 export function makeDoc() {
 
-	const counts = { text: 0, textSame: 0, html: 0, htmlSame: 0, style: 0, styleSame: 0, cls: 0, create: 0 };
+	const counts = { text: 0, textSame: 0, html: 0, htmlSame: 0, style: 0, styleSame: 0, cls: 0, create: 0, attr: 0, attrSame: 0, prop: 0, propSame: 0 };
 
 	const styleOf = () => {
 
@@ -69,7 +69,8 @@ export function makeDoc() {
 			this.style = styleOf();
 			this.classList = new ClassList( this );
 			this.hidden = false;
-			this.disabled = false;
+			this._disabled = false;
+			this._title = '';
 			this.value = '';
 			this.offsetWidth = 100;
 			this.offsetHeight = 20;
@@ -79,6 +80,11 @@ export function makeDoc() {
 
 		}
 
+		// (wave 16C: title / disabled / setAttribute writes are counted too: prop, attr)
+		get title() { return this._title; }
+		set title( v ) { counts.prop ++; if ( this._title === v ) counts.propSame ++; this._title = v; }
+		get disabled() { return this._disabled; }
+		set disabled( v ) { counts.prop ++; if ( this._disabled === v ) counts.propSame ++; this._disabled = v; }
 		get className() { return [ ...this.classList.set ].join( ' ' ); }
 		set className( v ) { counts.cls ++; this.classList.set = new Set( String( v ).split( /\s+/ ).filter( Boolean ) ); }
 		get textContent() { return this._text; }
@@ -115,7 +121,7 @@ export function makeDoc() {
 		removeChild( n ) { const i = this.children.indexOf( n ); if ( i >= 0 ) this.children.splice( i, 1 ); n.parentNode = n.parentElement = null; return n; }
 		replaceChildren( ...ns ) { this.children.length = 0; this.append( ...ns ); }
 		remove() { if ( this.parentNode ) this.parentNode.removeChild( this ); }
-		setAttribute( k, v ) { this.attributes[ k ] = String( v ); }
+		setAttribute( k, v ) { counts.attr ++; if ( this.attributes[ k ] === String( v ) ) counts.attrSame ++; this.attributes[ k ] = String( v ); }
 		getAttribute( k ) { return k in this.attributes ? this.attributes[ k ] : null; }
 		removeAttribute( k ) { delete this.attributes[ k ]; }
 		hasAttribute( k ) { return k in this.attributes; }

@@ -334,12 +334,46 @@ function headland( x, z, c, sandOk = false ) {
 
 }
 
+// the length of every plant list (where a tile's plants start)
+function lengths( out ) {
+
+	const n = {};
+	for ( const k in out ) if ( Array.isArray( out[ k ] ) ) n[ k ] = out[ k ].length;
+	return n;
+
+}
+
+// keeps a share `keep` of the plants appended since `from` (picked by a hash of their position) -> the counts kept
+function thin( out, from, keep ) {
+
+	const counts = {};
+	for ( const k in from ) {
+
+		const tail = out[ k ].splice( from[ k ] ).filter( ( r ) => {
+
+			const h = Math.sin( r.x * 12.9898 + r.z * 78.233 ) * 43758.5453;
+			return h - Math.floor( h ) < keep;
+
+		} );
+		for ( const r of tail ) out[ k ].push( r );
+		if ( tail.length ) counts[ k ] = tail.length;
+
+	}
+
+	return counts;
+
+}
+
 export function scatterVegetation( site, seed = 99, { tiles = true } = {} ) {
 
 	const out = scatterDomain( site, seed );
+	// wave 16C: phones keep part of the tiles' plants (globalThis.__phoneBudget.vegTiles: 0.5), a fixed half by position
+	const keep = ( globalThis.__phoneBudget && globalThis.__phoneBudget.vegTiles ) || 1;
 	if ( tiles ) for ( const [ k, t ] of terrainTiles( site.terrain ).entries() ) {
 
-		const n = scatterTile( site, t, out, seed + 7919 * ( k + 1 ) );
+		const from = keep < 1 ? lengths( out ) : null;
+		let n = scatterTile( site, t, out, seed + 7919 * ( k + 1 ) );
+		if ( from ) n = thin( out, from, keep );
 		( out.tileCounts || ( out.tileCounts = {} ) )[ t.id ] = n;
 		markVegetated( t );
 
@@ -928,7 +962,7 @@ export function buildTileGrassMasks( site ) {
 	let width = 0, height = 0;
 	for ( const t of tiles ) {
 
-		const n = Math.round( t.size / GRASS_MASK_TEXEL );
+		const n = Math.round( t.size / maskTexel() );
 		list.push( { id: t.id, x0: t.x0, z0: t.z0, texel: t.size / n, n, u0: width, t } );
 		width += n;
 		height = Math.max( height, n );
@@ -995,6 +1029,8 @@ export function buildTileGrassMasks( site ) {
 // RGBA density mask over the whole terrain at 2 m (linear filtered by the grass shader):
 //   R dune grass, G tall meadow grass, B sea oats, A beach creeper. Returns { data, res }.
 export const GRASS_MASK_TEXEL = 2;
+// phones: 4 m (globalThis.__phoneBudget.grassMaskTexel; the home mask 4.0 -> 1.0 MB, the tiles' 2.9 -> 0.7 MB; wave 16C)
+const maskTexel = () => ( globalThis.__phoneBudget && globalThis.__phoneBudget.grassMaskTexel ) || GRASS_MASK_TEXEL;
 export function buildGrassMask( site, { tiles = true } = {} ) {
 
 	const out = buildDomainGrassMask( site );
@@ -1006,7 +1042,7 @@ export function buildGrassMask( site, { tiles = true } = {} ) {
 function buildDomainGrassMask( site ) {
 
 	const t = site.terrain;
-	const res = Math.round( t.size / GRASS_MASK_TEXEL );
+	const res = Math.round( t.size / maskTexel() );
 	const texel = t.size / res;
 	const data = new Uint8Array( res * res * 4 );
 	const N = site.noise, N2 = site.noise2;

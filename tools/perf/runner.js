@@ -116,6 +116,9 @@ function placeOf( place ) {
 
 	}
 
+	// an island's dock (WORLD.blackwater: not a port), else the scenario's own x, z
+	const isl = place.at ? WORLD[ place.at ] : null;
+	if ( isl && isl.dock && isl.dock.position ) return { x: isl.dock.position.x, z: isl.dock.position.z, heading: place.heading ?? isl.dock.heading ?? 0 };
 	return { x: place.x, z: place.z, heading: place.heading || 0 };
 
 }
@@ -319,7 +322,7 @@ async function frames( app, n, dt, tick, t0, onFrame, waitGpu ) {
 
 }
 
-export async function runPerf( app, { scenarios = 'default', frames: nFrames = null, warm = null, dt = 1 / 60, bench = null, url = null, tag = 'perf', waitGpu = undefined } = {} ) {
+export async function runPerf( app, { scenarios = 'default', frames: nFrames = null, warm = null, dt = 1 / 60, bench = null, url = null, tag = 'perf', waitGpu = undefined, memory = null } = {} ) {
 
 	const ids = Array.isArray( scenarios ) ? scenarios.filter( ( id ) => SCENARIOS[ id ] ) : parsePerfQuery( scenarios );
 	if ( app.engine && app.engine.stop ) app.engine.stop();
@@ -380,6 +383,22 @@ export async function runPerf( app, { scenarios = 'default', frames: nFrames = n
 					name: s.name, frames: n, cpu: summarize( cpu ), gpu, budget: budget( cpu ),
 					scopes: rankScopes( perFrame ), passes, setup: set.info,
 				};
+				// wave 16C: the vegetation drawn at the end of the run (instances near / far per type, triangles)
+				if ( app.vegetation && app.vegetation.stats ) try {
+
+					const v = app.vegetation.stats(), types = {};
+					for ( const [ k, t ] of Object.entries( v.types ) ) types[ k ] = t.near || t.far ? [ t.near ? t.near.instances : 0, t.far ? t.far.instances : 0 ] : [ t.nearCells, t.midCells, t.farCells ];
+					report.scenarios[ id ].vegetation = { triangles: v.triangles, drawCalls: v.drawCalls, types };
+
+				} catch ( e ) { /* (a stand-in app) */ }
+
+				// wave 16C: the GPU memory (MB) while the scenario is up (memory(): GPU.memory in the headless harness)
+				if ( memory ) {
+
+					const m = memory(), r = ( x ) => Math.round( x / 1048576 * 10 ) / 10;
+					if ( m ) report.scenarios[ id ].memory = { total: r( m.total ), buffers: r( m.buffers ), textures: r( m.textures ), peak: r( m.peak ), ...( m.groups ? { groups: m.groups } : {} ) };
+
+				}
 
 			} finally {
 

@@ -33,6 +33,7 @@ export class VegInstances {
 		this.pz = new Float32Array( n );
 		this.matrices = new Float32Array( n * 16 );
 		this.qr2 = new Float32Array( n ); // per-instance near query radius^2 (0: use the type's)
+		this.qrScale2 = 1; // (VegType.setReach: the per-instance radii scaled, squared)
 		this.iPos = new Float32Array( n * 4 );
 		this.iDat = new Float32Array( n * 4 );
 
@@ -95,7 +96,7 @@ export class VegInstances {
 
 					const id = a[ k ];
 					const dx = this.px[ id ] - x, dz = this.pz[ id ] - z;
-					const q = this.qr2[ id ] || r2;
+					const q = this.qr2[ id ] * this.qrScale2 || r2;
 					if ( dx * dx + dz * dz < q && c < out.length ) out[ c ++ ] = id;
 
 				}
@@ -227,6 +228,10 @@ export class VegType {
 		this.lastY = Infinity;
 		this.lastZ = Infinity;
 		this.levels = [];
+		// wave 16C: the draw-distance budget (setReach): the built windows, and the far level's CPU cut-off (Infinity: all)
+		this.reach = 1;
+		this.farCut = Infinity;
+		this._base = { nearRange, fade, farFade: far ? far.fade.slice() : null };
 
 		// fade = [start, end] for types without a far level (shrink out)
 		const nearWindow = far ? new THREE.Vector3( 0, nearRange, nearRange + 0.01 ) : new THREE.Vector3( 0, fade[ 0 ], fade[ 1 ] );
@@ -307,8 +312,51 @@ export class VegType {
 		}
 
 		for ( let b = 0; b < NB; b ++ ) start[ b + 1 ] += start[ b ];
+		// (past the cut: left out; start[ b ] counts the instances nearer than bucket b)
+		const n = this.farCut < Infinity ? start[ Math.min( NB, Math.ceil( this.farCut / B ) ) ] : count;
 		for ( let i = 0; i < count; i ++ ) this.farIds[ start[ bucket[ i ] ] ++ ] = i;
-		this.far.fill( this.inst, this.farIds, count, false );
+		this.far.fill( this.inst, this.farIds, n, false );
+
+	}
+
+	// wave 16C: the draw-distance budget (Quality: min( 1, the tier's draw ), less on phones). k scales the far level's fade
+	// window, and instances past its end are left out of the far buffer (no vertices, no fragments: the impostor crowns of
+	// the islands 1.5 - 2 km off on Low); max( 0.7, k ) scales the near window of the plants that only fade (no far level)
+	// and the palms' near range. The canopy keeps its near / impostor switch (its material's). k = 1: exactly as built.
+	setReach( k = 1 ) {
+
+		k = Math.min( 1, Math.max( 0.2, k ) );
+		if ( k === this.reach ) return false;
+		this.reach = k;
+		const B = this._base, kn = Math.max( 0.7, k );
+		const win = ( level, x, y, z ) => {
+
+			level.lodRange.set( x, y, z );
+			for ( const m of level.meshes ) { m.drawParams[ 0 ] = x; m.drawParams[ 1 ] = y; m.drawParams[ 2 ] = z; }
+
+		};
+		if ( this.far ) {
+
+			const nr = this.sortFar ? B.nearRange : B.nearRange * kn;
+			this.nearRange = nr;
+			this.queryRadius = nr + this.margin;
+			if ( this.near ) win( this.near, 0, nr, nr + 0.01 );
+			win( this.far, nr, B.farFade[ 0 ] * k, B.farFade[ 1 ] * k );
+			this.farCut = k < 1 ? B.farFade[ 1 ] * k + this.margin : Infinity;
+			if ( ! this.near ) this.far.fill( this.inst ); // (a static far level: all, as built)
+
+		} else if ( this.near ) {
+
+			win( this.near, 0, B.fade[ 0 ] * kn, B.fade[ 1 ] * kn );
+			this.queryRadius = B.fade[ 1 ] * kn + this.margin;
+			this.inst.qrScale2 = kn * kn;
+
+		}
+
+		// refill everything on the next update
+		this.lastX = this.lastY = this.lastZ = Infinity;
+		this.farX = this.farZ = Infinity;
+		return true;
 
 	}
 
@@ -347,13 +395,14 @@ export class VegType {
 			// drop only instances that stay inside the near range (3D, like the shader test)
 			// until the camera has moved refreshDistance and triggered the next refill
 			const rMin = Math.max( 0, this.nearRange - this.refreshDistance - 2 );
-			const r2 = rMin * rMin;
+			const r2 = rMin * rMin, cut2 = this.farCut * this.farCut; // (and none past the far cut)
 			const { px, py, pz } = this.inst;
 			let c = 0;
 			for ( let i = 0; i < this.inst.count; i ++ ) {
 
 				const dx = px[ i ] - camPos.x, dy = py[ i ] - camPos.y, dz = pz[ i ] - camPos.z;
-				if ( dx * dx + dy * dy + dz * dz >= r2 ) this.farIds[ c ++ ] = i;
+				const d2 = dx * dx + dy * dy + dz * dz;
+				if ( d2 >= r2 && d2 < cut2 ) this.farIds[ c ++ ] = i;
 
 			}
 

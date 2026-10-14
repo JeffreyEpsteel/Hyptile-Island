@@ -154,6 +154,57 @@ const clock = ( h ) => {
 
 };
 
+// wave 16C: the window writes the DOM only on a change (DomWrites style). refresh() runs twice a second while it is
+// open and rewrote ~20 rows of ~20 fields each time, nearly all to the value they had (a same-value textContent or innerHTML
+// still replaces the nodes and relayouts). The last value is kept on the element: these are the only writers of those fields.
+//   put( el, 'text' | 'html', v ) (one cache for both: an element may switch)   prop( el, k, v )   css( el, k, v )   attr( el, k, v )   tog( el, cls, on )
+function put( el, kind, v ) {
+
+	const k = ( kind === 'html' ? 'h' : 't' ) + v;
+	if ( el._trPut === k ) return;
+	el._trPut = k;
+	if ( kind === 'html' ) el.innerHTML = v;
+	else el.textContent = v;
+
+}
+
+function prop( el, k, v ) {
+
+	const c = el._trProp || ( el._trProp = {} );
+	if ( c[ k ] === v ) return;
+	c[ k ] = v;
+	el[ k ] = v;
+
+}
+
+function attr( el, k, v ) {
+
+	const c = el._trAttr || ( el._trAttr = {} );
+	if ( c[ k ] === v ) return;
+	c[ k ] = v;
+	el.setAttribute( k, v );
+
+}
+
+function css( el, k, v ) {
+
+	const c = el._trCss || ( el._trCss = {} );
+	if ( c[ k ] === v ) return;
+	c[ k ] = v;
+	el.style[ k ] = v;
+
+}
+
+function tog( el, cls, on ) {
+
+	on = !! on;
+	const c = el._trCls || ( el._trCls = {} );
+	if ( c[ cls ] === on ) return;
+	c[ cls ] = on;
+	el.classList.toggle( cls, on );
+
+}
+
 const esc = ( s ) => String( s ).replace( /[&<>"]/g, ( c ) => ( { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' } )[ c ] );
 
 export class TradePanel {
@@ -316,22 +367,22 @@ export class TradePanel {
 		const t = this.trade;
 		const v = t.view( this.port );
 		const F = this._f;
-		F.title.textContent = this.kind === 'smuggler' ? `${ t.smuggler.view( this.port ).name }, ${ v.name }` : v.title;
-		F.sub.innerHTML = `Day ${ v.day } · ${ clock( v.hour ) } · Purse <b>${ v.sandbox ? 'free play' : money( v.money ) }</b> · Standing <b>${ Math.floor( v.standing ) }</b>${ v.sandbox ? ' · sandbox: purchases are free' : '' }`;
-		F.cap.textContent = `${ v.used } / ${ v.capacity } crates`;
-		F.kg.textContent = `${ Math.round( v.kg ) } kg${ v.boat ? '' : ' · on foot' }`;
-		F.capbar.firstElementChild.style.width = `${ Math.min( 100, v.capacity ? v.used / v.capacity * 100 : 100 ) }%`;
-		F.capbar.classList.toggle( 'is-full', v.used >= v.capacity );
+		put( F.title, 'text', this.kind === 'smuggler' ? `${ t.smuggler.view( this.port ).name }, ${ v.name }` : v.title );
+		put( F.sub, 'html', `Day ${ v.day } · ${ clock( v.hour ) } · Purse <b>${ v.sandbox ? 'free play' : money( v.money ) }</b> · Standing <b>${ Math.floor( v.standing ) }</b>${ v.sandbox ? ' · sandbox: purchases are free' : '' }` );
+		put( F.cap, 'text', `${ v.used } / ${ v.capacity } crates` );
+		put( F.kg, 'text', `${ Math.round( v.kg ) } kg${ v.boat ? '' : ' · on foot' }` );
+		css( F.capbar.firstElementChild, 'width', `${ Math.min( 100, v.capacity ? v.used / v.capacity * 100 : 100 ) }%` );
+		tog( F.capbar, 'is-full', v.used >= v.capacity );
 		const p = v.projected;
-		if ( p.has ) F.proj.innerHTML = `Cargo sold at ${ p.name } at the prices last seen: <b class="${ p.profit >= 0 ? 'tr-pos' : 'tr-neg' }">${ signed( p.profit ) }</b> (worth ${ money( p.value ) }, cost ${ money( p.cost ) }), voyage about ${ Math.max( 1, Math.round( v.voyage ) ) } h`;
-		else if ( v.tip ) F.proj.innerHTML = `Hold empty. Best load here: <b class="tr-pos">${ esc( v.tip.name ) } x${ v.tip.room }</b>, about ${ signed( v.tip.gain ) } if sold at ${ v.otherName } at the prices last seen.`;
-		else F.proj.textContent = 'Hold empty. Nothing here beats the prices at ' + v.otherName + ' right now.';
-		F.warn.textContent = v.warnings.join(' · ');
+		if ( p.has ) put( F.proj, 'html', `Cargo sold at ${ p.name } at the prices last seen: <b class="${ p.profit >= 0 ? 'tr-pos' : 'tr-neg' }">${ signed( p.profit ) }</b> (worth ${ money( p.value ) }, cost ${ money( p.cost ) }), voyage about ${ Math.max( 1, Math.round( v.voyage ) ) } h` );
+		else if ( v.tip ) put( F.proj, 'html', `Hold empty. Best load here: <b class="tr-pos">${ esc( v.tip.name ) } x${ v.tip.room }</b>, about ${ signed( v.tip.gain ) } if sold at ${ v.otherName } at the prices last seen.` );
+		else put( F.proj, 'text', 'Hold empty. Nothing here beats the prices at ' + v.otherName + ' right now.' );
+		put( F.warn, 'text', v.warnings.join( ' · ' ) );
 		if ( this.msg && performance.now() - this.msg.at > 6000 ) this.msg = null;
-		F.msg.textContent = this.msg ? this.msg.text : v.sandbox ? 'Sandbox: buying costs nothing, selling still pays.' : '';
-		F.msg.classList.toggle( 'is-bad', !! ( this.msg && this.msg.bad ) );
+		put( F.msg, 'text', this.msg ? this.msg.text : v.sandbox ? 'Sandbox: buying costs nothing, selling still pays.' : '' );
+		tog( F.msg, 'is-bad', this.msg && this.msg.bad );
 		const n = v.news.find( ( x ) => x.active ) || v.news[ 0 ];
-		F.tick.innerHTML = n ? `<b>${ n.active ? 'News' : 'Earlier' }</b>${ esc( n.text ) } (${ hours( n.age ) })` : '';
+		put( F.tick, 'html', n ? `<b>${ n.active ? 'News' : 'Earlier' }</b>${ esc( n.text ) } (${ hours( n.age ) })` : '' );
 		if ( this.tab === 'market' ) this.refreshMarket( v );
 		else this.refreshText( v );
 
@@ -379,7 +430,7 @@ export class TradePanel {
 
 	refreshMarket( v ) {
 
-		this._f.othername.textContent = 'Best route';
+		put( this._f.othername, 'text', 'Best route' );
 		const bk = JSON.stringify( [ v.board, v.fish, v.dues, v.licence ] );
 		if ( bk !== this._boardKey ) {
 
@@ -408,33 +459,33 @@ export class TradePanel {
 
 			const f = this._rows[ r.id ];
 			if ( ! f ) continue;
-			f.el.classList.toggle( 'is-hidden', ! this.shows( r ) );
+			tog( f.el, 'is-hidden', ! this.shows( r ) );
 			const tags = `${ r.made ? '<i class="tr-tagm" title="Made here: cheap, and the stall restocks">made here</i>' : '' }${ r.wanted ? '<i class="tr-tagw" title="Wanted here: dear, until the demand fills up">wanted</i>' : '' }${ r.locked ? '<i class="tr-tagl" title="The guild sells it to licensed merchants only">licence</i>' : '' }`;
-			f.meta.innerHTML = `${ tags }${ r.unit } · ${ r.crates } crate${ r.crates > 1 ? 's' : '' }${ r.perish >= 0.01 ? ` · spoils ${ ( r.perish * 100 ).toFixed( 0 ) }%/h` : '' }${ r.event ? ` · <em>${ r.event.pct >= 0 ? '+' : '' }${ r.event.pct }%</em>` : '' }`;
-			f.why.textContent = r.why || '';
-			f.why.title = r.why || '';
+			put( f.meta, 'html', `${ tags }${ r.unit } · ${ r.crates } crate${ r.crates > 1 ? 's' : '' }${ r.perish >= 0.01 ? ` · spoils ${ ( r.perish * 100 ).toFixed( 0 ) }%/h` : '' }${ r.event ? ` · <em>${ r.event.pct >= 0 ? '+' : '' }${ r.event.pct }%</em>` : '' }` );
+			put( f.why, 'text', r.why || '' );
+			prop( f.why, 'title', r.why || '' );
 			const tr = r.trend || { dir: 'flat', pct: 0 };
-			f.trend.textContent = `${ tr.dir === 'up' ? '\u25B2' : tr.dir === 'down' ? '\u25BC' : '\u25B6' } ${ tr.pct > 0 ? '+' : '' }${ tr.pct }%`;
-			f.trend.className = `tr-trend is-${ tr.dir }`;
-			f.trend.title = 'Change over the last day';
-			f.el.classList.toggle( 'is-event', !! r.event );
-			f.buy.textContent = price( r.buy );
-			f.tag.textContent = r.tag;
-			f.tag.title = r.tag === 'cheap' ? 'Cheap here: a good place to buy' : r.tag === 'dear' ? 'Dear here: a good place to sell' : r.tag === 'contraband' ? 'Contraband here: only the smuggler deals in it, and customs seize it' : '';
-			f.tag.className = r.tag ? `is-${ r.tag }` : '';
-			f.sell.textContent = price( r.sell * ( r.held ? r.cond : 1 ) );
-			f.cond.textContent = r.held && r.cond < 0.995 ? `${ Math.round( r.cond * 100 ) }% condition` : '';
+			put( f.trend, 'text', `${ tr.dir === 'up' ? '\u25B2' : tr.dir === 'down' ? '\u25BC' : '\u25B6' } ${ tr.pct > 0 ? '+' : '' }${ tr.pct }%` );
+			prop( f.trend, 'className', `tr-trend is-${ tr.dir }` );
+			prop( f.trend, 'title', 'Change over the last day' );
+			tog( f.el, 'is-event', r.event );
+			put( f.buy, 'text', price( r.buy ) );
+			put( f.tag, 'text', r.tag );
+			prop( f.tag, 'title', r.tag === 'cheap' ? 'Cheap here: a good place to buy' : r.tag === 'dear' ? 'Dear here: a good place to sell' : r.tag === 'contraband' ? 'Contraband here: only the smuggler deals in it, and customs seize it' : '' );
+			prop( f.tag, 'className', r.tag ? `is-${ r.tag }` : '' );
+			put( f.sell, 'text', price( r.sell * ( r.held ? r.cond : 1 ) ) );
+			put( f.cond, 'text', r.held && r.cond < 0.995 ? `${ Math.round( r.cond * 100 ) }% condition` : '' );
 			const rc = this.routeCell( r );
-			f.other.innerHTML = rc.b;
-			f.otherbox.classList.toggle( 'is-stale', !! ( ( r.best && r.best.rumour ) || ( ! r.best && r.other.rumour ) ) );
-			f.otherbox.title = r.source && r.source.margin > 0 && ! r.held ? `Cheapest to bring here from ${ r.source.name } (${ price( r.source.price ) })` : r.best ? `${ r.best.name }: ${ price( r.best.price ) } a unit${ r.best.rumour ? ' (rumour)' : '' }, ${ ( r.best.metres / 1000 ).toFixed( 1 ) } km` : '';
-			f.note.textContent = rc.note;
-			f.note.className = rc.cls;
-			f.age.textContent = rc.age;
-			f.held.textContent = r.held ? String( r.held ) : '-';
-			f.heldv.textContent = r.held ? `paid ${ money( r.paid ) }` : '';
+			put( f.other, 'html', rc.b );
+			tog( f.otherbox, 'is-stale', ( r.best && r.best.rumour ) || ( ! r.best && r.other.rumour ) );
+			prop( f.otherbox, 'title', r.source && r.source.margin > 0 && ! r.held ? `Cheapest to bring here from ${ r.source.name } (${ price( r.source.price ) })` : r.best ? `${ r.best.name }: ${ price( r.best.price ) } a unit${ r.best.rumour ? ' (rumour)' : '' }, ${ ( r.best.metres / 1000 ).toFixed( 1 ) } km` : '' );
+			put( f.note, 'text', rc.note );
+			prop( f.note, 'className', rc.cls );
+			put( f.age, 'text', rc.age );
+			put( f.held, 'text', r.held ? String( r.held ) : '-' );
+			put( f.heldv, 'text', r.held ? `paid ${ money( r.paid ) }` : '' );
 			this.spark( f, r );
-			f.buttons.forEach( ( b ) => { b.disabled = b.dataset.act === 'buy' ? ! r.can.buy : ! r.can.sell; } );
+			for ( const b of f.buttons ) prop( b, 'disabled', b.dataset.act === 'buy' ? ! r.can.buy : ! r.can.sell );
 
 		}
 
@@ -450,11 +501,11 @@ export class TradePanel {
 		hi += pad;
 		const y = ( p ) => ( 20.5 - ( p - lo ) / ( hi - lo ) * 19 ).toFixed( 1 );
 		const n = h.length;
-		f.line.setAttribute( 'points', h.map( ( p, i ) => `${ ( n > 1 ? i / ( n - 1 ) * 63 : 63 ).toFixed( 1 ) },${ y( p ) }` ).join( ' ' ) );
-		f.dot.setAttribute( 'cx', '63' );
-		f.dot.setAttribute( 'cy', y( h[ n - 1 ] ) );
-		f.eq.setAttribute( 'y1', y( r.eq ) );
-		f.eq.setAttribute( 'y2', y( r.eq ) );
+		attr( f.line, 'points', h.map( ( p, i ) => `${ ( n > 1 ? i / ( n - 1 ) * 63 : 63 ).toFixed( 1 ) },${ y( p ) }` ).join( ' ' ) );
+		attr( f.dot, 'cx', '63' );
+		attr( f.dot, 'cy', y( h[ n - 1 ] ) );
+		attr( f.eq, 'y1', y( r.eq ) );
+		attr( f.eq, 'y2', y( r.eq ) );
 
 	}
 

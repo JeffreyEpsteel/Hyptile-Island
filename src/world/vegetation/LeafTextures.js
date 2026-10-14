@@ -20,7 +20,8 @@ export const LEAF_TILES = [
 	{ grid: 3, leaves: 6, width: 0.45 },
 	{ grid: 3, leaves: 8, width: 0.22 },
 ];
-const SIZE = 1024;
+// the atlas side: 1024 px, phones 512 (globalThis.__phoneBudget.leafAtlas: 5.3 -> 1.3 MB with mips; wave 16C)
+const atlasSize = () => ( globalThis.__phoneBudget && globalThis.__phoneBudget.leafAtlas ) || 1024;
 
 // leaf rosettes tiled G x G over a card: each cell holds one rosette with its own rotation /
 // size; leaves have a short petiole gap at the centre. Returns ( d: signed distance to the leaf
@@ -71,6 +72,7 @@ export class LeafAtlas {
 
 	constructor() {
 
+		const SIZE = this.size = atlasSize();
 		this.texture = new Texture( { label: 'vegLeafClusters', width: SIZE, height: SIZE, format: 'rgba8unorm', mips: true, usage: [ 'sample', 'render', 'copyDst', 'copySrc' ], sampler: 'anisoRepeat' } );
 		this.rt = { dispose: () => this.texture.destroy() };
 		this.baked = false;
@@ -92,6 +94,8 @@ fn vegLeafSample( st: vec2f, tile: f32 ) -> vec4f {
 
 	// renderer: unused (kept for the three.js signature); records into the frame encoder
 	bake() {
+
+		const px = 1 / ( this.size / 2 ); // texel size in tile uv
 
 		let body = '';
 		for ( let t = 0; t < 4; t ++ ) {
@@ -147,4 +151,3 @@ ${ body }
 
 }
 
-const px = 1 / ( SIZE / 2 ); // texel size in tile uv

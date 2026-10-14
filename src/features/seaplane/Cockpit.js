@@ -1097,6 +1097,22 @@ function blankFace( L ) {
 
 const _o = new Vector3(), _dir = new Vector3(), _q = new Quaternion();
 
+// what the face shows, as a string (wave 16C): numbers to 1/100 (a needle moves well under a pixel for that), the rest as
+// they are. Equal keys draw the same face.
+export function faceKey( snap ) {
+
+	let k = '';
+	for ( const n in snap ) {
+
+		const v = snap[ n ];
+		k += ( typeof v === 'number' ? Math.round( v * 100 ) : v ) + '|';
+
+	}
+
+	return k;
+
+}
+
 export class Cockpit {
 
 	constructor( sp, { canvas = null } = {} ) {
@@ -1106,6 +1122,7 @@ export class Cockpit {
 		this.hover = null;
 		this.aim = null; // { px, py } where the eye / mouse meets the face (null: not looking at it)
 		this.redraws = 0;
+		this.skipped = 0; // timed redraws skipped: the face was unchanged (wave 16C)
 		this.rebuilds = 0;
 		this._acc = 1;
 		this._dirty = true;
@@ -1259,7 +1276,21 @@ export class Cockpit {
 		// redraw: ~10 Hz in first person, a few times a second from outside while piloted, once after leaving
 		this._acc += dt;
 		const rate = this._phone ? ( fp ? 5 : sp.piloted ? 1 : 0 ) : ( fp ? 10 : sp.piloted ? 3 : 0 );
-		if ( this._dirty || ( rate && this._acc >= 1 / rate ) ) this.draw();
+		// wave 16C: a timed redraw is skipped when the face would come out the same (moored, engine off, steady numbers):
+		// no canvas drawing, no texture upload, no mip rebuild
+		if ( this._dirty ) this.draw();
+		else if ( rate && this._acc >= 1 / rate ) {
+
+			const snap = panelSnapshot( sp, this.hover );
+			if ( faceKey( snap ) !== this._faceKey ) this.draw( snap );
+			else {
+
+				this._acc = 0;
+				this.skipped ++;
+
+			}
+
+		}
 		if ( this.material ) this.material.uniforms.glow.value = sp.systems.master ? 1 : 0;
 		this._dom( fp, hover, open );
 
@@ -1298,14 +1329,16 @@ export class Cockpit {
 
 	}
 
-	draw() {
+	draw( snap = null ) {
 
 		this._acc = 0;
 		this._dirty = false;
 		this.redraws ++;
 		const ctx = this.ctx, L = this.layout;
 		if ( ! ctx ) return;
-		drawPanel( ctx, panelSnapshot( this.sp, this.hover ), L );
+		snap = snap || panelSnapshot( this.sp, this.hover );
+		this._faceKey = faceKey( snap );
+		drawPanel( ctx, snap, L );
 		if ( ! this.tex ) return;
 		// straight from the canvas to the texture when the device can (no read-back), else through the pixels
 		if ( GPU.device && this.tex.gpu && GPU.queue && GPU.queue.copyExternalImageToTexture && ! this._noCopy ) {

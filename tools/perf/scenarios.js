@@ -53,7 +53,30 @@ export const SCENARIOS = {
 		ships: [ { kind: 'sloop', dx: 140, dz: 70, state: 'chase' }, { kind: 'brigantine', dx: 70, dz: - 170, state: 'chase' }, { kind: 'trawler', dx: - 220, dz: - 60 } ],
 		fire: { every: 2 }, peers: 12,
 	},
+	// wave 16C: the three places of the two-tile world on foot at noon (GPU memory and frame time per profile)
+	homeBay: {
+		id: 'homeBay', name: 'Home bay', about: 'on foot at the home harbour stand at noon: the village, the bay, the home island plants',
+		time: 12, weather: 'clear', intensity: 0,
+		place: { kind: 'walk', port: 'home' },
+		ships: [], fire: null, peers: 0, frames: 180,
+	},
+	tidemarkQuay: {
+		id: 'tidemarkQuay', name: 'Tidemark quay', about: 'on foot on the Tidemark quay at noon: the town, its tile, ~7,500 plants',
+		time: 12, weather: 'clear', intensity: 0,
+		place: { kind: 'walk', port: 'tidemark' },
+		ships: [], fire: null, peers: 0, frames: 180,
+	},
+	blackwaterCove: {
+		id: 'blackwaterCove', name: 'Blackwater cove', about: 'on foot on the Blackwater dock at noon, looking over the cove: the fort, the tile, the scrub',
+		time: 12, weather: 'clear', intensity: 0,
+		// (x, z: the dock as WorldLayout places it; `at` re-reads WORLD.blackwater.dock in the runner)
+		place: { kind: 'walk', at: 'blackwater', x: - 197.8, z: 1505.6, heading: 1.75 },
+		ships: [], fire: null, peers: 0, frames: 180,
+	},
 };
+
+// the views of the wave 16C pass (not in 'every' runs of the old guard: listed explicitly)
+export const VIEW_SET = [ 'homeBay', 'tidemarkQuay', 'blackwaterCove' ];
 
 export const SCENARIO_IDS = Object.keys( SCENARIOS );
 export const DEFAULT_SET = [ 'navalFight', 'storm', 'night', 'crowd' ];
@@ -84,7 +107,8 @@ export function parsePerfQuery( q ) {
 
 	const s = typeof q === 'string' ? q.trim() : '';
 	if ( ! s || s === '1' || s === 'true' || s === 'default' ) return DEFAULT_SET.slice();
-	if ( s === 'every' ) return SCENARIO_IDS.slice();
+	if ( s === 'every' ) return SCENARIO_IDS.filter( ( id ) => ! VIEW_SET.includes( id ) );
+	if ( s === 'views' ) return VIEW_SET.slice();
 	const ids = s.split( ',' ).map( ( x ) => x.trim() ).filter( ( x ) => SCENARIOS[ x ] );
 	return ids.length ? [ ...new Set( ids ) ] : DEFAULT_SET.slice();
 

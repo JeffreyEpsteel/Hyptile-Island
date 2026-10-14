@@ -4,7 +4,7 @@
 // (src/game/CameraFeel.js), the error log ring buffer (src/core/ErrorLog.js) and the sandbox debug actions (src/ui/DebugPanel.js).
 import * as THREE from '../src/engine/index.js';
 import {
-	SCENARIOS, SCENARIO_IDS, DEFAULT_SET, SCOPES, P2_KINDS, parsePerfQuery, validateScenario, summarize, budget, rankScopes, cullingCandidates,
+	SCENARIOS, SCENARIO_IDS, DEFAULT_SET, VIEW_SET, SCOPES, P2_KINDS, parsePerfQuery, validateScenario, summarize, budget, rankScopes, cullingCandidates,
 } from '../tools/perf/scenarios.js';
 import { runPerf, wrapScope, installScopes } from '../tools/perf/runner.js';
 import { BOAT_IDS } from '../src/game/Boats.js';
@@ -44,7 +44,7 @@ const ok = ( c, msg ) => {
 	ok( SCENARIOS.crowd.peers >= 12, 'crowd: a dozen players or more' );
 	ok( validateScenario( { id: 'x', name: 'x', time: 30, place: { kind: 'swim' }, ships: [ { kind: 'galleon', dx: 1, dz: 1 } ], peers: 99 }, known ).length >= 4, 'a broken scenario is reported' );
 	ok( validateScenario( { ...SCENARIOS.navalFight, ships: [ { kind: 'sloop', dx: 5, dz: 5 } ] }, known ).some( ( p ) => /closer/.test( p ) ), 'a ship spawned on top of the player is refused' );
-	ok( parsePerfQuery( '' ).join() === DEFAULT_SET.join() && parsePerfQuery( 'storm,night,bogus' ).join() === 'storm,night' && parsePerfQuery( 'every' ).length === SCENARIO_IDS.length, 'parsePerfQuery' );
+	ok( parsePerfQuery( '' ).join() === DEFAULT_SET.join() && parsePerfQuery( 'storm,night,bogus' ).join() === 'storm,night' && parsePerfQuery( 'every' ).length === SCENARIO_IDS.length - VIEW_SET.length && parsePerfQuery( 'views' ).join() === VIEW_SET.join(), 'parsePerfQuery (every: the old set; views: the wave 16C places)' );
 	ok( SCOPES.every( ( s ) => s.length === 3 && typeof s[ 0 ] === 'string' ), 'scopes are [ label, path, method ]' );
 
 }

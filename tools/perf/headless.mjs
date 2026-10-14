@@ -60,7 +60,7 @@ if ( process.argv.includes( '--baseline' ) ) globalThis.__perfBaseline = true; /
 if ( process.argv.includes( '--real-sizes' ) ) {
 
 	const cap = process.argv.includes( '--mobile' ) ? 512 : Infinity;
-	if ( process.argv.includes( '--mobile' ) && ! globalThis.__phoneBudget ) globalThis.__phoneBudget = { textureMax: 512, charTexture: 256, propTexture: 256, terrainTexture: 1024, impostorFrame: 64, shadowSize: 512, animatedResidents: 6, marine: false, debrisScale: 0.5, canvasDpr: 1.5, minimapBake: 512, worldMapBake: 1024 };
+	if ( process.argv.includes( '--mobile' ) && ! globalThis.__phoneBudget ) globalThis.__phoneBudget = { ...( await import( '../../src/core/Quality.js' ) ).PHONE_BUDGET }; // (the game's own: wave 16C)
 	if ( cap < Infinity ) globalThis.__assetImageCap = cap; // (the phone's decode queue and foam size too)
 	const dims = ( b ) => {
 
@@ -328,7 +328,8 @@ if ( process.argv.includes( '--trace-pipelines' ) ) {
 }
 
 // --quality=low|medium|high|ultra: the tier applied (no auto loop: a fixed tier is measured); off: as the App starts
-if ( quality !== 'off' ) {
+// (--mobile made its phone Quality above: kept)
+if ( quality !== 'off' && ! process.argv.includes( '--mobile' ) ) {
 
 	const { Quality } = await import( '../../src/core/Quality.js' );
 	app.quality = new Quality( app, { storage: null, query: new URLSearchParams( '?quality=' + quality ) } );
@@ -450,11 +451,25 @@ if ( nanArg ) {
 
 }
 
+// --hide=<regex>: objects whose name matches are hidden for the whole run (what one system costs: --hide=veg-canopy-far)
+if ( arg( 'hide' ) ) {
+
+	const re = new RegExp( arg( 'hide' ) );
+	let n = 0;
+	app.scene.traverse( ( o ) => { if ( o.name && re.test( o.name ) ) { o.visible = false; n ++; } } );
+	console.log( `  hidden: ${ n } objects matching ${ arg( 'hide' ) }` );
+
+}
+
 const bench = new Bench( app );
+// the bench renders at --size (its own default is 2560x1267, the old runs' size: the default --size too)
+const setBenchSize = bench.setSize.bind( bench );
+bench.setSize = () => setBenchSize( W, H );
 const info = GPU.adapter && GPU.adapter.info ? GPU.adapter.info : {};
 const report = await runPerf( app, {
 	scenarios: arg( 'perf', 'all' ), bench, tag, waitGpu: () => GPU.queue.onSubmittedWorkDone(),
 	frames: arg( 'frames' ) ? Number( arg( 'frames' ) ) : null, warm: arg( 'warm' ) ? Number( arg( 'warm' ) ) : null,
+	memory: () => ( memDiff(), { ...GPU.memory, groups: memGroups() } ),
 } );
 // --shot=<file.png>: one scenario's view (--shot-scenario=crowd), 45 frames to settle, read back from the canvas
 if ( arg( 'shot' ) ) {
@@ -477,6 +492,32 @@ if ( arg( 'shot' ) ) {
 
 }
 
+// --mem-top[=n] after a perf run too: the biggest live textures and buffers once the scenarios have been up (wave 16C)
+{
+
+	const topArg = process.argv.find( ( a ) => a.startsWith( '--mem-top' ) );
+	if ( topArg ) {
+
+		const n = Number( topArg.split( '=' )[ 1 ] ) || 25;
+		memLine( 'after the scenarios' );
+		console.log( 'textures:' );
+		console.log( GPU.memTopText( n, 'texture' ) );
+		console.log( 'buffers:' );
+		console.log( GPU.memTopText( n, 'buffer' ) );
+
+	}
+
+	// --mem-match=<regex>: every live label that matches (the vegetation: --mem-match="veg|grass|leaf|impostor")
+	const mm = arg( 'mem-match' );
+	if ( mm ) {
+
+		const re = new RegExp( mm, 'i' );
+		console.log( 'matching ' + mm + ':' );
+		for ( const e of GPU.memTop( 100000 ) ) if ( re.test( e.label ) ) console.log( `  ${ e.mb.toFixed( 1 ).padStart( 7 ) } MB  x${ e.count }  ${ e.label }` );
+
+	}
+
+}
 report.adapter = [ info.vendor, info.architecture, info.device, info.description ].filter( Boolean ).join( ' ' );
 report.quality = app.quality && app.quality.describe ? app.quality.describe() : quality;
 report.headless = true;
@@ -499,10 +540,45 @@ report.headless = true;
 
 }
 report.size = [ W, H ];
+// GPU memory by owner (MB): the vegetation, the terrain and its tiles, the two tile islands, characters, the rest
+// --mem-diff: the labels that grew while each scenario was up (what a place builds on arrival), printed as they come
+var memPrev = null; // (var: the hook runs before this line is reached)
+function memDiff() {
+
+	const now = new Map( [ ...( GPU._byLabel || [] ) ].map( ( [ k, e ] ) => [ k, e.n ] ) );
+	if ( memPrev && process.argv.includes( '--mem-diff' ) ) {
+
+		const d = [ ...now ].map( ( [ k, n ] ) => [ k, n - ( memPrev.get( k ) || 0 ) ] ).filter( ( [ , n ] ) => Math.abs( n ) > 65536 ).sort( ( x, y ) => y[ 1 ] - x[ 1 ] ).slice( 0, 20 );
+		console.log( '  grew: ' + d.map( ( [ k, n ] ) => `${ k } ${ ( n / 1048576 ).toFixed( 1 ) }` ).join( ', ' ) );
+
+	}
+
+	memPrev = now;
+
+}
+
+function memGroups() {
+
+	const G = { vegetation: /veg|grass|leaf|impostor/i, terrain: /terrain|shore/i, islands: /tidemark|blackwater/i, characters: /char#|skinned|skinMorph/i };
+	const out = { vegetation: 0, terrain: 0, islands: 0, characters: 0 };
+	for ( const [ k, e ] of GPU._byLabel || [] ) for ( const g in G ) if ( G[ g ].test( k ) ) { out[ g ] += e.n; break; }
+	for ( const g in out ) out[ g ] = Math.round( out[ g ] / 104857.6 ) / 10;
+	return out;
+
+}
+
+// the draws of a scenario's mesh passes per frame (the 'draws:<label>' scopes)
+function drawsOf( s ) {
+
+	let n = 0;
+	for ( const r of s.scopes || [] ) if ( /^draws:/.test( r.name ) ) n += r.mean;
+	return Math.round( n );
+
+}
 mkdirSync( out, { recursive: true } );
 const file = join( out, `perf-${ tag }.json` );
 writeFileSync( file, JSON.stringify( report, null, '\t' ) );
 console.log( 'wrote ' + file );
-for ( const [ id, s ] of Object.entries( report.scenarios ) ) console.log( `${ id.padEnd( 11 ) } CPU ${ s.cpu.mean.toFixed( 2 ) } ms (p95 ${ s.cpu.p95.toFixed( 2 ) })` + ( s.gpu ? ` · GPU ${ s.gpu.mean.toFixed( 2 ) } ms (p95 ${ s.gpu.p95.toFixed( 2 ) })` : '' ) + ( s.setup.notes.length ? ' · ' + s.setup.notes.join( '; ' ) : '' ) );
+for ( const [ id, s ] of Object.entries( report.scenarios ) ) console.log( `${ id.padEnd( 11 ) } CPU ${ s.cpu.mean.toFixed( 2 ) } ms (p95 ${ s.cpu.p95.toFixed( 2 ) })` + ( s.gpu ? ` · GPU ${ s.gpu.mean.toFixed( 2 ) } ms (p95 ${ s.gpu.p95.toFixed( 2 ) })` : '' ) + ( s.memory ? ` · GPU memory ${ s.memory.total } MB` : '' ) + ` · draws ${ drawsOf( s ) }` + ( s.setup.notes.length ? ' · ' + s.setup.notes.join( '; ' ) : '' ) );
 void env;
 process.exit( 0 );

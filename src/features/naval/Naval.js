@@ -189,6 +189,10 @@ export const CRIPPLE = BOARDING_RULES.cripple ?? 0.25;
 const GENTLE = new Set( [ 'close', 'grapple', 'boarding', 'boarded', 'moored' ] );
 export const NO_GUN = NO_GUN_TEXT;
 const byDist = ( a, b ) => a.dist - b.dist;
+const byFar = ( a, b ) => b.dist - a.dist;
+// wave 16C: the states a ship may sleep in (setShipCap), and how many frames between a sleeper's steps (~4 Hz)
+const SLEEPY = new Set( [ 'patrol', 'sail', 'moored' ] );
+const SLEEP_EVERY = 15;
 const isCrippled = ( s ) => s.faction === 'pirate' && s.hpFraction < CRIPPLE;
 
 // quaternion product a * b ( [ x, y, z, w ] )
@@ -257,6 +261,11 @@ export class Naval {
 		this.settings = Object.assign( { autoSpawn: true, merchants: 2, maxPirates: 3, drawRange: 600, queryRange: 250, shadowRange: 220 }, opts.settings );
 		this.time = 0;
 		this.ships = [];
+		this.shipCap = Infinity; // wave 16C: ships awake at once (setShipCap); the farthest idle ones past it sleep
+		this._asleep = 0;
+		this._sleepT = 0;
+		this._sleepTick = 0;
+		this._sleepSeq = 0;
 		this.shots = []; // volleys waiting for their turn: { t, ship, st }
 		this.playerHull = { hp: 0, max: 0, sunk: false, boat: null };
 		// ship modules: the swivel gun's tier lives in the gun record (hook), everything else in the fitting
@@ -673,6 +682,49 @@ export class Naval {
 
 	}
 
+	// wave 16C: at most n ships think and sail every frame (Infinity, the default: all of them). Past the cap the farthest
+	// ships with no business with anyone (patrolling, on a lane or moored; no bounty, hunt, raid, rescue, prize or remote
+	// puppet), beyond the draw range so nobody sees it, sleep: they think and sail ~4 times a second with the time they
+	// missed, so the sea stays where it would have been. Quality sets it (Low 8, phones 6).
+	setShipCap( n ) {
+
+		this.shipCap = n > 0 ? n : Infinity;
+
+	}
+
+	_pickSleepers() {
+
+		const list = this._sleepList || ( this._sleepList = [] );
+		list.length = 0;
+		const far = this.settings.drawRange;
+		for ( const s of this.ships ) {
+
+			if ( s.alive && s.dist > far && ! s.puppet && ! s.bounty && ! s.rescuing && ! s.hunt && ! s.raid && ! s.taken && SLEEPY.has( s.state ) ) list.push( s );
+			else if ( s._sleep ) s._sleep = false;
+
+		}
+
+		let k = this.ships.length - this.shipCap; // how many must sleep
+		if ( k > 1 ) list.sort( byFar );
+		this._asleep = 0;
+		for ( const s of list ) {
+
+			const sleep = k > 0;
+			k --;
+			if ( sleep && ! s._sleep ) {
+
+				s._sleepDt = 0;
+				s._sleepK = ( this._sleepSeq = ( this._sleepSeq + 1 ) % SLEEP_EVERY );
+
+			}
+
+			s._sleep = sleep;
+			if ( sleep ) this._asleep ++;
+
+		}
+
+	}
+
 	_spawnMerchant( end ) {
 
 		const n = MERCHANT_ROUTE.length;
@@ -912,11 +964,43 @@ export class Naval {
 		const amp = w.storm ? 2.2 : 1;
 		const near = this._near || ( this._near = [] ); // (one list for the life of the feature)
 		near.length = 0;
+		// wave 16C: the awake cap (setShipCap): the sleepers are re-picked 4 times a second and step on their own frame
+		if ( this.shipCap < Infinity || this._asleep ) {
+
+			this._sleepT -= dt;
+			if ( this._sleepT <= 0 ) {
+
+				this._sleepT = 0.25;
+				this._pickSleepers();
+
+			}
+
+		}
+
+		const tick = this._sleepTick = ( this._sleepTick + 1 ) % SLEEP_EVERY;
 		for ( const s of this.ships ) {
 
-			w.target = s.puppet ? this.target : this._targetFor( s );
-			think( s, w, dt );
-			s.integrate( dt, this.terrain );
+			if ( s._sleep ) {
+
+				// asleep: the time she missed in one step, every SLEEP_EVERY frames (the sleepers on different frames)
+				s._sleepDt += dt;
+				if ( s._sleepK === tick ) {
+
+					w.target = this._targetFor( s );
+					think( s, w, s._sleepDt );
+					s.integrate( s._sleepDt, this.terrain );
+					s._sleepDt = 0;
+
+				}
+
+			} else {
+
+				w.target = s.puppet ? this.target : this._targetFor( s );
+				think( s, w, dt );
+				s.integrate( dt, this.terrain );
+
+			}
+
 			s.dist = cam ? Math.hypot( s.x - cam.x, s.z - cam.z ) : 0;
 			if ( s.state !== 'gone' && s.dist < this.settings.queryRange ) near.push( s );
 

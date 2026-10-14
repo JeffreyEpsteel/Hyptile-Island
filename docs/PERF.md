@@ -99,3 +99,83 @@ from `tools/perf/out/perf-guard.json` when a guard run exists.
   Windows); if the 24 fps is the iGPU, the auto loop's Low / Medium tiers are what helps (GPU -18 % / -36 % here), and
   setting Chrome to "High performance" in Windows Settings > Display > Graphics moves it to the RTX.
 - iGPU numbers (Dawn Vulkan lost the device on the 860M).
+
+# Wave 16C (2026-10-14): two tiles, more ships, more plants, phones
+
+## How it was measured
+
+- GPU: `node tools/perf/headless.mjs --perf=views` (on foot at noon at the home bay, Tidemark's quay and Blackwater's
+  dock over the cove), RTX 5070 Ti on Vulkan. Low and Medium at 1920x1080; "phone" = `--mobile --real-sizes --quality=low
+  --size=852x393` (MOBILE.phone: Low at 70 %, 512 px shadow cascades, the phone texture caps and PHONE_BUDGET). Before =
+  a copy of `src` with this wave's files restored (`tools/perf/out/before`), after = the tree; the two interleaved, two
+  rounds each, means. Memory = GPU.memory with each place up (the views build their islands on arrival).
+- CPU: `node tools/perf/cpu-scenarios.mjs` (sea, shore and the new **wave15**: the sea fight in the two-tile world, the
+  rivals sailing, the harbour agents, a wanted stolen hull, a rescue under way, 12 AI ships), ms per module, median of 3;
+  and the per-feature scopes of the views above (`tools/perf/out/cpu-w16-before.json`, `cpu-w16-after.json`). The runs are deterministic: the end-state fingerprints before / after
+  are equal (sea 44372.096037, shore 43596.037020, wave15 44781.317697) without a ship cap.
+- What each vegetation layer costs: `--hide=<name>` runs (Low, GPU ms saved when hidden: impostor crowns 0.04 - 0.18,
+  palms 0.09 - 0.11, grass 0.06 - 0.12; all vegetation 0.24 - 0.47 = 8 - 16 % of the GPU frame, 64 MB of GPU memory
+  on desktop, 29 MB on a phone).
+
+## Where the time was (before)
+
+CPU per frame at the views (Node + Dawn, 7 - 11 ms): scene render 2.3 - 4.1 ms and shadows 1.3 - 1.8 ms (the engine's
+mesh passes, root's), then residents 0.2 - 0.4, wildlife 0.2 - 0.4, post 0.35, naval 0.16 - 0.23, melee 0.25 at
+Blackwater, seaplane 0.06 - 0.16, rescue 0.02, hijack 0.017, agents 0.002. The feature logic of wave15 is 0.09 ms
+(naval 0.05, trade 0.02, crew 0.02). Not visible headless but counted: the trade window rewrote 1,071 DOM values per
+refresh (twice a second while open), and the cockpit redrew its canvas, uploaded it and rebuilt its mips 10 times a
+second in first person even moored with the engine off.
+GPU (Low): the opaque pass 0.5 - 1.1 ms, clouds 0.3, water + transparent 0.2 - 0.7; the vegetation's share above.
+The far impostor crowns of all three islands (21,559) drew everywhere out to 2.8 km.
+
+## What changed
+
+- Vegetation distance bands (`VegType.setReach`, applied by Quality from the tier's draw distance, `min( 1, draw )`:
+  Low 0.55, Medium 0.75, phone 0.44, High / Ultra 1 = unchanged): the far crowns' and palms' fade window scales and the
+  instances past it are left out of the far buffers (no vertices, no fragments); the fading understory and the palms'
+  near range scale with max( 0.7, k ). The impostor bake's depth buffer is freed once the bake is done (11.2 MB desktop,
+  2.8 MB phone).
+- Phones (PHONE_BUDGET): half the tiles' plants (a fixed half by position; the home island untouched), a 512 px leaf
+  atlas (5.3 -> 1.3 MB), grass masks at 4 m (6.9 -> 1.7 MB).
+- Naval: `setShipCap( n )` (Quality: Low 8, Medium 12, phones 6, High / Ultra none). Past the cap the farthest ships with
+  no business (patrol / lane / moored, no bounty, hunt, raid, rescue, prize or remote puppet), beyond the 600 m draw
+  range, sleep: they think and sail at ~4 Hz with the time they missed, out of the query list.
+- Trade window: every field written only on a change. Cockpit: a timed redraw is skipped when the face (snapshot to
+  1/100) is unchanged. Rescue: situation() at 4 Hz (every frame while F is held). Hijack: the mail and skiff scans at 4 Hz.
+
+## Before / after
+
+| place | GPU ms Low | Medium | phone | GPU MB Low | Medium | phone | plant triangles Low / phone |
+|---|---|---|---|---|---|---|---|
+| home bay | 3.02 -> 2.87 | 3.97 -> 3.93 | 1.99 -> 1.93 | 694.5 -> 683.3 | 735.8 -> 724.6 | 391.2 -> 379.1 | 841k -> 557k / 854k -> 575k |
+| Tidemark quay | 3.00 -> 2.84 | 3.70 -> 3.66 | 2.12 -> 1.88 | 716.3 -> 705.1 | 752.8 -> 741.5 | 405.8 -> 393.7 | 477k -> 204k / 479k -> 129k |
+| Blackwater cove | 2.91 -> 2.81 | 4.00 -> 3.97 | 1.81 -> 1.62 | 720.9 -> 709.6 | 757.1 -> 745.8 | 413.2 -> 401.1 | 343k -> 163k / 355k -> 140k |
+
+Vegetation GPU memory 60.6 -> 49.4 MB (desktop), 29.3 -> 17.2 MB (phone). Far crowns drawn on a phone: 21,559 -> 18,876
+at home, 4,002 at Tidemark, 2,003 at Blackwater.
+
+| CPU | before | after |
+|---|---|---|
+| wave15 naval, ms / frame (no cap / cap 8 / cap 6) | 0.050 | 0.050 / 0.050 (4 asleep) / 0.046 (6 asleep) |
+| wave15 all features, ms / frame | 0.090 | 0.089 (same fingerprint) |
+| hijack at the views, ms / frame | 0.015 - 0.018 | 0.011 - 0.014 |
+| rescue at the views, ms / frame | 0.020 - 0.022 | 0.022 - 0.026 (noise: the rest is Floaters / flares, 16A's) |
+| trade window DOM writes per refresh (unchanged market / after a purchase) | 1,071 / 1,071 | 0 / 20 |
+| cockpit redraws per second, first person, moored, engine off | 10 | 0 (in flight: as before) |
+
+CPU frame times at the views moved within this shared machine's noise (7 - 12 ms either way): the frame is the engine's
+mesh passes, not these systems.
+
+## Phones
+
+GPU memory at the home bay is now 379 MB, under wave 12's 387 MB; Tidemark's quay 394 and Blackwater's cove 401 MB stay
+over it. What the islands add on arrival is theirs (`--mem-diff`: SaltmarshKeyProps 4.2 MB, tidemark_wood 3.2, the
+Tidemark town and terrain meshes ~2.8, BlackwaterProps 1.3, glb# 3.3) and the terrain's textures (terrainHeights
+18.6 MB, r32float, with 2.6 MB of tile rows; terrainShoreField 6.5): owners' follow-ups. Both tiles' near meshes are
+already 3 m on phones (Blackwater.js / Tidemark.js); Blackwater's far mesh is 0.1 MB and one draw (left as it is).
+
+## Not verified
+
+- No browser: the DOM writes, the cockpit's canvas and texture uploads and Chrome's per-draw cost are counted, not timed.
+- The ship cap's effect in a real raid (20+ hulls): wave15 has 12 ships, most within the draw range.
+- The minimap's second bake (src/game/Minimap.js, not this wave's file) was not measured.

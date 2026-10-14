@@ -10,7 +10,8 @@ import { detectDevice } from './Touch.js';
 //
 // A tier sets the render scale, the shadow map size and reach, the post effects (AO, haze shafts, motion blur,
 // water reflections, TAA jitter phases: 4 as the game always had, 8 on Ultra), the particle and local-light budgets, the draw distances (MeshRenderer's
-// distance cull, the residents' radii) and the night / vfx budgets. High is the look the game always had; Ultra
+// distance cull, the residents' radii, the vegetation's reach: VegType.setReach), the night / vfx budgets and the AI ships
+// awake at once (naval setShipCap: Low 8, Medium 12, phones 6; wave 16C). High is the look the game always had; Ultra
 // adds TAA samples and longer distances; Medium and Low trade them away.
 //
 // Auto (default on): every ~2 s window of frames the median frame time is compared with the target (60 fps;
@@ -38,19 +39,19 @@ export const TIER_IDS = [ 'low', 'medium', 'high', 'ultra' ];
 export const TIERS = {
 	low: {
 		label: 'Low', scale: [ 0.5, 0.7 ], shadows: true, shadowSize: 1024, shadowFar: 150, ao: false, shafts: false, motionBlur: false, ssr: false,
-		aa: 4, particles: 0.45, lights: 8, draw: 0.55, residents: { animate: 30, update: 70, hide: 120, shadow: 20 }, fx: 'low',
+		aa: 4, particles: 0.45, lights: 8, draw: 0.55, residents: { animate: 30, update: 70, hide: 120, shadow: 20 }, fx: 'low', ships: 8,
 	},
 	medium: {
 		label: 'Medium', scale: [ 0.6, 0.85 ], shadows: true, shadowSize: 1024, shadowFar: 250, ao: true, shafts: true, motionBlur: true, ssr: true,
-		aa: 4, particles: 0.7, lights: 12, draw: 0.75, residents: { animate: 45, update: 100, hide: 180, shadow: 30 }, fx: 'high',
+		aa: 4, particles: 0.7, lights: 12, draw: 0.75, residents: { animate: 45, update: 100, hide: 180, shadow: 30 }, fx: 'high', ships: 12,
 	},
 	high: {
 		label: 'High', scale: [ 0.7, 1 ], shadows: true, shadowSize: 2048, shadowFar: 400, ao: true, shafts: true, motionBlur: true, ssr: true,
-		aa: 4, particles: 1, lights: 16, draw: 1, residents: { animate: 60, update: 120, hide: 260, shadow: 40 }, fx: 'high',
+		aa: 4, particles: 1, lights: 16, draw: 1, residents: { animate: 60, update: 120, hide: 260, shadow: 40 }, fx: 'high', ships: Infinity,
 	},
 	ultra: {
 		label: 'Ultra', scale: [ 0.85, 1 ], shadows: true, shadowSize: 2048, shadowFar: 400, ao: true, shafts: true, motionBlur: true, ssr: true,
-		aa: 8, particles: 1, lights: 16, draw: 1.35, residents: { animate: 80, update: 160, hide: 320, shadow: 60 }, fx: 'high',
+		aa: 8, particles: 1, lights: 16, draw: 1.35, residents: { animate: 80, update: 160, hide: 320, shadow: 60 }, fx: 'high', ships: Infinity,
 	},
 };
 
@@ -58,7 +59,7 @@ export const TIERS = {
 export const MOBILE = {
 	// textureMax 512 on phones: the roster's 56 character maps were 299 MB of GPU memory at 1024 (75 MB at 512; a
 	// character fills a few hundred pixels of a phone's internal resolution); the whole game measured ~1.07 GB at 1024
-	phone: { tier: 'low', ceiling: 'medium', maxScale: 0.75, shadowSize: 512, shadowReach: 0.6, periods: [ 1, 6, 12 ], particles: 0.6, lights: 6, draw: 0.8, residents: 0.7, fx: 'low', textureMax: 512 },
+	phone: { tier: 'low', ceiling: 'medium', maxScale: 0.75, shadowSize: 512, shadowReach: 0.6, periods: [ 1, 6, 12 ], particles: 0.6, lights: 6, draw: 0.8, residents: 0.7, fx: 'low', textureMax: 512, ships: 6 },
 	tablet: { tier: 'low', ceiling: 'high', maxScale: 0.85, shadowSize: 1024, shadowReach: 0.8, periods: [ 1, 4, 8 ], particles: 0.8, lights: 10, draw: 0.9, residents: 0.85, fx: null, textureMax: 2048 },
 	tabletM: { tier: 'medium', ceiling: 'high', maxScale: 0.85, shadowSize: 1024, shadowReach: 0.8, periods: [ 1, 4, 8 ], particles: 0.8, lights: 10, draw: 0.9, residents: 0.85, fx: null, textureMax: 2048 },
 };
@@ -88,6 +89,7 @@ export function mobileTier( tier, prof ) {
 		draw: tier.draw * prof.draw,
 		residents: { animate: Math.round( r.animate * k ), update: Math.round( r.update * k ), hide: Math.round( r.hide * k ), shadow: Math.round( r.shadow * k ) },
 		fx: prof.fx || tier.fx,
+		ships: prof.ships ? Math.min( tier.ships ?? Infinity, prof.ships ) : tier.ships,
 		mobile: true,
 	};
 
@@ -136,6 +138,10 @@ export const PHONE_BUDGET = {
 	canvasDpr: 1.5, // HUD canvases' pixel ratio cap
 	minimapBake: 512, // the minimap's terrain bake (px)
 	worldMapBake: 1024, // the world map's bake (px, made on first open, freed on close)
+	// wave 16C (the two terrain tiles: ~400 - 425 MB at the three views before): the vegetation's share
+	vegTiles: 0.5, // the tiles' plants kept (vegetation/Scatter.js, a fixed half by position)
+	leafAtlas: 512, // the leaf-cluster atlas (px; 1024 on desktop)
+	grassMaskTexel: 4, // m per grass-mask texel (2 on desktop)
 };
 
 // at import (before the first GLB loads): a phone gets the cap unless the URL says ?tex=full; ?phone forces the budget
@@ -490,8 +496,14 @@ export class Quality {
 		if ( mr && 'distanceScale' in mr ) mr.distanceScale = t.draw;
 		if ( app.residents && app.residents.setRadii ) tryDo( () => app.residents.setRadii( t.residents ) );
 		if ( app.spray && 'budget' in app.spray ) app.spray.budget = t.particles;
+		// wave 16C: the vegetation's distance bands (far crowns and palms, the fading understory) follow the draw distance
+		const veg = app.vegetation;
+		if ( veg && Array.isArray( veg.types ) ) tryDo( () => { for ( const ty of veg.types ) if ( ty.setReach ) ty.setReach( Math.min( 1, t.draw ) ); } );
 		const f = app.features && app.features.get ? app.features : null;
 		if ( f ) tryDo( () => {
+
+			const naval = f.get( 'naval' );
+			if ( naval && naval.setShipCap ) naval.setShipCap( t.ships ?? Infinity );
 
 			const vfx = f.get( 'vfx' );
 			if ( vfx && vfx.sys && vfx.sys.setQuality ) vfx.sys.setQuality( t.fx );
