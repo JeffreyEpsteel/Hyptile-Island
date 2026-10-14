@@ -1134,7 +1134,7 @@ export class Seaplane {
 		if ( ! f.engineOn && ! this.systems.cranking && f.fuel > 0 && ( keys.throttleUp || ( pad && pad.throttle > 0.3 ) ) && this.autoCrank ) this.act( 'engine', 'throttle' );
 		this.pilot.read( keys, pad, f, dt );
 		// the wheel brakes (a land plane on the ground: B held, or the throttle closed and nearly stopped)
-		f.controls.brake = f.geom.wheels && f.grounded && ( keys.brake || ( this.pilot.throttle < 0.02 && f.airspeed < 0.6 ) ) ? 1 : 0;
+		f.controls.brake = f.geom.wheels && f.grounded && ( keys.brake || this.parkBrake || ( this.pilot.throttle < 0.02 && f.airspeed < 0.6 ) ) ? 1 : 0;
 		this._searchKey( keys, dt );
 		const drop = this.pilot.ap.dropped;
 		if ( drop ) {
@@ -1433,6 +1433,23 @@ export class Seaplane {
 
 				break;
 
+			// wave 14A: the Albatross's feather / restart switches and the Kestrel's parking brake (cockpit switches)
+			case 'feather1': case 'feather2': {
+
+				const i = id === 'feather1' ? 0 : 1, ef = f.engineFail;
+				this._feathered = this._feathered || [];
+				if ( ! ef || ef.length < 2 ) { ok = false; break; }
+				if ( ! ef[ i ] ) { ef[ i ] = true; this._feathered[ i ] = true; text = t( 'seaplane.feathered', 'Engine feathered' ); }
+				else if ( this._feathered[ i ] && s.master && f.fuel > 0 ) { ef[ i ] = false; this._feathered[ i ] = false; sound = 'clunk'; text = t( 'seaplane.restarted', 'Engine restarted' ); }
+				else { ok = false; text = t( 'seaplane.noRestart', 'It will not restart: the hangar can fix it' ); }
+				if ( this.visual ) this.visual.stopped = ef.slice();
+				break;
+
+			}
+			case 'brake':
+				ok = !! f.geom.wheels;
+				if ( ok ) { this.parkBrake = ! this.parkBrake; text = this.parkBrake ? t( 'seaplane.parkOn', 'Parking brake set' ) : t( 'seaplane.parkOff', 'Parking brake off' ); }
+				break;
 			case 'warn':
 				s.ack();
 				break;

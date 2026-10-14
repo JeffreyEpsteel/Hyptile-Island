@@ -3,7 +3,8 @@
 //
 //   AIRFRAMES.jade / petrel / albatross / kestrel   { id, name, price, cls (upgrade price factor), seats, crates (a
 //                                                   built-in bay), litres, rough (rough-landing / wreck threshold
-//                                                   factor), hull, land, base ('ramp' | 'strip'), model, livery }
+//                                                   factor), hull, land, base ('ramp' | 'strip'), model, livery,
+//                                                   cockpit (its panel layout in Panels.js) }
 //   AIRFRAME_IDS                                    in hangar order (the Jade first: it is the plane of the old saves)
 //   UPGRADES                                        the hangar rows: { id, name, tiers, price: [ per tier ], not: [ ids ] }
 //   LIVERIES                                        four paint schemes (material colours: main, trim; null: the GLB's)
@@ -22,10 +23,10 @@ import { SPEC, GEOM, SECTIONS } from './Flight.js';
 const DEG = Math.PI / 180;
 
 export const AIRFRAMES = {
-	jade: { id: 'jade', name: 'Jade', sub: 'High-wing floatplane: the all-rounder', price: 18000, cls: 1, seats: 4, crates: 0, litres: 300, rough: 1, hull: false, land: false, base: 'ramp', model: 'models/seaplane/Seaplane.glb' },
-	petrel: { id: 'petrel', name: 'Petrel', sub: 'Light bush floatplane: short runs, tight turns', price: 11000, cls: 0.6, seats: 2, crates: 0, litres: 160, rough: 0.8, hull: false, land: false, base: 'ramp', model: 'models/seaplane/Petrel.glb' },
-	albatross: { id: 'albatross', name: 'Albatross', sub: 'Twin-engine flying boat: fast, heavy, a cargo bay', price: 42000, cls: 2.2, seats: 4, crates: 6, litres: 900, rough: 1.5, hull: true, land: false, base: 'ramp', model: 'models/seaplane/Albatross.glb' },
-	kestrel: { id: 'kestrel', name: 'Kestrel', sub: 'Land plane on fixed wheels: flies from the airstrip', price: 16000, cls: 1, seats: 4, crates: 0, litres: 280, rough: 1, hull: false, land: true, base: 'strip', model: 'models/seaplane/Kestrel.glb' },
+	jade: { id: 'jade', name: 'Jade', sub: 'High-wing floatplane: the all-rounder', price: 18000, cls: 1, seats: 4, crates: 0, litres: 300, rough: 1, hull: false, land: false, base: 'ramp', model: 'models/seaplane/Seaplane.glb', cockpit: 'jade' },
+	petrel: { id: 'petrel', name: 'Petrel', sub: 'Light bush floatplane: short runs, tight turns', price: 11000, cls: 0.6, seats: 2, crates: 0, litres: 160, rough: 0.8, hull: false, land: false, base: 'ramp', model: 'models/seaplane/Petrel.glb', cockpit: 'petrel' },
+	albatross: { id: 'albatross', name: 'Albatross', sub: 'Twin-engine flying boat: fast, heavy, a cargo bay', price: 42000, cls: 2.2, seats: 4, crates: 6, litres: 900, rough: 1.5, hull: true, land: false, base: 'ramp', model: 'models/seaplane/Albatross.glb', cockpit: 'albatross' },
+	kestrel: { id: 'kestrel', name: 'Kestrel', sub: 'Land plane on fixed wheels: flies from the airstrip', price: 16000, cls: 1, seats: 4, crates: 0, litres: 280, rough: 1, hull: false, land: true, base: 'strip', model: 'models/seaplane/Kestrel.glb', cockpit: 'kestrel' },
 };
 export const AIRFRAME_IDS = Object.keys( AIRFRAMES );
 

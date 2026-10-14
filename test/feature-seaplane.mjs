@@ -986,5 +986,18 @@ function makeWorld( { mode = null, money = 0 } = {} ) {
 
 }
 
+// ---------------------------------------------------------------- wave 14A: the cockpit follows the airframe out
+{
+
+	const W = makeWorld( { mode: 'sandbox' } );
+	W.sp.buy();
+	W.sp.cockpit.update( 1 / 60 );
+	const was = W.sp.cockpit.layout.id;
+	W.sp.buy( 'albatross' );
+	W.sp.cockpit.update( 1 / 60 );
+	ok( was === 'jade' && W.sp.af === 'albatross' && W.sp.cockpit.layout.id === 'albatross' && W.sp.cockpit.rebuilds >= 1, `the cockpit swaps its face with the airframe (${ was } -> ${ W.sp.cockpit.layout.id })` );
+
+}
+
 console.log( fails ? `\n${ fails } FAILED` : '\nall seaplane tests passed' );
 process.exit( fails ? 1 : 0 );
