@@ -1,6 +1,7 @@
 import { icon, brandMark } from './icons.js';
 import { t } from '../i18n/index.js';
 import { detectDevice, tabStripLayout } from '../core/Touch.js';
+import { ACTIONS, keyLabel } from './Accessibility.js';
 
 // Tidewater UI: settings panel (tabs → folders → controls), HUD, help,
 // photo mode, start overlay and loader. Plain DOM, no dependencies.
@@ -1868,6 +1869,158 @@ const DESKTOP_URL = 'https://github.com/JeffreyEpsteel/Hyptile-Island/releases';
 
 const NAV_KEYS = new Set( [ 'Space', 'Enter', 'NumpadEnter', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Home', 'End', 'PageUp', 'PageDown', 'Tab' ] );
 
+// ── the controls sheet (F1) ─────────────────────────────────────────────────
+// Wave 16B: every bound key by context, as data. A key ref is an Accessibility action id ('interact'), a key code the
+// game reads ('KeyG', 'Quote': it follows whichever action owns that code, since Input maps logical codes) or a fixed
+// cap (LMB, Esc, F1...). The caps read the bindings whenever the sheet opens (ui.bindControls( a11y ), refreshControls).
+// The text stays English in the DOM: the i18n DOM translator swaps it (every string is a value in en.js and ro.js).
+export const CONTROLS = [
+	{ id: 'foot', title: 'On foot', rows: [
+		{ k: [ 'forward', 'left', 'back', 'right' ], wasd: true, text: 'Move' },
+		{ k: [ 'mouse' ], text: 'Look around', small: 'Click to capture' },
+		{ k: [ 'sprint' ], text: 'Sprint, boat boost' },
+		{ k: [ 'walk' ], text: 'Walk instead of jog' },
+		{ k: [ 'jump' ], text: 'Jump, swim up' },
+		{ k: [ 'dive' ], text: 'Crouch, dive' },
+		{ k: [ 'interact' ], text: 'Interact', small: 'Board, helm, step ashore, trade' },
+		{ k: [ 'rod' ], text: 'Fishing rod', small: 'Take out / put away' },
+		{ k: [ 'LMB' ], text: 'Cast, strike, reel', small: 'Hold to wind up / reel' },
+		{ k: [ 'RMB' ], text: 'Reel in an empty line, guard in a fight' },
+		{ k: [ 'evade' ], text: 'Evade (dodge)' },
+		{ k: [ 'light' ], text: 'Flashlight' },
+		{ k: [ 'emote' ], text: 'Emotes', small: '1-4: wave, dance, point, cheer' },
+	] },
+	{ id: 'helm', title: 'At the helm', rows: [
+		{ k: [ 'forward', 'back' ], text: 'Throttle ahead / astern' },
+		{ k: [ 'left', 'right' ], text: 'Steer' },
+		{ k: [ 'sprint' ], text: 'Boost' },
+		{ k: [ 'interact' ], text: 'Leave the helm, step ashore' },
+		{ k: [ 'view' ], text: 'Boat camera', small: '1st / 3rd person' },
+		{ k: [ 'light' ], text: 'Boat lights' },
+		{ k: [ 'portGuns', 'starboardGuns' ], text: 'Fire the port / starboard guns' },
+		{ k: [ 'board' ], text: 'Board or retreat', small: 'When a ship is alongside' },
+	] },
+	{ id: 'deck', title: 'On deck', rows: [
+		{ k: [ 'interact' ], text: 'Take the helm, step ashore' },
+		{ k: [ 'rod' ], text: 'Fish off the rail' },
+		{ k: [ 'LMB', 'RMB' ], text: 'Strike, guard', small: 'In a boarding fight' },
+		{ k: [ 'evade' ], text: 'Evade (dodge)' },
+		{ k: [ 'crew' ], text: 'Crew', small: 'Who you play; posts from Ethena\'s Crew tab' },
+	] },
+	{ id: 'aim', title: 'Aiming', rows: [
+		{ k: [ 'RMB' ], text: 'Aim a broadside', small: 'Hold at the helm: the guns follow your look' },
+		{ k: [ 'LMB' ], text: 'Fire the aimed side' },
+		{ k: [ 'Tab' ], text: 'Aim at hull, sails or rudder' },
+		{ k: [ 'KeyG' ], text: 'Pistol, musket, holster' },
+		{ k: [ 'RMB', 'LMB' ], text: 'Aim, fire', small: 'With a gun drawn' },
+		{ k: [ 'rod' ], text: 'Reload', small: 'With a gun drawn' },
+	] },
+	{ id: 'cockpit', title: 'Cockpit', rows: [
+		{ k: [ 'sprint', 'dive' ], text: 'Throttle up / down' },
+		{ k: [ 'forward', 'back' ], text: 'Nose down / up' },
+		{ k: [ 'left', 'right' ], text: 'Bank, steer while taxiing' },
+		{ k: [ 'rudderLeft', 'rudderRight' ], text: 'Rudder' },
+		{ k: [ 'KeyO', 'KeyU' ], text: 'Engine, master switch' },
+		{ k: [ 'BracketLeft', 'BracketRight' ], text: 'Flaps up / down' },
+		{ k: [ 'Minus', 'Equal' ], text: 'Trim down / up' },
+		{ k: [ 'KeyN', 'Semicolon' ], text: 'Nav lights, landing light' },
+		{ k: [ 'KeyY' ], text: 'Autopilot' },
+		{ k: [ 'Digit3' ], text: 'Cockpit switches' },
+		{ k: [ 'Quote' ], text: 'Bail out', small: 'Press twice, high enough' },
+		{ k: [ 'board' ], text: 'Wheel brakes', small: 'The Kestrel, on the ground' },
+		{ k: [ 'interact' ], text: 'Climb out', small: 'Slow, on the water or the ground' },
+	] },
+	{ id: 'swim', title: 'Swimming', rows: [
+		{ k: [ 'jump' ], text: 'Swim up, climb out', small: 'Onto anything that floats, a ledge, the pier' },
+		{ k: [ 'dive' ], text: 'Dive' },
+		{ k: [ 'KeyF' ], text: 'Distress flare (hold)', small: 'Swimming, adrift or crippled: help comes' },
+	] },
+	{ id: 'ui', title: 'Interface', rows: [
+		{ k: [ 'cooler' ], text: 'Cooler and fish log' },
+		{ k: [ 'journal' ], text: 'Journal', small: 'Active notices and bounties' },
+		{ k: [ 'KeyM' ], text: 'World map' },
+		{ k: [ 'H' ], text: 'Settings panel' },
+		{ k: [ 'P' ], text: 'Photo mode', small: 'Hides all interface' },
+		{ k: [ 'F1', '?' ], text: 'This sheet' },
+		{ k: [ 'Esc' ], text: 'Release the mouse' },
+		{ k: [ 'Ctrl+S' ], text: 'Quick save' },
+		{ k: [ 'F11' ], text: 'Fullscreen', small: 'Keeps Ctrl shortcuts in the game' },
+		{ k: [ 'sprint', 'KeyM' ], plus: true, text: 'Mute' },
+		{ k: [ 'freecam' ], text: 'Free camera' },
+		{ k: [ 'time' ], text: 'Pause time' },
+	] },
+];
+
+// the touch sheet: the button you tap (TouchControls' labels) and what it does
+export const TOUCH_CONTROLS = [
+	{ id: 'move', title: 'Move and look', rows: [
+		{ chip: 'Left thumb', text: 'Move', small: 'The stick appears where you touch. Past the outer ring: sprint' },
+		{ chip: 'Right side', text: 'Drag to look', small: 'Sensitivity and invert: Settings, Game, Touch' },
+		{ chip: 'Jump', text: 'Jump, swim up', small: 'Climbs onto anything that floats. Dive appears in the water' },
+		{ chip: 'Flare', text: 'Distress flare (hold)', small: 'Swimming, adrift or crippled: help comes' },
+	] },
+	{ id: 'act', title: 'Act', rows: [
+		{ chip: 'Wide button', text: 'What the game offers here', small: 'Board, take the helm, talk, trade, climb' },
+		{ chip: 'Rod', text: 'Take out / put away the rod' },
+		{ chip: 'Cast', text: 'Hold to wind up, let go to cast', small: 'Strike! when the bobber goes under, hold to reel' },
+		{ chip: 'Dodge', text: 'Dodge, Guard (hold) in a fight' },
+		{ chip: 'Gun', text: 'Pistol, musket, holster', small: 'Aim and Fire come up with a gun drawn' },
+		{ chip: 'Emote', text: 'Wave, dance, point, cheer' },
+	] },
+	{ id: 'helm', title: 'At the helm', rows: [
+		{ chip: 'Lever', text: 'Throttle: astern, stop, ahead, full' },
+		{ chip: 'Stick', text: 'Steer' },
+		{ chip: 'Port', text: 'Fire that side\'s guns', small: 'Starboard on the other side' },
+		{ chip: 'Board', text: 'Board or retreat', small: 'When a ship is alongside' },
+		{ chip: 'Lights', text: 'Boat lights' },
+	] },
+	{ id: 'air', title: 'Seaplane', rows: [
+		{ chip: 'Lever', text: 'Throttle; drag the right side: nose up / down, bank' },
+		{ chip: 'Cockpit', text: 'Cockpit switches' },
+		{ chip: 'Nav', text: 'Nav lights, landing light' },
+		{ chip: 'Bail out', text: 'Bail out', small: 'Press twice, high enough' },
+		{ chip: 'Brake', text: 'Wheel brakes', small: 'The Kestrel, on the ground' },
+	] },
+	{ id: 'top', title: 'Top right', rows: [
+		{ chip: 'Map', text: 'World map', small: 'Or tap the minimap. Pinch to zoom, tap: waypoint' },
+		{ chip: 'Journal', text: 'Journal, Cooler, Crew' },
+		{ chip: 'Menu', text: 'Close a panel, else the pause menu', small: 'Settings, save, load, these controls' },
+	] },
+];
+
+// caps that are no key code (the mouse, the page's own keys) and printed names keyLabel has no entry for
+const FIXED_CAPS = { LMB: 'LMB', RMB: 'RMB', F1: 'F1', '?': '?', Esc: 'Esc', 'Ctrl+S': 'Ctrl+S', F11: 'F11', H: 'H', P: 'P' };
+const CODE_CAPS = { Quote: '\'', Semicolon: ';', BracketLeft: '[', BracketRight: ']', Backquote: '`', Minus: '-', Equal: '=', Slash: '/' };
+
+// the cap for a key ref with the player's bindings (a11y: the Accessibility model; without one, the defaults)
+export function controlKeyLabel( ref, a11y = null ) {
+
+	if ( FIXED_CAPS[ ref ] ) return FIXED_CAPS[ ref ];
+	const actions = ( a11y && a11y.actions ) || ACTIONS;
+	const a = actions.find( ( x ) => x.id === ref ) || actions.find( ( x ) => x.code === ref || ( x.also && x.also.includes( ref ) ) );
+	let code = ref;
+	if ( a ) {
+
+		const keys = a11y && a11y.keysOf ? a11y.keysOf( a.id ) : [ a.code ];
+		if ( ! keys.length ) return keyLabel( '' );
+		code = keys[ 0 ];
+
+	}
+
+	const l = keyLabel( code );
+	return l === code && CODE_CAPS[ code ] ? CODE_CAPS[ code ] : l;
+
+}
+
+// every key ref the sheet shows (the tests check each one resolves)
+export function controlRefs() {
+
+	const out = new Set();
+	for ( const s of CONTROLS ) for ( const r of s.rows ) for ( const k of r.k ) out.add( k );
+	return out;
+
+}
+
 export class UI {
 
 	constructor( container = document.body ) {
@@ -2142,11 +2295,14 @@ export class UI {
 
 	_buildHelp() {
 
-		const k = ( ...keys ) => keys.map( ( x ) => `<kbd>${ x }</kbd>` ).join( '' );
-		const row = ( keys, text ) => `<div class="tw-help-row"><span class="tw-keys">${ keys }</span><span class="tw-help-text">${ text }</span></div>`;
-		const wasd = '<span class="tw-wasd"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></span>';
+		// (wave 16B) built from CONTROLS / TOUCH_CONTROLS: one section per context, the caps carry their key ref
 		const mouse = `<kbd class="tw-kbd-ico" aria-label="Mouse">${ icon( 'mouse' ) }</kbd>`;
-		const trow = ( chip, text ) => `<div class="tw-help-row"><span class="tw-keys"><span class="tw-touch-chip">${ chip }</span></span><span class="tw-help-text">${ text }</span></div>`;
+		const cap = ( ref ) => ( ref === 'mouse' ? mouse : `<kbd data-key="${ esc( ref ) }">${ esc( controlKeyLabel( ref ) ) }</kbd>` );
+		const caps = ( r ) => ( r.wasd ? `<span class="tw-wasd">${ r.k.map( cap ).join( '' ) }</span>` : r.k.map( cap ).join( r.plus ? '+' : '' ) );
+		const text = ( r ) => `${ esc( r.text ) }${ r.small ? `<small>${ esc( r.small ) }</small>` : '' }`;
+		const row = ( r ) => `<div class="tw-help-row"><span class="tw-keys">${ caps( r ) }</span><span class="tw-help-text">${ text( r ) }</span></div>`;
+		const trow = ( r ) => `<div class="tw-help-row"><span class="tw-keys"><span class="tw-touch-chip">${ esc( r.chip ) }</span></span><span class="tw-help-text">${ text( r ) }</span></div>`;
+		const section = ( s, fn ) => `<section data-ctx="${ s.id }"><h3>${ esc( s.title ) }</h3>${ s.rows.map( fn ).join( '' ) }</section>`;
 
 		const el = this.helpEl = h( 'div', 'tw-help tw-interactive', { role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'tw-help-title', hidden: true } );
 		el.innerHTML = `
@@ -2160,75 +2316,9 @@ export class UI {
 					<button type="button" class="tw-icon-btn tw-help-close" aria-label="Close" data-tip="Close (F1)">${ icon( 'close' ) }</button>
 				</header>
 				<div class="tw-help-touch">
-					<div class="tw-help-touch-grid">
-						<section>
-							<h3>Move and look</h3>
-							${ trow( 'Left thumb', 'Move<small>The stick appears where you touch. Past the outer ring: sprint</small>' ) }
-							${ trow( 'Right side', 'Drag to look<small>Sensitivity and invert: Settings, Game, Touch</small>' ) }
-							${ trow( 'Jump', 'Jump, swim up<small>Dive appears in the water</small>' ) }
-						</section>
-						<section>
-							<h3>Act</h3>
-							${ trow( 'Wide button', 'What the game offers here<small>Board, take the helm, talk, trade, climb</small>' ) }
-							${ trow( 'Rod', 'Take out / put away the rod' ) }
-							${ trow( 'Cast', 'Hold to wind up, let go to cast<small>Strike! when the bobber goes under, hold to reel</small>' ) }
-							${ trow( 'Dodge', 'Dodge, Guard (hold) in a fight' ) }
-						</section>
-						<section>
-							<h3>At the helm</h3>
-							${ trow( 'Lever', 'Throttle: astern, stop, ahead, full' ) }
-							${ trow( 'Stick', 'Steer' ) }
-							${ trow( 'Port', 'Fire the guns, Board an enemy ship' ) }
-							${ trow( 'Seaplane', 'Lever: throttle; drag the right side: nose up / down, bank' ) }
-						</section>
-						<section>
-							<h3>Top right</h3>
-							${ trow( 'Map', 'World map<small>Or tap the minimap. Pinch to zoom, tap: waypoint</small>' ) }
-							${ trow( 'Journal', 'Journal, Cooler, Crew' ) }
-							${ trow( 'Menu', 'Close a panel, else the pause menu<small>Settings, save, load, these controls</small>' ) }
-						</section>
-					</div>
+					<div class="tw-help-touch-grid">${ TOUCH_CONTROLS.map( ( s ) => section( s, trow ) ).join( '' ) }</div>
 				</div>
-				<div class="tw-help-grid tw-help-keys">
-					<section>
-						<h3>Move</h3>
-						${ row( wasd, 'Move' ) }
-						${ row( mouse, 'Look around<small>Click to capture</small>' ) }
-						${ row( k( 'Shift' ), 'Sprint, boat boost' ) }
-						${ row( k( 'Space' ), 'Jump, swim up' ) }
-						${ row( k( 'C' ), 'Crouch, dive' ) }
-					</section>
-					<section>
-						<h3>Interact</h3>
-						${ row( k( 'E' ), 'Interact<small>Board, helm, step ashore, trade</small>' ) }
-						${ row( k( 'V' ), 'Boat camera<small>1st / 3rd person</small>' ) }
-						${ row( k( 'R' ), 'Fishing rod<small>Take out / put away</small>' ) }
-						${ row( k( 'LMB' ), 'Cast, strike, reel<small>Hold to wind up / reel</small>' ) }
-						${ row( k( 'RMB' ), 'Reel in an empty line, guard in a fight' ) }
-						${ row( k( 'Q' ), 'Evade (dodge)' ) }
-						${ row( k( 'I' ), 'Cooler and fish log' ) }
-						${ row( k( 'F' ), 'Free camera' ) }
-						${ row( k( 'T' ), 'Pause time' ) }
-						${ row( k( 'L' ), 'Flashlight · boat lights at the helm' ) }
-						${ row( k( 'M' ), 'Mute' ) }
-					</section>
-					<section>
-						<h3>Interface</h3>
-						${ row( k( 'H' ), 'Settings panel' ) }
-						${ row( k( 'P' ), 'Photo mode<small>Hides all interface</small>' ) }
-						${ row( k( 'F1' ) + k( '?' ), 'This sheet' ) }
-						${ row( k( 'Esc' ), 'Release the mouse' ) }
-						${ row( k( 'Ctrl+S' ), 'Quick save' ) }
-						${ row( k( 'F11' ), 'Fullscreen<small>Keeps Ctrl shortcuts in the game</small>' ) }
-					</section>
-					<section>
-						<h3>Seaplane</h3>
-						${ row( k( 'Shift' ) + k( 'C' ), 'Throttle up / down' ) }
-						${ row( k( 'W' ) + k( 'S' ), 'Nose down / up' ) }
-						${ row( k( 'A' ) + k( 'D' ), 'Bank, steer while taxiing' ) }
-						${ row( k( ',' ) + k( '.' ), 'Rudder' ) }
-					</section>
-				</div>
+				<div class="tw-help-grid tw-help-keys">${ CONTROLS.map( ( s ) => section( s, row ) ).join( '' ) }</div>
 				<div class="tw-help-guide">
 					<span><b>How to play:</b> catch fish, sell them to PoorGoat at the fish stand by the pier, and buy upgrades from Ethena Prosper at the chandlery by the boathouse. Both are on the map (lower right).</span>
 					<button type="button" class="gm-btn is-ghost tw-help-replay">Replay the guide</button>
@@ -2242,6 +2332,35 @@ export class UI {
 
 		} );
 		this.root.append( el );
+
+	}
+
+	// the sheet's caps follow the key bindings (ui/Accessibility.js): the guide hands the model over once the game runs
+	bindControls( a11y ) {
+
+		if ( this._a11y === a11y ) return;
+		if ( this._a11yOff ) this._a11yOff();
+		this._a11y = a11y || null;
+		this._a11yOff = a11y && a11y.onChange ? a11y.onChange( () => this.refreshControls() ) : null;
+		this.refreshControls();
+
+	}
+
+	// re-read every cap of the sheet (on open, and on a rebind or a language change); returns how many it read
+	refreshControls() {
+
+		const el = this.helpEl;
+		if ( ! el || ! el.querySelectorAll ) return 0;
+		let n = 0;
+		for ( const k of el.querySelectorAll( 'kbd[data-key]' ) ) {
+
+			const l = controlKeyLabel( k.dataset.key, this._a11y );
+			if ( k.textContent !== l ) k.textContent = l;
+			n ++;
+
+		}
+
+		return n;
 
 	}
 
@@ -3178,6 +3297,7 @@ export class UI {
 
 			this._closeMenu();
 			this._hideTip();
+			this.refreshControls(); // (the caps read the bindings as they are now)
 			el.hidden = false;
 			void el.offsetWidth;
 			el.classList.add( 'is-on' );

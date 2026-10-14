@@ -31,6 +31,7 @@ import * as hijack from './hijack/index.js';
 import * as customs from './customs/index.js';
 import * as death from './death/index.js';
 import * as rescue from './rescue/index.js';
+import * as tips from '../game/Tips.js';
 import * as firearms from './firearms/index.js';
 import * as crew from './crew/index.js';
 import * as emotes from './emotes/index.js';
@@ -68,6 +69,7 @@ export const MODULES = [
 	[ 'inverted', inverted ], // the upside-down sky layer (off until ?inverted or the Inverted Isles)
 	[ 'life', life ],
 	[ 'exploration', exploration ], // after inverted and naval (the spyglass labels their things)
+	[ 'tips', tips ], // wave 16B: one-time contextual tips, saved per save
 	[ 'debug', debugPanel ], // sandbox only: the ` key
 	[ 'saves', saveManager ],
 ];
