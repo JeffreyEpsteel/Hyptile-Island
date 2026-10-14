@@ -447,7 +447,10 @@ lamps, benches, fountain, awnings...), Tidemark's 15 infill houses, cobbled stre
 seat lists. 18D (648e0d2) cutlass, axe, pin, harpoon, duelling pistols, long rifle, blunderbuss, harpoon gun, bombs, fire
 bottles, smoke pots, swivel gun, chain / grape shot, 15 models, pose clips, shops (chandlery, the fence), naval.igniteShip.
 18B (8bdb8f4) the townlife feature: ~90 townsfolk with homes, jobs and day plans, reactions, animals, skiffs; verified on
-Tidemark's quay in the browser. 18F visuals pass 2 (w18-visuals2.md: shadows, water, materials): in progress.
+Tidemark's quay in the browser. 18F visuals pass 2 (w18-visuals2.md, 3e63ea7; the Opus worker hit the weekly limit,
+parked unverified on a WIP branch, finished by a Sonnet worker): the hull-mask keel test removes the light box of water
+round small boats, receiver-plane depth bias and contact-hardening shadows, glitter, crest translucency, material variation,
+a golden-hour rim light (Medium and up; Low and phones unchanged). Not done: wet sand at the waterline.
 
 ### Wave 17 (2026-10-14, root + 1 worker): no A-pose
 Asked for: fix the animations (even the jump was an A-pose), using ComfyUI SkinTokens / NVIDIA Kimodo. Found: 22 roster
