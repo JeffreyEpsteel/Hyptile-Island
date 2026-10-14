@@ -2799,6 +2799,13 @@ export class Naval {
 
 	}
 
+	// public: the player's fire put out by hand (the crew's bucket line, wave 19C)
+	fireDoused() {
+
+		this._fireOut( null, true );
+
+	}
+
 	// the fire is out (ship null: the player's); doused or burnt out
 	_fireOut( ship, doused = false, silent = false ) {
 

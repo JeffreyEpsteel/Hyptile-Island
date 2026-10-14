@@ -835,7 +835,7 @@ export class CrewFeature {
 		const left = nv.fireState.douse( amount );
 		if ( left > 0 ) return;
 		// out: naval's own path stops the flames and says so
-		if ( typeof nv._fireOut === 'function' ) nv._fireOut( null, true );
+		if ( typeof nv.fireDoused === 'function' ) nv.fireDoused();
 		else if ( nv.fireState.extinguish ) nv.fireState.extinguish();
 		F.on = false;
 		this._say( 'fireOut', crew );

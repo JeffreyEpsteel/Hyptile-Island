@@ -433,6 +433,23 @@ the chute, stray and parked planes), StrongholdLink (host-authoritative Blackwat
 hostRequest / askHost), server messages plane / fort / ask with rate limits; the fort state does not survive a universe
 server restart yet.
 
+### Wave 19 (2026-10-15, root + 5 workers): crew lives, the navy, weather at sea, interiors, phones
+Asked for: "Continue your job" after a full reset. Briefs docs/briefs/w19-*.md, rules in w19-common.md.
+Landed: 19C crew (23019ea): seven traits, morale, four skills that grow, cook and lookout posts, the ship's day, crew fight
+fires and pump, brave hands join boardings, rate-limited banter, quitting at port, sailors for hire in each tavern (Hands
+tab). 19B navy + weather (d8e7414): Tidemark's frigate and two revenue cutters (brigantine / sloop GLBs in navy dress),
+escorts, AI vs AI broadsides with pirates, hail-then-board-or-fire, navy bounties on the board, standing gating the naval
+chandler, press gangs, convoys under attack, men overboard; storm fronts on the universe clock (cloud bank, rain curtain,
+squall gusts that heel boats and push planes, lightning, waterspouts, forecasts). 19E interiors (f6ea3f3): six rooms behind
+real doorways (Tide & Tankard, Marlow's chandlery, harbourmaster's office, the Rum Hole, the Upturned Keel, Ethena's
+store), a closer indoor camera, barkeeps / clerks on E, townsfolk inside, rain stays out, burning buildings eject.
+19A phones (6cf05a0): half-float terrain heights and shore field on phones, smaller shadows / character textures,
+townsfolk bodies per tier; phone GPU at home 354, Tidemark 377, Blackwater 382 MB (all under 387); wet sand band.
+Verified headless (the browser pane stopped drawing): Tidemark, home, Blackwater, the storm (the launch capsizing at full
+storm is the same on wave 18), all six interiors day / night with rain. Full npm test green. 19D Kimodo combat: pending.
+Open: optional phone headroom patches in docs/PERF.md (notice boards, far town meshes, flower boxes, stall textures);
+the frigate reuses the brigantine hull.
+
 ### Wave 18 (2026-10-14, root + 5 workers): visuals, way of life, city looks, weapons, animation library
 Asked for: improve all aspects of the visuals, the way of life and the looks of the cities, expand weaponry, continue the
 animations; Blender, BlenderKit and found assets allowed (permissive licences only, no logins). 18A visuals
