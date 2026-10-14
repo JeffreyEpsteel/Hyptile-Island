@@ -14,3 +14,6 @@ tools/*/logs/
 tools/roster/rocketbox/*.fbx
 tools/roster/retargeted/*.fbx
 tools/roster/__pycache__/
+
+# wave 18A: capture outputs (regenerate with tools/visuals/capture.mjs)
+tools/visuals/out/

@@ -149,7 +149,7 @@ fn skyMoonSky( dir: vec3f ) -> vec3f {
 	let cosA = dot( dir, skyParams.moonDir );
 	let ang = acos( clamp( cosA, -1.0, 1.0 ) );
 	let aureole = exp( ang * -14.0 ) * 2.4 + exp( ang * -2.5 ) * 0.9;
-	let grad = mix( 1.7, 1.0, sat( dir.y * 3.0 ) );
+	let grad = mix( 2.6, 1.0, sat( dir.y * 2.5 ) ); // (wave 18A: 1.7: a brighter horizon band, tree lines read against it)
 	let up = smoothstep( -0.05, 0.15, skyParams.moonDir.y );
 	return vec3f( 0.005, 0.0068, 0.0105 ) * ( grad + aureole ) * frame.night * up;
 }

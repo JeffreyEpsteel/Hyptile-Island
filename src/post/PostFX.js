@@ -13,6 +13,7 @@ import { TemporalUpscale } from './TemporalUpscale.js';
 import { LensDroplets } from './LensDroplets.js';
 import { LensFlare } from './LensFlare.js';
 import { MotionBlur } from './MotionBlur.js';
+import { GRADE_WGSL, gradeWeights } from './Grade.js';
 
 // full-screen passes overwrite every pixel: clear instead of load (no tile load of the old contents on
 // tile-based GPUs)
@@ -79,13 +80,19 @@ export class PostFX {
 			warmth: [ 'f32', 0.02 ],
 			grain: [ 'f32', 0.012 ],
 			sharpen: [ 'f32', 0.45 ], // RCAS strength (0 = off, 1 = strong)
+			// wave 18A: the time of day grade (Grade.js): its strength (0 = off) and the weights beginFrame sets from the sun
+			grade: [ 'f32', 1.0 ],
+			gradeGolden: [ 'f32', 0 ],
+			gradeNight: [ 'f32', 0 ],
+			nightBloom: [ 'f32', 1.6 ], // bloom x (1 + this) at night: lamps and windows glow
 		}, { label: 'post' } );
+		this.sunDir = sunDir; // the true sun (atmosphere.sunDir handle; frame.sunDir is the moon at night)
 		this.params = this.uniforms.fields;
 
 		// ---- auto exposure (eye adaptation), metered on the GPU from the 1/16 bloom level
 		this.aeUniforms = new UniformBlock( 'AutoExposureParams', {
 			enabled: [ 'f32', 1 ],
-			refLum: [ 'f32', 0.25 ], // scene average luminance that needs no correction
+			refLum: [ 'f32', 0.22 ], // scene average luminance that needs no correction (wave 18A: 0.25 clipped the noon sand)
 			min: [ 'f32', 0.6 ],
 			max: [ 'f32', 6.0 ],
 			up: [ 'f32', 1.6 ], // adaptation rates (1/s): brightening, darkening
@@ -443,7 +450,7 @@ ${ reduce }
 		// look like day), and at night at most one extra stop
 		let ratio = ae.refLum / avg;
 		let partial = select( ratio, pow( ratio, 0.8 ), ratio > 1.0 );
-		let tgt = clamp( partial, ae.min, mix( ae.max, 2.0, frame.night ) );
+		let tgt = clamp( partial, ae.min, mix( ae.max, 2.6, frame.night ) ); // (wave 18A: 2 -> 2.6, a readable night)
 		let cur = aeExposure[ 0 ];
 		let rate = select( ae.down, ae.up, tgt > cur );
 		let k = 1.0 - exp( - frame.dt * rate );
@@ -471,7 +478,7 @@ ${ reduce }
 				postHalf: { texture: () => this.half.texture },
 				postExposure: { storage: this.exposure, access: 'read' },
 			},
-			code: ACES + /* wgsl */`
+			code: ACES + GRADE_WGSL + /* wgsl */`
 fn tm( c: vec3f ) -> vec3f { return c / ( max( c.r, max( c.g, c.b ) ) + 1.0 ); }
 fn loadResolved( p: vec2i ) -> vec3f { return textureLoad( postResolved, p, 0 ).rgb; }
 
@@ -506,7 +513,7 @@ fn postHash( p: vec2u, f: u32 ) -> f32 {
 	return f32( x >> 8u ) / 16777216.0;
 }
 
-fn bloomAt( uv: vec2f ) -> vec3f { return textureSampleLevel( postBloom, smpLinearClamp, uv, 0.0 ).rgb * post.bloom; }
+fn bloomAt( uv: vec2f ) -> vec3f { return textureSampleLevel( postBloom, smpLinearClamp, uv, 0.0 ).rgb * ( post.bloom * ( 1.0 + post.nightBloom * post.gradeNight ) ); }
 
 fn lensSharp( uv: vec2f ) -> vec3f {
 	var c = mbApply( rcas( uv ), uv ) + bloomAt( uv );
@@ -518,6 +525,8 @@ fn lensBlurred( uv: vec2f ) -> vec3f { return textureSampleLevel( postHalf, smpL
 fn fragment( in: FSIn ) -> vec4f {
 	let uv = in.uv;
 	var c = lensDroplets( uv ) * postExposure[ 0 ];
+	// the time of day look (Grade.js), then the player's white balance / saturation / contrast
+	c = gradeApply( c, post.gradeGolden, post.gradeNight, post.grade );
 	// white balance nudge + saturation + contrast around mid grey (in linear HDR)
 	c = c * vec3f( 1.0 + post.warmth, 1.0, 1.0 - post.warmth );
 	let l = luminance( c );
@@ -638,6 +647,10 @@ fn fragment( in: FSIn ) -> vec4f {
 		}
 
 		this._resize();
+		// the grade's weights from the true sun and the night (Grade.js)
+		const gw = gradeWeights( this.sunDir && this.sunDir.value ? this.sunDir.value.y : 1, G.night.value );
+		this.params.gradeGolden.value = gw.golden;
+		this.params.gradeNight.value = gw.night;
 		const cam = this.camera;
 		cam.updateMatrixWorld();
 		if ( cam.matrixWorldInverse ) cam.matrixWorldInverse.copy( cam.matrixWorld ).invert();

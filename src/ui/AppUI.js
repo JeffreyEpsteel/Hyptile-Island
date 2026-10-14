@@ -269,6 +269,7 @@ export class AppUI {
 		post.addSlider( { label: t( 'set.contrast', 'Contrast' ), object: s, key: 'contrast', min: 0.8, max: 1.3, step: 0.01, onChange: ( v ) => { P.contrast.value = v; } } );
 		post.addSlider( { label: t( 'set.vignette', 'Vignette' ), object: s, key: 'vignette', min: 0, max: 1, step: 0.01, onChange: ( v ) => { P.vignette.value = v; } } );
 		post.addSlider( { label: t( 'set.film_grain', 'Film grain' ), object: s, key: 'grain', min: 0, max: 0.06, step: 0.001, onChange: ( v ) => { P.grain.value = v; } } );
+		if ( P.grade ) { s.grade = P.grade.value; post.addSlider( { label: t( 'set.grade', 'Time of day grade' ), object: s, key: 'grade', min: 0, max: 1, step: 0.05, onChange: ( v ) => { P.grade.value = v; } } ); } // wave 18A
 
 		// ---------------------------------------------------------------- Game (audio, the menu)
 		const game = ui.addTab( 'game', t( 'tab.game', 'Game' ), 'sound' );

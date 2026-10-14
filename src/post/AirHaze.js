@@ -45,7 +45,8 @@ const SS_DECAY = [ 0.9, 0.97, 1.0 ];
 const SS_GAIN = 3.5;
 
 // haze layers: sea level extinction (1/m) and scale height (m)
-const MARINE = { sigma: 1.5e-4, H: 110 };
+// (wave 18A: 1.5e-4 / 110 m -> 2.1e-4 / 130 m: the islands a few hundred metres off separate from the near shore)
+const MARINE = { sigma: 2.1e-4, H: 130 };
 const AEROSOL = { sigma: 3.2e-5, H: 1400 };
 
 const f = ( x ) => {
