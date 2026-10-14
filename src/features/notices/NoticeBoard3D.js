@@ -1,5 +1,5 @@
 import { Group, Mesh, Vector3, PlaneGeometry } from '../../engine/index.js';
-import { Texture } from '../../engine/gpu/Texture.js';
+import { Texture, capImage } from '../../engine/gpu/Texture.js';
 import { GPU } from '../../engine/gpu/GPU.js';
 import { generateMipmaps } from '../../engine/gpu/Mipmaps.js';
 import { prepare, mergePrepared, box, mat4 } from '../../world/boat/GeoKit.js';
@@ -95,6 +95,16 @@ export function noteSlot( i, port ) {
 }
 
 // RGBA pixels of the face for the given postings: { width, height, data: Uint8Array }
+// phones draw the boards at half size (3.1 -> 0.8 MB of GPU memory a board, wave 19A's headroom list)
+const boardPixels = ( postings, port ) => {
+
+	const px = drawBoardPixels( postings, port );
+	if ( ! globalThis.__phoneBudget ) return px;
+	const half = capImage( px, TEX_W / 2 );
+	return { ...half, canvas: px.canvas };
+
+};
+
 export function drawBoardPixels( postings, port = 'home' ) {
 
 	const cv = makeCanvas( TEX_W, TEX_H );
@@ -336,7 +346,8 @@ export class NoticeBoard3D {
 		frame.castShadow = true;
 
 		// the face texture exists from the start (the planks, no notes) so the material is complete
-		this.tex = new Texture( { label: `noticeBoard.${ port }`, width: TEX_W, height: TEX_H, format: 'rgba8unorm-srgb', mips: true, usage: [ 'sample', 'copyDst' ], data: drawBoardPixels( [], port ).data } );
+		const first = boardPixels( [], port );
+		this.tex = new Texture( { label: `noticeBoard.${ port }`, width: first.width, height: first.height, format: 'rgba8unorm-srgb', mips: true, usage: [ 'sample', 'copyDst' ], data: first.data } );
 		this.faceMaterial = standard( {
 			name: 'noticeBoardFace',
 			textures: { nbNotes: this.tex },
@@ -379,7 +390,7 @@ export class NoticeBoard3D {
 		const sig = this.port + '|' + postings.map( ( p ) => `${ p.id }:${ p.expires }:${ p.reward.money }` ).join( ',' );
 		if ( sig === this.sig ) return false;
 		this.sig = sig;
-		const px = drawBoardPixels( postings, this.port );
+		const px = boardPixels( postings, this.port );
 		this.canvas = px.canvas;
 		if ( GPU.device && this.tex.gpu ) {
 
