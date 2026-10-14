@@ -245,7 +245,7 @@ export class RemotePlayers {
 
 			if ( p.avatar ) {
 
-				p.avatar.visible = p.hasPose;
+				p.avatar.visible = p.hasPose && ! p.hiddenIndoor; // (wave 20E: inside a room you are not in)
 				if ( p.hasPose ) p.avatar.update( dt, p.pose );
 
 			}
@@ -577,7 +577,7 @@ export class RemotePlayers {
 
 		const tag = p.tag;
 		if ( ! tag ) return;
-		if ( ! p.hasPose || ! p.avatar || ! this.hud ) {
+		if ( ! p.hasPose || p.hiddenIndoor || ! p.avatar || ! this.hud ) {
 
 			tag.classList.add( 'is-hidden' );
 			return;

@@ -409,6 +409,47 @@ try {
 
 for ( const c of live ) try { c.ws.close(); } catch ( e ) { /* closed */ }
 await srv4.close();
+
+// ---- wave 20E: a navy hail goes from the host to its player alone; nobody else may hail
+{
+
+	const srv5 = startServer( { port: 0, host: '127.0.0.1', log: () => {} } );
+	const port5 = await srv5.ready;
+	const cs = [];
+	try {
+
+		const mk5 = async ( name ) => {
+
+			const c = client( `ws://127.0.0.1:${ port5 }/island` );
+			cs.push( c );
+			c.send( hello( name ) );
+			c.welcome = await c.next( 'welcome' );
+			return c;
+
+		};
+		const h = await mk5( 'Host' ), g = await mk5( 'Gus' ), k = await mk5( 'Kit' );
+		const isHail = ( m ) => m.t === 'event' && m.kind === 'navyHail';
+		h.send( { t: 'event', kind: 'navyHail', data: { to: g.welcome.id, say: 'board', ship: 'HMS Test', n: 7 } } );
+		const got = await g.next( isHail );
+		ok( got.data.to === g.welcome.id && got.data.n === 7 && got.from === h.welcome.id, "the host's navyHail reaches the player it names" );
+		await sleep( 300 );
+		ok( ! k.drain( isHail ).length, 'and nobody else' );
+		k.send( { t: 'event', kind: 'navyHail', data: { to: g.welcome.id, say: 'board', ship: 'Fake', n: 8 } } );
+		await sleep( 300 );
+		ok( ! g.drain( isHail ).length && ! h.drain( isHail ).length, 'a guest cannot hail anybody (only the host runs the navy)' );
+
+	} catch ( e ) {
+
+		fails ++;
+		console.log( 'FAIL', e && e.stack || e );
+
+	}
+
+	for ( const c of cs ) try { c.ws.close(); } catch ( e ) { /* closed */ }
+	await srv5.close();
+
+}
+
 clearTimeout( watchdog );
 if ( fails ) {
 

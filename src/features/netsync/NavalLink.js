@@ -3,7 +3,7 @@
 //
 //   const link = new NavalLink( sync );  link.update( dt );   // NetSync calls it every frame
 //   link.role              'solo' (offline) | 'host' | 'puppet'
-//   link.stats             { worldsOut, worldsIn, shotsOut, shotsIn, hitsOut, hitsIn }
+//   link.stats             { worldsOut, worldsIn, shotsOut, shotsIn, hitsOut, hitsIn, sinksOut, sinksIn }
 //
 // The naval feature (src/features/naval, another owner) can offer this API, and NavalLink uses whatever of it exists:
 //
@@ -30,12 +30,29 @@
 // Wave 11: naval.netRole mirrors the role. A shot carries its side and crew gunner (fx sd / c: the server's FireGate keys a
 // volley per side; a remote crew gunner gestures on the shooter's deck, CrewLink). On a puppet the hull collisions against the
 // host's ships are prediction only (pushed clear, no local impulse or damage): the host resolves them (HullLink 'bump').
+//
+// Wave 20E (the navy in multiplayer):
+//   puppets   a guest's naval runs no ships of its own for the host's fleet: a navy class or a navy feature's ship ('navy-' ids:
+//             its fleet, a convoy and its raiders) is refused on a puppet (naval.spawn throws there; NavalLink's own puppets
+//             pass), and a ball from another machine never takes hit points off a puppet (the host's hp is the truth: the
+//             guests used to sink a pirate the host still sailed). A ship's shot carries its owner's id, so on a guest the ball
+//             is that puppet's (her faction: a navy ball hits the pirate, not the frigate beside her).
+//   targets   on the host, a navy ship (s.navy with a wanted test) picks among the wanted boats only (an honest boat nearer to her
+//             neither shields the wanted one nor takes his hail), and a remote boat lying still with her skipper aboard is a
+//             target like the host's own (Naval's remote records ask for a helm or way on: a guest who hove to and stepped on
+//             deck was never boarded)
+//   sinkings  every sinking on the host reaches the guests (fx 'sink', by: the sinker's id, 'navy' when a navy ship fought her,
+//             or ''): they emit shipSunk { ..., byPlayer: false, remote: true, by, byNavy } (the navy's assist share, the
+//             pirates' ledger, the vfx), the sinker's own one byPlayer: true as before. A guest's kill applied on the host
+//             (onHit) is shipSunk { remote: true, by } there: the host takes no share of it.
 
 import { WORLD_HZ } from '../../net/Protocol.js';
+import { SHIP_CLASSES } from '../naval/ShipClasses.js';
 
 const SEND_EVERY = 1 / WORLD_HZ;
 const HIT_REACH = 480; // m between the reporting guest's boat and the ship it claims to have hit
 const PUPPET_STATES = new Set( [ 'sail', 'dock', 'flee', 'patrol', 'chase', 'broadside' ] );
+const ABOARD = new Set( [ 'boat', 'deck', 'seat' ] );
 
 const wrapPi = ( a ) => ( ( a + Math.PI ) % ( 2 * Math.PI ) + 2 * Math.PI ) % ( 2 * Math.PI ) - Math.PI;
 
@@ -45,12 +62,15 @@ export class NavalLink {
 
 		this.sync = sync;
 		this.role = 'solo';
-		this.stats = { worldsOut: 0, worldsIn: 0, shotsOut: 0, shotsIn: 0, hitsOut: 0, hitsIn: 0 };
+		this.stats = { worldsOut: 0, worldsIn: 0, shotsOut: 0, shotsIn: 0, hitsOut: 0, hitsIn: 0, sinksOut: 0, sinksIn: 0 };
 		this._acc = 0;
 		this._orig = null;
 		this._naval = null;
 		this._offs = [];
 		this._adopt = null; // a universe's stored ships waiting for the host role
+		this._own = false; // NavalLink itself is spawning a puppet (the puppet's spawn guard lets it through)
+		const f = sync.features;
+		this._sunkOff = f && f.on ? f.on( 'shipSunk', ( e ) => this._onSunk( e ) ) : null;
 
 	}
 
@@ -145,7 +165,12 @@ export class NavalLink {
 			this._clearShips( n ); // the local AI ships make way for the host's
 			this._patchPuppet( n );
 
-		} else if ( prev === 'puppet' ) this._clearShips( n ); // promoted: the host's own sim starts afresh
+		} else {
+
+			if ( prev === 'puppet' ) this._clearShips( n ); // promoted: the host's own sim starts afresh
+			this._patchHost( n );
+
+		}
 
 	}
 
@@ -254,7 +279,9 @@ export class NavalLink {
 		if ( m.kind === 'shot' && Array.isArray( m.from ) && Array.isArray( m.dir ) ) {
 
 			this.stats.shotsIn ++;
-			const info = { owner: 'remote:' + m.id, shooter: m.o, damage: m.d || 0, big: !! m.big, faction: m.o === 'player' ? 'player' : 'pirate' };
+			// a ship's ball is that puppet's (her own hull and her own side are never hit); a player's is the shooter's
+			const ship = m.o && m.o !== 'player' ? ( n.ships || [] ).find( ( x ) => x.id === m.o ) : null;
+			const info = { owner: ship ? ship.id : 'remote:' + m.id, shooter: m.o, damage: m.d || 0, big: !! m.big, faction: m.o === 'player' ? 'player' : ship && ship.faction ? ship.faction : 'pirate' };
 			if ( typeof n.remoteShot === 'function' ) n.remoteShot( m.from, m.dir, m.v, info );
 			else this._remoteShot( n, m, info );
 			if ( m.c && this.sync.crew ) this.sync.crew.fired( m.id, m.c );
@@ -268,6 +295,19 @@ export class NavalLink {
 
 				f.emit( 'shipSunk', { id: s.id, name: s.name, faction: s.faction, x: s.x, z: s.z, byPlayer: true, kind: s.kind, loot: 0 } );
 				if ( s.faction === 'pirate' ) f.emit( 'enemyDefeated', { id: s.id, name: s.captain || s.name, kind: 'pirate' } );
+
+			}
+
+		} else if ( m.kind === 'sink' && net ) {
+
+			// somebody else's sinking (the host's guns, the navy's, another guest's): everybody hears of it once
+			const s = ( n.ships || [] ).find( ( x ) => x.id === m.ship );
+			const f = this.sync.features;
+			if ( s && f && f.emit && ! s.netSunk ) {
+
+				s.netSunk = true;
+				this.stats.sinksIn ++;
+				f.emit( 'shipSunk', { id: s.id, name: s.name, faction: s.faction, x: s.x, z: s.z, byPlayer: false, kind: s.kind, loot: 0, remote: true, by: m.by || null, byNavy: m.by === 'navy' } );
 
 			}
 
@@ -295,12 +335,59 @@ export class NavalLink {
 			const sunk = ship.damage( dmg, { part: m.part === 'rigging' ? 'rigging' : 'hull', by: 'player' } );
 			if ( n.fx ) n.fx.hit( ship.x, ( ship.pose ? ship.pose.y : 0 ) + 1, ship.z );
 			if ( n.audio ) n.audio.impact( ship.x, 2, ship.z, 0.9 );
-			if ( sunk && n._onSunk ) n._onSunk( ship, false );
+			if ( sunk && n._onSunk ) this._sinkFor( n, ship, m.from );
 			r = { found: true, sunk };
 
 		}
 
 		if ( r && r.sunk ) net.sendFx( { kind: 'sink', ship: ship.id, by: m.from, x: ship.x, z: ship.z } );
+
+	}
+
+	// host: naval's sinking of a ship a guest's report sank, with her shipSunk marked { remote: true, by } (it is the guest's
+	// kill: the host's navy pays no share of it, its quests count nothing)
+	_sinkFor( n, ship, from ) {
+
+		const f = this.sync.features;
+		const emit = f && f.emit, own = !! f && Object.prototype.hasOwnProperty.call( f, 'emit' );
+		if ( emit ) f.emit = function ( type, e ) { return emit.call( this, type, type === 'shipSunk' && e && e.id === ship.id ? { ...e, remote: true, by: from || null } : e ); };
+		try {
+
+			n._onSunk( ship, false );
+
+		} finally {
+
+			if ( emit ) {
+
+				if ( own ) f.emit = emit;
+				else delete f.emit;
+
+			}
+
+		}
+
+	}
+
+	// host: a sinking here (not a guest's: those went out in onHit) goes to everybody: by the host's guns, the navy's, or nobody's
+	_onSunk( e ) {
+
+		const net = this.net;
+		if ( this.role !== 'host' || ! net || ! net.online || ! net.peers.size || ! e || e.remote || typeof e.id !== 'string' ) return;
+		const by = e.byPlayer ? net.id : this._navyFought( e.id ) ? 'navy' : '';
+		const fx = { kind: 'sink', ship: e.id, by };
+		if ( Number.isFinite( e.x ) && Number.isFinite( e.z ) ) { fx.x = e.x; fx.z = e.z; }
+		net.sendFx( fx );
+		this.stats.sinksOut ++;
+
+	}
+
+	// a navy ship had her as her foe (the navy feature's orders)
+	_navyFought( id ) {
+
+		const f = this.sync.features, navy = f && f.get ? f.get( 'navy' ) : null;
+		if ( ! navy || ! navy.ships || typeof navy.ships.values !== 'function' ) return false;
+		for ( const s of navy.ships.values() ) if ( s && s.navy && s.navy.foe && s.navy.foe.id === id ) return true;
+		return false;
 
 	}
 
@@ -336,6 +423,21 @@ export class NavalLink {
 
 		const link = this;
 		this._orig = { fire: n.world ? n.world.fire : null, escape: n.world ? n.world.escape : null };
+		// the host runs the navy: its fleet, convoys and raiders are never spawned on a puppet (the navy feature asks naval.active,
+		// which a puppet keeps for its balls and puppets)
+		const spawn = n.spawn;
+		if ( typeof spawn === 'function' ) {
+
+			n.spawn = function ( kind, o = {} ) {
+
+				const cls = SHIP_CLASSES[ kind ];
+				if ( ! link._own && ( ( cls && cls.navy ) || ( o && typeof o.id === 'string' && o.id.startsWith( 'navy-' ) ) ) ) throw new Error( 'NavalLink: the room\'s host runs the navy' );
+				return spawn.call( this, kind, o );
+
+			};
+
+		}
+
 		n._manage = () => {};
 		n._spawnBounty = () => null;
 		if ( n.world ) {
@@ -389,11 +491,65 @@ export class NavalLink {
 
 			}
 
-			if ( ball.damage > 0 || ! ship.puppet ) return origHit.call( this, ball, ship, part, pt );
+			// another machine's ball on a host's ship: shown, never applied (the host applies it; its hp comes in the next world)
+			if ( ! ship.puppet ) return origHit.call( this, ball, ship, part, pt );
 			this.fx.hit( pt.x, pt.y, pt.z );
-			this.audio.impact( pt.x, pt.y, pt.z, 0.6 );
+			this.audio.impact( pt.x, pt.y, pt.z, ball.damage > 0 ? 0.9 : 0.6 );
 
 		};
+
+	}
+
+	// the host's targets (wave 20E): a navy ship weighs the wanted boats only; a still remote boat with her skipper aboard counts
+	_patchHost( n ) {
+
+		if ( typeof n._targetFor === 'function' && ! Object.prototype.hasOwnProperty.call( n, '_targetFor' ) ) {
+
+			const pick = n._targetFor;
+			n._targetFor = function ( s ) {
+
+				const o = s && s.navy, list = this._targets;
+				if ( ! o || typeof o.wanted !== 'function' || ! Array.isArray( list ) || list.length < 2 ) return pick.call( this, s );
+				const all = list.slice();
+				list.length = 0;
+				for ( const t of all ) if ( o.wanted( t ) ) list.push( t );
+				if ( ! list.length ) list.push( ...all ); // (nobody wanted: as before; she hails nobody)
+				try {
+
+					return pick.call( this, s );
+
+				} finally {
+
+					list.length = 0;
+					list.push( ...all );
+
+				}
+
+			};
+
+		}
+
+		if ( typeof n._gatherTargets === 'function' && ! Object.prototype.hasOwnProperty.call( n, '_gatherTargets' ) ) {
+
+			const gather = n._gatherTargets;
+			n._gatherTargets = function ( dt ) {
+
+				gather.call( this, dt );
+				const rp = this.app && this.app.remotePlayers;
+				if ( ! rp || ! rp.peers || ! this._remote || ! Array.isArray( this._targets ) ) return;
+				for ( const [ id, t ] of this._remote ) {
+
+					if ( t.ok || t.safe ) continue;
+					const p = rp.peers.get( id );
+					if ( ! p || p.riding || ! p.pose || ! ABOARD.has( p.pose.mode ) || ! p.boatState ) continue;
+					t.ok = true; // (hove to with her skipper on deck: a target, as the host's own boat would be)
+					this._targets.push( t );
+
+				}
+
+			};
+
+		}
 
 	}
 
@@ -407,6 +563,9 @@ export class NavalLink {
 		delete n._spawnBounty;
 		delete n._shipHit;
 		delete n._collide;
+		delete n.spawn;
+		delete n._targetFor;
+		delete n._gatherTargets;
 		if ( n.world && this._orig ) {
 
 			if ( this._orig.fire ) n.world.fire = this._orig.fire;
@@ -474,11 +633,16 @@ export class NavalLink {
 				if ( w.st === 'sinking' || w.st === 'gone' ) continue; // do not raise the dead
 				try {
 
+					this._own = true;
 					s = n.spawn( w.k, { id: w.id, name: w.n || undefined, x: w.x, z: w.z, yaw: w.y, speed: w.s, hp: w.hp } );
 
 				} catch ( e ) {
 
 					continue; // a class this build does not have
+
+				} finally {
+
+					this._own = false;
 
 				}
 
@@ -548,6 +712,8 @@ export class NavalLink {
 
 		for ( const off of this._offs ) off();
 		this._offs.length = 0;
+		if ( this._sunkOff ) this._sunkOff();
+		this._sunkOff = null;
 		this._unpatch( this._naval );
 		if ( this._naval ) this._naval.netHooks = null;
 		this._naval = null;

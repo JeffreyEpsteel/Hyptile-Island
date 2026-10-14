@@ -979,7 +979,7 @@ export class CrewFeature {
 
 	hireables( port ) {
 
-		return sailorsFor( port, this._week() ).filter( ( s ) => ! this.crew.sailors.has( s.id ) && ! this.crew.gone.has( s.id ) );
+		return sailorsFor( port, this._week() ).filter( ( s ) => ! this.crew.sailors.has( s.id ) && ! this.crew.gone.has( s.id ) && ! this.app.netsync?.handTaken?.( s.id ) );
 
 	}
 

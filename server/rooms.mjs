@@ -836,6 +836,15 @@ export function makeRooms( ctx ) {
 			}
 
 			const at = Date.now();
+			if ( e.kind === 'navyHail' ) {
+
+				// wave 20E: the host's navy hails one player: to him alone (never stored; the host resends until he says he heard)
+				const to = typeof e.data.to === 'string' ? this.order.get( e.data.to ) : null;
+				if ( this.state.host === c.id && to && to !== c ) this.tell( to, 'event', { kind: e.kind, data: e.data, from: c.id, at } );
+				return;
+
+			}
+
 			this.broadcastExcept( 'event', { kind: e.kind, data: e.data, from: c.id, at }, c );
 			if ( ! this.uni ) return;
 			if ( e.kind === 'propsRespawned' ) {

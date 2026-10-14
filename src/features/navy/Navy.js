@@ -542,12 +542,12 @@ export class Navy {
 
 	_onSunk( e ) {
 
-		if ( e.remote ) return;
+		if ( e.remote && ! e.byNavy ) return;
 		if ( e.faction === 'pirate' ) {
 
 			const assisted = this._assist.has( e.id ) && this.time - this._assist.get( e.id ) < BOUNTY.assist;
 			this._assist.delete( e.id );
-			const byNavy = [ ...this.ships.values() ].some( ( s ) => s.navy && s.navy.foe && s.navy.foe.id === e.id );
+			const byNavy = e.byNavy === true || [ ...this.ships.values() ].some( ( s ) => s.navy && s.navy.foe && s.navy.foe.id === e.id );
 			if ( byNavy && ! e.byPlayer ) this.stats.navyKills ++;
 			if ( ! e.byPlayer && ! ( assisted && byNavy ) ) return;
 			const pr = this.get( 'pirates' );

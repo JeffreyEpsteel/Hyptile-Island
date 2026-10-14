@@ -42,6 +42,9 @@ export const NEW_CAPTAINS_PER_HOUR = 5; // per address
 // wave 16D: a stolen hull sold to Blackwater's fence ('stolenSold' { hull, price }) is priced by the server from her hull
 // (hijack/Rules.js fencePrice: a brigantine fetches more than REWARD_MAX), never from the client's number alone
 export const CREDIT_MAX = Math.max( REWARD_MAX * 3, fencePrice( 'brigantine' ) + REWARD_MAX );
+// the kinds Protocol.WORLD_EVENT_RULES persists, plus the universe's own: wave 20E, a tavern hand one captain signed on is not
+// offered to another for a week of island days (40-minute days: ~5 h; the hand's id names his port and week)
+export const EVENT_RULES = { ...WORLD_EVENT_RULES, handHired: { key: 'id', ttl: 5 * 3600 } };
 
 const sha256 = ( s ) => createHash( 'sha256' ).update( s ).digest( 'hex' );
 const fin = ( v ) => typeof v === 'number' && Number.isFinite( v );
@@ -467,13 +470,13 @@ export class Universe {
 
 	// ---- world events
 
-	// relayed by a captain (or a guest of a crew room: key null): persisted when WORLD_EVENT_RULES knows the kind; a numeric
+	// relayed by a captain (or a guest of a crew room: key null): persisted when EVENT_RULES knows the kind; a numeric
 	// data.reward explains that much money in the captain's next save
 	recordEvent( key, from, kind, data, now = this.now() ) {
 
 		const reward = rewardFor( kind, data );
 		if ( key && reward > 0 ) this.credits.set( key, Math.min( ( this.credits.get( key ) || 0 ) + reward, CREDIT_MAX ) );
-		const rule = WORLD_EVENT_RULES[ kind ];
+		const rule = EVENT_RULES[ kind ];
 		if ( ! rule ) return false;
 		const id = data ? data[ rule.key ] : undefined;
 		if ( typeof id !== 'string' && ! fin( id ) ) return false;
@@ -519,7 +522,7 @@ export class Universe {
 			if ( e.until > now ) continue;
 			delete ev[ k ];
 			this.dirty = true;
-			const rule = WORLD_EVENT_RULES[ e.kind ];
+			const rule = EVENT_RULES[ e.kind ];
 			if ( ! rule || ! rule.expire ) continue;
 			const data = { [ rule.key ]: e.data[ rule.key ] };
 			for ( const f of rule.carry || [] ) if ( e.data[ f ] !== undefined ) data[ f ] = e.data[ f ]; // (a prop's respawn names its port)

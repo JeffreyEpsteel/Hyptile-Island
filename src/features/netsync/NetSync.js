@@ -55,6 +55,17 @@
 //                               -> features 'hostRequest' { kind, data, from, local } on the host (a raid only the host spawns)
 // Wave 16A: sync.rescue (RescueLink.js) a guest's rescue launch rides its state (rl) and the others draw it; the boats a player
 //                               left moored (hijack.left, state lb) join the moored list (sync.moored 'left:<peer>:<n>').
+// Wave 20E, the wave 19 features for everybody in the room:
+//   sync.law    (NavyLink.js)   each player's wanted / hostile mark rides his state (nw) into every navy's book; the host's hails
+//                               go to their player alone, numbered and resent until acknowledged (a reconnect mid-hail fines once).
+//                               The navy's 'navyWanted' world events are not sent (the state says it); 'navyHail' goes through here.
+//   sync.rooms  (InteriorLink.js) players inside a room are hidden from those outside it (peer.hiddenIndoor); a tavern hand hired
+//                               by one player is not offered to another: sync.handTaken( id ) (world event 'handHired').
+//   the crew    (CrewLink.js)   cooks, lookouts and tavern hands with their activity, as one compact string
+//   the navy    (NavalLink.js)  no navy of its own on a guest, no local damage to the host's ships, every sinking for everybody
+//   weather     the weather's clock is put on the server's time (weather.now minus net.serverOffset): a skewed computer clock
+//               no longer moves the storm fronts and their lightning (Fronts.js is a function of the island hour)
+//   sync.id     the local player's id in the room (null offline): the hijack feature names the taker with it
 
 import { BOATS } from '../../game/Boats.js';
 import { CrewPanel } from './CrewPanel.js';
@@ -66,10 +77,13 @@ import { PlaneLink } from './PlaneLink.js';
 import { StrongholdLink } from './StrongholdLink.js';
 import { TownLink } from './TownLink.js';
 import { RescueLink } from './RescueLink.js';
+import { NavyLink } from './NavyLink.js';
+import { InteriorLink } from './InteriorLink.js';
 import { crewCodeFromLocation } from '../../net/NetClient.js';
 import { crewUrl } from '../../net/Protocol.js';
 
 const SLOW = 2.5; // m/s: a boat this slow can be boarded
+const HV_STEP = { v: 0.4, w: 0.06 }; // m/s, rad/s: a change of way worth a new hv (collisions judge closing speeds in m/s)
 const HEAVE = 6; // m: the E radius around a rideable boat's origin, plus half its length
 
 const rotate = ( q, x, y, z, out ) => {
@@ -103,6 +117,9 @@ export class NetSync {
 		this.fort = new StrongholdLink( this );
 		this.town = new TownLink( this );
 		this.rescue = new RescueLink( this ); // (wave 16A: a guest's rescue launch, the boats left moored)
+		this.law = new NavyLink( this ); // (wave 20E: wanted marks, hails)
+		this.rooms = new InteriorLink( this ); // (wave 20E: interiors, tavern hands)
+		this._clock = null; // { weather, now }: the weather's own clock while it runs on the server's time
 		this.panel = null;
 		this._offs = [];
 		this._speeds = new Map(); // peer id -> { x, z, t, v }: boat speed from the interpolated transform
@@ -143,6 +160,20 @@ export class NetSync {
 	get crewCode() {
 
 		return this.net ? this.net.crewCode : null;
+
+	}
+
+	// the local player's id in the room (null offline)
+	get id() {
+
+		return this.net && this.net.online ? this.net.id : null;
+
+	}
+
+	// a tavern hand who signed on with another player's ship (InteriorLink)
+	handTaken( id ) {
+
+		return this.rooms.handTaken( id );
 
 	}
 
@@ -192,6 +223,9 @@ export class NetSync {
 		if ( ! net || ! net.online || ! net.sendEvent ) return false;
 		// a wreck is an entry of the room's state now (WreckLink): the naval feature's events stay home
 		if ( ( kind === 'wreck' || kind === 'wreckSalvaged' ) && this.wrecks.supported ) return true;
+		// the wanted mark rides the state (nw, NavyLink); a hail is numbered, addressed and resent until acknowledged
+		if ( kind === 'navyWanted' ) return true;
+		if ( kind === 'navyHail' ) return this.law.sendHail( data );
 		return net.sendEvent( kind, data );
 
 	}
@@ -247,6 +281,9 @@ export class NetSync {
 		}
 
 		const data = m.data && typeof m.data === 'object' ? m.data : {};
+		// a hail for somebody else, or one we have heard already (a resend): nobody here hears it
+		if ( m.kind === 'navyHail' && ! this.law.accept( m ) ) return;
+		if ( m.kind === 'handHired' ) this.rooms.onEvent( m.kind, data );
 		if ( m.kind === 'boatMoored' && typeof data.captain === 'string' ) {
 
 			this.moored.set( data.captain, data );
@@ -678,6 +715,7 @@ export class NetSync {
 			// aboard her own boat: its way, mass and hull for the host's collisions; the posted crew for the others' decks
 			this._hullState( s );
 			try { this.crew.decorate( s ); } catch ( e ) { /* optional */ }
+			try { this.law.decorate( s ); } catch ( e ) { /* optional */ }
 			return s;
 
 		}
@@ -690,6 +728,7 @@ export class NetSync {
 
 		}
 
+		try { this.law.decorate( s ); } catch ( e ) { /* optional */ }
 		s.mode = 'ride';
 		s.ride = this.riding.host;
 		s.seat = this.riding.seat;
@@ -702,7 +741,9 @@ export class NetSync {
 
 	}
 
-	// hv: [ vx, vz, yaw rate, mass, max hull ] of the local boat (HullLink on the host reads it)
+	// hv: [ vx, vz, yaw rate, mass, max hull ] of the local boat (HullLink on the host reads it). Wave 20E: the last sent one is
+	// kept until the way changes by HV_STEP (or the mass / hull do): the state's extras then stay the same string between real
+	// changes and the room's patches leave them out (a boat on a steady course used to resend all its extras 15 times a second)
 	_hullState( s ) {
 
 		const b = this.app.boatCtl;
@@ -710,8 +751,12 @@ export class NetSync {
 		const n = this.features && this.features.get ? this.features.get( 'naval' ) : null;
 		const spec = BOATS[ s.boat.id ];
 		const r1 = ( v ) => Math.round( ( Number.isFinite( v ) ? v : 0 ) * 10 ) / 10;
-		s.hv = [ r1( b.velocity.x ), r1( b.velocity.z ), Math.round( ( b.angular ? b.angular.y : 0 ) * 100 ) / 100 || 0,
-			Math.round( b.mass || ( spec ? spec.mass : 0 ) || 0 ), Math.round( n && n.playerHull ? n.playerHull.max : 0 ) ];
+		const vx = r1( b.velocity.x ), vz = r1( b.velocity.z ), w = Math.round( ( b.angular ? b.angular.y : 0 ) * 100 ) / 100 || 0;
+		const mass = Math.round( b.mass || ( spec ? spec.mass : 0 ) || 0 ), hp = Math.round( n && n.playerHull ? n.playerHull.max : 0 );
+		const last = this._hv;
+		if ( ! last || last[ 3 ] !== mass || last[ 4 ] !== hp || Math.abs( last[ 0 ] - vx ) >= HV_STEP.v || Math.abs( last[ 1 ] - vz ) >= HV_STEP.v || Math.abs( last[ 2 ] - w ) >= HV_STEP.w
+			|| ( ( vx || vz || w ) === 0 ) !== ( ( last[ 0 ] || last[ 1 ] || last[ 2 ] ) === 0 ) ) this._hv = [ vx, vz, w, mass, hp ];
+		s.hv = this._hv;
 
 	}
 
@@ -801,6 +846,7 @@ export class NetSync {
 		this.town.bind( net );
 		this.rescue.bind( net );
 		this.crew.clear();
+		this.law.clear();
 		if ( ! net ) {
 
 			this.universe = null;
@@ -873,6 +919,9 @@ export class NetSync {
 		this.fort.update( dt );
 		this.town.update( dt );
 		this.rescue.update( dt );
+		this.law.update( dt );
+		this.rooms.update( dt );
+		this._serverClock();
 		this._updateMarket( dt );
 		if ( net && net.universe ) {
 
@@ -889,8 +938,33 @@ export class NetSync {
 
 	}
 
+	// the weather on the server's time: Weather._time reads the clock message's `at` (the server's Date.now()) against its own
+	// now(); a computer clock 30 s off put every front 30 s of island time (330 m) off the others'. Its now() becomes the
+	// server's (net.serverOffset, smoothed from the pongs) while online, and its own again offline.
+	_serverClock() {
+
+		const f = this.features, w = f && f.get ? f.get( 'weather' ) : null;
+		const net = this.net, c = this._clock;
+		const on = !! ( w && typeof w.now === 'function' && net && net.online );
+		if ( c && ( ! on || c.weather !== w ) ) {
+
+			if ( c.weather && c.weather.now === c.fn ) c.weather.now = c.now;
+			this._clock = null;
+
+		}
+
+		if ( ! on || this._clock ) return;
+		const now = w.now;
+		const fn = () => now.call( w ) - ( this.net && Number.isFinite( this.net.serverOffset ) ? this.net.serverOffset : 0 );
+		w.now = fn;
+		this._clock = { weather: w, now, fn };
+
+	}
+
 	dispose() {
 
+		if ( this._clock && this._clock.weather.now === this._clock.fn ) this._clock.weather.now = this._clock.now;
+		this._clock = null;
 		for ( const off of this._offs ) off();
 		this._offs.length = 0;
 		if ( this._market.off ) this._market.off();
@@ -904,6 +978,8 @@ export class NetSync {
 		this.fort.dispose();
 		this.town.dispose();
 		this.rescue.dispose();
+		this.rooms.clear();
+		this.rooms.dispose();
 		if ( this.panel ) this.panel.dispose();
 		this.panel = null;
 		this.net = null;
