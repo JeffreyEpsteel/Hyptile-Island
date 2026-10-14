@@ -7,6 +7,7 @@ import { resolveShot } from './Hitscan.js';
 import { GunAudio } from './GunAudio.js';
 import { WeaponMesh } from './WeaponMesh.js';
 import { GunHud, coneToPx } from './GunHud.js';
+import { gunPoses } from './GunPose.js';
 
 // Firearms (wave 9B): a flintlock pistol and a musket bought from Ethena Prosper at the chandlery, fired at raiders, boarding
 // crews, pirate decks and breakable props. One ball a load; powder and ball come in cartridge pouches (consumable).
@@ -193,6 +194,41 @@ export class Firearms {
 
 	}
 
+	// the gun poses built on the local avatar's rig (GunPose.js), or null (a rig without them: the rod-hold overlay carries the arms)
+	_poses() {
+
+		const av = this.app.avatar;
+		return av && av.model ? gunPoses( av ) : null;
+
+	}
+
+	// the arms while drawn (wave 17B): the aim pose of the drawn gun as an upper-body loop over the locomotion, started again
+	// after the fire / reload one-shots and anything else that took the overlay (an emote); dropped when holstered
+	_aimPose() {
+
+		const av = this.app.avatar, gp = this._poses();
+		const want = this.drawn && gp && this.sel && this.phase !== 'reloading' ? gp.aim[ this.sel ] : null;
+		const h = this._aimH;
+		if ( h && ( ! want || h.clip !== want ) ) {
+
+			if ( h.handle.playing ) try { h.handle.stop( 0.2 ); } catch ( e ) { /* gone */ }
+			this._aimH = null;
+
+		}
+
+		if ( ! want || ( this._aimH && this._aimH.handle.playing ) ) return;
+		this._aimH = null;
+		const g = av && av.graph;
+		if ( g && g.upperBusy ) return; // a one-shot (the shot, the reload, an emote) owns the arms: back after it
+		try {
+
+			const handle = av.playMontage( want, { slot: 'upper', loop: true, blendIn: 0.15, blendOut: 0.2 } );
+			if ( handle && handle.playing !== false ) this._aimH = { clip: want, handle };
+
+		} catch ( e ) { /* optional */ }
+
+	}
+
 	_montage( name, fallback, opts ) {
 
 		const av = this.app.avatar;
@@ -324,7 +360,9 @@ export class Firearms {
 		this.aiming = false;
 		this.sched.length = 0;
 		for ( const [ f, kind ] of RELOAD_CUES ) this.sched.push( { t: f * w.reload, fn: () => this.audio.click( kind, { gain: 0.7 } ) } );
-		this.lastMontage = this._montage( 'reload', 'inspect', { slot: 'upper', blendIn: 0.12, blendOut: 0.2 } );
+		// the gun down at the waist and the ramrod (GunPose.js, timed to the reload), else the older shoot / inspect montages
+		const gp = this._poses();
+		this.lastMontage = gp ? this._montage( gp.reload, 'inspect', { slot: 'upper', rate: 1 / w.reload, blendIn: 0.12, blendOut: 0.2 } ) : this._montage( 'reload', 'inspect', { slot: 'upper', blendIn: 0.12, blendOut: 0.2 } );
 		return true;
 
 	}
@@ -662,7 +700,8 @@ export class Firearms {
 		this.audio.report( w.report, { gain: 1 } );
 		const cf = this.app.cameraFeel;
 		if ( cf && cf.kick ) try { cf.kick( 'recoil', { scale: w.kick } ); } catch ( e ) { /* optional */ }
-		this.lastMontage = this._montage( 'shoot', 'strike', { slot: 'upper', rate: 1.6, blendIn: 0.03, blendOut: 0.2 } );
+		const gp = this._poses();
+		this.lastMontage = gp ? this._montage( gp.fire[ w.id ] || gp.fire.pistol, 'strike', { slot: 'upper', blendIn: 0.03, blendOut: 0.1 } ) : this._montage( 'shoot', 'strike', { slot: 'upper', rate: 1.6, blendIn: 0.03, blendOut: 0.2 } );
 		this.emit( 'gunFired', { weapon: w.id, x: mz.x, y: mz.y, z: mz.z, dir: { x: dir.x, y: dir.y, z: dir.z }, by: 'player' } );
 		const ns = this.app.netsync;
 		const r2 = ( v ) => Math.round( v * 100 ) / 100;
@@ -812,6 +851,7 @@ export class Firearms {
 
 		this._pace( w, dt );
 		this._zoom( dt, w );
+		this._aimPose();
 		this._placeMesh();
 		this._hud( dt, w );
 
@@ -928,7 +968,9 @@ export class Firearms {
 
 		}
 
-		this.mesh.update( { kind: this.sel, visible: this.drawn, anchor, camera: this.app.camera, recoil: this.recoil } );
+		// with the gun poses the barrel sits straight ahead in the aim (GunPose hold), else the rod-hold pitch (WeaponMesh.HOLD)
+		const gp = anchor ? this._poses() : null;
+		this.mesh.update( { kind: this.sel, visible: this.drawn, anchor, camera: this.app.camera, recoil: this.recoil, hold: gp && this.sel ? gp.hold[ this.sel ] : null } );
 
 	}
 

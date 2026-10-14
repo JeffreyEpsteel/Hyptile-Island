@@ -30,6 +30,15 @@ const GUARD = {
 	spine_01: [ [ 'x', 6 ] ], spine_02: [ [ 'x', 4 ] ], head: [ [ 'x', 6 ] ], hand_l: [ [ 'x', - 25 ] ], hand_r: [ [ 'x', - 25 ] ],
 	reach: { l: [ 0.09, 1.11, 0.27, 0.5, - 1, - 0.2 ], r: [ - 0.09, 1.09, 0.27, - 0.5, - 1, - 0.2 ] },
 };
+// wave 17B: under the canopy (hands up on the risers, wide of the big head, legs hanging together with a slow swing), rowing
+// and paddling on the seated take (the roster's Row_* / Paddle_* loops start and end on the bind pose), the pull-up out of the water
+const HANG = ( s ) => ( { thigh_l: [ [ 'x', - 14 - s ] ], thigh_r: [ [ 'x', - 14 + s ] ], calf_l: [ [ 'x', 16 + s ] ], calf_r: [ [ 'x', 16 - s ] ], spine_01: [ [ 'x', - 4 ] ], head: [ [ 'x', - 8 ] ],
+	reach: { l: [ 0.44, 1.3, 0.02, 1, - 0.4, - 0.3 ], r: [ - 0.44, 1.3, 0.02, - 1, - 0.4, - 0.3 ] } } );
+const CATCH = { spine_01: [ [ 'x', 18 ] ], head: [ [ 'x', - 12 ] ], reach: { l: [ 0.22, 0.6, 0.42, 1, - 0.3, 0 ], r: [ - 0.22, 0.6, 0.42, - 1, - 0.3, 0 ] } };
+const FINISH = { spine_01: [ [ 'x', - 12 ] ], head: [ [ 'x', 8 ] ], reach: { l: [ 0.22, 0.66, 0.1, 1, - 0.2, - 1 ], r: [ - 0.22, 0.66, 0.1, - 1, - 0.2, - 1 ] } };
+// side 1: the paddle on the left (+X); phase 0 the catch ahead, 1 the blade out by the hip
+const PAD = ( side, phase ) => ( { spine_02: [ [ 'y', side * ( 22 - 34 * phase ) ] ], spine_01: [ [ 'x', 10 - 6 * phase ] ], reach: {
+	[ side > 0 ? 'r' : 'l' ]: [ - side * 0.05, 0.72, 0.34 - 0.12 * phase, - side, - 0.5, 0 ], [ side > 0 ? 'l' : 'r' ]: [ side * 0.32, 0.42, 0.4 - 0.38 * phase, side, - 0.3, - 0.3 ] } } );
 const mix = ( a, b ) => {
 
 	const o = { ...a };
@@ -98,10 +107,28 @@ export default {
 			{ t: 0.09, ease: 'out', pose: { pelvis: [ - 0.05, - 0.02, 0 ], spine_01: [ [ 'y', 12 ], [ 'z', 8 ] ], spine_02: [ [ 'y', 8 ], [ 'z', 6 ] ], head: [ [ 'z', 12 ], [ 'y', - 10 ] ], upperarm_l: [ [ 'z', 20 ] ], upperarm_r: [ [ 'z', - 12 ] ] } },
 			{ t: 0.55, pose: {} },
 		] },
+		// in the air: the Kimodo jump's airborne frame (1.05 s: arms up and out, knees bent, feet off) with an alternating flail;
+		// the roster's Fall_Loop holds an arms-out bind-like pose and the Kimodo fall take lies on its back
+		Fall_Air: { base: 'Jump', baseTime: 1.05, keys: [
+			{ t: 0, pose: {} },
+			{ t: 0.35, pose: { upperarm_l: [ [ 'z', 14 ] ], upperarm_r: [ [ 'z', - 8 ] ], lowerarm_l: [ [ 'x', - 10 ] ], thigh_l: [ [ 'x', - 12 ] ], calf_l: [ [ 'x', 16 ] ], spine_01: [ [ 'x', - 4 ] ], head: [ [ 'x', - 5 ] ] } },
+			{ t: 0.7, pose: { upperarm_l: [ [ 'z', - 8 ] ], upperarm_r: [ [ 'z', 14 ] ], lowerarm_r: [ [ 'x', - 10 ] ], thigh_r: [ [ 'x', - 12 ] ], calf_r: [ [ 'x', 16 ] ], spine_01: [ [ 'x', 3 ] ], head: [ [ 'x', 3 ] ] } },
+			{ t: 1.05, pose: {} },
+		] },
 		Hit_Right: { base: 'Idle_Breathe', keys: [
 			{ t: 0, pose: {} },
 			{ t: 0.09, ease: 'out', pose: { pelvis: [ 0.05, - 0.02, 0 ], spine_01: [ [ 'y', - 12 ], [ 'z', - 8 ] ], spine_02: [ [ 'y', - 8 ], [ 'z', - 6 ] ], head: [ [ 'z', - 12 ], [ 'y', 10 ] ], upperarm_r: [ [ 'z', - 20 ] ], upperarm_l: [ [ 'z', 12 ] ] } },
 			{ t: 0.55, pose: {} },
+		] },
+		Chute_Hang: { base: 'Idle_Breathe', loopBase: true, keys: [ { t: 0, pose: HANG( 0 ) }, { t: 1.2, pose: HANG( 6 ) }, { t: 2.4, pose: HANG( - 6 ) }, { t: 3.6, pose: HANG( 0 ) } ] },
+		Row_Stroke: { base: 'Seated_Idle', keys: [ { t: 0, pose: CATCH }, { t: 0.8, pose: FINISH }, { t: 2, pose: CATCH } ] },
+		Row_Stroke_Back: { base: 'Seated_Idle', keys: [ { t: 0, pose: FINISH }, { t: 0.8, pose: CATCH }, { t: 2, pose: FINISH } ] },
+		Paddle_Stroke_L: { base: 'Seated_Idle', keys: [ { t: 0, pose: PAD( 1, 0 ) }, { t: 0.7, pose: PAD( 1, 1 ) }, { t: 1.4, pose: PAD( 1, 0 ) } ] },
+		Paddle_Stroke_R: { base: 'Seated_Idle', keys: [ { t: 0, pose: PAD( - 1, 0 ) }, { t: 0.7, pose: PAD( - 1, 1 ) }, { t: 1.4, pose: PAD( - 1, 0 ) } ] },
+		Climb_Pull: { base: 'Idle_Breathe', keys: [
+			{ t: 0, pose: { spine_01: [ [ 'x', 10 ] ], reach: { l: [ 0.28, 1.5, 0.32, 1, - 0.3, - 0.5 ], r: [ - 0.28, 1.5, 0.32, - 1, - 0.3, - 0.5 ] } } },
+			{ t: 0.35, ease: 'out', pose: { spine_01: [ [ 'x', 26 ] ], head: [ [ 'x', - 14 ] ], thigh_r: [ [ 'x', - 75 ] ], calf_r: [ [ 'x', 105 ] ], reach: { l: [ 0.26, 0.92, 0.3, 1, 0.3, - 1 ], r: [ - 0.26, 0.92, 0.3, - 1, 0.3, - 1 ] } } },
+			{ t: 0.8, pose: {} },
 		] },
 	},
 
@@ -130,21 +157,28 @@ export default {
 		locomotion: { space: 'ground', lean: true },
 		fishing: { space: 'ground', lean: true, label: 'fishing' },
 		deck: { space: 'ground', lean: true },
-		jump: { clip: 'Jump', from: 0.5, to: 1.05, rate: 1.15, loop: false },
-		fall: { clip: 'Fall_Loop', loop: true },
+		jump: { clip: 'Jump', from: 0.82, to: 1.25, rate: 1.0, loop: false }, // the Kimodo take: crouch 0.55-0.8, push-off 0.85, apex 1.1, down 1.4
+		fall: { clip: 'Fall_Air', loop: true },
 		land: { clip: 'Land_Soft', from: 0.08, to: 0.8, rate: 1.5, loop: false },
 		swim: { space: 'swim' },
 		helm: { clip: 'Helm_Idle', loop: true },
 		seated: { clip: 'Seated_Idle', loop: true },
 		ride: { clip: 'Seated_Idle', loop: true },
 		plane: { clip: 'Seated_Idle', loop: true },
+		chute: { clip: 'Chute_Hang', loop: true },
+		rowStroke: { clip: 'Row_Stroke', loop: true }, rowBack: { clip: 'Row_Stroke_Back', loop: true },
+		paddleL: { clip: 'Paddle_Stroke_L', loop: true }, paddleR: { clip: 'Paddle_Stroke_R', loop: true },
 		action: { loopClip: true },
 	},
 
 	rules: [
 		[ 'swim', ( c ) => c.mode === 'swim' ],
+		// the oars / the paddle (Game.helmAction loops): pose clips instead of the roster's bind-ended takes
+		[ 'rowStroke', ( c ) => c.loopClip === 'Row_Forward' ], [ 'rowBack', ( c ) => c.loopClip === 'Row_Backward' ],
+		[ 'paddleL', ( c ) => c.loopClip === 'Paddle_Left' ], [ 'paddleR', ( c ) => c.loopClip === 'Paddle_Right' ],
 		[ 'action', ( c ) => !! c.loopClip ],
 		[ 'helm', ( c ) => c.mode === 'boat' ],
+		[ 'chute', ( c ) => c.mode === 'seat' && c.seat === 'chute' ],
 		[ 'plane', ( c ) => c.mode === 'seat' && c.seat === 'plane' ],
 		[ 'ride', ( c ) => c.mode === 'seat' && c.seat === 'ride' ],
 		[ 'seated', ( c ) => c.mode === 'seat' ],
@@ -191,14 +225,16 @@ export default {
 		block: { clip: 'Block_Guard', slot: 'upper', loop: true, blendIn: 0.1, blendOut: 0.18 },
 		blockImpact: { clip: 'Block_Impact', slot: 'upper', blendIn: 0.03, blendOut: 0.15 },
 		parry: { clip: 'Parry', slot: 'upper', blendIn: 0.03, blendOut: 0.15, notifies: [ [ 0.1, 'parry' ] ] },
-		hit: { clip: 'Hit_Reaction', slot: 'full', blendIn: 0.04, blendOut: 0.2 },
-		hitFront: { clip: 'Hit_Reaction', slot: 'full', blendIn: 0.04, blendOut: 0.2 },
+		// Hit_Reaction (Kimodo) flinches behind the forearms and holds it: the first 0.6 s are the hit
+		hit: { clip: 'Hit_Reaction', slot: 'full', to: 0.6, blendIn: 0.04, blendOut: 0.22 },
+		hitFront: { clip: 'Hit_Reaction', slot: 'full', to: 0.6, blendIn: 0.04, blendOut: 0.22 },
 		hitBack: { clip: 'Hit_Back', slot: 'full', blendIn: 0.03, blendOut: 0.2 },
 		hitLeft: { clip: 'Hit_Left', slot: 'full', blendIn: 0.03, blendOut: 0.2 },
 		hitRight: { clip: 'Hit_Right', slot: 'full', blendIn: 0.03, blendOut: 0.2 },
 		knockdown: { clip: 'Knockdown', slot: 'full', hold: true, blendIn: 0.1, blendOut: 0.2 },
-		// GetUp_Front is authored as a fall; the knockdown played backwards is a clean get-up from the back
-		getUp: { clip: 'Knockdown', slot: 'full', reverse: true, rate: 1.1, blendIn: 0.05, blendOut: 0.25 },
+		// Knockdown ends on the back: GetUp_Back (Kimodo) sits up, crouches and stands; GetUp_Front pushes up from face down
+		getUp: { clip: 'GetUp_Back', slot: 'full', rate: 1.4, blendIn: 0.08, blendOut: 0.25 }, // 2.5 s at 1.4 = the 1.8 s PlayerCombat gives it (downTime - fallTime)
+		getUpFront: { clip: 'GetUp_Front', slot: 'full', rate: 1.1, blendIn: 0.08, blendOut: 0.25 },
 		stumble: { clip: 'Stumble', slot: 'full', blendIn: 0.08, blendOut: 0.2 },
 		landSoft: { clip: 'Land_Soft', slot: 'full', blendIn: 0.05, blendOut: 0.2 },
 		// gestures and emotes
@@ -221,11 +257,13 @@ export default {
 		boardLow: { clip: 'Board_Low', slot: 'full', blendIn: 0.1, blendOut: 0.2, rootMotion: true },
 		disembarkLow: { clip: 'Disembark_Low', slot: 'full', blendIn: 0.1, blendOut: 0.2, rootMotion: true },
 		boarding: { clip: 'Board_Low', slot: 'full', blendIn: 0.1, blendOut: 0.2, rootMotion: true },
+		// out of the water onto a float / a low deck (Player's swim pull-up, Game.avatarAction 'climbUp')
+		climbUp: { clip: 'Climb_Pull', slot: 'full', blendIn: 0.06, blendOut: 0.25 },
 		// other names callers may use
 		attack: { clip: 'Melee_Paddle', slot: 'full', from: 0.45, rate: 1.93, blendIn: 0.06, blendOut: 0.2, notifies: [ [ 1.03, 'contact' ] ] },
 		guard: { clip: 'Block_Guard', slot: 'upper', loop: true, blendIn: 0.1, blendOut: 0.18 },
 		evade: { clip: 'Dodge_Back', slot: 'full', blendIn: 0.04, blendOut: 0.15, rootMotion: true },
-		stagger: { clip: 'Hit_Reaction', slot: 'full', blendIn: 0.04, blendOut: 0.2 },
+		stagger: { clip: 'Hit_Reaction', slot: 'full', to: 0.6, blendIn: 0.04, blendOut: 0.22 },
 	},
 
 	footsteps: [ 0.12, 0.62 ],

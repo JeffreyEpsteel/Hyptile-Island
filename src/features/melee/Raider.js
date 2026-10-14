@@ -894,7 +894,7 @@ export class Raider {
 		const m = this.model;
 		if ( ! m || ! m.clips ) return name;
 		if ( m.clips.has( name ) ) return name;
-		const FALL = { 'Swagger_Idle': 'Idle_Breathe', 'Look_Around': 'Idle_Breathe', 'Laugh': 'Idle_Breathe', 'Hit_Reaction': 'Stumble', 'Stumble': 'Idle_Breathe', 'Melee_Paddle': 'Idle_Breathe', 'GetUp_Front': 'Idle_Breathe', 'Knockdown': 'Stumble' };
+		const FALL = { 'Swagger_Idle': 'Idle_Breathe', 'Look_Around': 'Idle_Breathe', 'Laugh': 'Idle_Breathe', 'Hit_Reaction': 'Stumble', 'Stumble': 'Idle_Breathe', 'Melee_Paddle': 'Idle_Breathe', 'GetUp_Front': 'Idle_Breathe', 'GetUp_Back': 'GetUp_Front', 'Knockdown': 'Stumble' };
 		let n = name;
 		for ( let i = 0; i < 4 && n; i ++ ) { n = FALL[ n ]; if ( n && m.clips.has( n ) ) return n; }
 		return CLIPS.idle;

@@ -1,6 +1,6 @@
 // The launch's coxswain (wave 16A): a roster character standing at the wheel of the harbour launch (the class's helm point,
 // boat frame), the crew deck's way of standing a figure on a hull (features/crew/Deck.js: a lite Avatar, the SkinnedModel's
-// play / update / hold, no AnimGraph). He faces forward at the wheel, turns to the player when he speaks (talk(): the Talk
+// play / update / hold, no AnimGraph). He faces forward at the wheel (Helm_Idle), turns to the player when he speaks (talk(): the Talk
 // clip for a few seconds) or when you are close aboard, and waves when she comes alongside. On the launch's own visual
 // (LaunchVisual) he is a child of her group, so he pitches and rolls with her; without one he is placed in the world.
 //
@@ -169,7 +169,10 @@ export class Coxswain {
 
 		}
 
-		const clip = this.oneShot && this._has( this.oneShot ) ? this.oneShot : this.talkT > 0 && this._has( CLIPS.talk ) ? CLIPS.talk : CLIPS.idle;
+		// at the wheel the helm stance (Helm_Idle: Avatar.repairHelmClip swaps in a standing idle on a rig whose helm take is
+		// its bind pose), turned toward you the plain idle
+		const atWheel = Math.abs( this.yaw ) < 0.5 && this._has( CLIPS.helm );
+		const clip = this.oneShot && this._has( this.oneShot ) ? this.oneShot : this.talkT > 0 && this._has( CLIPS.talk ) ? CLIPS.talk : atWheel ? CLIPS.helm : CLIPS.idle;
 		if ( m.current !== clip && m.play ) m.play( clip, { fade: 0.25, loop: clip !== this.oneShot } );
 		if ( m.update ) m.update( dt );
 

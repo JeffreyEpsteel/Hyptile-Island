@@ -130,7 +130,7 @@ export class AnimGraph {
 				if ( r.keys ) {
 
 					const base = get( r.base, depth + 1 );
-					if ( base ) clip = poseClip( rig, base, name, r.keys, { loopBase: !! r.loopBase } );
+					if ( base ) clip = poseClip( rig, base, name, r.keys, { loopBase: !! r.loopBase, baseTime: r.baseTime || 0 } );
 
 				} else {
 

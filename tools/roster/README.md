@@ -192,6 +192,33 @@ Preview: `blender -b --python retarget.py -- <rig.fbx> <out_dir> --preview <png_
 vertex against the rest floor). Reference ground speeds for playback scaling (pelvis travel per cycle on this rig):
 walk about 0.76 m/s, run about 2.17 m/s (`CLIP_SPEED` in `src/game/Characters.js`).
 
+## Kimodo clips (wave 17)
+
+Twenty-two roster clips came from the old procedural motion pack and moved only the pelvis, arms and legs (11 to 13 of the
+48 joints), so the spine, shoulders, neck, head and hands sat in the bind pose: the A-pose the user saw in the jump, the
+swim and the falls. They were replaced with NVIDIA Kimodo text-to-motion takes (ComfyUI-Kimodo-Enhanced, generated in an
+earlier session into `D:\fishing game\Assets\HyptileMotion\game_set\<Folder>\<Name>.bvh`) run through the approved
+roster pipeline, which retargets by bone direction onto this rig and fixes the arms against each character's own body:
+
+```powershell
+# per clip (Blender, about 20 min: the arm-collision fix runs per character); review.png shows Hyptile and Clown, front and side
+D:\Comfy-Desktop\ComfyUI-Installs\ComfyUI\ComfyUI\.venv\Scripts\python.exe "D:\fishing game\tools\kimodo_text_encoder_setup\kimodo_clip_pipeline.py" Jump --in-place --tag v2
+# then all eight GLBs at once: build with the accepted clips, stand the swim clips up, splice only those clips
+powershell -ExecutionPolicy Bypass -File tools/roster/kimodo-splice.ps1 -Clips Jump,Land_Soft,...
+```
+
+Accepted (in the GLBs): Jump, Land_Soft, Stumble, Airborne_Tumble, Hit_Reaction, Knockdown, GetUp_Front, GetUp_Back (new),
+Swim_Idle, Swim_Forward, Swim_Fast, Board_Low, Disembark_Low, Catch_Celebrate, Catch_Disappointed, Inspect_Catch,
+Sweep_Work, Offer_Finger, Prank_Laugh. Rejected on review: Fall_Loop (lies on its back on the floor; the graph's fall
+state plays `Fall_Air`, a pose clip from the jump's airborne frame), Sit_Down / Stand_Up / Seated_Idle (sit on the floor,
+not at seat height: the boats, the cockpit and Captain Roid's crate need the 0.29 m pelvis drop of the current clips) and
+Helm_Idle (arms hang; the helm IK holds the wheel on the current one).
+
+`unpitch-swim.mjs`: Kimodo's swim takes lie face down, but Avatar.js pitches upright swim clips forward itself and
+ProcPose layers the sculling and flutter kick on top, so the swim clips get one constant rotation on the pelvis (the mean
+spine direction onto up, about 84-89 deg) and the standing pelvis height. `test/clip-frame.mjs` renders any clip at any time
+headlessly (`CLIP=Jump CLIP_T=1.0 node test/clip-frame.mjs hyptile` -> `test/out/roster-hyptile-Jump-1.0.png`).
+
 ## Checking by eye
 
 - `node test/roster-preview.mjs <out.png> action=reel rod=1 cam=three frames=6 step=0.25` drives the real `Avatar`

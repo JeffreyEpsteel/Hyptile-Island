@@ -76,7 +76,7 @@ export const ONE_SHOT = {
 	celebrate: 'celebrate', disappointed: 'disappointed', wave: 'wave', cheer: 'cheer',
 	landSoft: 'landSoft', stumble: 'stumble', knockdown: 'knockdown', getUp: 'getUp', hit: 'hit', swing: 'swing', shrug: 'shrug', point: 'point',
 	inspect: 'inspect', offer: 'offer', prankLaugh: 'prankLaugh', friendlyWave: 'friendlyWave', beckon: 'beckon', sitDown: 'sitDown', standUp: 'standUp',
-	boardLow: 'boardLow', disembarkLow: 'disembarkLow',
+	boardLow: 'boardLow', disembarkLow: 'disembarkLow', climbUp: 'climbUp',
 };
 export const LOOPS = {
 	talk: 'talk', dance: 'dance', look: 'lookAround', tumble: 'tumble', fall: 'fall', chat: 'chat', sweep: 'sweep', laugh: 'laugh',
@@ -603,7 +603,7 @@ export class Ragdoll {
 
 // foot IK weight for a pose: on the ground in walk / deck / seat, out while airborne, swimming, at the helm, in a tumble or a
 // clip that moves the root (boarding, knockdowns), and faded out from a jog to a sprint
-const NO_FEET = { tumble: true, fall: true, knockdown: true, getUp: true, boardLow: true, disembarkLow: true, stumble: true, landSoft: true };
+const NO_FEET = { tumble: true, fall: true, knockdown: true, getUp: true, boardLow: true, disembarkLow: true, stumble: true, landSoft: true, climbUp: true };
 const FEET_RUN = [ 2.6, 4.2 ]; // m/s: full plant below, none above
 export function footWeight( pose, action = null ) {
 
@@ -944,7 +944,7 @@ export class Avatar {
 		h.armL = ik && this.ikEnabled ? 1 - ik.hands[ 0 ].w : 1;
 		h.armR = ik && this.ikEnabled ? 1 - ik.hands[ 1 ].w : 1;
 		// the water
-		const swim = pose.mode === 'swim';
+		const swim = pose.mode === 'swim' && pose.action !== 'climbUp'; // (the pull-up montage owns the arms and legs)
 		const crawl = swim ? smooth( ( ( pose.speed || 0 ) - 0.15 ) / 0.6 ) : 0;
 		const kw = 1 - Math.exp( - d * ( swim ? 5 : 12 ) ); // (out of the water quickly: the legs walk again)
 		this._crawl += ( crawl - this._crawl ) * kw;
@@ -1263,11 +1263,12 @@ export class Avatar {
 	// standing where the body lay (onRagdollEnd( feetPosition, playerYaw ) is called so the game can put the player there; without
 	// it the avatar eases back to the player). While it runs the avatar ignores the pose position and yaw: freeze the player.
 	//   ground: ( x, z ) -> world height (default: groundHeight, else the plane the avatar stands on)
-	//   getUp: the clip that stands the body up, played backwards by default (Knockdown: a fall onto the back, reversed, is a get-up
-	//          from the back; the roster's GetUp_Front is authored as a fall, so pass reverse: false to play any real get-up forwards)
+	//   getUp: the clip that stands the body up (default: chosen when it gets up from the way the body lies: GetUp_Front face
+	//          down, GetUp_Back otherwise, both played forwards; a model without them plays Knockdown reversed, a fall onto the back
+	//          backwards). Pass a clip name (with reverse) to force one.
 	//   rate: playback rate of that clip
 	// Returns false when there is no model yet. Calling it again while down adds the impulse.
-	ragdoll( impulse = null, { duration = 2.5, ground = null, getUp = CLIPS.knockdown, reverse = true, rate = 1 } = {} ) {
+	ragdoll( impulse = null, { duration = 2.5, ground = null, getUp = null, reverse = false, rate = 1 } = {} ) {
 
 		const m = this.model;
 		if ( ! m ) return false;
@@ -1334,6 +1335,16 @@ export class Avatar {
 		const rd = this._rd, sim = rd.sim;
 		rd.phase = 'recover';
 		rd.tr = 0;
+		if ( ! rd.getUp ) {
+
+			// which way the body lies: its front (+Z of the hips / chest frame) pointing down is face down
+			const bq = sim._frame( 'hipL', 'hipR', 'pelvis', 'chest', new Quaternion() );
+			const faceDown = _w.set( 0, 0, 1 ).applyQuaternion( bq ).y < - 0.3;
+			const want = faceDown ? CLIPS.getUpFront : CLIPS.getUp;
+			// the Kimodo get-ups are 2.5 s takes: played at 1.4x they stand up in about 1.8 s (as the combat get-up montage)
+			if ( m.clips.get( want ) ) { rd.getUp = want; rd.reverse = false; rd.rate *= 1.4; } else { rd.getUp = CLIPS.knockdown; rd.reverse = true; }
+
+		}
 		const clip = m.clips.get( rd.getUp );
 		if ( ! clip ) return;
 		rd.layer = m.play( rd.getUp, { fade: 0.01, loop: false, speed: rd.reverse ? 0 : rd.rate, from: rd.reverse ? Math.max( 0, clip.duration - 1e-3 ) : 0 } );

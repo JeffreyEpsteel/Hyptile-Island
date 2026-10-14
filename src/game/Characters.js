@@ -19,7 +19,7 @@ export const CLIPS = {
 	offer: 'Offer_Finger', prankLaugh: 'Prank_Laugh', tumble: 'Airborne_Tumble', laugh: 'Laugh', shrug: 'Shrug', point: 'Point', swagger: 'Swagger_Idle',
 	rowForward: 'Row_Forward', rowBackward: 'Row_Backward', paddleLeft: 'Paddle_Left', paddleRight: 'Paddle_Right',
 	sitDown: 'Sit_Down', standUp: 'Stand_Up', steerLeft: 'Steer_Left', steerRight: 'Steer_Right', boardLow: 'Board_Low', disembarkLow: 'Disembark_Low',
-	fall: 'Fall_Loop', landSoft: 'Land_Soft', stumble: 'Stumble', knockdown: 'Knockdown', getUp: 'GetUp_Front', hit: 'Hit_Reaction', swing: 'Melee_Paddle',
+	fall: 'Fall_Loop', landSoft: 'Land_Soft', stumble: 'Stumble', knockdown: 'Knockdown', getUp: 'GetUp_Back', getUpFront: 'GetUp_Front', hit: 'Hit_Reaction', swing: 'Melee_Paddle',
 };
 // the clips every roster GLB had in phase 1 (tests check these; the phase 2 ones are optional per build)
 export const CORE_CLIPS = [ 'Idle_Breathe', 'Walk_InPlace', 'Run_InPlace', 'Jump', 'Wave', 'Fishing_Cast', 'Fishing_Hold', 'Fishing_Reel', 'Fishing_Strike', 'Swim_Idle', 'Swim_Forward', 'Swim_Fast', 'Helm_Idle', 'Seated_Idle', 'Catch_Celebrate', 'Catch_Disappointed', 'Talk', 'Dance', 'Look_Around', 'Cheer_Clap' ];

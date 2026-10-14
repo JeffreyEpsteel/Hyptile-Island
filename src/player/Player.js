@@ -437,7 +437,7 @@ export class Player {
 
 			// seated in the cockpit, in the vehicle's frame, facing its nose (+Z; the avatar adds pi)
 			const v = this.vehicle;
-			out.seat = 'plane';
+			out.seat = v.kind === 'chute' ? 'chute' : 'plane'; // under the canopy: AnimDef's chute state (Chute_Hang)
 			out.position = v.toWorld( v.seat, out.position || new THREE.Vector3() );
 			out.frame = v.quaternion;
 			out.mode = 'seat';

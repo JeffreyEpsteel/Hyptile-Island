@@ -1,8 +1,8 @@
 // The posted crew standing on deck (wave 10): one lite Avatar per member from the roster GLB, the residents' skinned-model
 // path (src/world/Residents.js: the avatar's SkinnedModel play / update / hold, no AnimGraph or IK driven), placed every frame
 // at the member's deck point in the boat frame (Crew.deckPoint) through the boat's pose, so they ride her like the deck props
-// and never collide with anything. Gunners stand by their side's guns (idle; a ramming loop while the guns reload if the GLB
-// has one; a point when the side fires), anglers at the rail holding a rod (Fishing_Hold; a celebration when one lands a fish).
+// and never collide with anything. Gunners crouch at their side's guns (Gun_Ready; the Gun_Ram loop while the guns reload,
+// pose clips built below; a point when the side fires), anglers at the rail holding a rod (Fishing_Hold; a celebration when one lands a fish).
 // Cheap: within ANIMATE m of the eye they animate, past it they hold the pose; on a phone (globalThis.__phoneBudget) at most
 // CREW_RULES.phoneAnimated of them animate at once.
 //
@@ -18,9 +18,49 @@ import { Material } from '../../engine/render/Material.js';
 import { Avatar } from '../../player/Avatar.js';
 import { CLIPS } from '../../game/Characters.js';
 import { CREW_RULES, deckPoint } from './Crew.js';
+import { makeRig, poseClip } from '../../player/anim/ClipTools.js';
 
 export const ANIMATE = 60; // m from the eye: farther, the figures hold their pose
-const RAM_CLIPS = [ 'Cannon_Ram', 'Gun_Ram', 'Ram_Loop' ]; // a gun ramming loop, if a roster build has one
+const RAM_CLIPS = [ 'Cannon_Ram', 'Gun_Ram', 'Ram_Loop' ]; // a gun ramming loop (a roster take, else the pose clip below)
+
+// the gunner at the gun (wave 17B: no standing idle by the guns): crouched behind it with the hands forward on the tackle, and
+// a ramming loop while the side reloads. Pose clips on the figure's own rig from its idle (AnimDef's { base, keys } recipe,
+// ClipTools.poseClip; +X is the character's left, reach: [ wrist x, y, z, elbow pole x, y, z ] in model space)
+export const GUNNER_CLIPS = { ready: 'Gun_Ready', ram: 'Gun_Ram' };
+const crouchPose = ( drop, extra ) => {
+
+	const a = Math.acos( 1 - drop / 0.6 ) * 180 / Math.PI;
+	return { pelvis: [ 0, - drop, 0 ], thigh_l: [ [ 'x', - a ] ], calf_l: [ [ 'x', 2 * a ] ], foot_l: [ [ 'x', - a ] ], thigh_r: [ [ 'x', - a ] ], calf_r: [ [ 'x', 2 * a ] ], foot_r: [ [ 'x', - a ] ], ...extra };
+
+};
+const READY = crouchPose( 0.12, { spine_01: [ [ 'x', 14 ] ], head: [ [ 'x', - 10 ] ], reach: { l: [ 0.15, 0.74, 0.3, 1, - 1, 0 ], r: [ - 0.15, 0.74, 0.3, - 1, - 1, 0 ] } } );
+const RAM = ( z ) => crouchPose( 0.12, { spine_01: [ [ 'x', 10 + z * 30 ] ], head: [ [ 'x', - 10 ] ], reach: { l: [ 0.1, 0.86, 0.12 + z, 1, - 1, 0 ], r: [ - 0.1, 0.86, 0.12 + z, - 1, - 1, 0 ] } } );
+export const GUNNER_RECIPES = {
+	Gun_Ready: { keys: [ { t: 0, pose: READY }, { t: 1.97, pose: READY } ] },
+	Gun_Ram: { keys: [ { t: 0, pose: RAM( 0 ) }, { t: 0.45, pose: RAM( 0.22 ) }, { t: 0.9, pose: RAM( 0 ) } ] },
+};
+
+// builds the gunner clips into a loaded roster model (once; false when the model has no rig / idle to build them on)
+export function gunnerClips( model ) {
+
+	if ( ! model || ! model.clips || ! model.gltf || typeof model.clips.get !== 'function' ) return false;
+	if ( model.clips.has( GUNNER_CLIPS.ready ) ) return true;
+	const base = model.clips.get( 'Idle_Breathe' );
+	if ( ! base ) return false;
+	try {
+
+		const rig = makeRig( model.gltf );
+		if ( rig.index.pelvis === undefined || rig.index.upperarm_r === undefined ) return false;
+		for ( const name in GUNNER_RECIPES ) if ( ! model.clips.has( name ) ) model.clips.set( name, poseClip( rig, base, name, GUNNER_RECIPES[ name ].keys, { loopBase: true } ) );
+		return true;
+
+	} catch ( e ) {
+
+		return false;
+
+	}
+
+}
 const ROD_LEN = 2.2;
 
 const _y = new Vector3( 0, 1, 0 );
@@ -141,8 +181,9 @@ export class CrewDeck {
 	_base( f, reloading ) {
 
 		if ( f.post === 'angler' ) return this._has( f, CLIPS.hold ) ? CLIPS.hold : CLIPS.idle;
+		if ( f.post === 'gunner' && f.model && ! f.gunPose ) f.gunPose = gunnerClips( f.model ) ? 'built' : 'none';
 		if ( reloading ) for ( const c of RAM_CLIPS ) if ( this._has( f, c ) ) return c;
-		return CLIPS.idle;
+		return f.post === 'gunner' && this._has( f, GUNNER_CLIPS.ready ) ? GUNNER_CLIPS.ready : CLIPS.idle;
 
 	}
 

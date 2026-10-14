@@ -1,4 +1,4 @@
-import { Mesh, Matrix4, Vector3 } from '../../engine/index.js';
+import { Mesh, Matrix4, Vector3, Quaternion } from '../../engine/index.js';
 import { prepare, mergePrepared, cylinder, box, torus, mat4, triangleCount } from '../../world/boat/GeoKit.js';
 import { createPropMaterial, PAT } from '../../game/GameMaterials.js';
 
@@ -88,7 +88,7 @@ export function weaponTriangles( kind ) {
 }
 
 const _hold = new Matrix4(), _rot = new Matrix4(), _fp = new Matrix4(), _v = new Vector3();
-const _x = new Vector3(), _y = new Vector3(), _z = new Vector3();
+const _x = new Vector3(), _y = new Vector3(), _z = new Vector3(), _hq = new Quaternion();
 
 export class WeaponMesh {
 
@@ -117,7 +117,8 @@ export class WeaponMesh {
 	}
 
 	// place the gun for this frame: in the hand (anchor) or off the camera; recoil (0..1) tips the muzzle up and back
-	update( { kind = null, visible = false, anchor = null, camera = null, recoil = 0 } = {} ) {
+	// hold: [ x, y, z, w ] the gun in the socket (GunPose.js: barrel ahead in that gun's aim pose), else HOLD's rod-hold pitch
+	update( { kind = null, visible = false, anchor = null, camera = null, recoil = 0, hold = null } = {} ) {
 
 		this.kind = kind;
 		this.valid = false;
@@ -127,8 +128,17 @@ export class WeaponMesh {
 			if ( anchor ) {
 
 				// gun +X -> socket -X, gun +Y -> socket -Y (away from the reel side), gun +Z -> socket +Z (the shaft)
-				_hold.makeBasis( _x.set( - 1, 0, 0 ), _y.set( 0, - 1, 0 ), _z.set( 0, 0, 1 ) ).setPosition( _v.set( HOLD.x, HOLD.y, HOLD.z ) );
-				_rot.makeRotationX( HOLD.pitch - r * 0.35 );
+				if ( hold ) {
+
+					_hold.makeRotationFromQuaternion( _hq.set( hold[ 0 ], hold[ 1 ], hold[ 2 ], hold[ 3 ] ) );
+					_rot.makeRotationX( - r * 0.35 );
+
+				} else {
+
+					_hold.makeBasis( _x.set( - 1, 0, 0 ), _y.set( 0, - 1, 0 ), _z.set( 0, 0, 1 ) ).setPosition( _v.set( HOLD.x, HOLD.y, HOLD.z ) );
+					_rot.makeRotationX( HOLD.pitch - r * 0.35 );
+
+				}
 				this.matrix.multiplyMatrices( anchor, _hold ).multiply( _rot );
 
 			} else {

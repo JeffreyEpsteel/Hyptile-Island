@@ -291,6 +291,9 @@ export class Game {
 
 		if ( act ) return act;
 		if ( p.launched > 0 ) return 'tumble';
+		// the pull-up out of the water (Player's swim climb): AnimDef's climbUp montage, held past the step onto the top
+		if ( p._climb > 0 ) this._climbUntil = performance.now() + 800;
+		if ( performance.now() < ( this._climbUntil || 0 ) ) return 'climbUp';
 		const gun = this.app.features && this.app.features.get( 'firearms' ) ? this.app.features.get( 'firearms' ).playerAction : null;
 		if ( gun ) return gun;
 		if ( p.mode === 'boat' ) return this.helmAction();
