@@ -28,7 +28,15 @@ export const HIJACK = {
 	skiff: { restock: 24, kinds: [ 'skiff', 'canoe' ], reach: 3.5, view: 260 },
 	moored: { range: 700, drop: 1100, restock: 24 }, // the merchant moored in Tidemark's bay: put there within range of the player
 	// the mail plane: a Petrel with a pilot who walks to the tavern while she lies moored (in-game hours)
-	mail: { af: 'petrel', liv: 2, ashore: 0.25, reach: 3.5, restock: 48, stops: [ { port: 'tidemark', from: 8, to: 12 }, { port: 'home', from: 15, to: 18.5 } ] },
+	mail: { af: 'petrel', liv: 2, ashore: 0.25, reach: 3.5, restock: 48, stops: [ { port: 'tidemark', from: 8, to: 12 }, { port: 'home', from: 15, to: 18.5 } ],
+		// wave 16A: "MAIL" on her fuselage; a toast when she comes in (within notice m, the first `fresh` h of a stop); her pilot, a
+		// resident (world/Residents.js) who comes ashore at the dock and walks to the port's tavern while she lies there
+		lettering: 'MAIL', notice: 1500, fresh: 0.5,
+		pilot: { id: 'mail-pilot', name: 'Ines Marlow', character: 'bravile', lines: [
+			'Mail for Tidemark, mail for the harbour. Same hops every day.',
+			'She flies herself, mostly. I just keep the sacks dry.',
+			'Lock? On a floatplane? Who would steal a mail plane.',
+		] } },
 };
 
 const clamp = ( v, a, b ) => ( v < a ? a : v > b ? b : v );
@@ -40,6 +48,7 @@ export function hullFor( kind ) {
 	for ( const [ id, b ] of Object.entries( BOATS ) ) if ( b.shipClass === kind ) return id;
 	const cls = SHIP_CLASSES[ kind ];
 	if ( ! cls ) return BOATS[ kind ] ? kind : null;
+	if ( cls.hull && BOATS[ cls.hull ] ) return cls.hull; // (wave 16A: the harbour launch sails as the cabin launch)
 	let best = null, bd = Infinity;
 	for ( const [ id, b ] of Object.entries( BOATS ) ) {
 

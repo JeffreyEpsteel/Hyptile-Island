@@ -511,5 +511,75 @@ section( '9. save' );
 
 }
 
+// ================================================================ 10. wave 16A: the mail plane's look and pilot, the left boats' pins
+section( '10. the mail Petrel at her stops, her pilot, the left boats on the maps' );
+{
+
+	ok( hullFor( 'launch' ) === 'launch', 'a taken harbour launch sails as the cabin launch (class hull)' );
+	const placed = [], residents = { list: [], removed: [],
+		add( d ) { const r = { id: d.id, data: d, tasks: [], setTask( t ) { this.tasks.push( t ); } }; this.list.push( r ); return r; },
+		remove( id ) { this.removed.push( id ); this.list = this.list.filter( ( r ) => r.id !== id ); return true; },
+	};
+	const sp = {
+		fleet: {}, piloted: false, models: null,
+		owns() { return false; },
+		parkedVisual( af, liv ) { const v = { af, liv, visual: { group: new Group() }, disposed: false, place( x, y, z, h ) { placed.push( { x, y, z, h } ); }, dispose() { this.disposed = true; } }; this.last = v; return v; },
+	};
+	const T = WORLD.ports.find( ( p ) => p.id === 'tidemark' );
+	const w = makeWorld( { hour: 8.1, seaplane: sp, hijack: { drawMail: true, residents } } );
+	w.player.mode = 'walk';
+	w.player.position.set( T.dock.position.x, 1, T.dock.position.z );
+	w.boat.position.set( T.dock.position.x + 5, 0, T.dock.position.z );
+	const tavern = { port: 'tidemark', x: T.stand.x + 20, z: T.stand.z + 4 };
+	w.features.list.set( 'harbour', { module: null, instance: { sites: { tavern: [ tavern ] } } } );
+	run( w, 0.3 );
+	const m = w.hijack.mail, v = w.hijack.view().mail;
+	ok( v && v.port === 'tidemark' && v.livery === HIJACK.mail.liv && v.lettering === 'MAIL' && v.drawn && v.letters, `she lies in Tidemark's bay in the mail livery with MAIL on her sides (${ JSON.stringify( v ) })` );
+	ok( sp.last.af === 'petrel' && sp.last.liv === HIJACK.mail.liv && placed[ 0 ] && Math.abs( placed[ 0 ].x - m.at.x ) < 1e-9 && placed[ 0 ].y === 0, 'a parked Petrel on the water at her spot' );
+	const letters = sp.last.visual.group.children.find( ( c ) => c.name === 'mail-lettering' );
+	letters.geometry.computeBoundingBox();
+	const lb = letters.geometry.boundingBox;
+	ok( letters && lb.max.x > 0.5 && lb.min.x < - 0.5 && lb.min.y > 2 && lb.max.y < 2.6 && lb.max.z < - 0.9 && lb.min.z > - 2.6, 'MAIL in block letters on both sides of her fuselage, aft of the wing' );
+	ok( w.toasts.some( ( t ) => /mail Petrel is in at Tidemark/.test( t ) ), 'a toast when the mail comes in near you' );
+	const pr = residents.list[ 0 ];
+	ok( pr && pr.id === HIJACK.mail.pilot.id && pr.data.character === HIJACK.mail.pilot.character && ( Math.hypot( pr.data.spot.x - T.dock.position.x, pr.data.spot.z - T.dock.position.z ) < 31 || ( pr.data.spot.x === T.stand.x && pr.data.spot.z === T.stand.z ) ) && w.hijack.view().mail.pilot === 'aboard', `her pilot ${ pr && pr.data.name } comes ashore at the dock (a resident)` );
+	w.app.settings.timeOfDay = 9;
+	run( w, 0.3 );
+	const tv = pr.tasks.at( - 1 );
+	ok( w.hijack.view().mail.pilot === 'tavern' && w.hijack.view().mail.pilotAway && tv && tv.indoors && tv.x === tavern.x && tv.z === tavern.z, `on the schedule he walks to the tavern (${ tv && tv.x.toFixed( 0 ) }, ${ tv && tv.z.toFixed( 0 ) }) and goes in` );
+	w.app.settings.timeOfDay = 11.9;
+	run( w, 0.3 );
+	ok( w.hijack.view().mail.pilot === 'back' && pr.tasks.at( - 1 ) === null && ! w.hijack.view().mail.pilotAway, 'and back to the dock before she leaves' );
+	w.app.settings.timeOfDay = 12.5;
+	run( w, 0.3 );
+	ok( ! w.hijack.mail.at && sp.last.disposed && residents.removed.includes( HIJACK.mail.pilot.id ) && w.hijack.view().mail === null, 'gone at noon: the plane and her pilot' );
+	const far = makeWorld( { hour: 8.1, seaplane: { ...sp }, hijack: { drawMail: true, residents: { add() { return null; }, remove() {} } } } );
+	run( far, 0.3 );
+	ok( far.hijack.mail.at && ! far.toasts.some( ( t ) => /mail Petrel is in/.test( t ) ), 'far away: no toast' );
+
+	// the boats you left: pins on the maps (kind boat), gone when you take her back
+	const marks = new Map();
+	const w2 = makeWorld();
+	w2.features.list.set( 'worldmap', { module: null, instance: { addMarker: ( mk ) => marks.set( mk.id, { ...mk } ), removeMarker: ( id ) => marks.delete( id ) } } );
+	const k = w2.hijack.skiffs.find( ( q ) => q.port === 'pons' );
+	w2.hijack.takeSkiff( k.id );
+	run( w2, 1.1 );
+	const e = w2.hijack.left[ 0 ], mk = marks.get( 'left:' + e.id );
+	ok( mk && mk.kind === 'boat' && mk.icon === 'boat' && mk.mine && mk.x === e.x && mk.z === e.z && /Your lobster boat/.test( mk.label ), `a pin on the maps: "${ mk && mk.label }"` );
+	w2.hijack.recover( e.id );
+	run( w2, 1.1 );
+	ok( ! marks.has( 'left:' + e.id ) && marks.has( 'left:' + w2.hijack.left[ 0 ].id ), 'taken back: her pin goes, the skiff left in her place gets one' );
+
+	// the fence's sale is shared (the host and the others learn the hull is gone)
+	const w3 = makeWorld();
+	const s3 = w3.naval.spawn( 'sloop', { x: 300, z: 700, yaw: 0, state: 'moored', speed: 0 } );
+	s3.state = 'moored';
+	w3.hijack.takeShip( s3, { how: 'sneaked' } );
+	w3.hijack.sellStolen();
+	const sh = w3.shared.find( ( x ) => x.kind === 'stolenSold' );
+	ok( sh && sh.data.hull === 'sloop' && sh.data.price === fencePrice( 'sloop' ), 'sellStolen() shares stolenSold { hull, price }' );
+
+}
+
 console.log( `\n${ passes } passed, ${ fails } failed` );
 process.exit( fails ? 1 : 0 );

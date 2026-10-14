@@ -32,6 +32,12 @@
 // the others see your new hull through the hull sync), hijackAlarm { id, name, port }, stolenSpotted { port, name },
 // vesselLaundered { name, hull }, stolenSold { hull, name, price }, boatRecovered { boat, by }.
 // Headless: install( app, features, { rand, seed, models: false, naval, boarding, pirates, seaplane, trade, customs, terrain } ).
+// Wave 16A: the mail Petrel lies on the water at her stops in the mail livery (HIJACK.mail.liv) with "MAIL" on both sides of her
+// fuselage (world/boat/Launch.js sideText on the parked plane's group); a toast when she comes in near you; her pilot is a
+// resident (app.residents, or opts.residents) who comes ashore at the dock and walks to the port's tavern and back on the
+// schedule (_pilotAway's hours). hj.mail.pilot { phase: 'aboard' | 'tavern' | 'back', resident, dock, tavern }; hj.view().mail
+// adds { pilot, livery, lettering, drawn }. opts.drawMail (default: models) draws the plane alone (tests). The boats you left
+// are pins on the maps (worldmap.addMarker 'left:<id>', kind 'boat': the minimap gets them through the world map).
 
 import { BOATS } from '../../game/Boats.js';
 import { DAY_SPEED } from '../../game/GameMode.js';
@@ -42,6 +48,9 @@ import { MERCHANT_SHIPS } from '../naval/ShipClasses.js';
 import { plunderFor, RULES as BOARD_RULES } from '../boarding/BoardingData.js';
 import { CAPTAINS } from '../pirates/Roster.js';
 import { HIJACK, hullFor, watchChance, repaintFee, fencePrice, nearestPort, skiffSites, mailSpot, mailStop } from './Rules.js';
+import { Mesh } from '../../engine/index.js';
+import { mergePrepared } from '../../world/boat/GeoKit.js';
+import { sideText, launchMaterial } from '../../world/boat/Launch.js';
 
 export { HIJACK, hullFor, watchChance, repaintFee, fencePrice, nearestPort, skiffSites, mailSpot, mailStop } from './Rules.js';
 
@@ -55,6 +64,21 @@ const clamp = ( v, a, b ) => ( v < a ? a : v > b ? b : v );
 const r2 = ( v ) => Math.round( v * 100 ) / 100;
 const str = ( v, n = 60 ) => ( typeof v === 'string' ? v.slice( 0, n ) : '' );
 
+// "MAIL" on the Petrel (model frame: +Z the nose, +X her left side): white letters on the flat of her fuselage between the trim
+// stripe and the cabin, aft of the wing (half width there measured on Petrel.glb: 0.45 m at z -2.76, 0.65 m at z -1.2)
+const PETREL_SIDE = ( z ) => 0.45 + ( z + 2.76 ) * 0.128;
+let MAIL_GEO = null;
+export function mailLettering() {
+
+	if ( MAIL_GEO ) return MAIL_GEO;
+	const parts = [ 1, - 1 ].map( ( side ) => sideText( HIJACK.mail.lettering || 'MAIL', { side, zFore: - 1.05, yBase: 2.08, height: 0.4, halfWidth: PETREL_SIDE } ) ).filter( Boolean );
+	MAIL_GEO = parts.length ? mergePrepared( parts ) : null;
+	return MAIL_GEO;
+
+}
+
+const hhmm = ( h ) => { const t = ( ( h % 24 ) + 24 ) % 24, H = Math.floor( t ), M = Math.round( ( t - H ) * 60 ) % 60; return `${ H }:${ String( M ).padStart( 2, '0' ) }`; };
+
 export class Hijack {
 
 	constructor( app, features, opts = {} ) {
@@ -64,12 +88,15 @@ export class Hijack {
 		this.opts = opts;
 		this.rng = opts.rand || mulberry32( opts.seed !== undefined ? opts.seed : ( Date.now() & 0xffffff ) );
 		this.drawModels = opts.models !== false && !! ( this.app.scene && this.app.scene.add );
+		this.drawMail = opts.drawMail ?? this.drawModels;
 		this.hours = 8;
 		this._lastTod = null;
 		this.vessel = null;
 		this.left = [];
 		this.skiffs = skiffSites( this.terrain ).map( ( s ) => ( { ...s, takenUntil: - 1, view: null } ) );
-		this.mail = { port: null, at: null, stop: null, until: - 1, view: null };
+		this.mail = { port: null, at: null, stop: null, until: - 1, view: null, letters: null, pilot: null, livery: HIJACK.mail.liv, lettering: HIJACK.mail.lettering };
+		this._marks = new Set(); // the left boats' pins on the maps
+		this._markT = 0;
 		this.harbour = { ship: null, until: - 1 }; // the merchant this feature moors in Tidemark's bay
 		this.sneak = null; // { ship, alarm, chance }
 		this.bounty = 0;
@@ -101,6 +128,7 @@ export class Hijack {
 	get customs() { return this._get( 'customs' ); }
 	get stronghold() { return this._get( 'stronghold' ); }
 	get terrain() { return this.opts.terrain || this.app.terrainData || null; }
+	get residents() { return this.opts.residents !== undefined ? this.opts.residents : this.app.residents || null; }
 	get state() { return this.features ? this.features.state : null; }
 	get sandbox() { return !! ( this.features && this.features.sandbox ); }
 
@@ -534,6 +562,7 @@ export class Hijack {
 		this.stats.sold ++;
 		this._toast( `The fence takes the ${ q.name } · +$${ q.price } · a skiff is yours at the dock`, 4200 );
 		this._emit( 'stolenSold', { hull: q.hull, name: q.name, price: q.price } );
+		this._share( 'stolenSold', { hull: q.hull, price: q.price } ); // (the host and the others learn the hull is gone)
 		return { ok: true, total: q.price, hull: q.hull };
 
 	}
@@ -627,7 +656,15 @@ export class Hijack {
 
 		}
 
-		if ( m.port === stop.port && m.at ) return;
+		if ( m.port !== stop.port || ! m.at ) this._mailArrive( stop );
+		if ( m.at ) this._pilotUpdate();
+
+	}
+
+	// she lands at a stop: on the water in her livery with MAIL on her sides, her pilot at the dock, a toast if you are near
+	_mailArrive( stop ) {
+
+		const m = this.mail;
 		this._mailGone();
 		const at = mailSpot( stop.port, this.terrain );
 		if ( ! at ) return;
@@ -635,14 +672,33 @@ export class Hijack {
 		m.stop = stop;
 		m.at = at;
 		const sp = this.seaplane;
-		if ( this.drawModels && sp && sp.models && sp.parkedVisual ) {
+		if ( this.drawMail && sp && sp.parkedVisual && ( sp.models || this.opts.drawMail ) ) {
 
 			try {
 
 				m.view = sp.parkedVisual( HIJACK.mail.af, HIJACK.mail.liv );
 				m.view.place( at.x, 0, at.z, at.heading );
+				const host = m.view.visual && m.view.visual.group;
+				const geo = host ? mailLettering() : null;
+				if ( geo ) {
+
+					m.letters = new Mesh( geo, launchMaterial() );
+					m.letters.name = 'mail-lettering';
+					m.letters.castShadow = false;
+					m.letters.receiveShadow = true;
+					host.add( m.letters );
+
+				}
 
 			} catch ( e ) { m.view = null; }
+
+		}
+
+		this._pilotOut( stop );
+		const pl = this.playerPos(), h = this._hour();
+		if ( pl && Math.hypot( pl.x - at.x, pl.z - at.z ) < HIJACK.mail.notice && h - stop.from < HIJACK.mail.fresh ) {
+
+			this._toast( `The mail Petrel is in at ${ this._portName( stop.port ) } · her pilot ashore until ${ hhmm( stop.to - HIJACK.mail.ashore ) }`, 3600 );
 
 		}
 
@@ -651,11 +707,87 @@ export class Hijack {
 	_mailGone() {
 
 		const m = this.mail;
+		if ( m.letters && m.letters.parent ) m.letters.parent.remove( m.letters );
+		m.letters = null;
 		if ( m.view && m.view.dispose ) m.view.dispose();
 		m.view = null;
 		m.at = null;
 		m.port = null;
 		m.stop = null;
+		this._pilotGone();
+
+	}
+
+	// ---- her pilot: a resident while she lies at a stop (the dock is his spot; the tavern his task while he is ashore)
+
+	_pilotOut( stop ) {
+
+		const m = this.mail, P = ( WORLD.ports || [] ).find( ( q ) => q.id === stop.port );
+		if ( ! P || ! P.dock || ! P.dock.position ) return;
+		const dock = this._landing( P ), tavern = this._tavernOf( P );
+		m.pilot = { phase: 'aboard', resident: null, dock, tavern };
+		const R = this.residents, D = HIJACK.mail.pilot;
+		if ( R && R.add ) {
+
+			try {
+
+				m.pilot.resident = R.add( { id: D.id, name: D.name, character: D.character, role: 'mail', spot: { x: dock.x, z: dock.z, yaw: dock.yaw, deck: true }, lines: D.lines.slice() } );
+
+			} catch ( e ) { m.pilot.resident = null; }
+
+		}
+
+	}
+
+	_pilotUpdate() {
+
+		const m = this.mail, p = m.pilot, s = m.stop;
+		if ( ! p || ! s ) return;
+		const away = this._pilotAway();
+		const phase = away ? 'tavern' : this._hour() < s.from + HIJACK.mail.ashore ? 'aboard' : 'back';
+		if ( phase === p.phase ) return;
+		p.phase = phase;
+		const r = p.resident;
+		if ( ! r || ! r.setTask ) return;
+		// to the tavern (indoors once there), then back to the dock (his own spot)
+		if ( phase === 'tavern' && p.tavern ) r.setTask( { id: 'mail-tavern', x: p.tavern.x, z: p.tavern.z, indoors: true } );
+		else r.setTask( null );
+
+	}
+
+	_pilotGone() {
+
+		const m = this.mail, p = m.pilot;
+		m.pilot = null;
+		const R = this.residents;
+		if ( p && p.resident && R && R.remove ) try { R.remove( HIJACK.mail.pilot.id ); } catch ( e ) { /* gone */ }
+
+	}
+
+	// a walkable spot by a port's dock (the jetty deck, the quay, the beach), else its stand
+	_landing( P ) {
+
+		const t = this.terrain, col = this.app.colliders, d = P.dock.position;
+		for ( const r of [ 2, 4, 6, 9, 12, 16, 22, 30 ] ) for ( let i = 0; i < 16; i ++ ) {
+
+			const a = i / 16 * Math.PI * 2, x = d.x + Math.sin( a ) * r, z = d.z + Math.cos( a ) * r;
+			const g = Math.max( t && t.heightAt ? t.heightAt( x, z ) : - Infinity, col && col.groundHeightAt ? col.groundHeightAt( x, z, 6 ) : - Infinity );
+			if ( g > 0.25 && g < 5 ) return { x, z, yaw: Math.atan2( d.x - x, d.z - z ) + Math.PI };
+
+		}
+
+		const st = P.stand || d;
+		return { x: st.x, z: st.z, yaw: st.yaw ?? 0 };
+
+	}
+
+	// the port's tavern (the harbour feature's sites), else its stand
+	_tavernOf( P ) {
+
+		const hb = this._get( 'harbour' );
+		const site = hb && hb.sites && Array.isArray( hb.sites.tavern ) ? hb.sites.tavern.find( ( q ) => q.port === P.id ) : null;
+		if ( site && Number.isFinite( site.x ) ) return { x: site.x, z: site.z };
+		return P.stand && Number.isFinite( P.stand.x ) ? { x: P.stand.x, z: P.stand.z } : null;
 
 	}
 
@@ -672,6 +804,7 @@ export class Hijack {
 	stealPlane() {
 
 		const m = this.mail, af = HIJACK.mail.af;
+		if ( ! m.at ) this._mailUpdate(); // (the clock may have moved since the last scan)
 		if ( ! m.at ) return { ok: false, reason: 'none' };
 		if ( ! this._pilotAway() ) {
 
@@ -923,8 +1056,52 @@ export class Hijack {
 
 		this._wantedUpdate( dt );
 		this._harbourUpdate();
+		// the left boats' pins: once a second (wave 16A; before the scan throttle, which returns early)
+		this._markT -= dt;
+		if ( this._markT <= 0 ) {
+
+			this._markT = 1;
+			this._leftMarks();
+
+		}
+
+		// (a stop just begun lands her at once: the mail plane is not left for the next scan)
+		if ( ! this.mail.at && this.hours >= this.mail.until && mailStop( this._hour() ) ) this._mailUpdate();
+		// wave 16C: the scans (the mail plane's stop, every skiff's distance) 4 times a second
+		this._scanT = ( this._scanT || 0 ) - dt;
+		if ( this._scanT > 0 ) return;
+		this._scanT = 0.25;
 		this._mailUpdate();
 		this._skiffViews();
+
+	}
+
+	// the boats you left: a pin each on the maps (the world map forwards them to the minimap)
+	_leftMarks() {
+
+		const wm = this._get( 'worldmap' );
+		if ( ! wm || ! wm.addMarker ) return;
+		const want = new Set();
+		for ( const e of this.left ) {
+
+			const id = 'left:' + e.id;
+			want.add( id );
+			const key = `${ id }|${ e.x }|${ e.z }|${ e.name }`;
+			if ( this._marks.has( key ) ) continue;
+			for ( const k of [ ...this._marks ] ) if ( k.startsWith( id + '|' ) ) this._marks.delete( k );
+			wm.addMarker( { id, kind: 'boat', icon: 'boat', x: e.x, z: e.z, label: `Your ${ ( e.name || 'boat' ).toLowerCase() } (moored)`, mine: true } );
+			this._marks.add( key );
+
+		}
+
+		for ( const k of [ ...this._marks ] ) {
+
+			const id = k.split( '|' )[ 0 ];
+			if ( want.has( id ) ) continue;
+			this._marks.delete( k );
+			if ( wm.removeMarker ) wm.removeMarker( id );
+
+		}
 
 	}
 
@@ -934,7 +1111,10 @@ export class Hijack {
 		return {
 			vessel: v ? { name: v.name, hull: v.hull, wanted: v.wanted, laundered: v.laundered, drying: v.repaintAt !== null } : null,
 			bounty: this.bounty, left: this.left.map( ( e ) => ( { id: e.id, boat: e.boat, name: e.name, x: Math.round( e.x ), z: Math.round( e.z ) } ) ),
-			mail: this.mail.at ? { port: this.mail.port, pilotAway: this._pilotAway() } : null,
+			mail: this.mail.at ? {
+				port: this.mail.port, pilotAway: this._pilotAway(), pilot: this.mail.pilot ? this.mail.pilot.phase : null,
+				livery: this.mail.livery, lettering: this.mail.lettering, drawn: !! this.mail.view, letters: !! this.mail.letters,
+			} : null,
 			sneaking: this.sneak ? this.sneak.ship.name : null,
 		};
 
@@ -1004,6 +1184,7 @@ export class Hijack {
 		for ( const k of this.skiffs ) { k.takenUntil = - 1; this._dropView( k ); }
 		this._mailGone();
 		this.mail.until = - 1;
+		this._markT = 0;
 		if ( this.harbour.ship && this.harbour.ship.alive && this.harbour.ship.state === 'moored' ) this.harbour.ship.state = 'gone';
 		this.harbour = { ship: null, until: - 1 };
 		this.vessel = null;
@@ -1025,6 +1206,9 @@ export class Hijack {
 		for ( const e of this.left ) this._dropView( e );
 		for ( const k of this.skiffs ) this._dropView( k );
 		this._mailGone();
+		const wm = this._get( 'worldmap' );
+		if ( wm && wm.removeMarker ) for ( const k of this._marks ) wm.removeMarker( k.split( '|' )[ 0 ] );
+		this._marks.clear();
 
 	}
 

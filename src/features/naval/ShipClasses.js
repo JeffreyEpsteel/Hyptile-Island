@@ -43,9 +43,24 @@ export const SHIP_CLASSES = {
 		sight: 440, engage: 150, lose: 800, fleeAt: 0.16, shot: 0.014, damage: 30, reload: 6.4, traverse: 22 * DEG,
 		loot: { crates: 3, value: [ 90, 160 ] },
 	},
+	// wave 16A: the harbour launch the rescue sends (features/rescue). No GLB yet: model 'launch' is procedural
+	// (world/boat/Launch.js LaunchVisual; the rescue feature hands it to naval's ModelSet). An open boat ~9 m with a wheel
+	// aft (helm: where the coxswain stands, wheel: its hub), a lamp on a short mast (lamp: the light's place, boat frame),
+	// fast, no guns. hull: the player boat she becomes when taken (Boats.js 'launch', hijack Rules.hullFor).
+	launch: {
+		id: 'launch', label: 'Harbour launch', faction: 'navy', glb: null, model: 'launch', hull: 'launch', lettering: 'HARBOUR',
+		length: 9, beam: 2.8, draft: 0.7, sheer: 1.1, deck: 0.45, mast: 3.3,
+		speed: 9, accel: 1.4, decel: 1.8, turn: 0.5,
+		mass: 5200, hp: 60, guns: 0, stations: [],
+		sight: 0, engage: 0, lose: 0, fleeAt: 0.3, shot: 0, damage: 0, reload: 0, traverse: 0,
+		loot: { crates: 0, value: [ 0, 0 ] },
+		helm: { x: 0, z: - 2.5 }, wheel: { x: 0, y: 1.55, z: - 2.02 }, lamp: { x: 0, y: 3.42, z: - 1.32 },
+	},
 };
 
-export const SHIP_KINDS = Object.keys( SHIP_CLASSES );
+// the classes with a GLB (naval's ModelSet loads them); the procedural ones (cls.model) are drawn by their own builder
+export const SHIP_KINDS = Object.keys( SHIP_CLASSES ).filter( ( k ) => !! SHIP_CLASSES[ k ].glb );
+export const PROCEDURAL_KINDS = Object.keys( SHIP_CLASSES ).filter( ( k ) => ! SHIP_CLASSES[ k ].glb && SHIP_CLASSES[ k ].model );
 
 export const PIRATE_CAPTAINS = [ 'Mad Meg Orrow', 'One-Eye Pell', 'Black Tam', 'Salt Annick', 'Captain Vane', 'Rook Delacroix', 'Old Bess Harrow', 'Tobias Grim', 'Sable Jory', 'Dread Hallam' ];
 export const PIRATE_SHIPS = [ 'Black Gull', 'Salt Widow', 'Grey Cormorant', 'Hollow Tide', 'Red Kestrel', 'The Gannet\'s Debt', 'Night Heron', 'Drowned Lantern', 'Ashen Wake', 'Sable Petrel' ];

@@ -4,6 +4,7 @@
 // cooldown, where they may be fired, the flight, the remote flare), who answers (launch, passing merchant, open ocean, a black
 // sail), the launch's route and arrival alongside, the ride to the dock and to your boat, the tow, fees, the save. Headless
 // naval (no models, no HUD), no DOM, no GPU.
+// Wave 16A: the 'launch' class and her procedural model (world/boat/Launch.js), the coxswain at the wheel, a job saved mid-way.
 //   node test/feature-rescue.mjs
 import * as E from '../src/engine/index.js';
 import { Features } from '../src/features/Features.js';
@@ -15,6 +16,12 @@ import { TerrainData } from '../src/world/TerrainData.js';
 import { Colliders } from '../src/world/Colliders.js';
 import { WORLD } from '../src/world/WorldLayout.js';
 import { Player, CLIMB } from '../src/player/Player.js';
+import { SHIP_CLASSES, SHIP_KINDS, PROCEDURAL_KINDS } from '../src/features/naval/ShipClasses.js';
+import { ModelSet } from '../src/features/naval/Models.js';
+import { LaunchVisual, launchParts, drawProcedural, sideText, textRuns, LAUNCH } from '../src/world/boat/Launch.js';
+import { Ship } from '../src/features/naval/Ship.js';
+import { coxswainCharacter, COX } from '../src/features/rescue/Coxswain.js';
+import { CHARACTER_IDS } from '../src/game/Characters.js';
 
 let fails = 0, passes = 0;
 const ok = ( c, msg ) => {
@@ -75,7 +82,7 @@ function fakeBoat( x, z, { sheer = 0.95, yaw = 0 } = {} ) {
 }
 
 // a world: GameState, a real Player (swimming at `at`), colliders, a features registry with naval (headless) and rescue
-function world( { mode = 'campaign', money = 500, at = SEA, naval = true, boat = null, terrainData = terrain, rng = null } = {} ) {
+function world( { mode = 'campaign', money = 500, at = SEA, naval = true, boat = null, terrainData = terrain, rng = null, avatarFactory = null, scene = null, models = false } = {} ) {
 
 	const state = new GameState( store() );
 	state.setMode( mode );
@@ -92,7 +99,7 @@ function world( { mode = 'campaign', money = 500, at = SEA, naval = true, boat =
 	player.view = 'first';
 	const toasts = [], sent = [], marks = new Map();
 	const app = {
-		mode, terrainData, colliders, input, player, camera, query: null, scene: null, audio: null, spray: null,
+		mode, terrainData, colliders, input, player, camera, query: null, scene, audio: null, spray: null,
 		settings: { timeOfDay: 12, timeSpeed: 0 }, boatCtl, boat: { dimensions: { length: 8.2, beam: 2.8, draft: 0.8, freeboard: 0.9 } },
 		game: { state, toast: ( t ) => toasts.push( t ) },
 		netsync: { sendWorldEvent: ( kind, data ) => { sent.push( { kind, data } ); return true; } },
@@ -102,8 +109,8 @@ function world( { mode = 'campaign', money = 500, at = SEA, naval = true, boat =
 	for ( const n of [ 'flareFired', 'flaresBought', 'rescueAnswered', 'rescueAlongside', 'rescueDelivered', 'rescueAbandoned', 'climbedAboard' ] ) features.on( n, ( e ) => events.push( { n, ...e } ) );
 	features.list.set( 'worldmap', { module: null, instance: { addMarker: ( m ) => marks.set( m.id, { ...m } ), removeMarker: ( id ) => marks.delete( id ) } } );
 	let nv = null;
-	if ( naval ) nv = features.add( 'naval', { install: ( a, f ) => new Naval( a, f, { seed: 5, hud: false, models: false, settings: { autoSpawn: false } } ) } );
-	const rescue = features.add( 'rescue', { install: ( a, f ) => rescueModule.install( a, f, rng ? { rng } : {} ) } );
+	if ( naval ) nv = features.add( 'naval', { install: ( a, f ) => new Naval( a, f, { seed: 5, hud: false, models, moduleMeshes: false, settings: { autoSpawn: false } } ) } );
+	const rescue = features.add( 'rescue', { install: ( a, f ) => rescueModule.install( a, f, { ...( rng ? { rng } : {} ), ...( avatarFactory ? { avatarFactory } : {} ) } ) } );
 	const frame = ( dt = 0.05 ) => {
 
 		player.update( dt );
@@ -580,6 +587,147 @@ section( '7. save round-trip' );
 	ok( W2.rescue.flares === 0 && W2.rescue.firstFree && ! W2.rescue.job, 'a new game: none' );
 	W2.rescue.dispose();
 	ok( W2.player.climbables.length === 0, 'dispose takes the climb provider off the player' );
+
+}
+
+// ================================================================================================ 8. the harbour launch (wave 16A)
+section( '8. the launch class, her model, the rescue sends her, the coxswain at the wheel' );
+{
+
+	const L = SHIP_CLASSES.launch;
+	ok( L && L.length > 8 && L.length < 10 && L.guns === 0 && L.stations.length === 0 && L.speed === 9 && L.speed > SHIP_CLASSES.sloop.speed && L.faction === 'navy', `naval class 'launch': ${ L.length } m, no guns, ${ L.speed } m/s (faster than a sloop)` );
+	ok( ! L.glb && L.model === 'launch' && PROCEDURAL_KINDS.includes( 'launch' ) && ! SHIP_KINDS.includes( 'launch' ) && SHIP_KINDS.length === 3, 'no GLB: a procedural class (SHIP_KINDS keeps the three GLB ships)' );
+	ok( L.helm.z < - 1 && L.wheel.z > L.helm.z && L.lamp.y > L.deck + 2 && L.lettering === 'HARBOUR' && L.hull === 'launch' && LAUNCH === L, 'a wheel aft with the helm behind it, a lamp on a short mast, HARBOUR on her bows' );
+	const P = launchParts();
+	ok( P === launchParts() && P.triangles > 2000 && P.triangles < 15000 && P.body.attributes.color && P.body.attributes.aux, `built once from GeoKit (${ P.triangles } triangles, one body geometry)` );
+	P.body.computeBoundingBox();
+	const bb = P.body.boundingBox;
+	ok( Math.abs( bb.max.z - L.length / 2 ) < 0.05 && Math.abs( bb.min.z + L.length / 2 ) < 0.1 && bb.max.x < L.beam / 2 + 0.3 && bb.min.y < - L.draft + 0.05, `boat frame: ${ ( bb.max.z - bb.min.z ).toFixed( 2 ) } m long, ${ ( bb.max.x * 2 ).toFixed( 2 ) } m over the fenders, keel ${ bb.min.y.toFixed( 2 ) }` );
+	const port = sideText( 'HARBOUR', { side: 1, zFore: 3, yBase: 0.8, height: 0.22, halfWidth: () => 1 } ), stbd = sideText( 'HARBOUR', { side: - 1, zFore: 3, yBase: 0.8, height: 0.22, halfWidth: () => 1 } );
+	port.computeBoundingBox(); stbd.computeBoundingBox();
+	ok( textRuns( 'HARBOUR' ).cols === 41 && port.boundingBox.min.x > 1 && stbd.boundingBox.max.x < - 1 && Math.abs( port.boundingBox.max.z - 3 ) < 0.02, 'block letters stand off each side from the bow aft' );
+	// the visual: ShipVisual's surface
+	const added = [];
+	const v = new LaunchVisual( { scene: { add: ( g ) => added.push( g ), remove() {} }, night: 1 } );
+	const sh = new Ship( 'launch', { x: 10, z: 20, yaw: 0.5 } );
+	sh.yawRate = L.turn * 0.5;
+	v.apply( sh, sh.finalPose( {} ) );
+	ok( added[ 0 ] === v.group && v.loaded && v.group.position.x === 10 && v.group.rotation.y === 0.5 && Math.abs( v.wheel.rotation.z + 0.5 * v.wheelTurns * Math.PI * 2 ) < 1e-6 && v.lampMaterial.emissive.r > 3, 'LaunchVisual: placed and turned, the wheel turns with her, the lamp lit at night' );
+	// naval's ModelSet hands it out for the class (once patched), the GLB ships as before
+	const ms = new ModelSet( { scene: null, loader: () => new Promise( () => {} ) } );
+	const first = drawProcedural( ms ), again = drawProcedural( ms );
+	ok( first && ! again && ms.create( 'launch' ) instanceof LaunchVisual && ! ( ms.create( 'sloop' ) instanceof LaunchVisual ) && [ ...ms.visuals ].some( ( x ) => x instanceof LaunchVisual ), 'drawProcedural( ModelSet ): create( launch ) is a LaunchVisual; the GLB classes unchanged' );
+	await Promise.resolve();
+	const mine = coxswainCharacter( 'Mabry' );
+	ok( CHARACTER_IDS.includes( mine ) && coxswainCharacter( 'Mabry' ) === mine && coxswainCharacter( 'Mabry', mine ) !== mine, 'the coxswain is a roster character from his name (never the player\'s)' );
+
+	// the rescue sends her, drawn by naval's models; the coxswain at the wheel
+	const figures = [];
+	const avatarFactory = ( o ) => {
+
+		const model = { clips: new Set( [ 'Idle_Breathe', 'Talk', 'Wave' ] ), current: null, played: [], play( c ) { this.current = c; this.played.push( c ); }, update() {}, hold() {} };
+		const f = { group: new E.Group(), model, ready: Promise.resolve( model ), character: o.character, disposed: false, dispose() { this.disposed = true; } };
+		figures.push( f );
+		return f;
+
+	};
+	const W = world( { money: 400, rng: () => 0.5, avatarFactory, models: new ModelSet( { scene: { add() {}, remove() {} }, loader: () => new Promise( () => {} ) } ) } );
+	const r = W.rescue;
+	r.flares = 2;
+	r.fire();
+	W.run( 95, 0.05, () => r.job.phase !== 'waiting' );
+	await Promise.resolve();
+	W.run( 1 );
+	const j = r.job, s = j.ship;
+	ok( s && s.kind === 'launch' && s.cls === SHIP_CLASSES.launch && s.visual instanceof LaunchVisual && s.visual.group.visible, 'the rescue sends the launch class; naval draws her LaunchVisual' );
+	const cox = r.coxswain, f = figures[ 0 ];
+	const helm = s.toWorld( L.helm.x, L.deck, L.helm.z, {} );
+	ok( cox && f && cox.avatar === f && Math.hypot( cox.world.x - helm.x, cox.world.z - helm.z ) < 1e-6 && Math.abs( cox.world.y - helm.y ) < 1e-6, `the coxswain stands at the wheel (${ cox && cox.character })` );
+	ok( f.group.parent === s.visual.group && f.group.position.z === L.helm.z && f.group.position.y === L.deck && ( f.model.current === 'Idle_Breathe' || Math.hypot( W.app.camera.position.x - cox.world.x, W.app.camera.position.z - cox.world.z ) > COX.animate ), 'on her visual: a child of her group at the helm (idling; holding his pose while far from the eye)' );
+	const lamp = r.lights.find( ( x ) => x.kind === 'launchLamp' ), lw = s.toWorld( L.lamp.x, L.lamp.y, L.lamp.z, {} );
+	ok( lamp.enabled && Math.hypot( lamp.position.x - lw.x, lamp.position.z - lw.z ) < 1e-3 && Math.abs( lamp.position.y - lw.y ) < 1e-3, 'the light is her mast lamp' );
+	W.run( 200, 0.05, () => j.phase === 'alongside' );
+	ok( j.phase === 'alongside' && cox.talkT > 0 && f.model.played.includes( 'Wave' ), 'alongside: he speaks the line and waves' );
+	W.run( 1.5 );
+	const pl = W.player.position, c = Math.cos( s.yaw ), sn = Math.sin( s.yaw );
+	const lx = ( pl.x - cox.world.x ) * c - ( pl.z - cox.world.z ) * sn, lz = ( pl.x - cox.world.x ) * sn + ( pl.z - cox.world.z ) * c;
+	const want = Math.max( - COX.reach, Math.min( COX.reach, Math.atan2( lx, lz ) ) );
+	ok( Math.abs( cox.yaw - want ) < 0.1 && Math.abs( cox.yaw ) > 0.3 && f.group.rotation.y === cox.yaw, `he turns to the player (${ cox.yaw.toFixed( 2 ) } rad from the wheel)` );
+	W.player.boardHull( j.hull, 0, - L.length * 0.35 );
+	W.frame(); W.frame();
+	ok( j.phase === 'ride', 'aboard her: the ride' );
+	W.run( 300, 0.05, () => j.phase === 'leave' );
+	W.run( RESCUE.leave + 2 );
+	ok( ! r.job && ! r.coxswain && f.disposed, 'she leaves: the coxswain goes with her' );
+
+	// no naval to draw her: the rescue draws its own launch
+	const scene = { list: [], add( g ) { this.list.push( g ); }, remove( g ) { this.list = this.list.filter( ( x ) => x !== g ); } };
+	const O = world( { naval: false, rng: () => 0.5, scene } );
+	O.rescue.flares = 1;
+	O.rescue.fire();
+	O.run( 100, 0.1, () => O.rescue.job.phase !== 'waiting' );
+	O.frame();
+	const os = O.rescue.job.ship, og = os.visual && os.visual.group;
+	ok( os.kind === 'launch' && os.visual instanceof LaunchVisual && scene.list.includes( og ) && og.visible, 'without naval: her LaunchVisual in the scene, sailed by the rescue' );
+	const le = O.rescue.launchEntry();
+	ok( le && le.kind === 'launch' && le.inNaval === false && le.x === os.x, 'launchEntry(): what netsync sends of her' );
+	O.rescue.dispose();
+	ok( ! scene.list.includes( og ), 'dispose clears her' );
+
+}
+
+// ================================================================================================ 9. a rescue saved mid-way
+section( '9. a rescue in progress survives a save' );
+{
+
+	// waiting: the wait goes on
+	const A = world( { rng: () => 0.5 } );
+	A.rescue.flares = 2;
+	A.rescue.fire();
+	A.run( 30 );
+	const da = JSON.parse( JSON.stringify( A.rescue.toJSON() ) );
+	ok( da.job && da.job.phase === 'waiting' && Math.abs( da.job.t - 30 ) < 0.2 && da.job.plan.by === 'launch' && da.job.plan.port === 'home', `toJSON carries the job (waiting, ${ da.job && da.job.t } s of ${ da.job && da.job.delay })` );
+	const B = world( { rng: () => 0.5 } );
+	B.rescue.fromJSON( da );
+	B.frame();
+	const jb = B.rescue.job;
+	ok( jb && jb.phase === 'waiting' && Math.abs( jb.t - 30 ) < 0.2 && jb.delay === da.job.delay && jb.plan.port.id === 'home' && jb.coxswain === da.job.coxswain, 'loaded: still waiting, the same wait and coxswain' );
+	B.run( 70, 0.05, () => jb.phase !== 'waiting' );
+	ok( jb.phase === 'inbound' && jb.ship && jb.ship.kind === 'launch', 'and the launch puts out when it is up' );
+
+	// inbound (or alongside / aboard): she is out again where she was, coming for you
+	B.run( 20 );
+	const at = { x: jb.ship.x, z: jb.ship.z };
+	const db = JSON.parse( JSON.stringify( B.rescue.toJSON() ) );
+	ok( db.job.phase === 'inbound' && db.job.ship && db.job.ship.kind === 'launch' && Math.abs( db.job.ship.x - at.x ) < 0.1, 'her kind and place are saved' );
+	const C = world( { rng: () => 0.5, avatarFactory: () => ( { group: new E.Group(), ready: Promise.resolve( null ), dispose() {} } ) } );
+	C.rescue.fromJSON( db );
+	C.frame();
+	const jc = C.rescue.job;
+	ok( jc && jc.phase === 'inbound' && jc.ship && jc.ship.kind === 'launch' && C.naval.ships.includes( jc.ship ) && Math.hypot( jc.ship.x - at.x, jc.ship.z - at.z ) < 1 && jc.ship.rescuing && jc.own && C.rescue.coxswain, 'loaded inbound: the launch is out again where she was, her coxswain aboard' );
+	C.run( 200, 0.05, () => jc.phase === 'alongside' );
+	ok( jc.phase === 'alongside', 'and comes alongside' );
+	const dc = JSON.parse( JSON.stringify( C.rescue.toJSON() ) );
+	dc.job.phase = 'ride';
+	const D = world( { rng: () => 0.5 } );
+	D.rescue.fromJSON( dc );
+	D.frame();
+	ok( [ 'inbound', 'alongside' ].includes( D.rescue.job.phase ) && D.rescue.job.ship && D.player.mode === 'swim', `saved aboard: you are not aboard after a load, so she comes for you again (${ D.rescue.job.phase })` );
+	// a merchant of naval's (not saved) or a hull that cannot be raised: the wait starts over
+	const dm = JSON.parse( JSON.stringify( db ) );
+	delete dm.job.ship;
+	dm.job.by = 'merchant';
+	const M = world( { rng: () => 0.5 } );
+	M.rescue.fromJSON( dm );
+	M.frame();
+	ok( M.rescue.job.phase === 'waiting' && M.rescue.job.t < 0.1 && ! M.rescue.job.ship, 'no hull to restore: the flare is answered again' );
+	M.rescue.reset();
+	M.rescue.fromJSON( { flares: 1, job: { phase: 'inbound', origin: { x: 'a' } } } );
+	M.frame();
+	const bad1 = M.rescue.job;
+	M.rescue.fromJSON( { flares: 1, job: 'junk' } );
+	M.frame();
+	ok( ! bad1 && ! M.rescue.job, 'junk jobs are ignored' );
 
 }
 

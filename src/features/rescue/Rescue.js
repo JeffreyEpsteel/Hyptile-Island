@@ -14,6 +14,8 @@
 //                               by: 'launch' | 'merchant', ship, hull, port, dest: 'dock' | 'boat', tow, origin, ... }
 //   r.stepAcross()              aboard the answering hull from a deck / a float (E: the interactable does it)
 //   r.update( dt ) / toJSON() / fromJSON( d ) / reset() / dispose();  r.lights (the flares' red lights, the launch's lamp)
+//                               the save carries the job in progress (toJSON().job: phase, by, dest, tow, port, origin, coxswain,
+//                               t / delay, plan, her kind and place when she is ours); fromJSON restores it on the next update
 //
 // The answer (RescueData.planResponse): within RESCUE.answer s the nearest port's harbour launch (naval.spawn of the 'launch'
 // class, else a trawler hull tuned fast, state 'rescue': the merchant brain leaves unknown states alone and this module steers
@@ -24,6 +26,12 @@
 // dock, or to your boat if she is afloat and you ask the coxswain (E near the stern); she charges a fee by distance at the dock
 // (free in the sandbox, the first one free in the campaign), then leaves. Adrift in your own boat: E steps across, your boat
 // comes in on a line (moored at that port; the fee x RESCUE.fee.tow).
+// Wave 16A: the launch is naval's 'launch' class (ShipClasses.js), an open harbour launch built procedurally (world/boat/Launch.js
+// LaunchVisual: this module teaches naval's ModelSet to draw it, drawProcedural, and draws the ones it sails itself). Her coxswain
+// stands at the wheel (Coxswain.js: a roster character), turns to you and speaks the lines (_say); her mast lamp is the light.
+//   r.coxswain                  the Coxswain while she is out | null      r.launchEntry() -> { kind, x, z, yaw, speed, name, inNaval }
+//                               | null (the boat this module sent, for netsync's RescueLink)
+//   opts.avatarFactory          tests: the coxswain's figure (anything with { group, ready, dispose })
 // Climbing (Player.addClimbable): naval's ships, crippled or lying still (or the answering hull, always): on her deck the hook
 // features.get( 'hijack' )?.onClimb?.( ship, { player, hull } ) runs (worker 15C), else a struck pirate starts boarding's
 // crossing; emits climbedAboard { ship, id, name, faction }. Floaters.js keeps rider boxes on things afloat.
@@ -37,7 +45,9 @@ import { WORLD } from '../../world/WorldLayout.js';
 import { FLOAT_TAGS } from '../../player/Player.js';
 import { Ship } from '../naval/Ship.js';
 import { SHIP_CLASSES } from '../naval/ShipClasses.js';
+import { LaunchVisual, drawProcedural } from '../../world/boat/Launch.js';
 import { FLARE, RESCUE, LAUNCH, COXSWAINS, rescueFee, nearestPort, planResponse } from './RescueData.js';
+import { Coxswain } from './Coxswain.js';
 import { Flares } from './Flares.js';
 import { Floaters } from './Floaters.js';
 
@@ -97,6 +107,11 @@ export class Rescue {
 		this.features = features;
 		this.rng = opts.rng || Math.random;
 		this._naval = opts.naval || null;
+		this._avatarFactory = opts.avatarFactory || null;
+		this._pending = null; // a saved job, restored on the next update
+		this._uid = Math.floor( Math.random() * 0x7fffffff ).toString( 36 );
+		this._spawned = 0;
+		this.coxswain = null;
 		this.flares = 0;
 		this.firstFree = true; // the campaign's first rescue costs nothing
 		this.stats = { fired: 0, rescued: 0, paid: 0 };
@@ -169,6 +184,22 @@ export class Rescue {
 
 		const g = this.app && this.app.game;
 		if ( g && g.toast ) g.toast( text, ms );
+
+	}
+
+	// the coxswain's line: the toast, and he turns to you and talks
+	_say( text, ms = 3200 ) {
+
+		this._toast( text, ms );
+		if ( this.coxswain ) this.coxswain.talk();
+
+	}
+
+	// naval's ModelSet draws the procedural classes (the launch) with world/boat/Launch.js (once per ModelSet)
+	_patchModels() {
+
+		const nv = this.naval;
+		if ( nv && nv.models ) drawProcedural( nv.models );
 
 	}
 
@@ -391,6 +422,9 @@ export class Rescue {
 	_spawn( kind, o ) {
 
 		const nv = this.naval;
+		this._patchModels();
+		// an id of its own: a guest's boat must not share one with the host's ships (NavalLink matches the puppets by id)
+		if ( ! o.id ) o = { ...o, id: `rescue-${ this._uid }-${ ++ this._spawned }` };
 		if ( nv && nv.spawn && nv.active !== false ) {
 
 			try { return nv.spawn( kind, o ); } catch ( e ) { /* unknown class: below */ }
@@ -399,6 +433,8 @@ export class Rescue {
 
 		const s = new Ship( kind, o );
 		s.want = s.yaw;
+		// (no naval to draw her: the launch's own visual, when there is a scene)
+		if ( this.app && this.app.scene && SHIP_CLASSES[ kind ] && SHIP_CLASSES[ kind ].model === 'launch' ) s.visual = new LaunchVisual( { scene: this.app.scene } );
 		this._ownSim.push( s );
 		return s;
 
@@ -438,7 +474,30 @@ export class Rescue {
 		if ( kind !== LAUNCH.kind ) s.cls = { ...s.cls, ...LAUNCH.tune }; // (this hull only: the class table is naval's)
 		s.faction = 'navy'; // (not one of naval's merchants: the lanes keep their own count)
 		s.captain = this.job ? this.job.coxswain : null;
+		this._crew( s );
 		return s;
+
+	}
+
+	// her coxswain at the wheel (a figure when there is a scene or a test's factory; his place either way)
+	_crew( s ) {
+
+		if ( this.coxswain ) this.coxswain.dispose();
+		const av = this.app && this.app.avatar;
+		this.coxswain = new Coxswain( {
+			scene: this.app && this.app.scene || null, avatarFactory: this._avatarFactory,
+			name: s.captain || COXSWAINS[ 0 ], avoid: av && av.character ? av.character : null,
+		} );
+		return this.coxswain;
+
+	}
+
+	// the boat this module sent (for netsync's RescueLink): the launch or the merchant it sails, while she is out
+	launchEntry() {
+
+		const j = this.job, s = j && j.ship;
+		if ( ! s || ! j.own || ! s.alive || s.state === 'gone' ) return null;
+		return { kind: s.kind, x: s.x, z: s.z, yaw: s.yaw, speed: s.speed, name: s.name, inNaval: !! ( this.naval && this.naval.ships && this.naval.ships.includes( s ) ) };
 
 	}
 
@@ -510,7 +569,7 @@ export class Rescue {
 		j.stuckT = 0;
 		j.best = Infinity;
 		j.bestT = 0;
-		this._toast( j.dest === 'boat' ? `${ j.coxswain }: "Your boat it is."` : `${ j.coxswain }: "The dock, then."`, 2400 );
+		this._say( j.dest === 'boat' ? `${ j.coxswain }: "Your boat it is."` : `${ j.coxswain }: "The dock, then."`, 2400 );
 
 	}
 
@@ -597,7 +656,8 @@ export class Rescue {
 				j.waitT = 0;
 				s.wantSpeed = 0;
 				const how = this.app.player.mode === 'swim' ? 'climb aboard at her side (Space)' : 'E to step across';
-				this._toast( `${ j.coxswain }: "Alongside! ${ j.tow ? 'We\'ll take your boat in tow' : 'Up you come' }" · ${ how }`, 4200 );
+				this._say( `${ j.coxswain }: "Alongside! ${ j.tow ? 'We\'ll take your boat in tow' : 'Up you come' }" · ${ how }`, 4200 );
+				if ( this.coxswain ) this.coxswain.wave();
 				if ( this.features && this.features.emit ) this.features.emit( 'rescueAlongside', { by: j.by } );
 
 			}
@@ -661,7 +721,7 @@ export class Rescue {
 		}
 
 		const ask = ! j.tow && this._boatAfloat() ? ` · ask ${ j.coxswain } at the stern for your boat` : '';
-		this._toast( `Aboard the ${ s.name } · bound for ${ j.port ? j.port.name : 'harbour' }${ ask }`, 4200 );
+		this._say( `Aboard the ${ s.name } · bound for ${ j.port ? j.port.name : 'harbour' }${ ask }`, 4200 );
 
 	}
 
@@ -713,7 +773,7 @@ export class Rescue {
 
 		this.stats.rescued ++;
 		const place = toBoat ? 'your boat' : j.port ? j.port.name : 'the dock';
-		this._toast( `Set down at ${ place } · ${ note }`, 4200 );
+		this._say( `Set down at ${ place } · ${ note }`, 4200 );
 		if ( this.features && this.features.emit ) this.features.emit( 'rescueDelivered', { by: j.by, port: j.port ? j.port.id : null, fee, dest: toBoat ? 'boat' : 'dock', tow: j.tow } );
 		j.phase = 'leave';
 		j.t = 0;
@@ -828,7 +888,14 @@ export class Rescue {
 
 		}
 
-		if ( this.job === j ) this.job = null;
+		if ( this.job === j ) {
+
+			this.job = null;
+			if ( this.coxswain ) this.coxswain.dispose();
+			this.coxswain = null;
+
+		}
+
 		this._marker( null );
 
 	}
@@ -909,12 +976,23 @@ export class Rescue {
 
 		if ( ! ( dt > 0 ) ) return;
 		this._hookPlayer();
+		this._patchModels();
 		if ( this.cooldown > 0 ) this.cooldown -= dt;
 
 		// F held FLARE.hold s fires (not with the free camera, not while a panel has the keys)
 		const inp = this.app.input, free = this.app.freeCam;
-		const can = ! free && this.canFire() && ! ( this.features.panelOpen && this.features.panelOpen() );
-		if ( can && ! this._hint && this.situation() !== 'aboard' ) {
+		// wave 16C: situation() scans (the colliders under a walker, the hull): 4 Hz, every frame while F is held
+		const fDown = !! ( inp && inp.down && inp.down( 'KeyF' ) );
+		this._scanT = ( this._scanT || 0 ) - dt;
+		if ( fDown || this._scanT <= 0 ) {
+
+			this._scanT = 0.25;
+			this._sit = this.situation();
+
+		}
+
+		const can = ! free && this.flares > 0 && this.cooldown <= 0 && !! this._sit && ! ( this.features.panelOpen && this.features.panelOpen() );
+		if ( can && ! this._hint && this._sit !== 'aboard' ) {
 
 			this._hint = true;
 			this._toast( `Hold F to fire a distress flare (${ this.flares } left)`, 2800 );
@@ -939,12 +1017,28 @@ export class Rescue {
 			const s = this._ownSim[ i ];
 			if ( s.state === 'gone' ) {
 
+				if ( s.visual ) s.visual.dispose();
+				s.visual = null;
 				this._ownSim.splice( i, 1 );
 				continue;
 
 			}
 
 			s.integrate( dt, this.app.terrainData || null );
+			if ( s.visual ) {
+
+				s.visual.apply( s, s.pose || { y: 0, pitch: 0, roll: 0 } );
+				s.visual.setVisible( true );
+
+			}
+
+		}
+
+		if ( this._pending ) {
+
+			const d = this._pending;
+			this._pending = null;
+			if ( ! this.job && this.app && this.app.player && this.app.player.position ) this._restore( d );
 
 		}
 
@@ -960,13 +1054,21 @@ export class Rescue {
 
 		}
 
-		// the answering hull: a lamp at the bow, a blip on the maps
+		// the answering hull: her lamp (the launch's on its mast, else at the bow), her coxswain, a blip on the maps
 		const s = this.job && this.job.ship;
 		if ( s && s.alive ) {
 
-			const w = shipWorld( s, 0, s.cls.length * 0.42 );
-			this._lamp.position.set( w.x, ( s.pose ? s.pose.y : 0 ) + s.cls.deck + 1.6, w.z );
+			const L = s.cls.lamp;
+			const w = L ? shipWorld( s, L.x, L.z ) : shipWorld( s, 0, s.cls.length * 0.42 );
+			this._lamp.position.set( w.x, ( s.pose ? s.pose.y : 0 ) + ( L ? L.y : s.cls.deck + 1.6 ), w.z );
 			this._lamp.enabled = true;
+			if ( this.coxswain ) {
+
+				const cam = this.app.camera, pl = this.app.player;
+				this.coxswain.update( dt, { ship: s, visual: s.visual && s.visual.kind === 'launch' ? s.visual : null, eye: cam && cam.position ? cam.position : null, player: pl ? pl.position : null } );
+
+			}
+
 			this._markT -= dt;
 			if ( this._markT <= 0 ) {
 
@@ -995,7 +1097,28 @@ export class Rescue {
 
 	toJSON() {
 
-		return { v: SAVE_V, flares: this.flares, firstFree: this.firstFree, stats: { ...this.stats } };
+		const out = { v: SAVE_V, flares: this.flares, firstFree: this.firstFree, stats: { ...this.stats } };
+		const job = this._jobJSON();
+		if ( job ) out.job = job;
+		return out;
+
+	}
+
+	// the answer in progress (wave 16A, for a reload mid-rescue): the phase and its timers, who, where to, the vessel she is
+	// (our own: her kind and place; a merchant of naval's: only that one was coming)
+	_jobJSON() {
+
+		const j = this.job ? this.job : this._pending;
+		if ( ! j || j.phase === 'leave' ) return null;
+		if ( ! this.job ) return j; // (loaded, not restored yet: as it came)
+		const r1 = ( v ) => Math.round( v * 10 ) / 10, s = j.ship;
+		const out = {
+			phase: j.phase, by: j.by, dest: j.dest, tow: !! j.tow, port: j.port ? j.port.id : null, origin: { x: r1( j.origin.x ), z: r1( j.origin.z ) },
+			coxswain: j.coxswain, t: r1( j.t || 0 ), delay: r1( j.delay || 0 ), sighted: !! j.sighted,
+			plan: { by: j.plan.by, port: j.plan.port ? j.plan.port.id : null, ocean: !! j.plan.ocean },
+		};
+		if ( s && s.alive && j.own ) out.ship = { kind: s.kind, x: r1( s.x ), z: r1( s.z ), yaw: Math.round( s.yaw * 1000 ) / 1000, name: s.name };
+		return out;
 
 	}
 
@@ -1006,11 +1129,77 @@ export class Rescue {
 		this.firstFree = d.firstFree !== false;
 		const s = d.stats || {};
 		this.stats = { fired: s.fired | 0, rescued: s.rescued | 0, paid: s.paid | 0 };
+		// a job in progress comes back on the next frame (naval and the player are settled by then)
+		const j = d.job;
+		this._pending = j && typeof j === 'object' && j.origin && finite( Number( j.origin.x ), Number( j.origin.z ) ) && typeof j.phase === 'string' ? j : null;
+
+	}
+
+	// a saved job again: waiting goes on waiting; a vessel of ours is out again where she was (coming for you: a ride or
+	// alongside become inbound, you are not aboard after a load); a merchant of naval's (not saved) or a hull that cannot be
+	// raised again: the wait starts over with whoever answers now
+	_restore( d ) {
+
+		const port = ( id ) => ( WORLD.ports || [] ).find( ( p ) => p.id === id ) || null;
+		const num = ( v, def = 0 ) => ( Number.isFinite( Number( v ) ) ? Number( v ) : def );
+		const origin = { x: num( d.origin.x ), z: num( d.origin.z ) };
+		const P = d.plan && typeof d.plan === 'object' ? d.plan : {};
+		let plan = null;
+		if ( P.by === 'launch' && port( P.port ) ) plan = { by: 'launch', port: port( P.port ) };
+		else if ( P.by === 'pirate' ) plan = { by: 'pirate' };
+		else {
+
+			const np = nearestPort( origin.x, origin.z );
+			plan = { by: 'merchant', ocean: true, port: np ? np.port : null };
+
+		}
+
+		plan.delay = clamp( num( d.delay, RESCUE.answer[ 0 ] ), 0, RESCUE.ocean[ 1 ] );
+		const coxswain = typeof d.coxswain === 'string' && d.coxswain ? d.coxswain.slice( 0, 40 ) : COXSWAINS[ 0 ];
+		const j = {
+			phase: 'waiting', t: 0, delay: plan.delay, by: plan.by, plan, port: port( d.port ) || plan.port || null, ship: null, hull: null,
+			origin, tow: !! d.tow, dest: d.dest === 'boat' ? 'boat' : 'dock', sighted: !! d.sighted, stuckT: 0, rideT: 0, waitT: 0, own: false, prev: null, coxswain,
+		};
+		this.job = j;
+		if ( d.phase === 'waiting' ) {
+
+			j.t = clamp( num( d.t ), 0, j.delay );
+			return j;
+
+		}
+
+		const S = d.ship;
+		if ( S && SHIP_CLASSES[ S.kind ] && finite( num( S.x, NaN ), num( S.z, NaN ) ) ) {
+
+			try {
+
+				const sh = this._spawn( S.kind, { x: num( S.x ), z: num( S.z ), yaw: num( S.yaw ), speed: 0, name: typeof S.name === 'string' ? S.name.slice( 0, 60 ) : undefined, state: 'rescue' } );
+				if ( S.kind === LAUNCH.fallback && plan.by === 'launch' ) sh.cls = { ...sh.cls, ...LAUNCH.tune };
+				sh.setState( 'rescue' );
+				sh.faction = plan.by === 'launch' ? 'navy' : sh.faction;
+				sh.captain = coxswain;
+				if ( plan.by === 'launch' ) this._crew( sh );
+				sh.rescuing = true;
+				j.ship = sh;
+				j.own = true;
+				j.by = plan.by === 'launch' ? 'launch' : 'merchant';
+				j.hull = shipHull( sh, { prompt: ( pl ) => this._hullPrompt( pl ), interact: () => this._hullInteract() } );
+				j.phase = 'inbound';
+				this._toast( `The ${ sh.name } is still coming for you`, 3000 );
+				return j;
+
+			} catch ( e ) { /* the wait again, below */ }
+
+		}
+
+		j.t = 0; // (her hull is gone: the flare is answered again)
+		return j;
 
 	}
 
 	reset() {
 
+		this._pending = null;
 		this._abandon( 'reset' );
 		if ( this.job ) this._release( this.job );
 		this.flares = 0;
@@ -1024,6 +1213,7 @@ export class Rescue {
 	dispose() {
 
 		if ( this.job ) this._release( this.job );
+		for ( const s of this._ownSim ) if ( s.visual ) s.visual.dispose();
 		for ( const off of this._off ) if ( typeof off === 'function' ) off();
 		this._off.length = 0;
 		if ( this._climbOff ) this._climbOff();

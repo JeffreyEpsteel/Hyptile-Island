@@ -53,6 +53,8 @@
 //                               claim (granted once by the server; the claimant takes the loot) in the schema's `fort`
 //   sync.town   (TownLink.js)   the host's prop respawns go to everybody (batched); sync.hostOnly() / sync.askHost( kind, data )
 //                               -> features 'hostRequest' { kind, data, from, local } on the host (a raid only the host spawns)
+// Wave 16A: sync.rescue (RescueLink.js) a guest's rescue launch rides its state (rl) and the others draw it; the boats a player
+//                               left moored (hijack.left, state lb) join the moored list (sync.moored 'left:<peer>:<n>').
 
 import { BOATS } from '../../game/Boats.js';
 import { CrewPanel } from './CrewPanel.js';
@@ -63,6 +65,7 @@ import { CrewLink } from './CrewLink.js';
 import { PlaneLink } from './PlaneLink.js';
 import { StrongholdLink } from './StrongholdLink.js';
 import { TownLink } from './TownLink.js';
+import { RescueLink } from './RescueLink.js';
 import { crewCodeFromLocation } from '../../net/NetClient.js';
 import { crewUrl } from '../../net/Protocol.js';
 
@@ -99,6 +102,7 @@ export class NetSync {
 		this.planes = new PlaneLink( this );
 		this.fort = new StrongholdLink( this );
 		this.town = new TownLink( this );
+		this.rescue = new RescueLink( this ); // (wave 16A: a guest's rescue launch, the boats left moored)
 		this.panel = null;
 		this._offs = [];
 		this._speeds = new Map(); // peer id -> { x, z, t, v }: boat speed from the interpolated transform
@@ -667,6 +671,7 @@ export class NetSync {
 		// the airframe's upgrades, the parachute, a pilot seated (mode 'plane' is no protocol mode); near Blackwater: let in?
 		try { this.planes.decorate( s ); } catch ( e ) { /* optional */ }
 		try { this.fort.decorate( s ); } catch ( e ) { /* optional */ }
+		try { this.rescue.decorate( s ); } catch ( e ) { /* optional */ }
 
 		if ( ! this.riding ) {
 
@@ -794,6 +799,7 @@ export class NetSync {
 		this.planes.bind( net );
 		this.fort.bind( net );
 		this.town.bind( net );
+		this.rescue.bind( net );
 		this.crew.clear();
 		if ( ! net ) {
 
@@ -866,6 +872,7 @@ export class NetSync {
 		this.planes.update( dt ); // (feeds seaplane.updateRemote with the others' new plane states)
 		this.fort.update( dt );
 		this.town.update( dt );
+		this.rescue.update( dt );
 		this._updateMarket( dt );
 		if ( net && net.universe ) {
 
@@ -896,6 +903,7 @@ export class NetSync {
 		this.planes.dispose();
 		this.fort.dispose();
 		this.town.dispose();
+		this.rescue.dispose();
 		if ( this.panel ) this.panel.dispose();
 		this.panel = null;
 		this.net = null;
