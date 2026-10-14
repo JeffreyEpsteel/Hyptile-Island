@@ -11,7 +11,8 @@ import { detectDevice } from './Touch.js';
 // A tier sets the render scale, the shadow map size and reach, the post effects (AO, haze shafts, motion blur,
 // water reflections, TAA jitter phases: 4 as the game always had, 8 on Ultra), the particle and local-light budgets, the draw distances (MeshRenderer's
 // distance cull, the residents' radii, the vegetation's reach: VegType.setReach), the night / vfx budgets and the AI ships
-// awake at once (naval setShipCap: Low 8, Medium 12, phones 6; wave 16C). High is the look the game always had; Ultra
+// awake at once (naval setShipCap: Low 8, Medium 12, phones 6; wave 16C) and the townsfolk drawn as full avatars (townlife
+// bodyCap: Low 12, Medium 16, High / Ultra 24, phones 8; the rest are the instanced crowd; wave 19A). High is the look the game always had; Ultra
 // adds TAA samples and longer distances; Medium and Low trade them away.
 //
 // Auto (default on): every ~2 s window of frames the median frame time is compared with the target (60 fps;
@@ -39,19 +40,19 @@ export const TIER_IDS = [ 'low', 'medium', 'high', 'ultra' ];
 export const TIERS = {
 	low: {
 		label: 'Low', scale: [ 0.5, 0.7 ], shadows: true, shadowSize: 1024, shadowFar: 150, ao: false, shafts: false, motionBlur: false, ssr: false,
-		aa: 4, particles: 0.45, lights: 8, draw: 0.55, residents: { animate: 30, update: 70, hide: 120, shadow: 20 }, fx: 'low', ships: 8,
+		aa: 4, particles: 0.45, lights: 8, draw: 0.55, residents: { animate: 30, update: 70, hide: 120, shadow: 20 }, fx: 'low', ships: 8, townBodies: 12,
 	},
 	medium: {
 		label: 'Medium', scale: [ 0.6, 0.85 ], shadows: true, shadowSize: 1024, shadowFar: 250, ao: true, shafts: true, motionBlur: true, ssr: true,
-		aa: 4, particles: 0.7, lights: 12, draw: 0.75, residents: { animate: 45, update: 100, hide: 180, shadow: 30 }, fx: 'high', ships: 12,
+		aa: 4, particles: 0.7, lights: 12, draw: 0.75, residents: { animate: 45, update: 100, hide: 180, shadow: 30 }, fx: 'high', ships: 12, townBodies: 16,
 	},
 	high: {
 		label: 'High', scale: [ 0.7, 1 ], shadows: true, shadowSize: 2048, shadowFar: 400, ao: true, shafts: true, motionBlur: true, ssr: true,
-		aa: 4, particles: 1, lights: 16, draw: 1, residents: { animate: 60, update: 120, hide: 260, shadow: 40 }, fx: 'high', ships: Infinity,
+		aa: 4, particles: 1, lights: 16, draw: 1, residents: { animate: 60, update: 120, hide: 260, shadow: 40 }, fx: 'high', ships: Infinity, townBodies: 24,
 	},
 	ultra: {
 		label: 'Ultra', scale: [ 0.85, 1 ], shadows: true, shadowSize: 2048, shadowFar: 400, ao: true, shafts: true, motionBlur: true, ssr: true,
-		aa: 8, particles: 1, lights: 16, draw: 1.35, residents: { animate: 80, update: 160, hide: 320, shadow: 60 }, fx: 'high', ships: Infinity,
+		aa: 8, particles: 1, lights: 16, draw: 1.35, residents: { animate: 80, update: 160, hide: 320, shadow: 60 }, fx: 'high', ships: Infinity, townBodies: 24,
 	},
 };
 
@@ -59,7 +60,7 @@ export const TIERS = {
 export const MOBILE = {
 	// textureMax 512 on phones: the roster's 56 character maps were 299 MB of GPU memory at 1024 (75 MB at 512; a
 	// character fills a few hundred pixels of a phone's internal resolution); the whole game measured ~1.07 GB at 1024
-	phone: { tier: 'low', ceiling: 'medium', maxScale: 0.75, shadowSize: 512, shadowReach: 0.6, periods: [ 1, 6, 12 ], particles: 0.6, lights: 6, draw: 0.8, residents: 0.7, fx: 'low', textureMax: 512, ships: 6 },
+	phone: { tier: 'low', ceiling: 'medium', maxScale: 0.75, shadowSize: 512, shadowReach: 0.6, periods: [ 1, 6, 12 ], particles: 0.6, lights: 6, draw: 0.8, residents: 0.7, fx: 'low', textureMax: 512, ships: 6, townBodies: 8 },
 	tablet: { tier: 'low', ceiling: 'high', maxScale: 0.85, shadowSize: 1024, shadowReach: 0.8, periods: [ 1, 4, 8 ], particles: 0.8, lights: 10, draw: 0.9, residents: 0.85, fx: null, textureMax: 2048 },
 	tabletM: { tier: 'medium', ceiling: 'high', maxScale: 0.85, shadowSize: 1024, shadowReach: 0.8, periods: [ 1, 4, 8 ], particles: 0.8, lights: 10, draw: 0.9, residents: 0.85, fx: null, textureMax: 2048 },
 };
@@ -90,6 +91,7 @@ export function mobileTier( tier, prof ) {
 		residents: { animate: Math.round( r.animate * k ), update: Math.round( r.update * k ), hide: Math.round( r.hide * k ), shadow: Math.round( r.shadow * k ) },
 		fx: prof.fx || tier.fx,
 		ships: prof.ships ? Math.min( tier.ships ?? Infinity, prof.ships ) : tier.ships,
+		townBodies: prof.townBodies ? Math.min( tier.townBodies ?? Infinity, prof.townBodies ) : tier.townBodies,
 		mobile: true,
 	};
 
@@ -127,10 +129,10 @@ export function installTextureCap( max = 1024 ) {
 // so root-owned and data files can use it too. Inventory and numbers: docs/PERF.md, `tools/perf/headless.mjs --mobile --mem-top`.
 export const PHONE_BUDGET = {
 	textureMax: 512, // every decoded GLB / prop image (installTextureCap)
-	charTexture: 256, // skinned characters' maps (the roster's 56 maps: 75 MB at 512, 19 MB at 256)
+	charTexture: 192, // skinned characters' maps (the roster's 56 maps: 75 MB at 512, 19 MB at 256; 192 since wave 19A: 12.7 -> 7.1 MB of those loaded)
 	propTexture: 256, // static GLBs (boats, props, fleet) and the harbour stalls' texture arrays
 	terrainTexture: 1024, // terrain normal / splat maps (2048 on desktop)
-	impostorFrame: 64, // vegetation impostor frame px (128 on desktop)
+	impostorFrame: 40, // vegetation impostor frame px (128 on desktop; 64 before wave 19A: the far crowns, 7.4 -> 2.9 MB)
 	shadowSize: 512, // per cascade
 	animatedResidents: 6, // skinned residents animated / drawn at once; the rest hidden
 	marine: false, // whale, dolphins, fish schools
@@ -142,6 +144,9 @@ export const PHONE_BUDGET = {
 	vegTiles: 0.5, // the tiles' plants kept (vegetation/Scatter.js, a fixed half by position)
 	leafAtlas: 512, // the leaf-cluster atlas (px; 1024 on desktop)
 	grassMaskTexel: 4, // m per grass-mask texel (2 on desktop)
+	// wave 19A (wave 18 put the towns at 403 - 412 MB): the terrain's height atlas and shore field as half floats
+	halfTerrain: true, // terrainHeights r16float (18.6 -> 9.3 MB), terrainShoreField rgba16float (6.5 -> 3.3 MB): TerrainGPU.js
+	sunShadow: 256, // the terrain's heightfield sun shadow (512 cells of 4 m on desktop; 8 m cells and heights here, 2.7 -> 0.7 MB): TerrainGPU.js
 };
 
 // at import (before the first GLB loads): a phone gets the cap unless the URL says ?tex=full; ?phone forces the budget
@@ -504,6 +509,9 @@ export class Quality {
 
 			const naval = f.get( 'naval' );
 			if ( naval && naval.setShipCap ) naval.setShipCap( t.ships ?? Infinity );
+			// wave 19A: the townsfolk with a full avatar (the nearest; the others stay the instanced crowd)
+			const town = f.get( 'townlife' );
+			if ( town && 'bodyCap' in town && Number.isFinite( t.townBodies ) ) town.bodyCap = t.townBodies;
 
 			const vfx = f.get( 'vfx' );
 			if ( vfx && vfx.sys && vfx.sys.setQuality ) vfx.sys.setQuality( t.fx );

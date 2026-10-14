@@ -70,7 +70,7 @@ export function installScopes( app, sink ) {
 		const orig = mr.render;
 		mr.render = function ( scene, pass ) {
 
-			const t = now(), d0 = this.stats ? this.stats.draws : 0;
+			const t = now(), d0 = this.stats ? this.stats.draws : 0, t0 = this.stats ? this.stats.triangles : 0;
 			try {
 
 				return orig.call( this, scene, pass );
@@ -80,6 +80,7 @@ export function installScopes( app, sink ) {
 				const label = ( pass && pass.label ) || ( pass && pass.kind ) || 'pass';
 				sink[ 'pass:' + label ] = ( sink[ 'pass:' + label ] || 0 ) + ( now() - t );
 				if ( this.stats ) sink[ 'draws:' + label ] = ( sink[ 'draws:' + label ] || 0 ) + ( this.stats.draws >= d0 ? this.stats.draws - d0 : this.stats.draws ); // (the first pass of a frame resets the counter)
+				if ( this.stats ) sink[ 'tris:' + label ] = ( sink[ 'tris:' + label ] || 0 ) + ( this.stats.triangles >= t0 ? this.stats.triangles - t0 : this.stats.triangles ); // (wave 19A: triangles, a count)
 
 			}
 
@@ -225,6 +226,24 @@ export async function setupScenario( app, s ) {
 
 		try { nv.playerGun.owned = true; } catch ( e ) { /* a read-only record */ }
 		undo.push( () => { try { nv.playerGun.owned = false; } catch ( e ) { /* ignore */ } } );
+
+	}
+
+	// wave 19A: a melee weapon drawn (owned for the run; slot 1 = the melee hand)
+	const wp = s.weapon && app.features && app.features.get ? app.features.get( 'weapons' ) : null;
+	if ( s.weapon && ! wp ) info.notes.push( 'no weapons feature' );
+	else if ( wp ) {
+
+		try {
+
+			const had = wp.owned ? !! wp.owned[ s.weapon ] : false;
+			if ( wp.owned ) wp.owned[ s.weapon ] = true;
+			wp.melee = s.weapon;
+			if ( wp.hand !== 'melee' && wp.slot ) wp.slot( 'melee' );
+			info.weapon = wp.hand === 'melee' ? wp.melee : 'not drawn';
+			undo.push( () => { if ( wp.hand === 'melee' && wp.slot ) { wp.hand = null; } if ( wp.owned && ! had ) wp.owned[ s.weapon ] = false; } );
+
+		} catch ( e ) { info.notes.push( 'weapon failed: ' + ( e && e.message ) ); }
 
 	}
 

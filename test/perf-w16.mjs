@@ -81,7 +81,8 @@ section( '1. the wave 15 world CPU scenario and the three views' );
 	const c = run( [ '--cap=6' ] );
 	const cs = JSON.parse( ( /wave15: \d+ frames, [\d.]+ s wall, (\{.*\}), heap/.exec( c.stdout || '' ) || [ 0, '{}' ] )[ 1 ] );
 	ok( c.status === 0 && cs.asleep > 0 && cs.ships - cs.asleep <= 6 + 2, `--cap=6: ${ cs.asleep } of ${ cs.ships } ships asleep at most` );
-	ok( VIEW_SET.join() === 'homeBay,tidemarkQuay,blackwaterCove' && VIEW_SET.every( ( id ) => SCENARIOS[ id ] && SCENARIOS[ id ].place.kind === 'walk' ), 'the views: the home bay, Tidemark\'s quay, Blackwater\'s cove, on foot' );
+	// (wave 19A added Tidemark's square between the quay and the cove)
+	ok( [ 'homeBay', 'tidemarkQuay', 'blackwaterCove' ].every( ( id ) => VIEW_SET.includes( id ) ) && VIEW_SET.every( ( id ) => SCENARIOS[ id ] && SCENARIOS[ id ].place.kind === 'walk' ), 'the views: the home bay, Tidemark\'s quay, Blackwater\'s cove, on foot' );
 	const bw = WORLD.blackwater && WORLD.blackwater.dock.position, sc = SCENARIOS.blackwaterCove.place;
 	ok( bw && Math.hypot( bw.x - sc.x, bw.z - sc.z ) < 1 && sc.at === 'blackwater', 'Blackwater\'s view stands on its dock (WORLD.blackwater, re-read by the runner)' );
 

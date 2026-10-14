@@ -16,7 +16,7 @@ import { WORLD } from './WorldLayout.js';
 // particles, water queries.
 //
 // Textures (all over the terrain domain unless noted):
-//   heightTexture  R32F   exact heights, bilinear filtering done manually (heightAt)
+//   heightTexture  R32F   exact heights, bilinear filtering done manually (heightAt); R16F on phones (wave 19A below)
 //   normalTexture  RGBA8  macro normal xz (encoded), rock mask, baked ambient occlusion (mipmapped)
 //   splatTexture   RGBA8  loose sand, worn ground / paths, gullies (land) or seagrass (seabed),
 //                         seabed rubble / the eroded beach scarp face on land (mipmapped)
@@ -41,11 +41,44 @@ import { WORLD } from './WorldLayout.js';
 // Bindings: terrainParams (TerrainParams: origin, size, res, shoreRes, sunBake, sunBaked), terrainHeightTex,
 // terrainNormalTex, terrainSplatTex, terrainDetailTex (tileable: sample with smpLinearRepeat / smpAnisoRepeat),
 // terrainShoreTex, terrainSunShadowTex.
-const SUN_N = 512;
+const SUN_N_DESKTOP = 512; // cells of 4 m; phones: PHONE_BUDGET.sunShadow (256: 8 m cells, 2 -> 0.5 MB; the penumbra is metres wide)
 const SUN_T0 = 24; // m: nearer occluders are left to the shadow map / N.L
 const SUN_DT0 = 6;
 const SUN_GROWTH = 1.22;
 const SUN_STEPS = 24; // reaches ~3 km
+
+// Phones (PHONE_BUDGET.halfTerrain, wave 19A): the height atlas and the shore field as half floats (18.6 -> 9.3 MB and
+// 6.5 -> 3.3 MB). Rounded to nearest: <= 1.6 cm below 64 m (the shore, the towns, the meadows), 6 cm on the hills, 12 cm on
+// the 300 m peak; read with textureLoad like the float32 data (no WGSL change; r16float binds as unfilterable-float too).
+const halfTerrain = () => !! ( globalThis.__phoneBudget && globalThis.__phoneBudget.halfTerrain );
+const _hf = new Float32Array( 1 ), _hu = new Uint32Array( _hf.buffer );
+export function toHalfArray( src ) {
+
+	if ( typeof Float16Array === 'function' ) return new Uint16Array( new Float16Array( src ).buffer ); // (Safari 18.2+, Firefox 129+)
+	const out = new Uint16Array( src.length );
+	for ( let i = 0; i < src.length; i ++ ) {
+
+		_hf[ 0 ] = src[ i ];
+		const x = _hu[ 0 ], sign = ( x >>> 16 ) & 0x8000, e = ( ( x >>> 23 ) & 0xff ) - 112;
+		let m = x & 0x7fffff;
+		if ( e >= 31 ) { out[ i ] = sign | 0x7c00; continue; } // (beyond 65504: none in these fields)
+		if ( e <= 0 ) {
+
+			if ( e < - 10 ) { out[ i ] = sign; continue; }
+			m |= 0x800000;
+			const k = 14 - e;
+			out[ i ] = sign | ( ( m >>> k ) + ( ( m >>> ( k - 1 ) ) & 1 ) );
+			continue;
+
+		}
+
+		out[ i ] = sign | ( ( ( e << 10 ) | ( m >>> 13 ) ) + ( ( m >>> 12 ) & 1 ) ); // (a carry into the exponent is right)
+
+	}
+
+	return out;
+
+}
 
 // The terrain's height texture is shared with the grass field (same data, same format): one 16 MB r32float, not two.
 // Given the TerrainData it is the height atlas: the domain's res x res texels, then the extra tiles' nodes in rows
@@ -61,22 +94,23 @@ export function sharedHeightTexture( terrain, res ) {
 	if ( t ) return t;
 	res = T ? T.res : res;
 	const layout = T ? heightAtlasLayout( T ) : { width: res, mainRows: res, stripRows: 0, texels: 0, tiles: [] };
+	const half = halfTerrain(), fmt = half ? 'r16float' : 'r32float', enc = ( a ) => ( half ? toHalfArray( a ) : a );
 	if ( ! layout.stripRows ) {
 
-		t = dataTexture( heights, res, res, 'r32float', 'terrainHeights' );
+		t = dataTexture( enc( heights ), res, res, fmt, 'terrainHeights' );
 
 	} else {
 
-		t = new Texture( { label: 'terrainHeights', width: res, height: res + layout.stripRows, format: 'r32float', usage: [ 'sample', 'copyDst' ] } );
+		t = new Texture( { label: 'terrainHeights', width: res, height: res + layout.stripRows, format: fmt, usage: [ 'sample', 'copyDst' ] } );
 		t.getGPU();
-		t.upload( heights, { width: res, height: res } );
-		t.upload( buildHeightStrip( layout ), { width: res, height: layout.stripRows, y: res } );
+		t.upload( enc( heights ), { width: res, height: res } );
+		t.upload( enc( buildHeightStrip( layout ) ), { width: res, height: layout.stripRows, y: res } );
 
 	}
 
 	t.userData = t.userData || {};
 	t.userData.tiles = layout;
-	t.uploadDomain = () => t.upload( heights, { width: res, height: res } );
+	t.uploadDomain = () => t.upload( enc( heights ), { width: res, height: res } );
 	_heightTex.set( heights, t );
 	return t;
 
@@ -136,7 +170,7 @@ export class TerrainGPU {
 		this.detailTexture = getDetailTexture();
 
 		// coarse heights for the sun shadow march (half float is filterable everywhere)
-		const sh = buildShadowHeights( terrain, 4 );
+		const sh = buildShadowHeights( terrain, ( globalThis.__phoneBudget && globalThis.__phoneBudget.sunShadow ) ? 8 : 4 ); // (phones: 8 m like their sun cells)
 		const st = new Texture( { label: 'terrainShadowHeights', width: sh.levels[ 0 ].width, height: sh.levels[ 0 ].height, format: 'r16float', mips: sh.levels.length, usage: [ 'sample', 'copyDst' ] } );
 		st.getGPU();
 		sh.levels.forEach( ( l, i ) => st.upload( l.data, { mip: i, width: l.width, height: l.height } ) );
@@ -202,6 +236,7 @@ export class TerrainGPU {
 
 		// nearest + textureLoad (manual bilinear in terrainSunShadowAt): no sampler needed, every lit
 		// material includes this lookup
+		const SUN_N = this.sunN = ( globalThis.__phoneBudget && globalThis.__phoneBudget.sunShadow ) || SUN_N_DESKTOP;
 		this.sunShadowTexture = new Texture( { label: 'terrainSunShadow', width: SUN_N, height: SUN_N, format: 'rgba16float', usage: [ 'sample', 'storage' ] } );
 		this.uSunBake = this.uniforms.fields.sunBake;
 		this.uSunBaked = this.uniforms.fields.sunBaked;
@@ -257,7 +292,7 @@ fn main( @builtin( global_invocation_id ) gid: vec3u ) {
 		const L = G.sunDir.value;
 		if ( ! force && this._sunBaked && L.angleTo( this.uSunBake.value ) < 0.0015 ) return false;
 		this.uSunBake.value.copy( L );
-		this.sunShadowKernel.dispatch( [ SUN_N / 8, SUN_N / 8, 1 ] );
+		this.sunShadowKernel.dispatch( [ Math.ceil( this.sunN / 8 ), Math.ceil( this.sunN / 8 ), 1 ] );
 		this._sunBaked = true;
 		this.uSunBaked.value = 1;
 		return true;
@@ -279,14 +314,16 @@ fn main( @builtin( global_invocation_id ) gid: vec3u ) {
 		}
 
 		const atlas = layout.length ? packShoreAtlas( f, layout, this._tileShore ) : { data: f.data, width: f.res, height: f.res, mainRes: f.res, tiles: [] };
-		if ( this.shoreTexture.width !== atlas.width || this.shoreTexture.height !== atlas.height ) {
+		// (phones: half floats; T up to the 1e4 m 'no shore' value fits, the near-shore distances and directions keep 3 digits)
+		const half = halfTerrain(), fmt = half ? 'rgba16float' : 'rgba32float', data = half ? toHalfArray( atlas.data ) : atlas.data;
+		if ( this.shoreTexture.width !== atlas.width || this.shoreTexture.height !== atlas.height || this.shoreTexture.format !== fmt ) {
 
 			this.shoreTexture.destroy();
-			this.shoreTexture = dataTexture( atlas.data, atlas.width, atlas.height, 'rgba32float', 'terrainShoreField' );
+			this.shoreTexture = dataTexture( data, atlas.width, atlas.height, fmt, 'terrainShoreField' );
 
 		} else {
 
-			this.shoreTexture.upload( atlas.data );
+			this.shoreTexture.upload( data );
 
 		}
 

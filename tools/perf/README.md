@@ -111,6 +111,15 @@ use Vulkan.
   `public`: remove it with `rmdir` before deleting the folder, or the delete follows it) and the runs interleaved;
   docs/PERF.md "Wave 16C" has the table.
 
+## Wave 19A additions (2026-10-15)
+
+- `cpu-scenarios.mjs`: **wave18** (now in the default set): Tidemark's market square at noon, wave 18's townsfolk (townlife on
+  stand-in avatars, the NavGrid built first), a cutlass drawn (weapons, firearms, melee), harbour, trade, destruction, 12 ships.
+- `headless.mjs --perf=views` adds **tidemarkSquare** (scenarios.js `weapon`: a melee weapon drawn for the run); every pass
+  counts its triangles (`tris:<pass>`); `--log-fetch` lists the files each place fetched (with `--mem-diff`).
+- `pairs.mjs --out=sheet.png before.png=after.png ...`: a before / after sheet from any folders (capture.mjs output).
+- docs/PERF.md "Wave 19A" has the table; `test/perf-w19.mjs` the checks.
+
 ## Other tools
 
 `headless.mjs` (whole App on Dawn; `--boot`, `--nan-check`, `--boat-swaps`), `runner.js` + `scenarios.js` (the perf

@@ -1,5 +1,5 @@
 import { Color } from '../../engine/index.js';
-import { terrainGeometry } from './town/TerrainMesh.js';
+import { terrainGeometry, WET_REACH, ROUGH_DRY, ROUGH_WET } from './town/TerrainMesh.js';
 import { BLACKWATER as I } from '../terrain/IslandShape.js';
 
 // The land mesh of Blackwater's terrain tile (BlackwaterTerrain, wave 14D). The island used to be drawn by the heightmap's
@@ -32,6 +32,7 @@ export function blackwaterLandGeometry( tile, { step = 2, floor = - 30 } = {} ) 
 
 	const g = terrainGeometry( tile, { step, floor, colors: false } );
 	const pos = g.getAttribute( 'position' ).array, nrm = g.getAttribute( 'normal' ).array, col = g.getAttribute( 'color' ).array;
+	const aux = g.getAttribute( 'aux' ).array; // (x: roughness)
 	const N = tile.n, T = tile.texel, c = new Color();
 	for ( let v = 0; v < pos.length / 3; v ++ ) {
 
@@ -55,7 +56,11 @@ export function blackwaterLandGeometry( tile, { step = 2, floor = - 30 } = {} ) 
 			c.copy( SCRUB ).lerp( DRY, smooth( 0.3, 0.7, hash( x * 0.11, z * 0.13 ) ) * 0.45 );
 			c.lerp( FOREST, forest );
 			c.lerp( SAND, Math.max( sand, 1 - smooth( 0.4, 1.4, h ) ) );
-			c.lerp( WET, 1 - smooth( 0.05, 0.6, h ) );
+			// the wet band (wave 19A, TerrainMesh's): the black sand within ~1.5 m of the waterline darker and glossy
+			const edge = 1 - smooth( 0.05, 0.6, h );
+			const wet = Math.max( edge, Math.max( sand, 1 - smooth( 0.4, 1.4, h ) ) * ( 1 - rock ) * ( 1 - path ) * smooth( WET_REACH, WET_REACH * 0.35, h + ( hash( x * 0.31, z * 0.27 ) - 0.5 ) * 0.6 ) * 0.85 );
+			c.lerp( WET, wet );
+			aux[ v * 4 ] = ROUGH_DRY + ( ROUGH_WET - ROUGH_DRY ) * wet * ( 1 - rock );
 			c.lerp( PATH, path * 0.8 );
 			c.lerp( BASALT, rock ).lerp( DARK, rock * smooth( 0.35, 0.7, slope ) * 0.6 );
 

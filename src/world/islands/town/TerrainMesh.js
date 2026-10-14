@@ -11,6 +11,10 @@ import { BufferGeometry, Float32BufferAttribute, Color } from '../../../engine/i
 const C = ( hex ) => new Color( hex ); // engine Colors are linear: set( hex ) converts from sRGB
 const SAND = C( 0xcdb88f ), WET = C( 0x8f7d5c ), DEEP = C( 0x4f5a52 ), GRASS = C( 0x6f8a42 ), DRY = C( 0x9a9455 ), FOREST = C( 0x3f5a2a );
 const ROCK = C( 0x7a746b ), DARK = C( 0x55504a ), PATH = C( 0x8f785a ), STRIP = C( 0x7f8a55 ), PAD = C( 0x8a8478 );
+// wave 19A: the wet band of the main terrain (Terrain.js), baked per vertex: the sand within ~1.5 m of the waterline darker
+// (the wet albedo) and glossy (roughness 0.95 -> 0.3 at the edge); no shore sim on the tiles, so it holds still
+const WET_SAND = C( 0x958161 );
+export const WET_REACH = 1.5, ROUGH_DRY = 0.95, ROUGH_WET = 0.3;
 
 export function terrainGeometry( tile, { step = 2, floor = - 30, colors = true } = {} ) {
 
@@ -49,7 +53,7 @@ export function terrainGeometry( tile, { step = 2, floor = - 30, colors = true }
 		const e = 2 * step * T, l = Math.hypot( hx, e, hz );
 		nrm[ v * 3 ] = - hx / l; nrm[ v * 3 + 1 ] = e / l; nrm[ v * 3 + 2 ] = - hz / l;
 		uv[ v * 2 ] = x; uv[ v * 2 + 1 ] = z;
-		aux[ v * 4 ] = 0.95;
+		aux[ v * 4 ] = ROUGH_DRY;
 		if ( colors ) {
 
 			const slope = 1 - e / l; // 0 flat .. 1 vertical
@@ -69,6 +73,14 @@ export function terrainGeometry( tile, { step = 2, floor = - 30, colors = true }
 				if ( graded > 0 ) c.lerp( graded > 1.5 ? PAD : STRIP, Math.min( 1, graded ) );
 				c.lerp( PATH, path * 0.85 );
 				c.lerp( ROCK, rock );
+				// the wet band (mottled: the hash moves its top edge by ~0.3 m)
+				const wet = Math.max( sand, 1 - smooth( 0.4, 1.4, h ) ) * ( 1 - rock ) * ( 1 - path ) * ( graded > 0 ? 0 : 1 ) * smooth( WET_REACH, WET_REACH * 0.35, h + ( hash( x * 0.31, z * 0.27 ) - 0.5 ) * 0.6 );
+				if ( wet > 0 ) {
+
+					c.lerp( WET_SAND, wet );
+					aux[ v * 4 ] = ROUGH_DRY + ( ROUGH_WET - ROUGH_DRY ) * wet;
+
+				}
 
 			}
 

@@ -179,3 +179,72 @@ already 3 m on phones (Blackwater.js / Tidemark.js); Blackwater's far mesh is 0.
 - No browser: the DOM writes, the cockpit's canvas and texture uploads and Chrome's per-draw cost are counted, not timed.
 - The ship cap's effect in a real raid (20+ hulls): wave15 has 12 ships, most within the draw range.
 - The minimap's second bake (src/game/Minimap.js, not this wave's file) was not measured.
+
+# Wave 19A (2026-10-15): phones and frame time after wave 18; wet sand
+
+## How it was measured
+
+- GPU: `node tools/perf/headless.mjs --perf=views` on the RTX 5070 Ti (Vulkan): the home bay, Tidemark's quay, **Tidemark's
+  square** (new view `tidemarkSquare`: noon, wave 18's townsfolk, the TownKit dressing, a cutlass drawn) and Blackwater's
+  cove, in that order (a place stays loaded when the next is visited, as when sailing). Low and Medium at 1920x1080, phone =
+  `--mobile --real-sizes --quality=low --size=852x393`. Before = `tools/perf/out/before-w19` (the tree with this wave's five
+  src files restored, junction to `public`; removed after the runs with `rmdir` on the junction first), after = the tree, interleaved per profile. New in the harness: triangles per
+  pass (`tris:<pass>`, printed with the draws), the JS heap after init in the report (`jsAfterInit`), `--log-fetch` (the
+  files a place fetched on arrival, with `--mem-diff`), `tools/perf/pairs.mjs` (before / after sheets from any two folders).
+- CPU: `node tools/perf/cpu-scenarios.mjs --scenario=wave18` (new **wave18**: Tidemark's square at noon in the two-tile world,
+  75 townsfolk on stand-in avatars with the NavGrid built, the cutlass drawn through weapons / firearms / melee, the harbour,
+  trade with rivals, destruction, 12 ships; deterministic: fingerprint 54670.392571 at 300 frames, `test/perf-w19.mjs`).
+  Report: `tools/perf/out/cpu-w19.json`. Phone runs: `tools/perf/out/perf-phone-w19-before.json`, `perf-phone-w19.json`.
+
+## Before / after (one interleaved round; GPU ms mean, CPU ms mean in Node + Dawn, draws, triangles, GPU memory MB)
+
+| place | Low GPU | Medium GPU | phone GPU | Medium CPU | Medium draws / tris | phone MB |
+|---|---|---|---|---|---|---|
+| home bay | 2.94 -> 2.93 | 4.08 -> 4.07 | 1.83 -> 1.82 | 15.6 -> 18.0 * | 352 / 5.85 M -> 354 / 5.87 M | **378.9 -> 354.3** |
+| Tidemark quay | 2.96 -> 2.91 | 4.02 -> 3.88 | 1.93 -> 1.95 | 21.3 -> 19.3 | 536 / 6.30 M -> 508 / 5.93 M | **401.5 -> 377.0** |
+| Tidemark square | 2.91 -> 2.92 | 4.17 -> 4.02 | 1.89 -> 1.93 | 18.9 -> 15.8 | 433 / 5.90 M -> 410 / 5.66 M | **401.7 -> 377.2** |
+| Blackwater cove | 3.02 -> 3.02 | 3.95 -> 3.88 | 1.55 -> 1.56 | 14.2 -> 11.3 | 184 / 2.55 M -> 171 / 2.52 M | **411.8 -> 382.1** |
+
+Low / Medium GPU memory is unchanged (683 - 756 MB, desktop budgets). Phone peak (after the phone tier) 436.0 -> 407.5 MB, the
+run's peak 417.7 MB. JS heap after init 299 MB desktop, 290 MB phone (unchanged: the roster clips were not stripped).
+Phone triangles 4.92 / 4.10 / 3.84 / 2.10 M, phone CPU 10.8 - 13.7 ms (unchanged within noise). \* CPU in Node varies
++-20 % between runs on this shared machine; townlife at Tidemark on Medium 1.25 -> 0.85 ms (16 bodies, was 24).
+
+| CPU wave18 (3600 frames, median of 3) | ms / frame | KB / frame |
+|---|---|---|
+| all features | 0.193 | 71.9 |
+| naval / townlife / trade | 0.054 / 0.053 / 0.038 | 38.9 / 19.7 / 0.6 |
+| weapons / firearms / melee | 0.003 / 0.003 / 0.009 | 0.06 / 0 / 0.6 |
+
+Wave 18's own logic is small: townlife's sim 0.05 ms (the full avatars' animation is the rest of its 0.8 - 1.2 ms in the
+views), weapons and firearms with a cutlass drawn ~0.006 ms.
+
+## What changed
+
+- Phones (PHONE_BUDGET, src/core/Quality.js): `halfTerrain` - the terrain's height atlas r16float (18.6 -> 9.3 MB) and its
+  shore field rgba16float (6.5 -> 3.3 MB), rounded to nearest (<= 1.6 cm below 64 m, 12 cm on the 300 m peak; textureLoad,
+  no WGSL change; src/world/TerrainGPU.js `toHalfArray`); `sunShadow: 256` - the heightfield sun shadow at 8 m cells and
+  heights (2.7 -> 0.7 MB); `charTexture` 256 -> 192 px; `impostorFrame` 64 -> 40 px (the far crowns, 7.4 -> 2.9 MB).
+- Townsfolk drawn as full avatars per tier (`townBodies`, Quality -> townlife.bodyCap): Low 12, Medium 16, High / Ultra 24
+  (as wave 18 left it), phones 8; the others stay the instanced crowd.
+- Wet sand (every tier, no extra pass): the terrain shader's damp band now runs ~1.5 m up the beach (1.2 m in a sheltered bay
+  to 1.6 m where the swell runs up: the shore field's exposure, one 4-load lookup), darkest and glossiest at the edge
+  (roughness 0.45 -> 0.2, 0.14 under the swash), drying back in mottled patches; the ShoreSim's run-up still wets it fresh.
+  The tile islands bake the same band into their vertex colours and roughness (town/TerrainMesh.js, BlackwaterMesh.js: no
+  shore sim there, it holds still).
+
+## Patches proposed (not applied; owners' files): more phone headroom
+
+- src/features/notices/NoticeBoard3D.js: on phones draw the three boards at half size (`capImage( drawBoardPixels( ... ), TEX_W / 2 )`
+  at the texture's creation, line `this.tex = new Texture( { label: \`noticeBoard.${ port }\``, and at the re-upload): 9.3 -> 2.3 MB.
+- src/world/islands/Tidemark.js / Blackwater.js: on phones release a town's near meshes (shells, kit, props, near terrain;
+  ~13 MB for Tidemark) beyond ~1.5 km and rebuild them on approach.
+- src/world/village/TownKit.js `build()`: on phones skip the flower boxes and planters (1,596 / 1,212 vertices each, the most
+  per piece) - the merged Tidemark kit is 3.5 MB.
+- src/game/StallKit.js: a `stallTexture: 128` phone key for the three 5 MB stall arrays (-11 MB; a visible softening up close).
+
+## Not verified
+
+- No browser or phone: the half-float heights rely on r16float being sampleable as unfilterable-float with textureLoad
+  (core WebGPU; Dawn / Vulkan here); Safari's Float16Array path converts in one call, the fallback loop ~4 M values at load.
+- Chrome's per-draw CPU cost (Node's is higher): Medium's CPU frame at Tidemark's quay is 18 - 19 ms here with GPU 3.9 ms.

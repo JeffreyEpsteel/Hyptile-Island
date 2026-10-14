@@ -6,6 +6,7 @@
 //     ships                [ { kind: 'trawler' | 'sloop' | 'brigantine', dx, dz, state? } ]  placed around the player
 //     fire                 { every: s }  the player's guns, port and starboard in turn
 //     peers                number of stand-in remote players walking around the player (the crowd)
+//     weapon               a melee weapon id drawn for the run (weapons feature: owned, slot 1)
 //   SCOPES                 [ [ label, app path, method ] ]  the per-system CPU scopes (feature updates get 'feature:<name>')
 //   parsePerfQuery( 'all' | 'navalFight,storm' | '1' ) -> [ id ]
 //   validateScenario( s, { boats, ports, shipKinds } ) -> [ problem ]
@@ -73,10 +74,18 @@ export const SCENARIOS = {
 		place: { kind: 'walk', at: 'blackwater', x: - 197.8, z: 1505.6, heading: 1.75 },
 		ships: [], fire: null, peers: 0, frames: 180,
 	},
+	// wave 19A: Tidemark's market square at noon with wave 18's townsfolk (townlife), the dressing kit (TownKit) and a
+	// cutlass drawn (weapons); x, z: Layout.js at( -106, 8 ), the inland edge of the square, facing the bay over it
+	tidemarkSquare: {
+		id: 'tidemarkSquare', name: 'Tidemark square', about: 'on foot in the Tidemark market square at noon, cutlass drawn: the townsfolk, the kit, the stalls',
+		time: 12, weather: 'clear', intensity: 0,
+		place: { kind: 'walk', x: 1819.4, z: - 22.4, heading: 1.134 },
+		ships: [], fire: null, peers: 0, frames: 180, warm: 240, weapon: 'cutlass',
+	},
 };
 
 // the views of the wave 16C pass (not in 'every' runs of the old guard: listed explicitly)
-export const VIEW_SET = [ 'homeBay', 'tidemarkQuay', 'blackwaterCove' ];
+export const VIEW_SET = [ 'homeBay', 'tidemarkQuay', 'tidemarkSquare', 'blackwaterCove' ];
 
 export const SCENARIO_IDS = Object.keys( SCENARIOS );
 export const DEFAULT_SET = [ 'navalFight', 'storm', 'night', 'crowd' ];
@@ -147,6 +156,7 @@ export function validateScenario( s, { boats = null, ports = null, shipKinds = n
 	if ( s.fire && ! ( Number.isFinite( s.fire.every ) && s.fire.every > 0.2 ) ) out.push( 'fire.every must be > 0.2 s' );
 	if ( s.fire && s.place && s.place.kind !== 'helm' ) out.push( 'fire needs the helm' );
 	if ( s.peers !== undefined && ! ( Number.isInteger( s.peers ) && s.peers >= 0 && s.peers <= 64 ) ) out.push( 'peers must be 0..64' );
+	if ( s.weapon !== undefined && typeof s.weapon !== 'string' ) out.push( 'weapon must be a weapon id' );
 	for ( const k of [ 'warm', 'frames' ] ) if ( s[ k ] !== undefined && ! ( Number.isInteger( s[ k ] ) && s[ k ] > 0 ) ) out.push( `${ k } must be a positive integer` );
 	return out;
 
@@ -174,9 +184,9 @@ export function budget( frames, ms = BUDGET_MS ) {
 
 }
 
-// 'pass:<label>' (mesh pass CPU time, inside 'scene render' / 'shadows') and 'draws:<label>' (draw calls, a count) are
+// 'pass:<label>' (mesh pass CPU time, inside 'scene render' / 'shadows'), 'draws:<label>' and 'tris:<label>' (counts) are
 // nested: listed, never added to the total or the shares
-export const isNested = ( name ) => /^(pass|draws):/.test( name );
+export const isNested = ( name ) => /^(pass|draws|tris):/.test( name );
 
 // perFrame: [ { scopeName: ms } ] -> the scopes by mean cost; share = of the summed scope time (top-level scopes only)
 export function rankScopes( perFrame ) {

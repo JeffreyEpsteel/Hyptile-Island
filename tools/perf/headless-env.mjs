@@ -166,6 +166,7 @@ export async function installEnv( { search = '?bench&noAudio', width = 2560, hei
 	win.__assetFile = async ( url ) => {
 
 		const f = fileOf( url );
+		if ( globalThis.__fetchLog ) globalThis.__fetchLog.push( String( url ) ); // (wave 19A: headless.mjs --log-fetch)
 		if ( ! f ) throw new Error( 'no file for ' + url );
 		const b = readFileSync( f );
 		return b.buffer.slice( b.byteOffset, b.byteOffset + b.byteLength );
@@ -179,6 +180,7 @@ export async function installEnv( { search = '?bench&noAudio', width = 2560, hei
 		if ( opts && opts.method === 'POST' ) return new Response( 'ok' ); // the collector is not running: results stay in memory
 		if ( /^https?:\/\/(?!127\.0\.0\.1:5189)/.test( u ) ) return netFetch( url, opts );
 		const f = fileOf( u );
+		if ( globalThis.__fetchLog ) globalThis.__fetchLog.push( u );
 		if ( ! f ) return new Response( 'not found', { status: 404 } );
 		const ext = f.split( '.' ).pop().toLowerCase();
 		const type = { json: 'application/json', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', glb: 'model/gltf-binary', bin: 'application/octet-stream', ogg: 'audio/ogg', wasm: 'application/wasm' }[ ext ] || 'application/octet-stream';

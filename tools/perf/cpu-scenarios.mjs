@@ -7,6 +7,10 @@
 // wave15 (wave 16C): the sea scenario in the two-tile world (TerrainData carries Tidemark's and Blackwater's tiles) with the
 //   economy's rivals sailing, the harbour agents, a wanted stolen hull (hijack: the hunters), a rescue under way (a flare
 //   answered: the launch or a merchant inbound) and the 12 AI ships.
+// wave18 (wave 19A): Tidemark's market square at noon (the two-tile world): wave 18's townsfolk (townlife: 47 people, the
+//   NavGrid built before the run, bodies on stand-in avatars), a cutlass drawn (weapons + firearms + melee, no raiders), the
+//   harbour and its residents, trade with the rivals, destruction (the Tidemark props) and the 12 AI ships. The player
+//   strolls round the square. (TownKit is static draws: nothing on the CPU after its merge.)
 // 3600 frames at 60 Hz per scenario. Pass 1 times every module's update (performance.now around each call); pass 2 runs
 // a fresh world again and counts the bytes each update allocates (a minor GC before every frame, a 64 MB young
 // generation: no collection inside a frame, so heapUsed deltas are the allocations).
@@ -44,6 +48,12 @@ const destructionModule = await import( '../../src/features/destruction/index.js
 const agentsModule = await import( '../../src/features/agents/index.js' );
 const hijackModule = await import( '../../src/features/hijack/index.js' );
 const rescueModule = await import( '../../src/features/rescue/index.js' );
+const townlifeModule = await import( '../../src/features/townlife/index.js' );
+const weaponsModule = await import( '../../src/features/weapons/index.js' );
+const firearmsModule = await import( '../../src/features/firearms/index.js' );
+const { ensureTidemark } = await import( '../../src/world/islands/town/TidemarkTerrain.js' );
+const { ensureBlackwater } = await import( '../../src/world/islands/BlackwaterTerrain.js' );
+const { at: tidemarkAt } = await import( '../../src/world/islands/town/Layout.js' );
 const { initPhysics } = await import( '../../src/physics/World.js' );
 const { makeDoc } = await import( './fake-dom.mjs' );
 
@@ -55,7 +65,7 @@ const args = Object.fromEntries( process.argv.slice( 2 ).map( ( a ) => {
 } ) );
 const FRAMES = Number( args.frames ) || 3600;
 const DT = 1 / 60;
-const SCENARIOS = String( args.scenario || 'sea,shore,wave15' ).split( ',' );
+const SCENARIOS = String( args.scenario || 'sea,shore,wave15,wave18' ).split( ',' );
 // --cap=n: naval's awake-ship cap (Quality: Low 8, phones 6; none by default) for the before / after of the cap
 const CAP = args.cap !== undefined ? Number( args.cap ) : null;
 const DETAIL = !! args.detail;
@@ -120,6 +130,16 @@ function arena( cx, cz ) {
 
 const SEA = { x: 40, z: 520 }; // amid the patrols, outside the safe zones
 const SHORE = { x: 60, z: - 70 }; // the old camp by the village (residents near)
+const SQUARE = tidemarkAt( - 120, 8 ); // Tidemark's market square (wave18)
+// the two-tile world for wave18 only (the other scenarios keep the terrain their fingerprints were taken on)
+let tileTerrain = null;
+const terrainFor = ( scenario ) => {
+
+	if ( scenario !== 'wave18' ) return terrain;
+	if ( ! tileTerrain ) { tileTerrain = new TerrainData(); ensureTidemark( tileTerrain ); ensureBlackwater( tileTerrain ); }
+	return tileTerrain;
+
+};
 
 async function makeWorld( scenario ) {
 
@@ -128,9 +148,10 @@ async function makeWorld( scenario ) {
 	state.money = 5000;
 	state.character = 'hyptile';
 	state.unlocked = [ 'hyptile', 'pepe', 'doge', 'pengu', 'bonk' ];
-	const wave15 = scenario === 'wave15';
-	const at = scenario === 'shore' ? SHORE : SEA;
-	const atSea = scenario !== 'shore';
+	const wave15 = scenario === 'wave15', wave18 = scenario === 'wave18';
+	const terrain = terrainFor( scenario );
+	const at = scenario === 'shore' ? SHORE : wave18 ? SQUARE : SEA;
+	const atSea = scenario !== 'shore' && ! wave18;
 	const player = {
 		mode: atSea ? 'boat' : 'walk', camMode: 'third', position: new Vector3( at.x, atSea ? 1 : terrain.heightAt( at.x, at.z ), at.z ), velocity: new Vector3(), yaw: 0, pitch: 0,
 		stamina: 1, grounded: true, prompt: null, busy: false, seat: null, action: null, launched: 0,
@@ -149,8 +170,8 @@ async function makeWorld( scenario ) {
 	const app = {
 		player, input, boatCtl: boat, boat: { dimensions: { length: 8.2, beam: 2.9, draft: 0.85, freeboard: 0.9 } },
 		camera: new PerspectiveCamera( 60, 16 / 9, 0.1, 2000 ), scene: null,
-		game: { state, hour: 10, rod: { equipped: false, equip() {} }, toast() {}, cancelLine() {}, contracts: { onCatch() {} }, habitatAtPoint: null },
-		terrainData: terrain, colliders: new Colliders(), settings: { timeOfDay: 10, timeSpeed: 1 }, mode: 'campaign', paused: false, menuOpen: false, freeCam: false,
+		game: { state, hour: wave18 ? 12 : 10, rod: { equipped: false, equip() {} }, toast() {}, cancelLine() {}, contracts: { onCatch() {} }, habitatAtPoint: null },
+		terrainData: terrain, colliders: new Colliders(), settings: { timeOfDay: wave18 ? 12 : 10, timeSpeed: 1 }, mode: 'campaign', paused: false, menuOpen: false, freeCam: false,
 		avatar: { character: 'hyptile', model: new FakeModel(), playMontage: () => ( { stop() {} } ) }, ui: null, cameraFeel: { kick() { return true; } }, audio: null, query: null, spray: null,
 		residents: R,
 		netsync: { sendWorldEvent() {} },
@@ -158,16 +179,30 @@ async function makeWorld( scenario ) {
 	app.camera.position.set( at.x, 6, at.z - 12 );
 	const features = new Features( app );
 	const add = ( name, mod, opts ) => features.add( name, { install: ( a, f ) => mod.install( a, f, opts ) } );
-	const trade = add( 'trade', tradeModule, { seed: 4, toasts: false, stalls: false, ...( wave15 ? { rivals: true } : {} ) } );
+	const trade = add( 'trade', tradeModule, { seed: 4, toasts: false, stalls: false, ...( wave15 || wave18 ? { rivals: true } : {} ) } );
 	const harbour = add( 'harbour', harbourModule, { rng: makeRng( 21 ), toasts: false, audio: false } );
-	const melee = add( 'melee', meleeModule, { avatarFactory, doc: dom.doc, hudElement: hudEl, fx: false, seed: 5, captain: false, slots: arena( SHORE.x, SHORE.z ), peaceZone: false,
+	const melee = add( 'melee', meleeModule, { avatarFactory, doc: dom.doc, hudElement: hudEl, fx: false, seed: 5, captain: false, slots: wave18 ? [] : arena( SHORE.x, SHORE.z ), peaceZone: false,
 		audio: { play() { return true; }, lead: () => 0.1, preload() {} } } );
 	const naval = features.add( 'naval', { install: ( a, f ) => new Naval( a, f, { seed: 7, doc: dom.doc, models: false, settings: { autoSpawn: false } } ) } );
 	const boarding = add( 'boarding', boardingModule, { avatarFactory, doc: dom.doc, hudElement: hudEl, seed: 11 } );
 	const pirates = add( 'pirates', piratesModule, { seed: 3, hud: false, avatarFactory } );
 	const crew = add( 'crew', crewModule, { rng: makeRng( 11 ), deck: false, doc: dom.doc } );
 	const destruction = features.add( 'destruction', destructionModule );
-	let agents = null, hijack = null, rescue = null;
+	let agents = null, hijack = null, rescue = null, townlife = null, weapons = null;
+	if ( wave18 ) {
+
+		const vfx = {};
+		for ( const k of [ 'flash', 'smoke', 'splash', 'dust', 'splinters', 'debris', 'fire', 'stopFire', 'explosion', 'spray', 'bubbles' ] ) vfx[ k ] = () => {};
+		features.add( 'vfx', { install: () => vfx } );
+		app.game.vendors = [];
+		agents = features.add( 'agents', agentsModule );
+		const yes = () => true;
+		add( 'firearms', firearmsModule, { audio: { report: yes, click: yes }, mesh: false, hud: false, seed: 11 } );
+		weapons = add( 'weapons', weaponsModule, { audio: { blast: yes, shatter: yes, hiss: yes, whoosh: yes, clang: yes, thud: yes, report: yes, click: yes }, mesh: false, seed: 11 } );
+		townlife = add( 'townlife', townlifeModule, { avatarFactory, rand: makeRng( 18 ) } );
+
+	}
+
 	if ( wave15 ) {
 
 		app.game.vendors = [];
@@ -203,6 +238,16 @@ async function makeWorld( scenario ) {
 
 	}
 
+	if ( wave18 ) {
+
+		// the cutlass drawn; Tidemark's NavGrid built before the run (it builds in slices as the player nears the town)
+		weapons.owned.cutlass = true;
+		weapons.melee = 'cutlass';
+		weapons.slot( 'melee' );
+		for ( let i = 0; i < 2400 && ! townlife.towns.every( ( t ) => t.ready || Math.hypot( t.plan.center.x - at.x, t.plan.center.z - at.z ) > t.plan.radius + 600 ); i ++ ) features.update( DT );
+
+	}
+
 	if ( CAP !== null && naval.setShipCap ) naval.setShipCap( CAP );
 	// two crew gunners on the lobster boat, with the swivel gun
 	naval.playerGun.owned = true;
@@ -222,7 +267,7 @@ async function makeWorld( scenario ) {
 
 	if ( ! atSea ) player.position.set( at.x, terrain.heightAt( at.x, at.z ), at.z );
 	dom.reset();
-	return { app, features, R, naval, melee, trade, harbour, boarding, pirates, crew, destruction, agents, hijack, rescue, player, boat, input, dom };
+	return { app, features, R, naval, melee, trade, harbour, boarding, pirates, crew, destruction, agents, hijack, rescue, townlife, weapons, terrain, scenario, player, boat, input, dom };
 
 }
 
@@ -337,7 +382,12 @@ async function run( scenario, mode ) {
 		if ( mode === 'alloc' ) globalThis.gc( { type: 'minor' } );
 		// the player sails a slow circle at sea / strolls about the arena ashore
 		const a = i * DT * 0.05;
-		if ( scenario !== 'shore' ) {
+		if ( scenario === 'wave18' ) {
+
+			const x = SQUARE.x + Math.sin( a * 3 ) * 8, z = SQUARE.z + Math.cos( a * 3 ) * 8;
+			w.player.position.set( x, w.terrain.heightAt( x, z ), z );
+
+		} else if ( scenario !== 'shore' ) {
 
 			w.boat.position.set( start.x + Math.sin( a ) * 60, 0, start.z + ( 1 - Math.cos( a ) ) * 60 );
 			w.boat.velocity.set( Math.cos( a ) * 3, 0, Math.sin( a ) * 3 );
@@ -363,7 +413,7 @@ async function run( scenario, mode ) {
 		if ( ( w.naval._asleep || 0 ) > ( w._maxAsleep || 0 ) ) w._maxAsleep = w.naval._asleep;
 		w.input.endFrame();
 		if ( args.trace && mode === 'time' && i % 600 === 0 ) console.log( i, JSON.stringify( { hull: w.naval.playerHull, ok: w.naval.target.ok, ships: w.naval.ships.map( ( s ) => `${ s.kind[ 0 ] } ${ s.state } ${ Math.round( Math.hypot( s.x - w.boat.position.x, s.z - w.boat.position.z ) ) }` ) } ) );
-		w.app.settings.timeOfDay = ( 10 + i * DT / 60 ) % 24; // a game minute per second
+		w.app.settings.timeOfDay = ( ( scenario === 'wave18' ? 12 : 10 ) + i * DT / 60 ) % 24; // a game minute per second
 		w.app.game.hour = w.app.settings.timeOfDay;
 
 	}
@@ -378,6 +428,7 @@ async function run( scenario, mode ) {
 	const dom = { ...w.dom.counts };
 	for ( const k in dom ) dom[ k ] = +( dom[ k ] / FRAMES ).toFixed( 2 );
 	const stats = { ships: w.naval.ships.length, alive: w.naval.ships.filter( ( s ) => s.alive ).length, maxShips: w._maxShips || 0, asleep: w._maxAsleep || 0, raiders: w.melee.raiders.length, residents: w.R.list.length, shipShots: w.naval.stats.shots, crewShots: w.naval.crewShots, contacts: w._contacts || 0, hull: Math.round( w.naval.playerHull.hp ) };
+	if ( w.townlife ) Object.assign( stats, { townsfolk: w.townlife.towns.reduce( ( n, t ) => n + t.sim.list.length, 0 ), bodies: w.townlife.bound.size, hand: w.weapons.hand + ':' + w.weapons.melee } );
 	if ( w.rescue ) Object.assign( stats, { rescue: w.rescue.job ? w.rescue.job.phase : 'none', rivals: w.trade.rivals && w.trade.rivals.snapshot ? JSON.stringify( w.trade.rivals.snapshot() ).length : 0, hunters: w.pirates.retaliation && w.pirates.retaliation.active ? w.pirates.retaliation.active.length : 0 } );
 	// a fingerprint of where everything ended up: equal before / after an optimisation = the same behaviour
 	let fp = 0;
@@ -385,6 +436,7 @@ async function run( scenario, mode ) {
 	for ( const r of w.melee.raiders ) fp += ( r.x || 0 ) * 3.1 + ( r.z || 0 ) * 3.7 + ( r.hp || 0 );
 	for ( const r of w.R.list ) fp += ( r.x || 0 ) * 0.7 + ( r.z || 0 ) * 0.9;
 	fp += w.naval.playerHull.hp + w.app.game.state.money;
+	if ( w.townlife ) for ( const t of w.townlife.towns ) for ( const c of t.sim.list ) fp += ( c.x || 0 ) * 0.11 + ( c.z || 0 ) * 0.13;
 	if ( w.rescue && w.rescue.job && w.rescue.job.ship ) fp += w.rescue.job.ship.x * 0.3 + w.rescue.job.ship.z * 0.7;
 	stats.fingerprint = fp.toFixed( 6 );
 	try { w.features.dispose && w.features.dispose(); } catch ( e ) { /* stand-ins */ }

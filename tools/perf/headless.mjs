@@ -53,6 +53,7 @@ function dawnFlags() {
 
 }
 
+if ( process.argv.includes( '--log-fetch' ) ) globalThis.__fetchLog = [];
 const env = await installEnv( { search, width: W, height: H, power: arg( 'power', 'high-performance' ), flags: dawnFlags(), dawnDir: arg( 'dawn' ) } );
 if ( process.argv.includes( '--baseline' ) ) globalThis.__perfBaseline = true; // (read by the engine as it is built)
 // --real-sizes: decoded images keep their real width / height (grey pixels; --mobile caps them at the phone's 512 px like
@@ -118,7 +119,8 @@ GPU.onError( ( e ) => gpuErrors.push( { ...e, stage } ) );
 const mb = ( n ) => ( n / 1048576 ).toFixed( 1 ) + ' MB';
 const memLine = ( what ) => console.log( `  GPU memory ${ what }: ${ mb( GPU.memory.total ) } (buffers ${ mb( GPU.memory.buffers ) }, textures ${ mb( GPU.memory.textures ) }, peak ${ mb( GPU.memory.peak ) })` );
 // the JS side (V8 numbers; a phone's WebKit heap differs, but the big arrays are the same)
-const heapLine = ( what ) => { if ( globalThis.gc ) globalThis.gc(); const m = process.memoryUsage(); console.log( `  JS memory ${ what }: heap ${ mb( m.heapUsed ) }, array buffers ${ mb( m.arrayBuffers ) }, rss ${ mb( m.rss ) }` ); };
+let heapInit = null; // (wave 19A: into the report)
+const heapLine = ( what ) => { if ( globalThis.gc ) globalThis.gc(); const m = process.memoryUsage(); heapInit = heapInit || { heap: Math.round( m.heapUsed / 104857.6 ) / 10, arrayBuffers: Math.round( m.arrayBuffers / 104857.6 ) / 10 }; console.log( `  JS memory ${ what }: heap ${ mb( m.heapUsed ) }, array buffers ${ mb( m.arrayBuffers ) }, rss ${ mb( m.rss ) }` ); };
 // pipeline compiles left (the precompile stage waits for them)
 // --trace-compile[=file]: compiles one at a time like a phone (GPU.compileConcurrency 1) and lists them in start order with
 // their time and WGSL size: the order an iPhone's loader walks (wave 7: it stopped after #113 'final (grade + tonemap)')
@@ -521,6 +523,7 @@ if ( arg( 'shot' ) ) {
 report.adapter = [ info.vendor, info.architecture, info.device, info.description ].filter( Boolean ).join( ' ' );
 report.quality = app.quality && app.quality.describe ? app.quality.describe() : quality;
 report.headless = true;
+report.jsAfterInit = heapInit; // MB (V8: run with --expose-gc for a collected heap)
 // the scene graph the passes walk
 {
 
@@ -550,6 +553,8 @@ function memDiff() {
 
 		const d = [ ...now ].map( ( [ k, n ] ) => [ k, n - ( memPrev.get( k ) || 0 ) ] ).filter( ( [ , n ] ) => Math.abs( n ) > 65536 ).sort( ( x, y ) => y[ 1 ] - x[ 1 ] ).slice( 0, 20 );
 		console.log( '  grew: ' + d.map( ( [ k, n ] ) => `${ k } ${ ( n / 1048576 ).toFixed( 1 ) }` ).join( ', ' ) );
+		// --log-fetch (wave 19A): the files the place fetched on arrival (which GLBs the 'glb#' growth is)
+		if ( globalThis.__fetchLog ) { console.log( '  fetched: ' + ( globalThis.__fetchLog.splice( 0 ).join( ', ' ) || 'nothing' ) ); }
 
 	}
 
@@ -567,11 +572,11 @@ function memGroups() {
 
 }
 
-// the draws of a scenario's mesh passes per frame (the 'draws:<label>' scopes)
-function drawsOf( s ) {
+// the draws (triangles) of a scenario's mesh passes per frame (the 'draws:<label>' / 'tris:<label>' scopes)
+function drawsOf( s, k = 'draws' ) {
 
 	let n = 0;
-	for ( const r of s.scopes || [] ) if ( /^draws:/.test( r.name ) ) n += r.mean;
+	for ( const r of s.scopes || [] ) if ( r.name.startsWith( k + ':' ) ) n += r.mean;
 	return Math.round( n );
 
 }
@@ -579,6 +584,6 @@ mkdirSync( out, { recursive: true } );
 const file = join( out, `perf-${ tag }.json` );
 writeFileSync( file, JSON.stringify( report, null, '\t' ) );
 console.log( 'wrote ' + file );
-for ( const [ id, s ] of Object.entries( report.scenarios ) ) console.log( `${ id.padEnd( 11 ) } CPU ${ s.cpu.mean.toFixed( 2 ) } ms (p95 ${ s.cpu.p95.toFixed( 2 ) })` + ( s.gpu ? ` · GPU ${ s.gpu.mean.toFixed( 2 ) } ms (p95 ${ s.gpu.p95.toFixed( 2 ) })` : '' ) + ( s.memory ? ` · GPU memory ${ s.memory.total } MB` : '' ) + ` · draws ${ drawsOf( s ) }` + ( s.setup.notes.length ? ' · ' + s.setup.notes.join( '; ' ) : '' ) );
+for ( const [ id, s ] of Object.entries( report.scenarios ) ) console.log( `${ id.padEnd( 11 ) } CPU ${ s.cpu.mean.toFixed( 2 ) } ms (p95 ${ s.cpu.p95.toFixed( 2 ) })` + ( s.gpu ? ` · GPU ${ s.gpu.mean.toFixed( 2 ) } ms (p95 ${ s.gpu.p95.toFixed( 2 ) })` : '' ) + ( s.memory ? ` · GPU memory ${ s.memory.total } MB` : '' ) + ` · draws ${ drawsOf( s ) } · triangles ${ ( drawsOf( s, 'tris' ) / 1e6 ).toFixed( 2 ) } M` + ( s.setup.notes.length ? ' · ' + s.setup.notes.join( '; ' ) : '' ) );
 void env;
 process.exit( 0 );

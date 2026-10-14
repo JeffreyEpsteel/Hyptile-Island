@@ -553,9 +553,13 @@ const TERRAIN_SURFACE = /* wgsl */`
 		let wetFoam = terWetFoam( xz, h );
 		let wet = sat( wetFoam.x ) * ( 1.0 - jungleW * 0.8 ) * landW;
 		// damp sand below the berm: darker in mottled, drying patches even when the swash has not
-		// reached it lately
+		// reached it lately. Wave 19A: the wet band, ~1.5 m above the waterline (1.2 m in a sheltered bay up to 1.6 m where
+		// the swell runs up: the shore field's exposure), darkest and glossiest at the water's edge; the swash wets it
+		// fresh (wet) and it dries back above in mottled patches
 		let dampMottle = smoothstep( 0.3, 0.7, dM.w + ( dN.y - 0.45 ) * 0.6 + ( macroB - 0.5 ) * 0.4 );
-		let damp = smoothstep( 1.7, 0.5, h + dM.w * 0.3 ) * sandW * mix( 0.22, 0.5, dampMottle );
+		let reach = mix( 1.2, 1.6, sat( length( terrainShoreSample( xz ).yz ) ) ); // (yz: the swell direction x exposure)
+		let band = smoothstep( reach, reach * 0.35, h + ( dM.w - 0.5 ) * 0.35 + ( dN.y - 0.45 ) * 0.2 ) * sandW * landW;
+		let damp = max( smoothstep( 1.7, 0.5, h + dM.w * 0.3 ) * sandW * mix( 0.22, 0.5, dampMottle ), band * mix( 0.85, 1.0, dampMottle ) );
 		// sand dries in mottled patches; backwash leaves faint rills down the slope
 		let mottle = smoothstep( 0.25, 0.75, dM.w + ( dN.y - 0.45 ) * 0.5 );
 		let dryEdge = smoothstep( 0.0, 0.6, wet ) * smoothstep( 1.0, 0.6, wet );
@@ -582,8 +586,8 @@ const TERRAIN_SURFACE = /* wgsl */`
 		var rough = mix( 0.88, 0.93, sandW );
 		rough = mix( rough, 0.9, pathW );
 		rough = mix( rough, rockRough, rockW );
-		// wet sand has a film of water: glossy while fresh, satin as it drains
-		rough = mix( rough, mix( 0.42, 0.16, wet ), wetK );
+		// wet sand has a film of water: glossy while fresh, satin as it drains (the band: satin up top, sheen at the edge)
+		rough = mix( rough, mix( mix( 0.45, 0.2, band * band ), 0.14, wet ), wetK );
 		rough = mix( rough, 0.7, residue );
 		rough = mix( rough, 0.75, underW );
 		rough = mix( rough, 0.94, scarpW );
@@ -624,3 +628,6 @@ const TERRAIN_SURFACE = /* wgsl */`
 	s.normal = outN;
 	s.ao = sat( outAO );
 `;
+
+// the material's WGSL parts (test/perf-w19.mjs checks the wet band composes; the real compile is headless.mjs --boot)
+export const TERRAIN_WGSL = { surface: TERRAIN_SURFACE, material: TERRAIN_MATERIAL_WGSL };
