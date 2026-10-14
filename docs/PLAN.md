@@ -442,7 +442,14 @@ a11y model, seven one-time tips (src/game/Tips.js, feature 'tips'), ~220 en / ro
 writing the previous game's features into the new slot (App.startSession), career flags failing the vault's validation
 (every load fell back to a backup), destruction's pending list, market event ids, the universe's career booleans and
 fence-sale budget; quests Mayday, Letters of marque, The salt road (W16_NOTICES). npm test now runs the wave 13-16
-suites. 16A launch / mail plane / sync polish (w16-polish.md) and 16C perf pass 2 (w16-perf2.md): in progress.
+suites. 16A (w16-polish.md, 6d48847): a 'launch' ship class with a shared GeoKit hull (world/boat/Launch.js) naval
+draws for everyone, a coxswain at the wheel, the mail Petrel at her stops with MAIL on her sides and a walking pilot,
+left boats pinned on the maps, a rescue in progress saved, RescueLink syncs a guest's launch and left boats; verified
+in the browser. 16C (w16-perf2.md, 6c24985): vegetation bands by tier, impostor depth freed, phone plant halving, a
+ship cap by tier, the trade window and the cockpit write only on change, 4 Hz feature scans, the harness's wave-15
+scenario and per-place GPU views; phone GPU memory 391 -> 379 MB at home (Tidemark 394, Blackwater 401 still over the
+387 target: the town meshes and terrain textures). Root: the fence price moved to hijack/Fence.js so the server image
+stays free of the engine (9f9bb65).
 
 ### Wave 15 (2026-10-14, root + 4 workers): a shared universe, economy, hijacking, rescue
 Asked for: a persistent server as the default for Multiplayer; better trades / economy; pirates placed further from the
