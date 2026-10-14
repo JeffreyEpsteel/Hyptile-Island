@@ -1,17 +1,22 @@
 import { Mesh, Matrix4, Vector3, Quaternion } from '../../engine/index.js';
-import { prepare, mergePrepared, cylinder, box, torus, mat4, triangleCount } from '../../world/boat/GeoKit.js';
-import { createPropMaterial, PAT } from '../../game/GameMaterials.js';
+import { triangleCount, prepare, cylinder } from '../../world/boat/GeoKit.js';
+import { createPropMaterial } from '../../game/GameMaterials.js';
+import { loadGLB } from '../../engine/loaders/GLTF.js';
+import { ORDER } from './FirearmsData.js';
+import { ModelBank, buildGeometry, MUZZLES, MATS } from '../weapons/WeaponModels.js';
 
-// The gun in the hand: a procedural flintlock pistol and a musket (barrel, stock, lock, guard, ramrod) from GeoKit primitives in
-// the game's prop material (GameMaterials createPropMaterial: colour + aux = roughness / metalness / pattern), each well under
-// 600 triangles. Held like the fishing rod: the game hands us the avatar's right-hand prop socket (Avatar.handMatrix, the rig's
-// weapon_r; FishingRod.anchor) and the gun hangs off it with its grip in the palm, the barrel along the socket's +Z (the rod's
-// shaft) and its lock side up the socket's -Y (the rod's reel hangs toward +Y, below the blank). Without an avatar it sits
-// off the camera, first-person style.
+// The gun in the hand: every firearm (FirearmsData ORDER) in the game's prop material (GameMaterials createPropMaterial: colour +
+// aux = roughness / metalness / pattern). Wave 9B built the pistol and the musket from GeoKit primitives; wave 18D moved the
+// geometry to weapons/WeaponModels.js: a procedural stand-in at once (each well under 600 triangles), then the Blender model
+// (public/models/weapons/<id>.glb, <= 2.5k triangles) once it has loaded. Held like the fishing rod: the game hands us the
+// avatar's right-hand prop socket (Avatar.handMatrix, the rig's weapon_r; FishingRod.anchor) and the gun hangs off it with
+// its grip in the palm, the barrel along the socket's +Z (the rod's shaft) and its lock side up the socket's -Y (the rod's
+// reel hangs toward +Y, below the blank). Without an avatar it sits off the camera, first-person style.
 //
-//   const w = new WeaponMesh( { scene } );   w.update( { kind, visible, anchor: Matrix4 | null, camera, recoil } )
+//   const w = new WeaponMesh( { scene, glb } );   w.update( { kind, visible, anchor: Matrix4 | null, camera, recoil, hold, line } )
 //   w.muzzle( out ) -> world position of the muzzle ( { x, y, z } )    w.dispose()
-//   buildWeaponGeometry( kind ) -> BufferGeometry (also used by the test to count triangles)
+//   buildWeaponGeometry( kind ) -> BufferGeometry (the stand-in; the test counts its triangles)
+//   line: the harpoon gun's line ( { x, y, z } the harpoon's end, or null): a rope from the muzzle and the bolt at its end
 //
 // Gun frame: origin at the grip (where the hand closes), +Z the muzzle, +Y up (the lock and the hammer on top, +X its right side).
 // HOLD tunes the pose in the hand (pitch about the gun's X, rad: the Fishing_Hold overlay carries the rod raised, so the gun is
@@ -19,65 +24,11 @@ import { createPropMaterial, PAT } from '../../game/GameMaterials.js';
 
 export const HOLD = { pitch: - 0.55, x: 0, y: 0, z: 0 };
 export const FP = { x: 0.16, y: - 0.17, z: - 0.42 };
-export const MUZZLE = { pistol: [ 0, 0.035, 0.245 ], musket: [ 0, 0.035, 1.02 ] };
-
-const WOOD = { color: 0x5b3920, rough: 0.55, metal: 0, pattern: PAT.woodZ };
-const DARK_WOOD = { color: 0x40271a, rough: 0.6, metal: 0, pattern: PAT.woodZ };
-const STEEL = { color: 0x2d3034, rough: 0.34, metal: 0.85, pattern: PAT.machined };
-const BRIGHT = { color: 0x8d9196, rough: 0.25, metal: 1, pattern: PAT.machined };
-const BRASS = { color: 0xa8803a, rough: 0.3, metal: 1, pattern: PAT.machined };
-const HALF_PI = Math.PI / 2;
+export const MUZZLE = MUZZLES;
 
 export function buildWeaponGeometry( kind = 'pistol' ) {
 
-	const parts = [];
-	const add = ( g, o, m ) => parts.push( prepare( g, { ...o, matrix: m } ) );
-	if ( kind === 'musket' ) {
-
-		// barrel and muzzle, two bands, a front sight
-		add( cylinder( 0.0105, 0.0125, 1.0, 10, 1 ), STEEL, mat4( 0, 0.035, 0.52, HALF_PI ) );
-		add( cylinder( 0.0135, 0.0135, 0.02, 10, 1 ), BRIGHT, mat4( 0, 0.035, 1.01, HALF_PI ) );
-		add( cylinder( 0.02, 0.02, 0.016, 10, 1 ), BRASS, mat4( 0, 0.028, 0.45, HALF_PI ) );
-		add( cylinder( 0.02, 0.02, 0.016, 10, 1 ), BRASS, mat4( 0, 0.028, 0.78, HALF_PI ) );
-		add( box( 0.004, 0.01, 0.012 ), BRASS, mat4( 0, 0.05, 0.98 ) );
-		// the stock: forend under the barrel, the wrist the hand holds, the butt against the shoulder, a butt plate
-		add( box( 0.036, 0.03, 0.82 ), WOOD, mat4( 0, 0.016, 0.42 ) );
-		add( box( 0.034, 0.045, 0.16 ), WOOD, mat4( 0, 0.008, 0.0, - 0.12 ) );
-		add( box( 0.04, 0.12, 0.34 ), DARK_WOOD, mat4( 0, - 0.045, - 0.24, - 0.16 ) );
-		add( box( 0.044, 0.13, 0.012 ), BRASS, mat4( 0, - 0.072, - 0.41, - 0.16 ) );
-		// the lock on the right side: plate, hammer (the cock), frizzen and pan
-		add( box( 0.006, 0.03, 0.09 ), STEEL, mat4( 0.02, 0.03, 0.07 ) );
-		add( box( 0.006, 0.035, 0.014 ), STEEL, mat4( 0.022, 0.058, 0.04, 0.45 ) );
-		add( box( 0.006, 0.026, 0.012 ), BRIGHT, mat4( 0.022, 0.052, 0.09 ) );
-		// trigger and guard
-		add( box( 0.004, 0.022, 0.005 ), STEEL, mat4( 0, - 0.012, 0.05 ) );
-		add( torus( 0.022, 0.0028, 4, 8, Math.PI ), BRASS, mat4( 0, 0, 0.05, 0, HALF_PI, Math.PI ) );
-		// the ramrod under the barrel
-		add( cylinder( 0.0035, 0.0035, 0.8, 6, 1 ), DARK_WOOD, mat4( 0, 0.0, 0.55, HALF_PI ) );
-
-	} else {
-
-		// barrel and muzzle swell, a front sight
-		add( cylinder( 0.011, 0.0125, 0.25, 10, 1 ), STEEL, mat4( 0, 0.035, 0.115, HALF_PI ) );
-		add( cylinder( 0.0145, 0.0145, 0.02, 10, 1 ), BRASS, mat4( 0, 0.035, 0.235, HALF_PI ) );
-		add( box( 0.003, 0.008, 0.008 ), BRASS, mat4( 0, 0.049, 0.225 ) );
-		// the stock: a short forend and the curved grip with its brass butt cap
-		add( box( 0.03, 0.025, 0.2 ), WOOD, mat4( 0, 0.018, 0.07 ) );
-		add( box( 0.028, 0.11, 0.045 ), WOOD, mat4( 0, - 0.03, - 0.03, - 0.4 ) );
-		add( box( 0.034, 0.03, 0.055 ), BRASS, mat4( 0, - 0.083, - 0.058, - 0.4 ) );
-		// the lock: plate, hammer, frizzen
-		add( box( 0.006, 0.025, 0.06 ), STEEL, mat4( 0.016, 0.03, 0.0 ) );
-		add( box( 0.006, 0.03, 0.012 ), STEEL, mat4( 0.017, 0.054, - 0.022, 0.45 ) );
-		add( box( 0.006, 0.022, 0.01 ), BRIGHT, mat4( 0.017, 0.048, 0.02 ) );
-		// trigger and guard
-		add( box( 0.004, 0.018, 0.004 ), STEEL, mat4( 0, - 0.005, 0.012 ) );
-		add( torus( 0.018, 0.0025, 4, 8, Math.PI ), BRASS, mat4( 0, 0.006, 0.012, 0, HALF_PI, Math.PI ) );
-		// the ramrod
-		add( cylinder( 0.003, 0.003, 0.2, 6, 1 ), DARK_WOOD, mat4( 0, 0.012, 0.11, HALF_PI ) );
-
-	}
-
-	return mergePrepared( parts );
+	return buildGeometry( kind );
 
 }
 
@@ -89,10 +40,11 @@ export function weaponTriangles( kind ) {
 
 const _hold = new Matrix4(), _rot = new Matrix4(), _fp = new Matrix4(), _v = new Vector3();
 const _x = new Vector3(), _y = new Vector3(), _z = new Vector3(), _hq = new Quaternion();
+const _a = new Vector3(), _b = new Vector3(), _d = new Vector3(), _q = new Quaternion(), _s = new Vector3(), _up = new Vector3( 0, 1, 0 );
 
 export class WeaponMesh {
 
-	constructor( { scene = null } = {} ) {
+	constructor( { scene = null, glb = true, bank = null } = {} ) {
 
 		this.scene = scene;
 		this.meshes = {};
@@ -100,11 +52,12 @@ export class WeaponMesh {
 		this.kind = null;
 		this.valid = false;
 		if ( ! scene ) return;
+		this.bank = bank || new ModelBank( { loader: glb ? loadGLB : null } );
 		this.material = createPropMaterial( 'firearm' );
-		for ( const kind of [ 'pistol', 'musket' ] ) {
+		for ( const kind of ORDER ) {
 
-			const m = new Mesh( buildWeaponGeometry( kind ), this.material );
-			m.name = kind === 'musket' ? 'Musket' : 'FlintlockPistol';
+			const m = new Mesh( this.bank.geometry( kind ), this.material );
+			m.name = 'Firearm_' + kind;
 			m.frustumCulled = false;
 			m.castShadow = false;
 			m.matrixAutoUpdate = false;
@@ -114,11 +67,35 @@ export class WeaponMesh {
 
 		}
 
+		// the harpoon gun's line (a unit rope along +Y, stretched each frame) and the harpoon at its end
+		this.rope = new Mesh( prepare( cylinder( 0.004, 0.004, 1, 4, 1 ), { ...MATS.Rope, matrix: new Matrix4().makeTranslation( 0, 0.5, 0 ) } ), this.material );
+		this.bolt = new Mesh( this.bank.geometry( 'bolt' ), this.material );
+		for ( const m of [ this.rope, this.bolt ] ) {
+
+			m.frustumCulled = false;
+			m.castShadow = false;
+			m.matrixAutoUpdate = false;
+			m.visible = false;
+			scene.add( m );
+
+		}
+
+	}
+
+	// the Blender model of `kind` the first time it is drawn (the stand-in shows until then)
+	_want( kind ) {
+
+		const m = this.meshes[ kind ];
+		if ( ! m || m._asked || ! this.bank ) return;
+		m._asked = true;
+		this.bank.load( kind, ( g ) => { if ( this.meshes[ kind ] === m ) m.geometry = g; } );
+		if ( kind === 'harpoongun' ) this.bank.load( 'bolt', ( g ) => { if ( this.bolt ) this.bolt.geometry = g; } );
+
 	}
 
 	// place the gun for this frame: in the hand (anchor) or off the camera; recoil (0..1) tips the muzzle up and back
 	// hold: [ x, y, z, w ] the gun in the socket (GunPose.js: barrel ahead in that gun's aim pose), else HOLD's rod-hold pitch
-	update( { kind = null, visible = false, anchor = null, camera = null, recoil = 0, hold = null } = {} ) {
+	update( { kind = null, visible = false, anchor = null, camera = null, recoil = 0, hold = null, line = null } = {} ) {
 
 		this.kind = kind;
 		this.valid = false;
@@ -159,12 +136,37 @@ export class WeaponMesh {
 			m.visible = !! ( visible && this.valid && k === kind );
 			if ( m.visible ) {
 
+				this._want( k );
 				m.matrix.copy( this.matrix );
 				m.matrixWorldNeedsUpdate = true;
 
 			}
 
 		}
+
+		this._line( visible && this.valid && kind === 'harpoongun' ? line : null );
+
+	}
+
+	// the rope from the muzzle to the harpoon, the harpoon at its end pointing away from the gun
+	_line( line ) {
+
+		if ( ! this.rope ) return;
+		const on = !! ( line && [ line.x, line.y, line.z ].every( Number.isFinite ) && this.muzzle( _a ) );
+		this.rope.visible = this.bolt.visible = on;
+		if ( ! on ) return;
+		_b.set( line.x, line.y, line.z );
+		_d.subVectors( _b, _a );
+		const len = _d.length();
+		if ( len < 0.05 ) { this.rope.visible = this.bolt.visible = false; return; }
+		_d.multiplyScalar( 1 / len );
+		_q.setFromUnitVectors( _up, _d );
+		this.rope.matrix.compose( _a, _q, _s.set( 1, len, 1 ) );
+		this.rope.matrixWorldNeedsUpdate = true;
+		// the bolt's +Z along the line
+		_q.setFromUnitVectors( _z.set( 0, 0, 1 ), _d );
+		this.bolt.matrix.compose( _b, _q, _s.set( 1, 1, 1 ) );
+		this.bolt.matrixWorldNeedsUpdate = true;
 
 	}
 
@@ -181,15 +183,18 @@ export class WeaponMesh {
 
 	dispose() {
 
-		for ( const m of Object.values( this.meshes ) ) {
+		for ( const m of [ ...Object.values( this.meshes ), this.rope, this.bolt ] ) {
 
+			if ( ! m ) continue;
 			if ( this.scene && this.scene.remove ) this.scene.remove( m );
-			try { m.geometry.dispose(); } catch ( e ) { /* gone */ }
 
 		}
 
+		try { if ( this.rope ) this.rope.geometry.dispose(); } catch ( e ) { /* gone */ }
+		if ( this.bank ) this.bank.dispose();
 		try { if ( this.material && this.material.dispose ) this.material.dispose(); } catch ( e ) { /* gone */ }
 		this.meshes = {};
+		this.rope = this.bolt = null;
 
 	}
 

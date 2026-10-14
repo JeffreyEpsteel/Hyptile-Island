@@ -11,6 +11,10 @@
 export const REPORTS = {
 	pistol: { len: 0.32, crack: 3200, body: 900, thump: 95, gain: 0.9, echo: 0.22 },
 	musket: { len: 0.6, crack: 2400, body: 620, thump: 70, gain: 1.0, echo: 0.3 },
+	// wave 18D: the rifle cracks sharper and rolls further; the blunderbuss is a short wide roar; the harpoon gun a thump
+	rifle: { len: 0.7, crack: 3600, body: 700, thump: 80, gain: 1.0, echo: 0.42 },
+	blunderbuss: { len: 0.5, crack: 1500, body: 420, thump: 55, gain: 1.0, echo: 0.24 },
+	harpoon: { len: 0.28, crack: 900, body: 300, thump: 60, gain: 0.7, echo: 0.18 },
 };
 
 // clicks: [ Hz, decay s, gain, noise band Hz (0: tone only) ]

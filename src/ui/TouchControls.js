@@ -51,6 +51,7 @@ const BUTTONS = {
 	deck: { label: 'Deck', code: 'KeyQ' },
 	fire: { label: 'Fire', button: 'left', big: true }, // a drawn pistol / musket
 	flare: { label: 'Flare', code: 'KeyF', hold: true }, // wave 15D: held, like the key
+	weapon: { label: 'Weapon', code: 'Digit0' }, // wave 18D: the next quick slot
 	aim: { label: 'Aim', button: 'right' },
 	draw: { label: 'Gun', code: 'KeyG' },
 	emote: { label: 'Emote', code: 'Digit5' },
@@ -758,7 +759,7 @@ export class TouchControls {
 			choices: ph === 'surrender' || !! ( boarding && boarding.hostile && boarding.hostile.phase === 'boarded' ),
 			melee: meleeOn,
 			helmAshore: !! ( app.player && app.player.helmAshore ),
-			gunOwned: !! ( get( 'firearms' ) && get( 'firearms' ).anyOwned && get( 'firearms' ).anyOwned() ), canFlare: !! ( get( 'rescue' ) && get( 'rescue' ).canFire && get( 'rescue' ).canFire() ), gunDrawn: !! ( get( 'firearms' ) && get( 'firearms' ).drawn ),
+			gunOwned: !! ( get( 'firearms' ) && get( 'firearms' ).anyOwned && get( 'firearms' ).anyOwned() ), canFlare: !! ( get( 'rescue' ) && get( 'rescue' ).canFire && get( 'rescue' ).canFire() ), gunDrawn: !! ( get( 'firearms' ) && get( 'firearms' ).drawn ), weaponMouse: !! ( get( 'weapons' ) && get( 'weapons' ).ownsMouse && get( 'weapons' ).ownsMouse() ), weaponOwned: !! ( get( 'weapons' ) && get( 'weapons' ).owned && Object.entries( get( 'weapons' ).owned ).some( ( [ k, v ] ) => v && k !== 'paddle' ) ),
 			planeWheels: !! ( get( 'seaplane' ) && get( 'seaplane' ).flight && get( 'seaplane' ).flight.spec && get( 'seaplane' ).flight.spec.wheels ), planeSearch: !! ( get( 'seaplane' ) && get( 'seaplane' ).hasUpgrade && get( 'seaplane' ).hasUpgrade( 'searchlight' ) ),
 			boatLights: !! app.boatLightsOn,
 			planeNav: !! get( 'seaplane' )?.systems?.nav,

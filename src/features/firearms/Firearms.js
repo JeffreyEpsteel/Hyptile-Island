@@ -2,7 +2,7 @@ import { Matrix4, Vector3 } from '../../engine/index.js';
 import { inPeace } from '../melee/Peace.js';
 import { mulberry32 } from '../../util/Noise.js';
 import { G } from '../../core/Globals.js';
-import { WEAPONS, ORDER, POUCH, HEADSHOT, MAGNET, DEG, damageAt, spreadRad, spreadDir, forwardOf, maxRange, clamp, angleBetween } from './FirearmsData.js';
+import { WEAPONS, ORDER, POUCH, HEADSHOT, MAGNET, DEG, SLOT_OF, POSE_OF, LINE, damageAt, spreadRad, spreadDir, forwardOf, maxRange, clamp, angleBetween, barrelsOf, cartridgesFor } from './FirearmsData.js';
 import { resolveShot } from './Hitscan.js';
 import { GunAudio } from './GunAudio.js';
 import { WeaponMesh } from './WeaponMesh.js';
@@ -43,6 +43,14 @@ import { gunPoses } from './GunPose.js';
 // (moveSpread), the musket slows the walk to x0.7. A kill freezes the fight for a beat (melee.hitstop) with a heavy kick;
 // a ball into a thrower's wind-up stops it like a parry; a musket ball knocks an unarmoured raider down (Raider.takeHit).
 // The practice raiders at the training post are wooden swords only (no shooting them).
+//
+// Wave 18D (the arsenal): duelling pistols (two quick shots, both to reload, a cartridge a barrel; the second goes out as
+// 'duelling_l' so the universe gate lets it through), a long rifle (x3.2 sight zoom, the scope ring in GunHud), a blunderbuss
+// (nine pellets in a wide cone, each hit shoves the man back: Raider.shove), a harpoon gun (a line: a raider is dragged in, a
+// small hull hauled closer, a big ship holds it until the line parts, a big fish (app.reef.fish) is hauled in and landed:
+// fishHarpooned { species, kg }; R reels it home, no cartridge). fa.drawSlot( 'side' | 'long' ) (weapons' keys 2 / 3) draws
+// the next owned gun of that slot. Chandlery rows: the legal guns (WEAPONS[ id ].vendor !== 'blackmarket'); fa.marketRows() /
+// fa.marketAction( id ) are the fence's (the blunderbuss). Events: gunHarpoon { kind, target, x, y, z }, lineParted { kind }.
 
 export const AIM = { ease: 10 }; // 1/s: the zoom eases in and out
 const RELOAD_CUES = [ [ 0.06, 'half' ], [ 0.24, 'pour' ], [ 0.5, 'ram' ], [ 0.62, 'ram' ], [ 0.9, 'cock' ] ];
@@ -60,8 +68,10 @@ export class Firearms {
 		this.rand = options.rand || mulberry32( options.seed !== undefined ? options.seed : ( Date.now() & 0xffffff ) );
 		this.audio = options.audio || new GunAudio( this.app.audio );
 		this.mesh = options.mesh === false ? null : this._makeMesh();
-		this.owned = { pistol: false, musket: false };
-		this.loaded = { pistol: false, musket: false };
+		this.owned = Object.fromEntries( ORDER.map( ( id ) => [ id, false ] ) );
+		this.loaded = Object.fromEntries( ORDER.map( ( id ) => [ id, false ] ) );
+		this.balls = {}; // id -> balls left in a multi-barrel gun (the duelling pair); loaded[ id ] while any is left
+		this.line = null; // the harpoon gun's line out: { kind, target, x, y, z, t, fish }
 		this.shots = 0;
 		this.sel = null; // the weapon drawn last (G draws it again)
 		this.phase = 'holstered';
@@ -194,6 +204,13 @@ export class Firearms {
 
 	}
 
+	// the aim pose this gun borrows ('pistol' | 'musket')
+	poseKind( id = this.sel ) {
+
+		return POSE_OF[ id ] || 'pistol';
+
+	}
+
 	// the gun poses built on the local avatar's rig (GunPose.js), or null (a rig without them: the rod-hold overlay carries the arms)
 	_poses() {
 
@@ -207,7 +224,7 @@ export class Firearms {
 	_aimPose() {
 
 		const av = this.app.avatar, gp = this._poses();
-		const want = this.drawn && gp && this.sel && this.phase !== 'reloading' ? gp.aim[ this.sel ] : null;
+		const want = this.drawn && gp && this.sel && this.phase !== 'reloading' ? gp.aim[ this.poseKind() ] : null;
 		const h = this._aimH;
 		if ( h && ( ! want || h.clip !== want ) ) {
 
@@ -289,6 +306,20 @@ export class Firearms {
 
 	}
 
+	// keys 2 / 3 (the weapons feature): the next owned gun of that slot ('side' | 'long'), from the one in hand; past the last
+	// one of the slot it holsters. null when nothing of that slot is owned
+	drawSlot( kind ) {
+
+		const list = ORDER.filter( ( id ) => SLOT_OF[ id ] === kind && this.owned[ id ] );
+		if ( ! list.length ) return null;
+		if ( ! this.drawn || SLOT_OF[ this.sel ] !== kind ) return this.draw( list.includes( this.sel ) ? this.sel : list[ 0 ] );
+		const i = list.indexOf( this.sel );
+		if ( i >= 0 && i < list.length - 1 ) return this.draw( list[ i + 1 ] );
+		this.holster();
+		return 'holstered';
+
+	}
+
 	draw( id ) {
 
 		const w = WEAPONS[ id ];
@@ -315,9 +346,10 @@ export class Firearms {
 		this.t = 0;
 		this.after = 0;
 		this.audio.click( 'half', { gain: 0.6 } );
-		const load = this.loaded[ id ] ? 'loaded' : 'empty · R to load';
-		this.toast( `${ w.name } · ${ load } · ${ this.shots } cartridge${ this.shots === 1 ? '' : 's' }`, 2000 );
+		const load = this.loaded[ id ] ? 'loaded' : w.harpoon ? 'R to reel in' : 'empty · R to load';
+		this.toast( w.noAmmo ? `${ w.name } · ${ load }` : `${ w.name } · ${ load } · ${ this.shots } cartridge${ this.shots === 1 ? '' : 's' }`, 2000 );
 		this._tip( 'controls', 'LMB fire · RMB aim · R reload · G next gun / holster', 4200 );
+		if ( w.scope ) this._tip( 'scope', 'RMB looks down the long sight · hold still for a true shot', 3200 );
 		return id;
 
 	}
@@ -326,6 +358,7 @@ export class Firearms {
 
 		if ( ! this.drawn ) return false;
 		this._stopReload();
+		if ( this.line ) this._lineHome( true );
 		this.phase = 'holstered';
 		this.t = 0;
 		this.aiming = false;
@@ -341,14 +374,15 @@ export class Firearms {
 		if ( ! this.drawn || ! this.sel ) return false;
 		const w = WEAPONS[ this.sel ];
 		if ( this.phase !== 'ready' ) return false;
-		if ( this.loaded[ this.sel ] ) {
+		const full = this.loaded[ this.sel ] && ( barrelsOf( w ) <= 1 || ( this.balls[ this.sel ] || 0 ) >= barrelsOf( w ) );
+		if ( full ) {
 
 			this._tip( 'loaded', `The ${ w.name.toLowerCase() } is already loaded`, 1600 );
 			return false;
 
 		}
 
-		if ( this.shots <= 0 && ! this.sandbox ) {
+		if ( cartridgesFor( w ) > 0 && this.shots <= 0 && ! this.sandbox ) {
 
 			this.toast( 'No cartridges · Ethena Prosper sells pouches at the chandlery', 2600 );
 			return false;
@@ -383,8 +417,13 @@ export class Firearms {
 
 	_finishReload() {
 
-		const id = this.sel;
-		if ( ! this.sandbox ) this.shots = Math.max( 0, this.shots - 1 );
+		const id = this.sel, w = WEAPONS[ id ];
+		if ( w && w.harpoon ) this._lineHome( true ); // the harpoon reeled home is the load
+		// a cartridge a barrel (the pair: both, or what the pouch still holds)
+		const want = w ? cartridgesFor( w ) - ( barrelsOf( w ) > 1 ? ( this.balls[ id ] || 0 ) : 0 ) : 1;
+		const used = this.sandbox ? want : Math.min( want, this.shots );
+		if ( ! this.sandbox ) this.shots = Math.max( 0, this.shots - used );
+		if ( w && barrelsOf( w ) > 1 ) this.balls[ id ] = Math.min( barrelsOf( w ), ( this.balls[ id ] || 0 ) + Math.max( 1, used ) );
 		this.loaded[ id ] = true;
 		this.phase = 'ready';
 		this.t = 0;
@@ -437,7 +476,7 @@ export class Firearms {
 		if ( ! this.loaded[ this.sel ] ) {
 
 			this.audio.click( 'dry', { gain: 0.8 } );
-			this.toast( this.shots > 0 || this.sandbox ? 'Empty · R to reload' : 'Empty · no cartridges left: Ethena Prosper sells pouches', 1800 );
+			this.toast( w.harpoon ? 'The harpoon is out · R to reel it in' : this.shots > 0 || this.sandbox ? 'Empty · R to reload' : 'Empty · no cartridges left: Ethena Prosper sells pouches', 1800 );
 			this.after = 0.25;
 			return { refused: 'empty' };
 
@@ -482,24 +521,45 @@ export class Firearms {
 
 		}
 
-		const dir = spreadDir( base, this.spreadNow(), this.rand(), this.rand() );
-		const hit = resolveShot( ctx, o, dir, tMin, tMax );
-		this.loaded[ this.sel ] = false;
-		this.after = RECOIL_T;
-		this.recoil = 1;
-		this.stats.fired ++;
-		const res = { weapon: this.sel, dir, hit: null, damage: 0, head: false, killed: false };
-		if ( hit ) {
+		// one ball, or a fistful (the blunderbuss: every pellet its own draw in the cone; the result is the first that hit)
+		const pellets = Math.max( 1, Math.floor( w.pellets || 1 ) );
+		const half = this.spreadNow();
+		let dir = null, hit = null;
+		const res = { weapon: this.sel, dir: null, hit: null, damage: 0, head: false, killed: false, pellets: [] };
+		for ( let i = 0; i < pellets; i ++ ) {
 
-			res.hit = hit.kind;
-			Object.assign( res, this._apply( w, hit, hit.t - tMin, ctx ) );
-			res.x = hit.x; res.y = hit.y; res.z = hit.z;
+			const di = spreadDir( base, half, this.rand(), this.rand() );
+			const hi = resolveShot( ctx, o, di, tMin, tMax );
+			if ( ! dir || ( hi && ! hit ) ) { dir = di; hit = hi; }
+			if ( pellets > 1 ) res.pellets.push( hi ? hi.kind : null );
+			if ( ! hi ) continue;
+			const r = this._apply( w, hi, hi.t - tMin, ctx );
+			if ( ! res.hit || ( hi.kind === 'raider' && res.hit !== 'raider' ) ) { res.hit = hi.kind; res.x = hi.x; res.y = hi.y; res.z = hi.z; }
+			res.damage += r.damage;
+			res.head = res.head || r.head;
+			res.killed = res.killed || r.killed;
+			if ( w.harpoon ) this._lineOut( w, hi, r );
 
 		}
 
+		res.dir = dir;
+		const fired = this.sel;
+		// the duelling pair: the second barrel is still loaded after the first shot (a short beat between them)
+		if ( barrelsOf( w ) > 1 ) {
+
+			this.balls[ fired ] = Math.max( 0, ( this.balls[ fired ] ?? barrelsOf( w ) ) - 1 );
+			this.loaded[ fired ] = this.balls[ fired ] > 0;
+
+		} else this.loaded[ fired ] = false;
+		this.after = barrelsOf( w ) > 1 && this.loaded[ fired ] ? Math.max( w.between || 0.2, 0.05 ) : RECOIL_T;
+		this.recoil = 1;
+		this.stats.fired ++;
+		if ( w.harpoon && ! this.line ) this._lineOut( w, null, null, o, dir, tMin );
 		this.magnet = base !== d;
 		res.magnet = this.magnet;
-		this._shotFx( w, dir, hit );
+		// the pair's second pistol goes out under its own name (the universe gate counts each pistol's reload)
+		const wire = barrelsOf( w ) > 1 && ! this.loaded[ fired ] ? WEAPONS[ fired + '_l' ] || w : w;
+		this._shotFx( wire, dir, hit, w );
 		this.last = res;
 		if ( res.hit === 'raider' && res.damage > 0 ) {
 
@@ -579,6 +639,14 @@ export class Firearms {
 				if ( ! rr ) break;
 				// a ball in the middle of his wind-up stops it like a parry would (open for a punish)
 				if ( windup && ! rr.killed && r.targetable && typeof r.parried === 'function' ) r.parried();
+				// the blunderbuss: the shot shoves him back along the line of fire
+				if ( w.knock && ! rr.killed && typeof r.shove === 'function' ) {
+
+					const p = this.app.player && this.app.player.position;
+					if ( p ) try { r.shove( r.x - p.x, r.z - p.z, w.knock * k ); } catch ( e ) { /* optional */ }
+
+				}
+
 				out.damage = rr.dealt;
 				out.head = !! hit.head;
 				out.killed = !! rr.killed;
@@ -687,7 +755,8 @@ export class Firearms {
 
 	}
 
-	_shotFx( w, dir, hit ) {
+	// w: the gun as the wire names it (the pair's second pistol: duelling_l); feel: the gun in hand (its montage, its kick)
+	_shotFx( w, dir, hit, feel = w ) {
 
 		const mz = this.muzzle( dir ), vfx = this._get( 'vfx' );
 		if ( vfx ) {
@@ -701,8 +770,8 @@ export class Firearms {
 		const cf = this.app.cameraFeel;
 		if ( cf && cf.kick ) try { cf.kick( 'recoil', { scale: w.kick } ); } catch ( e ) { /* optional */ }
 		const gp = this._poses();
-		this.lastMontage = gp ? this._montage( gp.fire[ w.id ] || gp.fire.pistol, 'strike', { slot: 'upper', blendIn: 0.03, blendOut: 0.1 } ) : this._montage( 'shoot', 'strike', { slot: 'upper', rate: 1.6, blendIn: 0.03, blendOut: 0.2 } );
-		this.emit( 'gunFired', { weapon: w.id, x: mz.x, y: mz.y, z: mz.z, dir: { x: dir.x, y: dir.y, z: dir.z }, by: 'player' } );
+		this.lastMontage = gp ? this._montage( gp.fire[ this.poseKind( feel.id ) ] || gp.fire.pistol, 'strike', { slot: 'upper', blendIn: 0.03, blendOut: 0.1 } ) : this._montage( 'shoot', 'strike', { slot: 'upper', rate: 1.6, blendIn: 0.03, blendOut: 0.2 } );
+		this.emit( 'gunFired', { weapon: feel.id, x: mz.x, y: mz.y, z: mz.z, dir: { x: dir.x, y: dir.y, z: dir.z }, by: 'player' } );
 		const ns = this.app.netsync;
 		const r2 = ( v ) => Math.round( v * 100 ) / 100;
 		try {
@@ -738,11 +807,152 @@ export class Firearms {
 
 	}
 
+	// ---- the harpoon gun's line
+
+	// the harpoon went out: what it struck takes the line (hit: the resolved shot or null, a miss: it flies to the line's reach)
+	_lineOut( w, hit, r, o = null, dir = null, tMin = 0 ) {
+
+		const p = this.app.player && this.app.player.position;
+		if ( ! p ) return;
+		if ( ! hit ) {
+
+			const reach = Math.min( LINE.reach, maxRange( w ) ) + tMin;
+			this.line = { kind: 'miss', target: null, x: o.x + dir.x * reach, y: o.y + dir.y * reach, z: o.z + dir.z * reach, t: 0 };
+			return;
+
+		}
+
+		const L = { kind: hit.kind, target: hit.target || null, x: hit.x, y: hit.y, z: hit.z, t: 0, fish: null };
+		if ( hit.kind === 'raider' && ( ! r || r.killed || ! hit.target || hit.target.kind === 'dummy' ) ) L.kind = 'stuck';
+		if ( hit.kind === 'water' ) {
+
+			const f = this._bigFishNear( hit.x, hit.y, hit.z, 3 );
+			if ( f ) { L.kind = 'fish'; L.fish = f; }
+
+		}
+
+		if ( hit.kind === 'ship' && hit.target && hit.target.cls && hit.target.cls.length > LINE.shipMax ) L.kind = 'holdShip';
+		this.line = L;
+		this.emit( 'gunHarpoon', { kind: L.kind, target: L.target && ( L.target.spawnId || L.target.id ) || null, x: L.x, y: L.y, z: L.z } );
+
+	}
+
+	// the nearest big fish (app.reef.fish: FishSchools, length >= LINE.bigFish m) within r m of a point: { schools, i, kg, species }
+	_bigFishNear( x, y, z, r ) {
+
+		const fs = this.app.reef && this.app.reef.fish;
+		if ( ! fs || ! fs.pos || ! fs.size || ! Array.isArray( fs.groups ) ) return null;
+		let best = null, bd = r * r;
+		for ( const g of fs.groups ) {
+
+			if ( ! g || ! g.sp || ! g.active ) continue;
+			for ( let i = g.offset; i < g.offset + g.count; i ++ ) {
+
+				if ( fs.size[ i ] < LINE.bigFish ) continue;
+				const dx = fs.pos[ i * 3 ] - x, dy = fs.pos[ i * 3 + 1 ] - y, dz = fs.pos[ i * 3 + 2 ] - z;
+				const d2 = dx * dx + dy * dy * 0.25 + dz * dz;
+				if ( d2 < bd ) { bd = d2; best = { schools: fs, i, group: g, species: g.sp.model, kg: Math.round( 12 * fs.size[ i ] ** 3 * 10 ) / 10 }; }
+
+			}
+
+		}
+
+		return best;
+
+	}
+
+	// the line comes home (reloading reels it in; holstering lets it go)
+	_lineHome( silent = false ) {
+
+		const L = this.line;
+		this.line = null;
+		if ( L && ! silent ) this.audio.click( 'ram', { gain: 0.5 } );
+
+	}
+
+	// per frame while the line is out: haul what it holds toward the player, land a fish, part on a big ship or a long pull
+	_lineUpdate( dt ) {
+
+		const L = this.line, p = this.app.player && this.app.player.position;
+		if ( ! L || ! p ) return;
+		L.t += dt;
+		const toward = ( x, z ) => { const dx = p.x - x, dz = p.z - z, d = Math.hypot( dx, dz ) || 1; return { x: dx / d, z: dz / d, d }; };
+		switch ( L.kind ) {
+
+			case 'raider': {
+
+				const r = L.target;
+				if ( ! r || ! r.targetable ) { L.kind = 'stuck'; break; }
+				const u = toward( r.x, r.z );
+				if ( u.d < 1.8 || L.t > 0.7 ) { L.kind = 'stuck'; break; }
+				if ( typeof r.shove === 'function' ) try { r.shove( u.x, u.z, LINE.raiderPull * dt / 0.6 ); } catch ( e ) { /* optional */ }
+				L.x = r.x; L.z = r.z;
+				break;
+
+			}
+
+			case 'ship': {
+
+				const s = L.target;
+				if ( ! s || s.alive === false ) { this._part( 'ship' ); break; }
+				const u = toward( s.x, s.z );
+				if ( u.d < ( s.cls ? s.cls.length * 0.5 + 3 : 6 ) || L.t > LINE.hold * 2 ) { L.kind = 'stuck'; break; }
+				const step = LINE.shipHaul * dt;
+				if ( typeof s.shift === 'function' ) s.shift( u.x * step, u.z * step );
+				L.x += u.x * step; L.z += u.z * step;
+				break;
+
+			}
+
+			case 'holdShip':
+				if ( L.t > LINE.hold ) this._part( 'ship' );
+				else if ( L.target ) { L.x = L.target.x; L.z = L.target.z; }
+				break;
+
+			case 'fish': {
+
+				const f = L.fish, P = f.schools.pos, i = f.i;
+				const u = toward( P[ i * 3 ], P[ i * 3 + 2 ] );
+				const step = Math.min( u.d, LINE.haul * dt );
+				P[ i * 3 ] += u.x * step;
+				P[ i * 3 + 2 ] += u.z * step;
+				L.x = P[ i * 3 ]; L.y = P[ i * 3 + 1 ]; L.z = P[ i * 3 + 2 ];
+				if ( u.d < 3 ) {
+
+					// landed: the fish is yours (the game adds it to the cooler on fishHarpooned); it swims back to its school's home
+					this.toast( `Harpooned a ${ f.species } · ${ f.kg } kg`, 2600 );
+					this.emit( 'fishHarpooned', { species: f.species, kg: f.kg, x: L.x, z: L.z } );
+					const g = f.group;
+					if ( g && g.home ) { P[ i * 3 ] = g.home.x; P[ i * 3 + 2 ] = g.home.z; }
+					L.kind = 'stuck';
+					this.stats.fish = ( this.stats.fish || 0 ) + 1;
+
+				} else if ( L.t > 12 ) this._part( 'fish' );
+				break;
+
+			}
+
+			default: // stuck in a prop / the ground / a beaten man, or a miss: it waits for R to reel it home
+				break;
+
+		}
+
+	}
+
+	_part( kind ) {
+
+		this.line = { ...( this.line || {} ), kind: 'parted' };
+		this.toast( kind === 'fish' ? 'The fish tore free' : 'The line parts', 1800 );
+		this.emit( 'lineParted', { kind } );
+		this.audio.click( 'dry', { gain: 0.8 } );
+
+	}
+
 	// ---- the shop (Ethena Prosper's Gear tab)
 
 	price( id ) {
 
-		return id === 'pouch' ? POUCH.price : WEAPONS[ id ] ? WEAPONS[ id ].price : null;
+		return id === 'pouch' ? POUCH.price : WEAPONS[ id ] && ! WEAPONS[ id ].hidden ? WEAPONS[ id ].price : null;
 
 	}
 
@@ -779,6 +989,7 @@ export class Firearms {
 
 			this.owned[ id ] = true;
 			this.loaded[ id ] = true; // sold loaded
+			if ( barrelsOf( WEAPONS[ id ] ) > 1 ) this.balls[ id ] = barrelsOf( WEAPONS[ id ] );
 			if ( ! this.sel ) this.sel = id;
 			this.toast( `Bought the ${ WEAPONS[ id ].name.toLowerCase() } · G to draw it${ this.shots || this.sandbox ? '' : ' · it needs cartridges too' }`, 3200 );
 
@@ -799,6 +1010,7 @@ export class Firearms {
 		for ( const id of ORDER ) {
 
 			const w = WEAPONS[ id ];
+			if ( w.vendor === 'blackmarket' ) continue; // the fence's (marketRows)
 			const act = this.owned[ id ] ? '<span class="gm-have">Owned</span>' : btn( id, `$${ w.price }` );
 			html += `<div class="gm-shop-row"><span>${ w.name }<small>${ w.desc }</small></span>${ act }</div>`;
 
@@ -807,6 +1019,34 @@ export class Firearms {
 		const full = this.shots >= POUCH.max;
 		html += `<div class="gm-shop-row"><span>${ POUCH.name } · ${ POUCH.count }<small>Powder and ball, one per load · you carry ${ this.shots }</small></span>${ full ? '<span class="gm-have">Full</span>' : btn( 'pouch', `$${ POUCH.price }` ) }</div>`;
 		return html;
+
+	}
+
+	// the fence's rows on Blackwater (Stronghold.marketRows appends them): { id: 'gun:<id>', label, price, ok, why }
+	marketRows( trade = { ok: true } ) {
+
+		const st = this.state || {}, free = !! st.free, money = Number.isFinite( st.money ) ? st.money : 0;
+		const rows = [];
+		for ( const id of ORDER ) {
+
+			const w = WEAPONS[ id ];
+			if ( w.vendor !== 'blackmarket' ) continue;
+			const owned = !! this.owned[ id ];
+			const ok = !! ( trade && trade.ok ) && ! owned && ( free || money >= w.price );
+			rows.push( { id: 'gun:' + id, label: w.name, price: free ? 0 : w.price, ok, why: owned ? 'owned' : trade && ! trade.ok ? trade.reason || trade.why || 'unwelcome' : ok ? null : 'money' } );
+
+		}
+
+		return rows;
+
+	}
+
+	marketAction( rowId ) {
+
+		if ( typeof rowId !== 'string' || ! rowId.startsWith( 'gun:' ) ) return { ok: false, reason: 'unknown' };
+		const id = rowId.slice( 4 );
+		if ( ! WEAPONS[ id ] || WEAPONS[ id ].vendor !== 'blackmarket' ) return { ok: false, reason: 'unknown' };
+		return this.buy( id );
 
 	}
 
@@ -849,6 +1089,7 @@ export class Firearms {
 
 		}
 
+		if ( this.line ) this._lineUpdate( dt );
 		this._pace( w, dt );
 		this._zoom( dt, w );
 		this._aimPose();
@@ -864,7 +1105,7 @@ export class Firearms {
 		const cam = this.app.camera, h = this.hud.root && this.hud.root.clientHeight ? this.hud.root.clientHeight : ( typeof window !== 'undefined' ? window.innerHeight : 720 );
 		const drawn = this.drawn && !! w && this._canAct();
 		this.hud.update( dt, {
-			drawn, aiming: this.aiming, gap: drawn ? 3 + coneToPx( this.spreadNow(), cam && cam.fov, h ) : 0,
+			drawn, aiming: this.aiming, scope: !! ( w && w.scope && this.aimK > 0.5 ), gap: drawn ? 3 + coneToPx( this.spreadNow(), cam && cam.fov, h ) : 0,
 			reload: this.phase === 'reloading' && w ? this.t / w.reload : - 1,
 			empty: drawn && this.phase === 'ready' && ! this.loaded[ this.sel ], noShots: this.shots <= 0 && ! this.sandbox,
 		} );
@@ -970,7 +1211,7 @@ export class Firearms {
 
 		// with the gun poses the barrel sits straight ahead in the aim (GunPose hold), else the rod-hold pitch (WeaponMesh.HOLD)
 		const gp = anchor ? this._poses() : null;
-		this.mesh.update( { kind: this.sel, visible: this.drawn, anchor, camera: this.app.camera, recoil: this.recoil, hold: gp && this.sel ? gp.hold[ this.sel ] : null } );
+		this.mesh.update( { kind: this.sel, visible: this.drawn, anchor, camera: this.app.camera, recoil: this.recoil, hold: gp && this.sel ? gp.hold[ this.poseKind() ] : null, line: this.drawn ? this.line : null } );
 
 	}
 
@@ -978,7 +1219,9 @@ export class Firearms {
 
 	toJSON() {
 
-		return { v: 1, owned: ORDER.filter( ( id ) => this.owned[ id ] ), loaded: ORDER.filter( ( id ) => this.loaded[ id ] ), shots: this.shots, sel: this.sel };
+		const balls = {};
+		for ( const id in this.balls ) if ( this.owned[ id ] && this.balls[ id ] > 0 ) balls[ id ] = this.balls[ id ];
+		return { v: 1, owned: ORDER.filter( ( id ) => this.owned[ id ] ), loaded: ORDER.filter( ( id ) => this.loaded[ id ] ), shots: this.shots, sel: this.sel, balls };
 
 	}
 
@@ -994,6 +1237,15 @@ export class Firearms {
 
 		}
 
+		this.balls = {};
+		for ( const id of ORDER ) {
+
+			const n = barrelsOf( WEAPONS[ id ] );
+			if ( n > 1 && this.loaded[ id ] ) this.balls[ id ] = d.balls && Number.isFinite( d.balls[ id ] ) ? clamp( Math.floor( d.balls[ id ] ), 1, n ) : n;
+
+		}
+
+		this.line = null;
 		this.shots = Number.isFinite( d.shots ) ? clamp( Math.floor( d.shots ), 0, POUCH.max ) : 0;
 		this.sel = WEAPONS[ d.sel ] && this.owned[ d.sel ] ? d.sel : ORDER.find( ( id ) => this.owned[ id ] ) || null;
 		this.holster( true );
@@ -1004,6 +1256,8 @@ export class Firearms {
 
 		this.holster( true );
 		for ( const id of ORDER ) { this.owned[ id ] = false; this.loaded[ id ] = false; }
+		this.balls = {};
+		this.line = null;
 		this.shots = 0;
 		this.sel = null;
 		this.aimK = 0;

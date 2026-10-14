@@ -403,6 +403,8 @@ fn terrainWetness( xz: vec2f, h: f32 ) -> vec2f {
 		// the destructible props' physics (Rapier WASM) initialises before the features place them
 		try { const { initPhysics } = await import( './physics/World.js' ); await initPhysics(); } catch ( e ) { console.warn( 'physics unavailable', e ); }
 		this.features = installFeatures( this );
+		// wave 18D: a fish landed with the harpoon gun goes into the cooler like a rod catch
+		this.features.on( 'fishHarpooned', ( e ) => { try { const f = this.game.state.addFish( e.species, e.kg, this.game.hour ?? 12, { habitat: 'harpoon', aboard: this.player.mode !== 'walk' && this.player.mode !== 'swim' } ); if ( f ) this.game.toast?.( `Harpooned: ${ e.kg.toFixed( 1 ) } kg`, 2600 ); } catch ( err ) { console.warn( 'harpooned fish', err ); } } );
 		// Tidemark's buildings crack / smoke under cannonballs, explosions and plane crashes
 		this.ports?.tidemark?.connect( this.features );
 		this.game.state.featuresProvider = () => this.features.toJSON();

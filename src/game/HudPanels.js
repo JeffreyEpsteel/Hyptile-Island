@@ -156,7 +156,7 @@ export function installHudPanels( GameHUD ) {
 			const fuelRow = `<div class="gm-shop-row"><span>Diesel · $${ FUEL_PRICE.toFixed( 2 ) } / L<small>Tank: ${ s.fuelL.toFixed( 0 ) } of ${ s.stats.fuelL } L</small></span>${ missing > 0.5 ? `<button class="gm-btn" data-fuel ${ s.money < FUEL_PRICE && ! s.free ? 'disabled' : '' }>Fill · ${ s.free ? 'free' : `$${ s.refuelCost() }` }</button>` : '<span class="gm-have">Full</span>' }</div>`;
 			const rodRow = s.rodBroken ? `<div class="gm-shop-row"><span>Rod repair<small>Your rod broke in a fight: hauled too hard past the line's strength</small></span><button class="gm-btn" data-rodfix ${ ! s.free && s.rodRepairCost() > s.money ? 'disabled' : '' }>${ s.free ? 'Fix · free' : `Fix · $${ s.rodRepairCost() }` }</button></div>` : '';
 			const guns = this.game.app && this.game.app.features && this.game.app.features.get( 'firearms' );
-			body = rodRow + fuelRow + ( guns && guns.shopRows ? guns.shopRows() : '' ) + ( this.game.app?.features?.get( 'rescue' )?.shopRows?.() || '' ) + rows;
+			body = rodRow + fuelRow + ( guns && guns.shopRows ? guns.shopRows() : '' ) + ( this.game.app?.features?.get( 'weapons' )?.shopRows?.() || '' ) + ( this.game.app?.features?.get( 'rescue' )?.shopRows?.() || '' ) + rows;
 			foot = s.free ? 'Free in sandbox · upgrades take effect at once' : 'Upgrades take effect at once';
 
 		}
@@ -175,6 +175,7 @@ export function installHudPanels( GameHUD ) {
 		const rf = this.stand.querySelector( '[data-rodfix]' );
 		if ( rf ) rf.onclick = () => { if ( this.game.state.repairRod() ) { this.game.toast( 'Rod repaired', 1600 ); this._keepScroll( () => this.renderShop() ); } };
 		for ( const b of this.stand.querySelectorAll( '[data-gun]' ) ) b.onclick = () => { const g = this.game.app && this.game.app.features && this.game.app.features.get( 'firearms' ); if ( g ) g.buy( b.dataset.gun ); this._keepScroll( () => this.renderShop() ); };
+		for ( const b of this.stand.querySelectorAll( '[data-wpn]' ) ) b.onclick = () => { const w = this.game.app?.features?.get( 'weapons' ); if ( w ) w.buy( b.dataset.wpn ); this._keepScroll( () => this.renderShop() ); }; // wave 18D
 		for ( const b of this.stand.querySelectorAll( '[data-flare]' ) ) b.onclick = () => { const r = this.game.app?.features?.get( 'rescue' ); if ( r ) r.buy(); this._keepScroll( () => this.renderShop() ); }; // wave 15D: distress flares
 		bindCrew( this, this.stand );
 

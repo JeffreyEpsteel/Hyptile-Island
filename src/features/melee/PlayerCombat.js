@@ -15,6 +15,11 @@ import { magnetTurn } from './LockOn.js';
 //   opts ) (Avatar.playMontage), host.hasDeath() (the death feature respawns the player: no pier wake-up, no cash taken here)
 //   optional (wave 12E, the feel): host.hitstop( s ) (both fighters freeze), host.slowmo( s, k ) (the parry), host.flash( kind )
 //   (the HUD's shield / parry / hurt flash), host.puff( kind, { x, y, z } ) (dust / sparks at the contact), host.practiceLost()
+//   optional (wave 18D, the arsenal): host.weaponStats() -> the weapon in hand (weapons/WeaponsData MELEE row: damage, range,
+//   cone, contact, total, whiff, stamina, energy, parry, chip, guardBreak, combo, stun, montage, rate) or null (the paddle:
+//   PLAYER's numbers). The swing reads it when it starts: the contact / recovery times, the reach and cone, the stamina, the
+//   blow; a cutlass widens the parry window and cheapens a block, its third blow of a chain bites x1.5; an axe goes through a
+//   cutlass guard and an armoured wind-up (Raider.takeHit opts.guardBreak). A blow a raider's cutlass turns aside: 'BLOCKED'.
 //
 // States: free | swing | evade | hurt | down.  Stamina belongs to Player.js: this only checks and spends it.
 //   swing   LMB: 0.3 s to the contact (Melee_Paddle), the hit test runs then, ready again at 0.62 s (a whiff: 0.78 s); a
@@ -40,6 +45,13 @@ import { magnetTurn } from './LockOn.js';
 //           the cut, the respawn and the purse; this only plays the fall and restores the health.
 
 const _v = new Vector3();
+// the paddle's swing as a weapon row (PLAYER's numbers: what the combat harness was tuned on)
+export const SWING = {
+	id: 'paddle', damage: PLAYER.attackDamage, range: PLAYER.attackRange, cone: PLAYER.attackCone, contact: PLAYER.attackContact,
+	total: PLAYER.attackTotal, whiff: PLAYER.whiffTotal, stamina: PLAYER.attackStamina, energy: PLAYER.attackDamage * 40,
+	parry: 0, chip: 1, guardBreak: false, combo: null, stun: 0, montage: 'swing', slot: 'full', rate: 1,
+};
+const COMBO_GAP = 0.45; // s after a swing within which the next one carries the chain on
 
 export class PlayerCombat {
 
@@ -84,6 +96,18 @@ export class PlayerCombat {
 		this.stats = { swings: 0, hits: 0, whiffs: 0, blocks: 0, dodges: 0, hurt: 0, knockdowns: 0, parries: 0, chips: 0, cancels: 0, yields: 0 };
 		this.guardFlash = 0; // 1 -> 0: the shield flash of a blocked blow (HUD)
 		this.guardFlashKind = null;
+		this.W = SWING; // the weapon of the swing in progress (weaponStats() at its start)
+		this.combo = 0; // blows of the chain so far (a cutlass)
+		this.comboT = 99; // s since the last swing ended
+
+	}
+
+	// the weapon in hand now: the host's row over PLAYER's paddle numbers
+	weapon() {
+
+		let w = null;
+		try { w = this.host.weaponStats ? this.host.weaponStats() : null; } catch ( e ) { w = null; }
+		return w ? { ...SWING, ...w } : SWING;
 
 	}
 
@@ -148,14 +172,18 @@ export class PlayerCombat {
 
 	_startSwing() {
 
-		if ( this.stamina < PLAYER.attackStamina - 1e-6 ) {
+		const W = this.weapon();
+		if ( this.stamina < W.stamina - 1e-6 ) {
 
 			this._tired();
 			return 'tired';
 
 		}
 
-		this._spend( PLAYER.attackStamina );
+		this._spend( W.stamina );
+		this.W = W;
+		// a chain: the next swing soon after the last carries it on (the cutlass's third cut bites deeper)
+		this.combo = W.combo && this.comboT <= COMBO_GAP ? ( this.combo % W.combo.length ) + 1 : 1;
 		this.state = 'swing';
 		this.t = 0;
 		this.swingSfx = false;
@@ -166,7 +194,7 @@ export class PlayerCombat {
 		// the soft lock turns the swing onto its target (a little: the player still aims)
 		const h = this.host, lk = h.lock, p = h.player;
 		if ( lk && lk.targetable && p ) p.yaw += magnetTurn( p.yaw, p.position, lk );
-		if ( h.montage ) h.montage( 'swing', { slot: 'upper', blendIn: 0.06, blendOut: 0.18, rate: 1 } );
+		if ( h.montage ) h.montage( W.montage || 'swing', { slot: W.montage && W.montage !== 'swing' ? W.slot || 'upper' : 'upper', blendIn: 0.06, blendOut: 0.18, rate: W.rate || 1 } );
 		return 'swing';
 
 	}
@@ -226,6 +254,7 @@ export class PlayerCombat {
 		if ( this.evadeCd > 0 ) this.evadeCd = Math.max( 0, this.evadeCd - dt );
 		if ( this.buffer > 0 ) this.buffer = Math.max( 0, this.buffer - dt );
 		if ( this.tiredT > 0 ) this.tiredT -= dt;
+		if ( this.state !== 'swing' ) this.comboT += dt;
 		if ( this.hurtFlash > 0 ) this.hurtFlash = Math.max( 0, this.hurtFlash - dt * 3.5 );
 		if ( this.guardFlash > 0 ) this.guardFlash = Math.max( 0, this.guardFlash - dt * 4 );
 
@@ -261,15 +290,16 @@ export class PlayerCombat {
 			case 'swing': {
 
 				this.t += dt;
+				const W = this.W || SWING;
 				const lead = h.audio && h.audio.lead ? h.audio.lead( 'paddleSwing' ) : 0.12;
-				if ( ! this.swingSfx && this.t >= PLAYER.attackContact - lead ) {
+				if ( ! this.swingSfx && this.t >= W.contact - lead ) {
 
 					this.swingSfx = true;
-					h.sfx( 'paddleSwing', { rate: 1.05, gain: 0.6 } );
+					h.sfx( 'paddleSwing', { rate: W.id === 'axe' ? 0.8 : W.id === 'cutlass' ? 1.3 : 1.05, gain: 0.6 } );
 
 				}
 
-				if ( ! this.swingContact && this.t >= PLAYER.attackContact ) {
+				if ( ! this.swingContact && this.t >= W.contact ) {
 
 					this.swingContact = true;
 					this.lastSwing = this._resolveSwing();
@@ -284,10 +314,11 @@ export class PlayerCombat {
 
 				}
 
-				if ( this.t >= ( this.swingContact && ! this.lastSwing ? PLAYER.whiffTotal : PLAYER.attackTotal ) ) {
+				if ( this.t >= ( this.swingContact && ! this.lastSwing ? W.whiff : W.total ) ) {
 
 					this.state = 'free';
 					this.t = 0;
+					this.comboT = 0;
 					if ( this.buffer > 0 && h.canSwing() ) this._startSwing();
 
 				}
@@ -396,7 +427,7 @@ export class PlayerCombat {
 
 	_resolveSwing() {
 
-		const h = this.host, p = h.player.position, yaw = h.player.yaw;
+		const h = this.host, p = h.player.position, yaw = h.player.yaw, W = this.W || SWING;
 		let best = null, bs = Infinity;
 		const lk = h.lock;
 		for ( const r of ( h.targets ? h.targets() : h.raiders ) ) {
@@ -405,9 +436,9 @@ export class PlayerCombat {
 			const d = Math.hypot( r.x - p.x, r.z - p.z );
 			const locked = r === lk;
 			// the locked target is hit a little further off the view and the reach (the lock already put him in front)
-			if ( d > PLAYER.attackRange + ( locked ? 0.4 : 0 ) ) continue;
+			if ( d > W.range + ( locked ? 0.4 : 0 ) ) continue;
 			const dot = d < 0.5 ? 1 : facingDot( yaw, p.x, p.z, r.x, r.z );
-			if ( dot < ( locked ? 0.1 : PLAYER.attackCone ) ) continue;
+			if ( dot < ( locked ? Math.min( 0.1, W.cone ) : W.cone ) ) continue;
 			if ( ! h.lineOfSight( p.x, p.y + 1.1, p.z, r.x, r.y + 1.1, r.z ) ) continue;
 			const score = d - dot - ( locked ? 1.5 : 0 );
 			if ( score < bs ) { bs = score; best = r; }
@@ -415,7 +446,8 @@ export class PlayerCombat {
 		}
 
 		// the swing's contact point for the destructible props (a raider in reach takes the hit as well)
-		if ( h.emit ) h.emit( 'meleeHit', { x: p.x + forwardX( yaw ) * 1.2, y: p.y + 1.0, z: p.z + forwardZ( yaw ) * 1.2, range: PLAYER.attackRange, energy: PLAYER.attackDamage * 40, by: 'player' } );
+		const reachK = Math.min( 1.6, W.range * 0.46 ); // the contact point: 1.2 m for the paddle, further for the harpoon
+		if ( h.emit ) h.emit( 'meleeHit', { x: p.x + forwardX( yaw ) * reachK, y: p.y + 1.0, z: p.z + forwardZ( yaw ) * reachK, range: W.range, energy: W.energy, by: 'player', weapon: W.id } );
 		if ( ! best ) {
 
 			// a whiff: a thin swish through the air and the longer recovery (whiffTotal)
@@ -425,13 +457,27 @@ export class PlayerCombat {
 
 		}
 
-		const res = best.takeHit( PLAYER.attackDamage );
-		this.stats.hits ++;
+		const k = W.combo ? W.combo[ Math.max( 0, Math.min( W.combo.length, this.combo ) - 1 ) ] || 1 : 1;
+		const res = best.takeHit( Math.round( W.damage * k ), { from: { x: p.x, z: p.z }, guardBreak: !! W.guardBreak, stun: W.stun || 0, weapon: W.id } );
 		this.sinceCombat = 0;
-		h.sfx( 'paddleHit', { at: { x: best.x, y: best.y + 1.1, z: best.z }, gain: 0.95, rate: res.punish ? 0.9 : 1 } );
 		best.headPosition( _v );
-		h.pop( res.punish ? `PUNISH ${ res.dealt }` : String( res.dealt ), _v, res.punish ? 'punish' : 'dmg' );
-		const heavy = res.punish || res.killed;
+		if ( res && res.blocked ) {
+
+			// his cutlass turned the blow aside: steel on steel, nothing lands
+			this.stats.blocked = ( this.stats.blocked || 0 ) + 1;
+			h.sfx( 'hookHit', { at: { x: best.x, y: best.y + 1.2, z: best.z }, gain: 0.8, rate: 1.5 } );
+			h.pop( 'BLOCKED', _v, 'block' );
+			h.kick( 'snap' );
+			if ( h.puff ) h.puff( 'block', { x: ( p.x + best.x ) / 2, y: best.y + 1.2, z: ( p.z + best.z ) / 2 } );
+			return { target: best, dealt: 0, killed: false, punish: false, blocked: true };
+
+		}
+
+		this.stats.hits ++;
+		h.sfx( 'paddleHit', { at: { x: best.x, y: best.y + 1.1, z: best.z }, gain: 0.95, rate: res.punish ? 0.9 : W.id === 'axe' ? 0.75 : 1 } );
+		const label = res.guardBroken ? `BREAK ${ res.dealt }` : res.punish ? `PUNISH ${ res.dealt }` : k > 1 ? `CHAIN ${ res.dealt }` : String( res.dealt );
+		h.pop( label, _v, res.punish || res.guardBroken || k > 1 ? 'punish' : 'dmg' );
+		const heavy = res.punish || res.killed || W.id === 'axe';
 		h.kick( heavy ? 'meleeHeavy' : 'meleeHit', 'catch' ); // the camera's hold and a small FOV pull
 		// both fighters freeze for a beat (the sim's hitstop); dust off the contact, nearer him than the player
 		if ( h.hitstop ) h.hitstop( res.killed ? FEEL.killStop : heavy ? FEEL.heavyStop : FEEL.hitstop );
@@ -445,7 +491,7 @@ export class PlayerCombat {
 
 		const held = now - this.guardStart;
 		if ( held < PLAYER.lateWindow ) return 'late';
-		if ( held <= PLAYER.lateWindow + PLAYER.parryWindow ) return 'parry';
+		if ( held <= PLAYER.lateWindow + PLAYER.parryWindow + this.weapon().parry ) return 'parry'; // a cutlass parries wider
 		return 'block';
 
 	}
@@ -473,6 +519,16 @@ export class PlayerCombat {
 
 			const timing = this.guardTiming();
 			if ( r.ranged ) {
+
+				// a gunman's blast (wave 18D): the guard takes the worst of it, 40 % still gets through
+				if ( r.shot ) {
+
+					this._spend( THROW.chip );
+					this.stats.chips ++;
+					this._blockFx( r, 'block' );
+					return this._damage( r, Math.ceil( dmg * 0.4 ), 'chipped' );
+
+				}
 
 				// a rock on the guard: it holds whatever the timing; a guard with no wind left breaks
 				if ( this.stamina >= THROW.chip - 1e-6 ) {
@@ -533,9 +589,10 @@ export class PlayerCombat {
 
 			}
 
-			if ( this.stamina >= PLAYER.blockChip - 1e-6 ) {
+			const chipCost = PLAYER.blockChip * this.weapon().chip; // a cutlass turns a blow cheaper, an axe dearer
+			if ( this.stamina >= chipCost - 1e-6 ) {
 
-				this._spend( PLAYER.blockChip );
+				this._spend( chipCost );
 				this.stats.blocks ++;
 				h.sfx( 'hookHit', { at: { x: p.x, y: p.y + 1.2, z: p.z }, gain: 0.55, rate: 1.4 } );
 				h.pop( 'BLOCK', { x: p.x, y: p.y + 1.9, z: p.z }, 'block' );

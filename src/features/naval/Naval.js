@@ -2781,6 +2781,15 @@ export class Naval {
 
 	}
 
+	// public: set a ship's deck alight at a world point (wave 18D: the fire bottle)
+	igniteShip( s, world, cause = 'fire' ) {
+
+		if ( ! s || ! s.alive ) return false;
+		this._igniteShip( s, this._shipLocal( s, world ), cause );
+		return true;
+
+	}
+
 	_igniteShip( s, local, cause ) {
 
 		if ( ! s.fire.ignite( local ) ) return false;

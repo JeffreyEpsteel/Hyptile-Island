@@ -11,6 +11,7 @@
 //                          less snaps onto it (only when the aim itself finds no one: a head shot stays a head shot)
 //   spreadDir( dir, half, u, v, out )   a direction inside the cone round dir (u, v uniform 0..1: uniform over the disc)
 //   angleBetween( a, b )   radians between two unit vectors
+//   barrelsOf( w )         shots a load (the duelling pair 2, else 1)     cartridgesFor( w )   cartridges one reload takes
 
 export const DEG = Math.PI / 180;
 
@@ -31,9 +32,55 @@ export const WEAPONS = {
 		walk: 0.7, zoom: 1.3, report: 'musket', flash: 0.6, smoke: 0.7, kick: 1.4,
 		desc: 'One shot, a slow reload. Reaches 70 m; you walk slower with it shouldered',
 	},
+	// wave 18D: the rest of the arsenal. slot: the quick slot (2 sidearm, 3 long gun); pose: the aim pose (GunPose: pistol / musket);
+	// vendor: 'chandlery' (Ethena Prosper) or 'blackmarket' (Blackwater's fence); pellets: balls a shot (each its own cone draw);
+	// barrels: shots before a reload (the duelling pair); knock: m a hit pushes a man back; harpoon: the line (see Firearms)
+	duelling: {
+		id: 'duelling', name: 'Duelling pistols', price: 380, reload: 2.4, draw: 0.4, holster: 0.3, barrels: 2, between: 0.22,
+		// two quick shots (one each hand) then a reload of both; a cartridge a barrel
+		range: 20, falloff: 13, damage: 46, spread: 1.8, aimSpread: 0.6, moveSpread: 1.0, energy: 380,
+		walk: 1, zoom: 1.3, report: 'pistol', flash: 0.3, smoke: 0.3, kick: 0.7, vendor: 'chandlery',
+		desc: 'A matched pair: two quick shots, then both to load',
+	},
+	// the second pistol of the pair: the same gun, its own name so the universe server's per-weapon gate lets the quick second
+	// shot through (hidden: not sold, not in ORDER)
+	duelling_l: {
+		id: 'duelling_l', hidden: true, name: 'Duelling pistol', price: 0, reload: 0.2, draw: 0.4, holster: 0.3,
+		range: 20, falloff: 13, damage: 46, spread: 1.8, aimSpread: 0.6, moveSpread: 1.0, energy: 380,
+		walk: 1, zoom: 1.3, report: 'pistol', flash: 0.3, smoke: 0.3, kick: 0.7,
+		desc: '',
+	},
+	rifle: {
+		id: 'rifle', name: 'Long rifle', price: 650, reload: 4.2, draw: 0.9, holster: 0.5,
+		// slow and dead accurate: a rifled barrel, a long sight line (RMB zooms x3.2), a crawl while shouldered
+		range: 140, falloff: 90, damage: 110, spread: 0.9, aimSpread: 0.08, moveSpread: 3.0, energy: 1700,
+		walk: 0.6, zoom: 3.2, report: 'rifle', flash: 0.5, smoke: 0.6, kick: 1.5, vendor: 'chandlery', scope: true,
+		desc: 'Slow, and true to 140 m · RMB looks down the long sight',
+	},
+	blunderbuss: {
+		id: 'blunderbuss', name: 'Blunderbuss', price: 360, reload: 3.6, draw: 0.6, holster: 0.4,
+		// a fistful of shot: nine balls in a wide cone, deadly close, nothing past 18 m; a hit shoves a man back
+		range: 12, falloff: 5, damage: 17, pellets: 9, spread: 7, aimSpread: 5.5, moveSpread: 1.5, energy: 600, knock: 2.2,
+		walk: 0.85, zoom: 1.15, report: 'blunderbuss', flash: 0.9, smoke: 1.0, kick: 1.8, vendor: 'blackmarket',
+		desc: 'A wide spray of shot · knocks men back · useless past 15 m',
+	},
+	harpoongun: {
+		id: 'harpoongun', name: 'Harpoon gun', price: 520, reload: 2.6, draw: 0.7, holster: 0.4,
+		// a whaler's swivel-less gun: the harpoon flies on a line; a man is dragged in, a small boat or a big fish hauled
+		// closer, a big ship holds it until the line parts. Reloading reels the harpoon home (no cartridge used)
+		range: 35, falloff: 25, damage: 55, spread: 0.6, aimSpread: 0.3, moveSpread: 2.0, energy: 1400, harpoon: true, noAmmo: true,
+		walk: 0.75, zoom: 1.5, report: 'harpoon', flash: 0.2, smoke: 0.25, kick: 1.1, vendor: 'chandlery',
+		desc: 'A harpoon on a line · drags men, small boats and big fish to you',
+	},
 };
 
-export const ORDER = [ 'pistol', 'musket' ];
+// the shop / G order (sidearms first, then the long guns); duelling_l is the pair's second pistol, never on its own
+export const ORDER = [ 'pistol', 'duelling', 'musket', 'rifle', 'blunderbuss', 'harpoongun' ];
+// the quick slot of each gun (wave 18D: keys 2 and 3) and the aim pose it borrows (GunPose.js builds pistol and musket poses)
+export const SLOT_OF = { pistol: 'side', duelling: 'side', musket: 'long', rifle: 'long', blunderbuss: 'long', harpoongun: 'long' };
+export const POSE_OF = { pistol: 'pistol', duelling: 'pistol', duelling_l: 'pistol', musket: 'musket', rifle: 'musket', blunderbuss: 'musket', harpoongun: 'musket' };
+// the harpoon gun's line: m it reaches, how fast it hauls (m/s), the biggest hull it drags (m), and fish kg it lands
+export const LINE = { reach: 35, haul: 3.2, raiderPull: 3.0, shipMax: 14, shipHaul: 2.4, hold: 6, bigFish: 0.6 };
 export const POUCH = { id: 'pouch', name: 'Cartridge pouch', count: 12, price: 30, max: 120 };
 // a ball keeps flying past the effective range at half power, fading to nothing at range * MAX_RANGE
 export const MAX_RANGE = 1.5;
@@ -46,6 +93,19 @@ export const clamp = ( v, a, b ) => ( v < a ? a : v > b ? b : v );
 export function maxRange( w ) {
 
 	return w.range * MAX_RANGE;
+
+}
+
+export function barrelsOf( w ) {
+
+	return w && w.barrels > 1 ? Math.floor( w.barrels ) : 1;
+
+}
+
+// a cartridge a barrel; the harpoon gun reels its harpoon home (none)
+export function cartridgesFor( w ) {
+
+	return ! w || w.noAmmo ? 0 : barrelsOf( w );
 
 }
 

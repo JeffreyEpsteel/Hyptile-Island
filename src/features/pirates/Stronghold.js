@@ -899,7 +899,10 @@ export class Stronghold {
 
 	marketRows() {
 
-		return this.market.rows( this.marketCtx() );
+		const ctx = this.marketCtx(), c = this.market.canTrade( ctx );
+		const wp = this.features && this.features.get ? this.features.get( 'weapons' ) : null, fa = this.features && this.features.get ? this.features.get( 'firearms' ) : null;
+		// wave 18D: the fence also deals in arms (the blunderbuss, bombs, fire bottles, the axe)
+		return [ ...this.market.rows( ctx ), ...( ( wp && wp.marketRows && wp.marketRows( c ) ) || [] ), ...( ( fa && fa.marketRows && fa.marketRows( c ) ) || [] ) ];
 
 	}
 
@@ -907,6 +910,14 @@ export class Stronghold {
 
 		const ctx = this.marketCtx(), M = this.market;
 		let r = { ok: false, reason: 'unknown' };
+		if ( id.startsWith( 'wpn:' ) || id.startsWith( 'gun:' ) ) { // wave 18D: the fence's arms
+
+			const c = M.canTrade( ctx );
+			const f = this.features && this.features.get ? this.features.get( id.startsWith( 'wpn:' ) ? 'weapons' : 'firearms' ) : null;
+			if ( ! c.ok ) return c;
+			return f && f.marketAction ? f.marketAction( id, c ) : r;
+
+		}
 		if ( id.startsWith( 'sell:' ) ) {
 
 			r = M.sell( id.slice( 5 ), 'all', ctx );

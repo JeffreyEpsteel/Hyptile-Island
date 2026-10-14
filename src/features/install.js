@@ -33,6 +33,7 @@ import * as death from './death/index.js';
 import * as rescue from './rescue/index.js';
 import * as tips from '../game/Tips.js';
 import * as firearms from './firearms/index.js';
+import * as weapons from './weapons/index.js';
 import * as crew from './crew/index.js';
 import * as emotes from './emotes/index.js';
 import * as start from '../world/start/index.js';
@@ -66,6 +67,7 @@ export const MODULES = [
 	[ 'death', death ], // respawn at Jade Landing, the sea chest, wreck / death markers
 	[ 'rescue', rescue ], // wave 15D: distress flares and the harbour launch that answers them
 	[ 'firearms', firearms ], // flintlock pistol and musket (G draws, LMB fires, RMB aims, R reloads; cartridges at the chandlery)
+	[ 'weapons', weapons ], // wave 18D: cutlass, axe, pin, harpoon, bombs, fire bottles, smoke pots, the swivel gun, quick slots 1-4 / 0
 	[ 'inverted', inverted ], // the upside-down sky layer (off until ?inverted or the Inverted Isles)
 	[ 'life', life ],
 	[ 'exploration', exploration ], // after inverted and naval (the spyglass labels their things)

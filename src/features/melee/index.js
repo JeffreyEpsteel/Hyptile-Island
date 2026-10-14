@@ -16,6 +16,8 @@ import { PlayerCombat } from './PlayerCombat.js';
 import { CombatAudio } from './CombatAudio.js';
 import { MeleeHud } from './MeleeHud.js';
 import { Telegraph } from './Telegraph.js';
+import { RAIDER_ARMS } from '../weapons/WeaponsData.js';
+import { GunAudio } from '../firearms/GunAudio.js';
 
 // On-foot melee: the player's blows, guard, parry and evade against every Raider (den guards, boarding crews, slot camps),
 // a soft lock-on, the shared attack tokens and the training post.
@@ -75,6 +77,14 @@ import { Telegraph } from './Telegraph.js';
 //   the practice fight E at the weapon rack beside the training post (Practice.js): two practice raiders, no death
 //   HUD                the lock-on reticle carries the locked raider's health and his wind-up as a ring filling to the blow;
 //                      a shield / parry flash on a blocked blow; the screen edge flashes when hit and pulses at low health
+//
+// Wave 18D (the arsenal; src/features/weapons):
+//   m.weaponStats()    the melee weapon in hand (features.get( 'weapons' ).meleeStats(): cutlass, boarding axe, belaying pin,
+//                      harpoon; null = the paddle) for PlayerCombat's swing
+//   gunmen             a raider with a blunderbuss (Raider.weapon) holds the thrower's role whenever he fights: he hangs back,
+//                      the ring marks where he aims, and m.raiderShot( r, at ) fires: out of the ring or a dodge and it misses,
+//                      the guard takes some of it (PlayerCombat: r.shot), beyond RAIDER_ARMS.blunderbuss.range it falls short
+//   smoke              features.get( 'weapons' ).hidden( x, z ) (a smoke pot's cloud): raiders lose the player inside it
 
 const _o = new Vector3(), _d = new Vector3(), _h = new Vector3();
 const CREATE_D2 = 150 * 150; // m^2: raiders are created (their GLB loads) once the player is this close to a camp
@@ -155,6 +165,7 @@ export class Melee {
 		this.stops = 0; // hitstops so far (tests)
 		this.simTime = 0; // the melee sim's own clock (hitstop / slow motion applied)
 		this.rocks = new Rocks( { scene: options.fx === false ? null : app.scene } );
+		this.gunAudio = options.gunAudio || null; // the gunmen's reports (made on the first shot: GunAudio over app.audio)
 
 		// the captain may already be camped when the game starts
 		if ( options.captain !== undefined ) this.captain.active = !! options.captain;
@@ -334,7 +345,10 @@ export class Melee {
 	_gunDrawn() {
 
 		const fa = this.features && this.features.get ? this.features.get( 'firearms' ) : null;
-		return !! ( fa && fa.drawn );
+		if ( fa && fa.drawn ) return true;
+		// (wave 18D) a throwable or the swivel gun in hand: the left button is the weapons feature's too
+		const w = this.features && this.features.get ? this.features.get( 'weapons' ) : null;
+		try { return !! ( w && w.ownsMouse && w.ownsMouse() ); } catch ( e ) { return false; }
 
 	}
 
@@ -412,8 +426,23 @@ export class Melee {
 		t.y = p.position.y;
 		t.z = p.position.z;
 		t.yaw = p.yaw; // flankers work round behind him
-		// raiders only go for a player on foot and standing
-		t.valid = this.enabled && p.mode === 'walk' && this.combat.state !== 'down' && ! this.app.paused;
+		// raiders only go for a player on foot and standing, and not one they cannot see for the smoke (a smoke pot, wave 18D)
+		t.valid = this.enabled && p.mode === 'walk' && this.combat.state !== 'down' && ! this.app.paused && ! this._inSmoke( t.x, t.z );
+
+	}
+
+	_inSmoke( x, z ) {
+
+		const w = this.features && this.features.get ? this.features.get( 'weapons' ) : null;
+		try { return !! ( w && w.hidden && w.hidden( x, z ) ); } catch ( e ) { return false; }
+
+	}
+
+	// the melee weapon in hand (the weapons feature), or null: the paddle (PlayerCombat SWING)
+	weaponStats() {
+
+		const w = this.features && this.features.get ? this.features.get( 'weapons' ) : null;
+		try { return w && w.meleeStats ? w.meleeStats() : null; } catch ( e ) { return null; }
 
 	}
 
@@ -611,6 +640,49 @@ export class Melee {
 
 	}
 
+	// a gunman's blast (wave 18D): aimed at `at` (the ring, set until the last 0.3 s of his aim); it reaches the player when he
+	// is still within 1.6 m of the ring and inside the gun's range with a clear line, else it tears up the ground there
+	raiderShot( r, at ) {
+
+		const A = RAIDER_ARMS.blunderbuss, s = r.scale || 1;
+		const from = { x: r.x + r.fx * 0.5, y: r.y + 1.35 * s, z: r.z + r.fz * 0.5 };
+		const p = this.player.position, c = this.combat;
+		const dx = ( at ? at.x : p.x ) - from.x, dz = ( at ? at.z : p.z ) - from.z, dl = Math.hypot( dx, dz ) || 1;
+		const dir = { x: dx / dl, y: - 0.05, z: dz / dl };
+		const vfx = this.features && this.features.get ? this.features.get( 'vfx' ) : null;
+		try {
+
+			if ( vfx && vfx.flash ) vfx.flash( from.x, from.y, from.z, 0.8, dir.x, dir.y, dir.z );
+			if ( vfx && vfx.smoke ) vfx.smoke( from.x, from.y, from.z, 0.9, dir.x, dir.y, dir.z );
+
+		} catch ( e ) { /* the vfx are optional */ }
+
+		if ( ! this.gunAudio && this.app.audio ) this.gunAudio = new GunAudio( this.app.audio );
+		try { if ( this.gunAudio ) this.gunAudio.report( 'blunderbuss', { at: from, gain: 1 } ); } catch ( e ) { /* optional */ }
+		this.emit( 'gunFired', { weapon: 'blunderbuss', x: from.x, y: from.y, z: from.z, dir, by: r.spawnId } );
+		const d = Math.hypot( p.x - r.x, p.z - r.z );
+		const off = at ? Math.hypot( p.x - at.x, p.z - at.z ) : 0;
+		const clear = this.lineOfSight( from.x, from.y, from.z, p.x, p.y + 1.1, p.z );
+		if ( ! this._target.valid || c.state === 'down' || d > A.range || off > 1.6 || ! clear ) {
+
+			if ( at ) this.puff( 'rock', { x: at.x, y: ( this.terrain ? this.terrain.heightAt( at.x, at.z ) : p.y ) + 0.1, z: at.z } );
+			r.outcome = 'missed';
+			return 'missed';
+
+		}
+
+		// the shot spreads with the distance: full at 4 m, half at the gun's range
+		const k = d <= 4 ? 1 : 1 - 0.5 * ( d - 4 ) / Math.max( 1, A.range - 4 );
+		const src = {
+			ranged: true, shot: true, kind: 'gunman', name: r.name, spawnId: r.spawnId, practiceFight: false, practice: false,
+			cfg: { damage: Math.max( 1, Math.round( r.cfg.damage * A.damage * k ) ) }, x: r.x, z: r.z, thrower: r,
+		};
+		const out = c.takeStrike( src );
+		r.outcome = out;
+		return out;
+
+	}
+
 	// a rock reached the player's body
 	_rockHit( rock ) {
 
@@ -661,6 +733,21 @@ export class Melee {
 			if ( ! r.inCombat ) continue;
 			const d2 = ( r.x - p.x ) ** 2 + ( r.z - p.z ) ** 2;
 			if ( d2 > 25 * 25 ) continue;
+			// a gunman (wave 18D) always fights from range: the thrower's role is his whenever he is in the fight
+			if ( r.weapon === 'blunderbuss' ) {
+
+				if ( r.role !== 'thrower' && this._target.valid ) {
+
+					r.role = 'thrower';
+					r.roleBy = this;
+					r.sinceAttack = Math.min( r.sinceAttack, THROW.every * 0.5 );
+
+				}
+
+				continue;
+
+			}
+
 			n ++;
 			if ( r.role === 'thrower' ) thrower = r;
 			else if ( d2 > fd && r.state !== 'windup' && r.state !== 'strike' && ! this.tokens.has( r ) ) { fd = d2; far = r; }
@@ -1018,7 +1105,7 @@ export class Melee {
 
 		const a = this.app, inp = a.input, c = this.combat;
 		const can = !! inp && this._canAct();
-		const gun = !! ( this.features && this.features.get && this.features.get( 'firearms' ) && this.features.get( 'firearms' ).drawn ); // (a drawn gun owns the mouse)
+		const gun = this._gunDrawn(); // (a drawn gun, a throwable or the swivel owns the mouse)
 		const lmb = can && ! gun && !! inp.mouseDown, rmb = can && ! gun && !! inp.rightDown;
 		const lDown = lmb && ! this._lmb, rDown = rmb && ! this._rmb;
 		this._lmb = lmb;

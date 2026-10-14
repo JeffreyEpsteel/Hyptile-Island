@@ -6,7 +6,7 @@
 // No document or no HUD element: every call is a no-op (the headless tests pass a fake `doc`).
 //
 //   const hud = new GunHud( { hud: hudElement, doc } );
-//   hud.update( dt, { drawn, gap (px), aiming, reload (0..1 or -1), empty, noShots } )
+//   hud.update( dt, { drawn, gap (px), aiming, scope (the long rifle's sight ring), reload (0..1 or -1), empty, noShots } )
 //   hud.mark( 'hit' | 'head' | 'kill' )      hud.dispose()
 
 const MARK_LIFE = { hit: 0.22, head: 0.32, kill: 0.6 };
@@ -37,6 +37,9 @@ const CSS = /* css */`
 .gh-cue { position: absolute; left: 50%; top: calc(50% + 34 * var(--tw-u, 1px)); transform: translateX(-50%); opacity: 0; transition: opacity 160ms;
 	font: 600 var(--tw-fs-sm, 11.5px) var(--tw-font, system-ui, sans-serif); color: var(--tw-ink, #eef6f8); text-shadow: 0 1px 3px #000; white-space: nowrap; }
 .gh-cue.is-on { opacity: 0.95; }
+.gh-scope { position: absolute; left: 0; top: 0; right: 0; bottom: 0; opacity: 0; transition: opacity 120ms;
+	background: radial-gradient(circle at 50% 50%, transparent 0, transparent 30vmin, rgba(0, 0, 0, 0.55) 31vmin, rgba(0, 0, 0, 0.92) 46vmin); }
+.gh-root.is-scope .gh-scope { opacity: 1; }
 .gh-cue kbd { font: 700 var(--tw-fs-sm, 11.5px) var(--tw-mono, monospace); padding: 0 calc(5 * var(--tw-u, 1px)); border-radius: 4px; background: rgba(255, 255, 255, 0.16); }
 `;
 
@@ -81,7 +84,8 @@ export class GunHud {
 		this.ringEl = mk( 'div', 'gh-ring', '<svg viewBox="0 0 44 44" width="100%" height="100%"><circle class="bg" cx="22" cy="22" r="19"/><circle class="fg" cx="22" cy="22" r="19" stroke-dasharray="119.4" stroke-dashoffset="119.4"/></svg>' );
 		this.ringFg = this.ringEl.querySelector ? this.ringEl.querySelector( '.fg' ) : null;
 		this.cueEl = mk( 'div', 'gh-cue', 'Empty · <kbd>R</kbd> to reload' );
-		this.root.append( this.cross, this.ringEl, this.markEl, this.killEl, this.cueEl );
+		this.scopeEl = mk( 'div', 'gh-scope' ); // the long rifle's sight (wave 18D): the view narrows to a ring while aiming
+		this.root.append( this.scopeEl, this.cross, this.ringEl, this.markEl, this.killEl, this.cueEl );
 		hud.append( this.root );
 
 	}
@@ -107,6 +111,7 @@ export class GunHud {
 		this.shown = on;
 		this.gap = on ? Math.max( 0, v.gap || 0 ) : 0;
 		this.cue = on && !! v.empty && ! ( v.reload >= 0 );
+		this.scope = on && !! v.scope;
 		this.ringK = on && v.reload >= 0 ? Math.min( 1, v.reload ) : - 1;
 		if ( this.markKind ) {
 
@@ -119,6 +124,7 @@ export class GunHud {
 		this.root.classList.toggle( 'is-on', on );
 		if ( ! on ) return;
 		this.root.classList.toggle( 'is-aim', !! v.aiming );
+		this.root.classList.toggle( 'is-scope', !! v.scope );
 		const g = this.gap.toFixed( 1 );
 		const [ l, r, t, b ] = this.ticks;
 		if ( l ) l.style.transform = `translateX(-${ g }px)`;

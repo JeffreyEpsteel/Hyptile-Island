@@ -1,6 +1,8 @@
 import { Vector3 } from '../../engine/index.js';
 import { CLIPS, CLIP_SPEED } from '../../game/Characters.js';
 import { PLAYER, RAIDER, CAPTAIN, THROW, wrapAngle, clamp, yawToward, forwardX, forwardZ, tierCfg } from './MeleeData.js';
+import { raiderLoadout, RAIDER_ARMS } from '../weapons/WeaponsData.js';
+import { GUN_CLIPS } from '../firearms/GunPose.js';
 
 // One shore raider: a roster character (lite Avatar) driven by a small state machine. The avatar's own
 // update() is never called: the raider picks its clips and plays them straight on avatar.model
@@ -37,6 +39,14 @@ import { PLAYER, RAIDER, CAPTAIN, THROW, wrapAngle, clamp, yawToward, forwardX, 
 //               marks where it lands, THROW.windup s) and roleBy.throwRock( r, at ) lets it fly; the guard blocks it.
 //   practice    r.practiceFight (the practice fight at the training post): he fights inside the peaceful zone, and yields
 //               at 1 health instead of going down for good (r.yielded; owner.onYield( r ); no loot, no enemyDefeated).
+//
+// Wave 18D (the arsenal): r.weapon ('cutlass' | 'blunderbuss' | null; WeaponsData.raiderLoadout: the captain, den / fort guards
+// and boarding crews by their index, slot.weapon or spawn( { weapon } ) to choose). A cutlass man hits 10 % harder and turns
+// aside RAIDER_ARMS.cutlass.block of the frontal plain blows that come while he is not swinging (takeHit( dmg, { from } ) ->
+// { blocked: true }; opts.guardBreak (the boarding axe) goes through, and through an armoured wind-up: guardBroken). A gunman
+// (the blunderbuss) holds the thrower's role whenever he fights (Melee._roles): he hangs back and his 'throw' is a shot
+// (owner / roleBy.raiderShot( r, at ), else the rock). shove( dx, dz, m ): pushed back m metres (the blunderbuss, the harpoon
+// line pulls with a negative push) and staggered. takeHit opts.stun: s more of the stagger (the belaying pin).
 
 export const STATES = [ 'idle', 'patrol', 'notice', 'approach', 'circle', 'windup', 'strike', 'recover', 'stagger', 'down', 'getup', 'flee', 'gone', 'return', 'taunt', 'hang', 'throw' ];
 const _yAxis = new Vector3( 0, 1, 0 );
@@ -107,6 +117,7 @@ export class Raider {
 		this.knocked = false; // down but not beaten (a heavy blow): gets up and fights on
 		this.yielded = false; // a practice raider who gave up
 		this.practiceFight = !! slot.practiceFight;
+		this.weapon = null; // set at spawn (wave 18D): 'cutlass' | 'blunderbuss' | null
 		this.attach( avatar );
 
 	}
@@ -136,12 +147,15 @@ export class Raider {
 
 	// ---- spawn / reset
 
-	spawn( { name, kind = this.kind, scale = null, tier = null } = {} ) {
+	spawn( { name, kind = this.kind, scale = null, tier = null, weapon = undefined } = {} ) {
 
 		this.kind = kind;
 		if ( tier ) this.tier = tier;
 		else if ( kind === 'captain' ) this.tier = 4;
 		this.cfg = kind === 'captain' ? CAPTAIN : tierCfg( RAIDER, this.tier );
+		// his arms (wave 18D): practice raiders fight with wooden swords whatever the slot says
+		this.weapon = this.practiceFight ? null : raiderLoadout( this.id, this.tier, kind, weapon !== undefined ? weapon : this.slot.weapon );
+		if ( this.weapon && RAIDER_ARMS[ this.weapon ].damage ) this.cfg = { ...this.cfg, damage: Math.round( this.cfg.damage * RAIDER_ARMS[ this.weapon ].damage ) };
 		this.name = name || this.name;
 		this.maxHp = this.cfg.hp;
 		this.hp = this.maxHp;
@@ -269,7 +283,9 @@ export class Raider {
 				this.committed = false;
 				this.tell = 1;
 				this.owner.onWindup && this.owner.onWindup( this );
-				this._swing = this._play( CLIPS.swing, { loop: false, fade: 0.12, speed: Math.min( 1, PLAYER.attackContact / THROW.windup ), restart: true } );
+				// a gunman shoulders the blunderbuss (the musket aim pose, built on his rig by the weapons feature) instead of the swing
+				if ( this.weapon === 'blunderbuss' && this.model && this.model.clips && this.model.clips.has( GUN_CLIPS.aim.musket ) ) this._swing = this._play( GUN_CLIPS.aim.musket, { loop: true, fade: 0.15, restart: true } );
+				else this._swing = this._play( CLIPS.swing, { loop: false, fade: 0.12, speed: Math.min( 1, PLAYER.attackContact / THROW.windup ), restart: true } );
 				break;
 			case 'circle':
 			case 'hang':
@@ -493,7 +509,8 @@ export class Raider {
 
 					const by = this.roleBy;
 					this.strikeCount ++;
-					if ( by && by.throwRock ) by.throwRock( this, this.throwAt );
+					if ( this.weapon === 'blunderbuss' && by && by.raiderShot ) by.raiderShot( this, this.throwAt );
+					else if ( by && by.throwRock ) by.throwRock( this, this.throwAt );
 					this.sinceAttack = 0;
 					if ( this._swing && typeof this._swing === 'object' ) this._swing.speed = 1;
 					this._enter( this.role === 'thrower' ? 'hang' : 'approach' );
@@ -682,11 +699,27 @@ export class Raider {
 
 	// ---- being hit. Returns { dealt, killed, punish, staggered }
 
-	takeHit( damage ) {
+	takeHit( damage, opts = {} ) {
 
 		if ( ! this.targetable ) return { dealt: 0, killed: false, punish: false, staggered: false };
 		const cfg = this.cfg;
 		const punish = this.state === 'recover' || ( this.state === 'stagger' && this.parriedT > 0 );
+		// a cutlass man turns a frontal plain blow aside while he is not swinging himself (the axe goes through)
+		if ( this.weapon === 'cutlass' && opts.from && ! punish && this._canGuard() ) {
+
+			const dx = opts.from.x - this.x, dz = opts.from.z - this.z, d = Math.hypot( dx, dz ) || 1;
+			const facing = ( this.fx * dx + this.fz * dz ) / d;
+			if ( facing >= 0.3 && ! opts.guardBreak && this.owner.rand() < RAIDER_ARMS.cutlass.block ) {
+
+				this.aggro = true;
+				this.blocks = ( this.blocks || 0 ) + 1;
+				return { dealt: 0, killed: false, punish: false, staggered: false, blocked: true };
+
+			}
+
+		}
+
+		const breaks = !! ( opts.guardBreak && ( this.weapon === 'cutlass' || ( cfg.armored && ( this.state === 'windup' || this.state === 'throw' ) ) ) );
 		const dealt = Math.round( damage * ( punish ? PLAYER.punishBonus : 1 ) );
 		this.hp = Math.max( 0, this.hp - dealt );
 		this.flash = 1;
@@ -734,8 +767,8 @@ export class Raider {
 				break;
 			case 'windup':
 			case 'throw':
-				// interrupted (tier 1-2); an armoured wind-up goes on (a parry or a ball stops it: parried())
-				if ( ! cfg.armored ) {
+				// interrupted (tier 1-2); an armoured wind-up goes on (a parry, a ball or the boarding axe stops it)
+				if ( ! cfg.armored || opts.guardBreak ) {
 
 					this._enter( 'stagger' );
 					staggered = true;
@@ -771,11 +804,48 @@ export class Raider {
 
 		}
 
-		return { dealt, killed: false, punish, staggered };
+		// the belaying pin rattles him: the stagger lasts longer
+		if ( staggered && opts.stun > 0 && this.state === 'stagger' ) this.staggerFor = ( this.staggerFor || cfg.stagger ) + opts.stun;
+		return { dealt, killed: false, punish, staggered, guardBroken: breaks };
 
 	}
 
 	// ---- movement
+
+	// may he turn a blow aside now (a cutlass, on his feet, not mid-swing or reeling)
+	_canGuard() {
+
+		const s = this.state;
+		return s === 'approach' || s === 'circle' || s === 'notice' || s === 'idle' || s === 'patrol' || s === 'hang' || s === 'return' || s === 'taunt';
+
+	}
+
+	// pushed m metres along ( dx, dz ) (a blunderbuss blast; the harpoon line pulls him with the direction toward the shooter):
+	// stopped by water and walls like his own steps, and staggered unless he is down or mid-swing
+	shove( dx, dz, m ) {
+
+		if ( ! this.active || ! ( m > 0 ) || this.state === 'down' || this.state === 'gone' ) return 0;
+		const d = Math.hypot( dx, dz );
+		if ( d < 1e-6 ) return 0;
+		const ux = dx / d, uz = dz / d;
+		let moved = 0;
+		const steps = Math.max( 1, Math.ceil( m / 0.25 ) ), st = m / steps;
+		for ( let i = 0; i < steps; i ++ ) {
+
+			const nx = this.x + ux * st, nz = this.z + uz * st;
+			if ( ! this._walkable( nx, nz ) ) break;
+			this.x = nx;
+			this.z = nz;
+			moved += st;
+
+		}
+
+		this._ground();
+		if ( moved > 0.3 && this.hp > 0 && this.state !== 'windup' && this.state !== 'strike' && this.state !== 'stagger' && this.targetable ) this._enter( 'stagger' );
+		this._place();
+		return moved;
+
+	}
 
 	_walkable( x, z ) {
 
