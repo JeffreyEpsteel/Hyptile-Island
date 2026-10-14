@@ -28,7 +28,7 @@ import {
 	CLOCK_START, CLOCK_SPEED, CHAT_KEEP, MAX_MARKET, WORLD_EVENT_RULES,
 	sanitizeCaptainName, captainKey, sanitizeToken, cleanText,
 } from '../src/net/Protocol.js';
-import { fencePrice } from '../src/features/hijack/Rules.js';
+import { fencePrice } from '../src/features/hijack/Fence.js';
 
 export const SCHEMA = 1;
 export const MONEY_BURST = 5000; // $ a save may add beyond the rate (one good sale)

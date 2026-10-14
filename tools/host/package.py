@@ -10,7 +10,7 @@ if os.path.exists(OUT): shutil.rmtree(OUT)
 os.makedirs(OUT)
 subprocess.run(['npx.cmd', 'vite', 'build', '--outDir', f'{OUT}/game', '--emptyOutDir'], cwd=R, check=True)
 # servers + the sources they import (mirrored at the same relative paths so the imports resolve)
-for rel in ['server/index.mjs', 'server/rooms.mjs', 'server/schema.mjs', 'server/universe.mjs', 'server/README.md', 'src/net/Protocol.js', 'src/game/Boats.js', 'src/game/Characters.js', 'src/features/firearms/FirearmsData.js',
+for rel in ['server/index.mjs', 'server/rooms.mjs', 'server/schema.mjs', 'server/universe.mjs', 'server/README.md', 'src/net/Protocol.js', 'src/game/Boats.js', 'src/game/Characters.js', 'src/features/firearms/FirearmsData.js', 'src/features/hijack/Fence.js',
             'tools/host/serve-universe.mjs', 'tools/host/HOST_UNIVERSE.cmd', 'tools/host/HOST_UNIVERSE_TUNNEL.cmd', 'tools/host/tunnel.mjs', 'docs/HOSTING.md']:
     src = f'{R}/{rel}'
     if not os.path.exists(src): print('skip missing', rel); continue

@@ -18,6 +18,7 @@ COPY server/ server/
 COPY src/net/ src/net/
 COPY src/game/Boats.js src/game/Characters.js src/game/
 COPY src/features/firearms/FirearmsData.js src/features/firearms/
+COPY src/features/hijack/Fence.js src/features/hijack/
 COPY tools/host/pack-server-deps.mjs tools/host/
 RUN mkdir -p /app \
 	&& cp -r server src /app/ \

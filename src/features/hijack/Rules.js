@@ -3,6 +3,8 @@
 // no DOM, no game state.
 
 import { BOATS } from '../../game/Boats.js';
+import { FENCE, fencePrice } from './Fence.js';
+export { fencePrice };
 import { SHIP_CLASSES } from '../naval/ShipClasses.js';
 import { WORLD } from '../../world/WorldLayout.js';
 
@@ -24,7 +26,7 @@ export const HIJACK = {
 	guards: { merchant: - 5, bounty: 150 }, // the town's guards at her home port know her
 	hunt: { every: 300, chance: 0.5 }, // s at sea between the faction's hunters while she is wanted
 	repaint: { share: 0.12, min: 300, hours: 24 }, // the yard's fee (x her price) and the day the paint takes to launder her
-	fence: 0.35, // Blackwater's fence pays this share of her price for a stolen hull
+	fence: FENCE, // Blackwater's fence pays this share of her price for a stolen hull
 	skiff: { restock: 24, kinds: [ 'skiff', 'canoe' ], reach: 3.5, view: 260 },
 	moored: { range: 700, drop: 1100, restock: 24 }, // the merchant moored in Tidemark's bay: put there within range of the player
 	// the mail plane: a Petrel with a pilot who walks to the tavern while she lies moored (in-game hours)
@@ -78,13 +80,6 @@ export function repaintFee( hull, R = HIJACK.repaint ) {
 }
 
 // what the fence pays for a stolen hull
-export function fencePrice( hull ) {
-
-	const b = BOATS[ hull ];
-	return b ? Math.round( b.price * HIJACK.fence / 10 ) * 10 : 0;
-
-}
-
 // the port nearest a point (WORLD.ports, read live): the home port of a vessel taken there
 export function nearestPort( x, z ) {
 

@@ -8,6 +8,7 @@
 !src/game/Boats.js
 !src/game/Characters.js
 !src/features/firearms/FirearmsData.js
+!src/features/hijack/Fence.js
 !tools/host/pack-server-deps.mjs
 **/server-data
 **/*.log
