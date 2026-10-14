@@ -1061,17 +1061,17 @@ export class Weapons {
 
 			this.owned[ id ] = true;
 			this.melee = id;
-			this.toast( `Bought the ${ MELEE[ id ].name.toLowerCase() } · 1 to draw it`, 2600 );
+			this.toast( `Bought the ${ MELEE[ id ].name.toLowerCase() } · ${ this.app?.input?.touchMode ? 'Weapon draws it' : '1 to draw it' }`, 2600 );
 
 		} else if ( T ) {
 
 			this.thrown[ id ] = Math.min( T.max, this.thrown[ id ] + T.pack );
-			this.toast( `${ T.name } x${ T.pack } · ${ this.thrown[ id ] } carried · 4 to take one in hand`, 2600 );
+			this.toast( `${ T.name } x${ T.pack } · ${ this.thrown[ id ] } carried · ${ this.app?.input?.touchMode ? 'Weapon takes one in hand' : '4 to take one in hand' }`, 2600 );
 
 		} else {
 
 			this.shot[ id ] = Math.min( S.max, this.shot[ id ] + S.pack );
-			this.toast( `${ S.name } x${ S.pack } · ${ this.shot[ id ] } aboard · at the helm 1 / 2 / 3 picks the shot`, 3000 );
+			this.toast( `${ S.name } x${ S.pack } · ${ this.shot[ id ] } aboard · ${ this.app?.input?.touchMode ? 'at the helm the Shot button loads it' : 'at the helm 1 / 2 / 3 picks the shot' }`, 3000 );
 
 		}
 

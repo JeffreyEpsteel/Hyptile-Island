@@ -40,7 +40,7 @@ export const MODULES = {
 	},
 	swivel: {
 		label: 'Swivel gun', slot: 'arms', mesh: 'SM_Module_Cannon',
-		desc: 'A gun on the rail that swings to either side. Fire from the helm: Z to port, X to starboard.',
+		desc: 'A gun on the rail that swings to either side. Fire it from the helm with the port and starboard guns.',
 		tiers: [
 			{ name: 'Swivel gun', price: 600, gun: 1 },
 			{ name: 'Bronze swivel gun', price: 1200, gun: 2 },

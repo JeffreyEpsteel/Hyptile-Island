@@ -1,4 +1,4 @@
-import { t, getLang, setLang, onLang, LANGS } from '../i18n/index.js';
+import { t, getLang, setLang, onLang, LANGS, OFFERED } from '../i18n/index.js';
 
 // Accessibility and key remapping.
 //
@@ -1178,9 +1178,16 @@ export class Accessibility {
 		const pct = ( v ) => `${ Math.round( v * 100 ) }%`;
 
 		// the language is a choice of the interface, not of the save: it is stored by i18n/index.js on its own
-		const lang = tab.addFolder( t( 'acc.language', 'Language' ), { icon: 'sky' } );
+		// (wave 20D: the game is English only for now: no picker while a single language is offered, i18n OFFERED)
 		this._lang = { id: getLang() };
-		lang.addSelect( { label: t( 'acc.language', 'Language' ), object: this._lang, key: 'id', options: LANGS.map( ( l ) => ( { label: l.name, value: l.id } ) ), tooltip: t( 'acc.language.tip', 'The language of the menus, panels and prompts. Some island text is still English.' ), onChange: ( v ) => setLang( v ) } );
+		const offered = LANGS.filter( ( l ) => OFFERED.includes( l.id ) );
+		if ( offered.length > 1 ) {
+
+			const lang = tab.addFolder( t( 'acc.language', 'Language' ), { icon: 'sky' } );
+			lang.addSelect( { label: t( 'acc.language', 'Language' ), object: this._lang, key: 'id', options: offered.map( ( l ) => ( { label: l.name, value: l.id } ) ), tooltip: t( 'acc.language.tip', 'The language of the menus, panels and prompts. Some island text is still English.' ), onChange: ( v ) => setLang( v ) } );
+
+		}
+
 		onLang( ( id ) => { this._lang.id = id; this.ui.refresh(); } );
 
 		const vis = tab.addFolder( t( 'acc.visual', 'Display' ), { icon: 'eye' } );

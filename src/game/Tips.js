@@ -15,9 +15,15 @@ import { fillCaps } from './Guide.js';
 //   bail     the first take-off                     ' twice bails out (above CHUTE.minAgl)
 //   lights   night at the helm with the lights off  L lights the boat
 //   calm     heading out across the calm waters' edge round home   beyond the reef the pirates hunt
+// Wave 20D, the systems of wave 19:
+//   crew     the first hand signed on (crewHired)          moods, wages, food and sleep; K / Crew shows them
+//   navy     the first navy hail meant for you (navyHail)  heave to (stop) and take the fine, or run and be fired on
+//   front    afloat with a squall line under FRONT_SOON island hours away (weather.seaForecast)   run for port or ride it out
+//   inside   the first walk-in room (interiorEntered)      E at the bar or the counter
 //
-// Events used (Features.js): portVisited, planeTookOff, shipCrippled, nightPhase; the rest is polled twice a second
-// (the swim distance, the market window, the calm edge, the boat lights), cheap and allocation-free.
+// Events used (Features.js): portVisited, planeTookOff, shipCrippled, nightPhase, crewHired, navyHail, interiorEntered; the
+// rest is polled twice a second (the swim distance, the market window, the calm edge, the boat lights, the next front),
+// cheap and allocation-free.
 //
 //   features.add( 'tips', tips );   const tp = features.get( 'tips' );
 //   tp.fire( id ) -> bool (false when seen)   tp.seen (Set)   tp.html( id, touch? )   tp.toJSON() / fromJSON( d ) / reset()
@@ -28,6 +34,7 @@ export const ALONGSIDE = 40; // m: a crippled pirate this close is "alongside"
 export const CALM_EDGE = 40; // m inside the calm circle's rim: heading out, the calm tip
 const POLL = 0.5; // s between the polled checks
 const CRIPPLE_WAIT = 240; // s a crippled ship stays a candidate for the board tip
+export const FRONT_SOON = 1.5; // island hours: a squall line this close (and not over you yet) brings the front tip
 
 // id -> the text key and its touch wording (a line with no keys reads the same on touch)
 export const TIPS = {
@@ -38,6 +45,10 @@ export const TIPS = {
 	bail: { text: 'tips.bail', touch: 'tips.bail.touch' },
 	lights: { text: 'tips.lights', touch: 'tips.lights.touch' },
 	calm: { text: 'tips.calm' },
+	crew: { text: 'tips.crew', touch: 'tips.crew.touch' },
+	navy: { text: 'tips.navy', touch: 'tips.navy.touch' },
+	front: { text: 'tips.front' },
+	inside: { text: 'tips.inside', touch: 'tips.inside.touch' },
 };
 
 // the calm circles round home (Jade Landing, the home dock)
@@ -112,6 +123,9 @@ export class Tips {
 			this._night = !! e && ( e.phase === 'night' || e.night > 0.5 );
 
 		} );
+		on( 'crewHired', () => this.fire( 'crew' ) );
+		on( 'navyHail', ( e ) => { if ( e && ( e.say === 'hail' || e.say === 'warn' ) ) this.fire( 'navy' ); } );
+		on( 'interiorEntered', () => this.fire( 'inside' ) );
 
 	}
 
@@ -209,6 +223,16 @@ export class Tips {
 		this._market = market;
 
 		if ( mode === 'boat' && app.boatLightsOn === false && ! this.seen.has( 'lights' ) && this._isNight() ) this.fire( 'lights' );
+
+		// a squall line on its way while afloat (the weather feature's forecast where the player is)
+		if ( aboard && ! this.seen.has( 'front' ) ) {
+
+			const w = f && f.get ? f.get( 'weather' ) : null;
+			let a = null;
+			try { a = w && typeof w.seaForecast === 'function' ? w.seaForecast( x, z ) : null; } catch ( e ) { a = null; }
+			if ( a && ! a.under && a.inHours <= FRONT_SOON ) this.fire( 'front' );
+
+		}
 
 		// heading out through the calm waters' rim round home
 		if ( aboard || mode === 'swim' ) {

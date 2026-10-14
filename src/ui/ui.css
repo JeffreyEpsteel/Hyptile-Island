@@ -3106,3 +3106,41 @@ body {
 .tc-root.is-compact .tc-actions { gap: 6px; }
 .tc-root.is-compact .tc-top { opacity: 0.8; }
 
+
+/* ==========================================================================
+   Wave 20D: the panels of waves 13-19 under a finger, and the long toasts
+   ========================================================================== */
+
+/* every control in the vendor, crew, tavern and navy windows is a 44 px target on touch */
+.tw-root.is-coarse .gm-tab,
+.tw-root.is-coarse .hb-tab,
+.tw-root.is-coarse .hb-btn,
+.tw-root.is-coarse .gm-mini,
+.tw-root.is-coarse .gm-topic,
+.tw-root.is-coarse .nv-acts button { min-height: 44px; }
+/* (no min-width on the tabs and the header buttons: a flex item with one may shrink below its label) */
+.tw-root.is-coarse .gm-mini { min-width: 44px; }
+/* the crew's posts (Off / Gunner / Angler / Cook / Lookout): full-size buttons that wrap onto a second row */
+.tw-root.is-coarse .cw-post { gap: 4px; padding: 3px; }
+.tw-root.is-coarse .cw-post button { flex: 1 0 auto; min-width: 44px; min-height: 44px; }
+.tw-root.is-coarse .nv-close { width: 44px; height: 44px; top: 4px; right: 4px; }
+/* a short landscape phone squeezed the vendor's title (it clips, so it could shrink to nothing) under the tabs: they keep their height */
+.tw-root.is-coarse .gm-panel > h2,
+.tw-root.is-coarse .gm-panel > .gm-tabs { flex-shrink: 0; }
+
+/* the navy office sat at 16 % from the top with no limit: on a phone in landscape its last rows were off the screen */
+.tw-root.is-coarse .nv-panel {
+	top: calc(8px + var(--tw-safe-t));
+	max-width: calc(100vw - 16px - var(--tw-safe-l) - var(--tw-safe-r));
+	max-height: calc(100dvh - 16px - var(--tw-safe-t) - var(--tw-safe-b));
+	overflow-y: auto;
+	overscroll-behavior: contain;
+	-webkit-overflow-scrolling: touch;
+}
+@media (max-height: 500px) {
+	.tw-root .nv-panel { top: 8px; max-height: calc(100dvh - 16px); overflow-y: auto; }
+}
+
+/* a toast is read whole: up to three lines (the forecast, a boarding's fine, a hand signing on), not cut at one */
+.tw-toast { border-radius: calc(18 * var(--tw-u)); }
+.tw-toast-text { white-space: normal; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-height: 1.35; }

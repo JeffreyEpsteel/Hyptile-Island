@@ -22,6 +22,9 @@ import { detectDevice, stickVector, stickKeys, lookDelta, boatThrottleKeys, snap
 //                             Menu (Esc: closes a panel, else pauses) unfold from it and fold back after 6 s idle;
 //                             while a panel is open the row stays unfolded (Menu is the way out)
 //   the minimap               tap: the world map (game/Minimap.js)
+//   contextual (wave 20D)     a navy hail at the helm brings Heave to (the lever to stop) and Run (full ahead) for HAIL_MS,
+//                             gone once answered, fired on or boarded; at the helm with chain / grape shot aboard a Shot
+//                             button names the loaded kind and loads the next (the 1 / 2 / 3 keys). Never on screen otherwise.
 // Discrete buttons send a real key event (keydown on press, keyup on release, through the player's bindings) so the
 // panels' own key listeners (the map's M, the menu's Escape) answer too; held state goes through input.setTouchKeys.
 //
@@ -64,7 +67,31 @@ const BUTTONS = {
 	landing: { label: 'Landing', code: 'Semicolon' },
 	choice1: { label: '1', code: 'Digit1' },
 	choice2: { label: '2', code: 'Digit2' },
+	heave: { label: 'Heave to' }, // wave 20D: a navy hail's two answers (the lever, not a key)
+	run: { label: 'Run' },
+	shot: { label: 'Round' }, // the next cannon shot kind (Digit1..3, as on a keyboard)
 };
+export const HAIL_MS = 25000; // how long a hail's answer buttons stay up
+const SHOT_KINDS = [ 'round', 'chain', 'grape' ];
+
+// the contextual buttons of wave 20D for a snapshot: Set of 'heave', 'run', 'shot'
+export function hailButtons( s = {} ) {
+
+	const out = new Set();
+	if ( s.busy || s.mode !== 'boat' ) return out;
+	if ( s.hail ) { out.add( 'heave' ); out.add( 'run' ); }
+	if ( s.guns && s.shot && s.shot.kinds.length > 1 ) out.add( 'shot' );
+	return out;
+
+}
+
+// the shot kind after `sel` among those aboard (round shot is always there)
+export function nextShot( sel, kinds ) {
+
+	const i = kinds.indexOf( sel );
+	return kinds[ ( i + 1 ) % kinds.length ] || 'round';
+
+}
 const FOLD_IDLE = 5000, RAIL_IDLE = 6000; // ms without a press before the tray / the top row folds back
 const ROW_B = new Set( [ 'cast', 'fire' ] ); // the big buttons sit in the lower row, the other primaries above them
 const now = () => ( typeof performance !== 'undefined' ? performance.now() : Date.now() );
@@ -190,7 +217,7 @@ export class TouchControls {
 		this.interactText = this.interactEl.firstChild;
 		this.btns = {};
 		const rowA = this.rowA = el( 'div', 'tc-row tc-row-a' ), rowB = this.rowB = el( 'div', 'tc-row tc-row-b' );
-		for ( const id of [ 'choice1', 'choice2', 'board', 'reel' ] ) rowA.append( this._btn( id ) );
+		for ( const id of [ 'choice1', 'choice2', 'board', 'reel', 'heave', 'run', 'shot' ] ) rowA.append( this._btn( id ) );
 		for ( const id of [ 'cast', 'fire' ] ) rowB.append( this._btn( id ) );
 		this.actions.append( this.interactEl, rowA, rowB );
 		// the fold: a tray of the secondary buttons above a slim handle at the bottom edge
@@ -526,6 +553,26 @@ export class TouchControls {
 
 		}
 
+		// a hail answered: the lever goes to stop (heave to) or full ahead (run), and the two buttons go
+		if ( id === 'heave' || id === 'run' ) {
+
+			this.answerHail( id );
+			this._held.set( pointerId, { el: b } );
+			return;
+
+		}
+
+		// the next shot kind aboard: its number key (the weapons feature picks it at the helm)
+		if ( id === 'shot' ) {
+
+			const sh = this._shotState();
+			const code = sh ? 'Digit' + ( SHOT_KINDS.indexOf( nextShot( sh.sel, sh.kinds ) ) + 1 ) : null;
+			if ( code ) this._key( code, 'keydown' );
+			this._held.set( pointerId, { el: b, def: code ? { code } : null } );
+			return;
+
+		}
+
 		let def = null;
 		if ( b === this.interactEl ) {
 
@@ -605,6 +652,61 @@ export class TouchControls {
 		this.stickEl.style.removeProperty( '--y' );
 		this.knobEl.style.transform = '';
 		if ( this.input ) this.input.releaseTouch();
+
+	}
+
+	answerHail( id ) {
+
+		this._throttle = id === 'run' ? 1 : 0;
+		this._hail = null;
+		this._paintLever();
+		this._sync();
+
+	}
+
+	// a navy hail meant for us (the navy feature's navyHail): its answer buttons for HAIL_MS; fired on / boarded: gone
+	_onHail( e ) {
+
+		const say = e && e.say;
+		if ( say === 'hail' || say === 'warn' ) this._hail = { t: now(), say };
+		else if ( say === 'fire' || say === 'board' ) this._hail = null;
+
+	}
+
+	_hailOn() {
+
+		if ( ! this._hailSub ) {
+
+			const f = this.app && this.app.features;
+			if ( f && typeof f.on === 'function' ) {
+
+				const off = f.on( 'navyHail', ( e ) => this._onHail( e ) );
+				this._hailSub = typeof off === 'function' ? off : true;
+
+			}
+
+		}
+
+		if ( this._hail && now() - this._hail.t > HAIL_MS ) this._hail = null;
+		return !! this._hail;
+
+	}
+
+	// the loaded shot kind and the kinds aboard (round always; chain / grape while stocked, or free in the sandbox)
+	_shotState() {
+
+		const w = this._feature( 'weapons' );
+		if ( ! w || ! w.shot ) return null;
+		const free = !! w.sandbox;
+		const kinds = SHOT_KINDS.filter( ( k ) => k === 'round' || free || ( w.shot[ k ] | 0 ) > 0 );
+		return { sel: kinds.includes( w.shotSel ) ? w.shotSel : 'round', kinds };
+
+	}
+
+	_feature( n ) {
+
+		const f = this.app && this.app.features;
+		try { return f && f.get ? f.get( n ) : null; } catch ( e ) { return null; }
 
 	}
 
@@ -764,6 +866,8 @@ export class TouchControls {
 			boatLights: !! app.boatLightsOn,
 			planeNav: !! get( 'seaplane' )?.systems?.nav,
 			planeLanding: !! get( 'seaplane' )?.systems?.landing,
+			hail: this._hailOn ? this._hailOn() : false,
+			shot: this._shotState ? this._shotState() : null,
 		};
 
 	}
@@ -789,6 +893,14 @@ export class TouchControls {
 		const t0 = now();
 		const fight = fightOn( s );
 		const { primary, tray } = splitButtons( show, s.mode, { fight } );
+		for ( const id of hailButtons( s ) ) primary.add( id ); // wave 20D: contextual, in the row above the big buttons
+		if ( primary.has( 'shot' ) && s.shot.sel !== this._shotLabel ) {
+
+			this._shotLabel = s.shot.sel;
+			this.btns.shot.firstChild.textContent = t( 'touch.shot.' + s.shot.sel, s.shot.sel === 'chain' ? 'Chain' : s.shot.sel === 'grape' ? 'Grape' : 'Round' );
+
+		}
+
 		this.root.classList.toggle( 'is-busy', busy );
 		this.root.classList.toggle( 'is-photo', !! ( this.ui && this.ui.photoMode ) );
 		// the wide button is the game's own prompt
@@ -911,6 +1023,7 @@ export class TouchControls {
 		this._releaseAll();
 		this._ac.abort();
 		if ( this._offPad ) this._offPad();
+		if ( typeof this._hailSub === 'function' ) this._hailSub();
 		if ( this.ui && this.ui.root ) this.ui.root.classList.remove( 'is-touch' );
 		if ( this.input ) this.input.touchMode = false;
 		this.root.remove();

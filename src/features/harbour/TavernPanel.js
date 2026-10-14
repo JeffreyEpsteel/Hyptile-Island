@@ -44,7 +44,7 @@ export class TavernPanel extends GlassPanel {
 		const keeper = s.keeper ? h.residentName( s.keeper ) : null;
 		const head = `<div class="hb-head"><div><h2>${ esc( s.name || 'Tavern' ) }</h2>
 			<p class="hb-sub">${ keeper ? esc( keeper ) + ' keeps the bar · ' : '' }<b>${ clockText( hour ) }</b>${ st ? ` · purse <b>${ money( st.money ) }</b>` : '' }</p></div>
-			<button class="hb-btn" data-act="close">Close (E)</button></div>
+			<button class="hb-btn" data-act="close">${ this.app?.ui?.ui?.root?.classList?.contains( 'is-touch' ) ? 'Close' : 'Close (E)' }</button></div>
 			<div class="hb-tabs">${ TABS.map( ( [ id, name ] ) => `<button class="hb-tab${ id === this.tab ? ' is-on' : '' }" data-act="tab" data-tab="${ id }">${ name }</button>` ).join( '' ) }</div>`;
 		let body = '';
 		if ( this.tab === 'menu' ) {

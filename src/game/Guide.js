@@ -121,6 +121,7 @@ export const PAGES = [
 	{ id: 'crew', lines: [
 		{ keys: [ 'crew' ], touch: 'Crew' },
 		{}, {}, {},
+		{}, // wave 20D: levels, traits and moods (crew lives)
 	] },
 	{ id: 'planes', lines: [
 		{}, {},
@@ -143,6 +144,25 @@ export const PAGES = [
 		{ keys: [ 'dive' ], touch: 'Dive' },
 		{ keys: [ 'KeyF' ], touch: 'Flare' },
 		{}, {},
+	] },
+	// wave 20D: the navy, storm fronts, the walk-in towns (waves 19B / 19E)
+	{ id: 'navy', lines: [
+		{},
+		{ keys: [ 'back' ], touch: 'Heave to' },
+		{ keys: [ 'interact' ], touch: 'Wide button' },
+		{}, {},
+	] },
+	{ id: 'fronts', lines: [
+		{},
+		{ keys: [ 'interact' ], touch: 'Wide button' },
+		{}, {}, {},
+	] },
+	{ id: 'ashore', lines: [
+		{},
+		{ keys: [ 'interact' ], touch: 'Wide button' },
+		{ keys: [ 'interact' ], touch: 'Wide button' },
+		{ keys: [ 'crew' ], touch: 'Crew' },
+		{},
 	] },
 	{ id: 'multi', lines: [
 		{}, {}, {},

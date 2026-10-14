@@ -5,7 +5,7 @@
 //                              vars: t( 'x', 'Slot {n}', { n: 2 } ) fills {n}; a table value may be an array [ one, other ]
 //                              (Romanian [ one, few, other ]) picked by vars.n
 //   tx( english )              translate a whole English string that is a value in a table (prompts, toasts and
-//                              panels that other code builds in English); unknown strings come back unchanged
+//                              panels that other code builds in English); unknown strings come back unchanged.
 //   getLang() / setLang( id )  the current language; setLang persists it ('hyptile-island.lang') and calls the listeners
 //   onLang( fn )               fn( id ) on every change; returns the unsubscribe function
 //   translateDom( root )       rewrite the text, tooltips and aria labels under root that are table values (in any
@@ -41,13 +41,16 @@ function readStored() {
 
 }
 
-// the saved choice, else the browser's language when we have it, else English
+// the languages the settings offer (user, 2026-10-15: "I want the game in english, as it is"). The game always starts in
+// English: neither the browser's language nor a saved choice from before switches it (ro.js stays on disk, unused; setLang
+// still works for tests and tools). Add an id here to offer a language again; the settings' picker appears with two or more.
+export const OFFERED = [ 'en' ];
+
+// English, whatever the browser says or an earlier session saved (readStored is kept for when a choice is offered again)
 function detect() {
 
 	const saved = readStored();
-	if ( saved && TABLES[ saved ] ) return saved;
-	const nav = typeof navigator !== 'undefined' ? String( navigator.language || '' ).slice( 0, 2 ).toLowerCase() : '';
-	return TABLES[ nav ] ? nav : 'en';
+	return saved && OFFERED.includes( saved ) && TABLES[ saved ] ? saved : 'en';
 
 }
 

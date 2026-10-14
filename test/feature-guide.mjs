@@ -34,11 +34,11 @@ const enValues = new Set( Object.values( en ) );
 {
 
 	const enKeys = Object.keys( en ), roKeys = Object.keys( ro );
-	ok( enKeys.every( ( k ) => k in ro ) && roKeys.every( ( k ) => k in en ), `en.js and ro.js carry the same ${ enKeys.length } keys` );
+	ok( roKeys.every( ( k ) => k in en ), `ro.js has no key en.js lacks (${ enKeys.length } English keys; the game is English only)` );
 	const vars = ( s ) => ( String( s ).match( /\{\w+\}/g ) || [] ).sort().join();
-	ok( enKeys.every( ( k ) => vars( en[ k ] ) === vars( ro[ k ] ) ), 'placeholders (key caps too) agree in both languages' );
+	ok( enKeys.filter( ( k ) => k in ro ).every( ( k ) => vars( en[ k ] ) === vars( ro[ k ] ) ), 'placeholders (key caps too) agree where both languages have the key' );
 	const mine = enKeys.filter( ( k ) => /^(guide|tips)\./.test( k ) );
-	ok( mine.length > 100 && mine.every( ( k ) => ro[ k ] && ro[ k ] !== en[ k ] || /^Multiplayer$/.test( en[ k ] ) ), `${ mine.length } guide / tip strings, each translated` );
+	ok( mine.length > 100 && mine.every( ( k ) => typeof en[ k ] === 'string' && en[ k ].length ), `${ mine.length } guide / tip strings in English` );
 	ok( ! mine.some( ( k ) => /[şţ]/.test( ro[ k ] ) ), 'no cedilla forms in the new Romanian' );
 
 }
@@ -50,8 +50,8 @@ const enValues = new Set( Object.values( en ) );
 	for ( const id of [ 'welcome', 'fishing', 'where', 'sail', 'combat', 'crew', 'planes', 'islands', 'trade', 'water', 'multi' ] ) ok( ids.includes( id ), `the guide has the ${ id } page` );
 	ok( PAGES.every( ( p ) => p.lines.length >= 1 && p.lines.length <= MAX_LINES ), `every page keeps to ${ MAX_LINES } lines` );
 	const keys = PAGES.flatMap( pageKeys ).concat( TIP_KEYS, [ 'guide.where.joe', 'guide.where.marta', 'guide.where.note', 'guide.next', 'guide.done', 'guide.skip' ] );
-	const missing = keys.filter( ( k ) => ! ( k in en ) || ! ( k in ro ) );
-	ok( missing.length === 0, `every page text is in en.js and ro.js ${ missing.join() }` );
+	const missing = keys.filter( ( k ) => ! ( k in en ) );
+	ok( missing.length === 0, `every page text is in en.js ${ missing.join() }` );
 	ok( PAGES.every( ( p ) => p.lines.every( ( l, i ) => en[ `guide.${ p.id }.${ i + 1 }` ].length <= 110 ) ), 'every line is short (110 characters at most)' );
 	// the glyphs: every key ref resolves to a printed key, never a raw code
 	const refs = PAGES.flatMap( ( p ) => p.lines.flatMap( ( l ) => l.keys || [] ) );
@@ -153,7 +153,7 @@ const mkApp = ( o = {} ) => {
 
 {
 
-	ok( Object.keys( TIPS ).length === 7 && Object.values( TIPS ).every( ( x ) => x.text in en && x.text in ro && ( ! x.touch || ( x.touch in en && x.touch in ro ) ) ), 'seven tips, each in both languages (with a touch wording where keys are named)' );
+	ok( Object.keys( TIPS ).length === 11 && Object.values( TIPS ).every( ( x ) => x.text in en && ( ! x.touch || x.touch in en ) ), 'eleven tips (wave 20D: crew, navy, front, inside), each in en.js (with a touch wording where keys are named)' );
 	const w = mkApp();
 	const p = w.app.player;
 	// the first take-off: once

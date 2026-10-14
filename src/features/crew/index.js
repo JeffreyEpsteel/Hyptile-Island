@@ -1051,7 +1051,7 @@ export class CrewFeature {
 		h += list.length ? list.map( ( s ) => {
 
 			const traits = s.traits.map( ( t ) => TRAITS[ t ].label ).join( ', ' );
-			return `<div class="hb-row"><div><b>${ esc( s.name ) }</b> · ${ esc( traits ) }<small>${ esc( vouch( s, keeper ) ) }.</small>
+			return `<div class="hb-row"><div><b>${ esc( s.name ) } · ${ esc( traits ) }</b><small>${ esc( vouch( s, keeper ) ) }.</small>
 				<small>${ SKILL_LABELS[ s.special ] } ${ s.skills[ s.special ] } · ${ free ? 'no wage in the sandbox' : `${ money( s.wage ) } a day` }</small></div>
 				<span class="hb-price">${ free ? 'Free' : money( s.price ) }</span><button class="hb-btn is-small" data-act="crew-hire" data-id="${ esc( s.id ) }"${ full ? ' disabled' : '' }>Hire</button></div>`;
 
