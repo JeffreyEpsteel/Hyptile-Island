@@ -481,7 +481,7 @@ export function installHudPanels( GameHUD ) {
 			${ cell( 'Level', pr.level ) }${ cell( 'Rank', pr.title ) }${ cell( 'XP', `${ Math.floor( pr.xp ) } · ${ toNext } to next` ) }
 			${ cell( 'Caught', c.caught | 0 ) }${ cell( 'Weight', `${ ( c.kg || 0 ).toFixed( 1 ) } kg` ) }${ cell( 'Records', c.records | 0 ) }${ cell( 'Species', c.species | 0 ) }
 			${ cell( 'Night', c.night | 0 ) }${ cell( 'Reef', c.reef | 0 ) }${ cell( 'Deep', c.deep | 0 ) }${ cell( 'Afloat', c.aboard | 0 ) }
-			${ cell( 'Sold', c.sold | 0 ) }${ cell( 'Earned', `$${ ( c.earned | 0 ).toLocaleString() }` ) }${ cell( 'Boats', c.boats | 0 ) }${ cell( 'Played', played ) }
+			${ cell( 'Sold', c.sold | 0 ) }${ cell( 'Earned', `$${ ( c.earned | 0 ).toLocaleString() }` ) }${ cell( 'Boats', c.boats | 0 ) }${ cell( 'Played', played ) }${ ( ( n ) => n && n.standingName ? cell( 'Navy', n.standingName() ) : '' )( this.game.app?.features?.get( 'navy' ) ) }
 		</div>`;
 
 	};

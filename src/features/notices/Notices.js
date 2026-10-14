@@ -238,6 +238,8 @@ export class Notices {
 		// wave 13: the story's quest notices where they fit (taken through the story, not as a notice)
 		const story = this.features && this.features.get ? this.features.get( 'story' ) : null;
 		if ( story ) try { out.push( ...storyPostings( port, story, now ) ); } catch ( e ) { /* the story is optional */ }
+		const nvy = this.features && this.features.get ? this.features.get( 'navy' ) : null; // wave 19B: navy bounties at Tidemark
+		if ( nvy && nvy.postings ) try { out.push( ...nvy.postings( port, now ) ); } catch ( e ) { /* the navy is optional */ }
 		out.sort( ( a, b ) => a.expires - b.expires || a.slot - b.slot );
 		return out;
 
@@ -292,6 +294,13 @@ export class Notices {
 	accept( id ) {
 
 		this.lastError = '';
+		if ( typeof id === 'string' && id.startsWith( 'navy:' ) ) {
+
+			const nvy = this.features && this.features.get ? this.features.get( 'navy' ) : null;
+			const p = nvy && nvy.claim ? nvy.claim() : 0;
+			return p ? { id, navy: true, paid: p } : this._err( 'Nothing owed yet' );
+
+		}
 		if ( typeof id === 'string' && id.startsWith( 'story:' ) ) {
 
 			const story = this.features && this.features.get ? this.features.get( 'story' ) : null;

@@ -45,7 +45,7 @@ export const BOARD_SIZE = [ 4, 4, 5, 5, 6 ]; // postings listed at standing leve
 export const TIER_NAMES = [ '', 'Harbour nuisance', 'Open-sea corsair', 'Notorious captain' ];
 export const TYPE_LABEL = {
 	catchSpecies: 'Catch', catchWeight: 'Big catch', catchHabitat: 'Fishing trip', deliverCargo: 'Cargo run', sellFish: 'Market day',
-	visitPort: 'Errand', sinkPirate: 'Sink a raider', shoreRaider: 'Shore watch', bounty: 'Wanted', story: 'Quest',
+	visitPort: 'Errand', sinkPirate: 'Sink a raider', shoreRaider: 'Shore watch', bounty: 'Wanted', story: 'Quest', navyBounty: 'Navy bounty',
 };
 // drop chance of a posting of a type the player failed or abandoned (by how many times in the last day)
 export const MEMORY_DROP = [ 0, 0.55, 0.8, 0.95 ];

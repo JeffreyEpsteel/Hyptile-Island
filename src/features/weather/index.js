@@ -1,5 +1,7 @@
 import { KINDS, scheduleAt, nextStorm, transitionSeconds, dirOffset } from './Schedule.js';
 import { climate, mix, smoothstep01, speciesSensitivity, BITE_RANGE } from './Climate.js';
+import { FRONT, frontAt, influence, gustAt, strikesBetween, spoutAt, arrival, forecastText } from './Fronts.js';
+import { FrontFX } from './FrontFX.js';
 import { WorldLink } from './WorldLink.js';
 import { RainFX } from './RainFX.js';
 import { WeatherAudio } from './WeatherAudio.js';
@@ -35,12 +37,30 @@ import { FISH } from '../../game/FishTable.js';
 // What it moves (see WorldLink.js): the sea state (wind, direction, fetch, swell, choppiness, whitecaps, shore
 // waves), clouds, cirrus, haze and sun shafts, plus a little exposure (a darker storm; the lightning flash).
 // Hooks it needs from the integrator are listed in the report; none are required for it to run.
+//
+// Wave 19B, weather at sea (Fronts.js, FrontFX.js): storm fronts cross the map, a pure function of the island hours (the universe
+// clock in multiplayer: every client sees the same line). Seen from afar, a dark cloud bank and a rain curtain on the horizon
+// (FrontFX); under its band the weather where you are turns to storm (rain, wind, the sea's wave inputs: fetch, swell, chop
+// through WorldLink, so the waves grow as it comes over), then the clearing behind it is calm. At its edge the squall: gusts that
+// heel the boat (an impulse above her centre through boatCtl.applyCollision, at most GUST.accel m/s^2) and push the seaplane
+// (flight.wind). Its lightning falls on a schedule of its own (Fronts.strikesBetween); the thunder comes distance / 343 m/s
+// after the flash. A waterspout on some fronts. Read:
+//   weather.front              the front crossing the sea now (Fronts.frontAt) | null
+//   weather.local              { depth, rain, squall, calm, under } the front where the player is
+//   weather.gust               { x, z, speed } the squall's wind over the steady wind at the player (m/s, <= FRONT.maxGust)
+//   weather.gustAt( x, z, out ) the same anywhere                weather.spout   { x, z, r, life } | null
+//   weather.seaForecast( x?, z? ) -> { inHours, from, strength, passHours, under } | null   (Fronts.arrival)
+//   weather.forecastText( x?, z? ) -> "A squall line from the south-west, about 25 minutes out: ..."   (the harbourmaster,
+//                              the navy office; the plane's radio reads it out on takeoff: planeTookOff)
+// Events: frontArrived { id, from } when the band reaches the player, lightningStrike { x, z, distanceKm, delay }.
 
 const clamp = ( v, a, b ) => ( v < a ? a : v > b ? b : v );
 const FLASH_GAIN = 2.2; // exposure x(1 + 2.2) at the peak of a flash
 const MANUAL_SECONDS = 25; // an owner's pick takes effect faster than the scheduled weather
 const MANUAL_INTENSITY = { clear: 0.8, breezy: 0.5, overcast: 0.7, rain: 0.6, storm: 0.9, fog: 0.8 };
 const UP = { x: 0, y: 1, z: 0 };
+export const GUST = { accel: 0.35, lever: 3.2, min: 0.5 }; // squall push: at most 0.35 m/s^2, 3.2 m above the hull's origin
+const NO_GUST = Object.freeze( { x: 0, z: 0, speed: 0 } );
 
 export { KINDS };
 
@@ -76,6 +96,22 @@ export class Weather {
 		this._ft = 0;
 		this._strikeIn = 5;
 		this.strikes = 0;
+		// wave 19B: fronts at sea
+		this.front = null;
+		this.local = influence( null, 0, 0, 0, {} );
+		this.gust = { x: 0, z: 0, speed: 0 };
+		this.spout = null;
+		this.eff = { ...this.cur }; // the parameters with the front's weather folded in (what the world shows)
+		this._frontK = 0;
+		this._calmK = 0;
+		this._lastA = null;
+		this._frontIn = false;
+		this._planeWind = false;
+		this._flashEv = null;
+		this.gustImpulse = 0;
+		this.frontFx = null;
+		this._offs = [];
+		if ( features && typeof features.on === 'function' ) this._offs.push( features.on( 'planeTookOff', () => this._radio() ) );
 
 		this.world = new WorldLink( app, () => !! ( this.features && this.features.sandbox ) );
 		this.audio = new WeatherAudio( app, { rng } );
@@ -97,6 +133,19 @@ export class Weather {
 
 			}
 
+			try {
+
+				const lite = !! ( ( qs && typeof qs.has === 'function' && qs.has( 'lowFx' ) ) || globalThis.__phoneBudget );
+				this.frontFx = new FrontFX( lite ? { segments: 20, segLength: 320, lite: true } : { segments: 40, segLength: 160 } );
+				app.scene.add( this.frontFx.mesh );
+
+			} catch ( e ) {
+
+				console.warn( 'weather: the front effect is unavailable', e );
+				this.frontFx = null;
+
+			}
+
 		}
 
 	}
@@ -105,9 +154,9 @@ export class Weather {
 
 	get kind() { return this.current.kind; }
 	get intensity() { return this.current.intensity; }
-	get wind() { return this.cur.wind; }
-	get rainIntensity() { return this.cur.rain; }
-	get danger() { return this.cur.danger; }
+	get wind() { return this.eff.wind; }
+	get rainIntensity() { return this.eff.rain; }
+	get danger() { return this.eff.danger; }
 
 	biteModifier( species ) {
 
@@ -120,7 +169,8 @@ export class Weather {
 
 		}
 
-		return clamp( 1 + ( this.cur.bite - 1 ) * speciesSensitivity( fish ), BITE_RANGE[ 0 ], BITE_RANGE[ 1 ] );
+		const bite = this._frontK > 1e-3 ? this.eff.bite : this.cur.bite; // (under a front: the front's)
+		return clamp( 1 + ( bite - 1 ) * speciesSensitivity( fish ), BITE_RANGE[ 0 ], BITE_RANGE[ 1 ] );
 
 	}
 
@@ -272,7 +322,8 @@ export class Weather {
 
 		if ( this._p >= 1 ) this._from = this._to;
 
-		const cur = this.current, p = this.cur;
+		this._fronts( A, dt );
+		const cur = this.current, p = this.eff;
 		cur.intensity = this._i0 + ( this._tgt.intensity - this._i0 ) * e;
 		cur.wind = p.wind;
 		cur.rain = p.rain;
@@ -280,6 +331,9 @@ export class Weather {
 		cur.transition = this._p;
 		cur.manual = !! manual;
 		cur.shown = e < 0.5 && this._shownFrom ? this._shownFrom : cur.kind;
+		// under a front the sky over you is the front's
+		if ( this._frontK > 0.55 ) cur.shown = 'storm';
+		else if ( this._frontK > 0.2 && cur.shown !== 'storm' ) cur.shown = 'rain';
 
 		// storm warning: the last minute (of real time) before a scheduled storm
 		this.warning = null;
@@ -287,13 +341,18 @@ export class Weather {
 
 			const st = nextStorm( A, 12 );
 			if ( st !== null && ( st - A ) / this.speed <= 60 && cur.kind !== 'storm' ) this.warning = ( st - A ) / this.speed;
+			// a front about to reach the player
+			const fa = this._arrivalHere;
+			if ( this.warning === null && fa && ! fa.under && fa.inHours / this.speed <= 60 ) this.warning = fa.inHours / this.speed;
 
 		}
 
 		this.world.apply( p, dt );
 		this._shelterTick( dt );
 		this._lightningTick( dt );
+		this._frontStrikes( A );
 		this._exposure();
+		this._applyGusts( dt, A );
 
 		const app = this.app;
 		if ( this.rain && app && app.camera ) {
@@ -306,7 +365,19 @@ export class Weather {
 
 		}
 
-		this.audio.update( dt, { rain: p.rain, wind: p.wind, danger: p.danger, shelter: this.shelter } );
+		this.audio.update( dt, { rain: p.rain, wind: p.wind + this.gust.speed * 0.5, danger: p.danger, shelter: this.shelter } );
+		if ( this.frontFx && app && app.camera ) {
+
+			const cam = app.camera.position, ci = this._camInf || ( this._camInf = {} );
+			influence( this.front, cam.x, cam.z, A, ci );
+			this.frontFx.update( dt, app.camera, this.front, A, {
+				strength: this.front ? this.front.strength : 0, inside: ci.depth > - 60 && ci.depth < FRONT.width + 200 ? 1 : 0,
+				spout: this.spout, flash: this._flashEv,
+			} );
+			this._flashEv = null;
+
+		}
+
 		this.hud.update( { kind: cur.shown, wind: p.wind, warning: this.warning, manual: !! manual }, dt );
 
 	}
@@ -412,6 +483,163 @@ export class Weather {
 
 	}
 
+	// ---- wave 19B: fronts at sea
+
+	// where the front's weather is measured: the player (on foot, at the helm, flying), else the camera
+	_here() {
+
+		const app = this.app;
+		const sp = this.features && this.features.get ? this.features.get( 'seaplane' ) : null;
+		if ( sp && sp.piloted && sp.flight && sp.flight.position ) return sp.flight.position;
+		return ( app && app.player && app.player.position ) || ( app && app.camera && app.camera.position ) || null;
+
+	}
+
+	_fronts( A, dt ) {
+
+		const f = this.front = frontAt( A );
+		const here = this._here();
+		const L = influence( f, here ? here.x : 0, here ? here.z : 0, A, this.local );
+		if ( here ) gustAt( f, here.x, here.z, A, this.gust );
+		else Object.assign( this.gust, NO_GUST );
+		this.spout = spoutAt( f, A );
+		this._arrivalHere = here ? arrival( here.x, here.z, A, 2 ) : null;
+		// eased (a few seconds): a jump of the clock does not slam the sea state
+		const k = this._settle > 0 ? 1 : Math.min( 1, dt / 3 );
+		this._frontK += ( clamp( L.rain, 0, 1 ) - this._frontK ) * k;
+		this._calmK += ( clamp( L.calm, 0, 1 ) - this._calmK ) * k;
+		const eff = this.eff;
+		Object.assign( eff, this.cur );
+		if ( this._frontK > 1e-3 ) {
+
+			const st = this._stormP || ( this._stormP = climate( 'storm', 0.85, 0 ) );
+			mix( this.cur, st, this._frontK, eff );
+			eff.windDir = this.cur.windDir;
+
+		}
+
+		if ( this._calmK > 1e-3 ) {
+
+			const cl = this._calmP || ( this._calmP = climate( 'clear', 1, 0 ) );
+			const d = eff.windDir, from = this._calmFrom || ( this._calmFrom = {} );
+			Object.assign( from, eff );
+			mix( from, cl, this._calmK * 0.7, eff );
+			eff.windDir = d;
+
+		}
+
+		const inBand = L.under;
+		if ( inBand && ! this._frontIn && f ) {
+
+			const a = arrival( here.x, here.z, A - 0.05, 1 );
+			this._emit( 'frontArrived', { id: f.id, from: a ? a.from : null } );
+
+		}
+
+		this._frontIn = inBand;
+
+	}
+
+	// the front's lightning: deterministic strikes along its band; those within 9 km of the camera flash and thunder
+	_frontStrikes( A ) {
+
+		const f = this.front, last = this._lastA;
+		this._lastA = A;
+		if ( ! f || last === null || ! ( A > last ) || A - last > 0.05 ) return;
+		const cam = ( this.app && this.app.camera && this.app.camera.position ) || this._here();
+		if ( ! cam ) return;
+		strikesBetween( f, last, A, ( s ) => {
+
+			const d = Math.hypot( s.x - cam.x, s.z - cam.z );
+			if ( d > 15000 ) return;
+			this._flashEv = { amount: Math.max( 0.25, 1 - d / 15000 ), x: s.x, z: s.z };
+			if ( d > 9000 ) return;
+			const r = this.strike( Math.max( 0.1, d / 1000 ) );
+			this._emit( 'lightningStrike', { x: Math.round( s.x ), z: Math.round( s.z ), distanceKm: r.distanceKm, delay: r.delay } );
+
+		} );
+
+	}
+
+	gustAt( x, z, out = {} ) {
+
+		return gustAt( this.front, x, z, this.hours, out );
+
+	}
+
+	// the squall pushes the boat (an impulse above her centre: she heels and is set downwind) and the seaplane (its air)
+	_applyGusts( dt, A ) {
+
+		this.gustImpulse = 0;
+		if ( ! ( dt > 0 ) ) return;
+		const app = this.app, b = app && app.boatCtl;
+		const g = this._gb || ( this._gb = {} );
+		if ( b && b.position && typeof b.applyCollision === 'function' && ! b.moored && ! b.frozen ) {
+
+			gustAt( this.front, b.position.x, b.position.z, A, g );
+			if ( g.speed > GUST.min ) {
+
+				const m = Number.isFinite( b.mass ) && b.mass > 0 ? b.mass : 3200;
+				const area = clamp( 4 + m / 600, 6, 70 ); // m^2 of windage and canvas
+				const F = Math.min( 0.5 * 1.225 * 1.2 * area * g.speed * g.speed, m * GUST.accel );
+				const k = F * dt / g.speed;
+				try { b.applyCollision( 0, 0, g.x * k, g.z * k, b.position.x, b.position.y + GUST.lever, b.position.z ); } catch ( e ) { /* optional */ }
+				this.gustImpulse = F * dt;
+
+			}
+
+		}
+
+		const sp = this.features && this.features.get ? this.features.get( 'seaplane' ) : null, fl = sp && sp.flight;
+		if ( fl && fl.wind && typeof fl.wind.set === 'function' && fl.position ) {
+
+			gustAt( this.front, fl.position.x, fl.position.z, A, g );
+			if ( g.speed > 0.05 ) {
+
+				fl.wind.set( g.x, 0, g.z );
+				this._planeWind = true;
+
+			} else if ( this._planeWind ) {
+
+				fl.wind.set( 0, 0, 0 );
+				this._planeWind = false;
+
+			}
+
+		}
+
+	}
+
+	seaForecast( x, z ) {
+
+		const h = this._here();
+		const px = Number.isFinite( x ) ? x : h ? h.x : 0, pz = Number.isFinite( z ) ? z : h ? h.z : 0;
+		return arrival( px, pz, this.hours, 12 );
+
+	}
+
+	forecastText( x, z ) {
+
+		const h = this._here();
+		const px = Number.isFinite( x ) ? x : h ? h.x : 0, pz = Number.isFinite( z ) ? z : h ? h.z : 0;
+		return forecastText( px, pz, this.hours, { speed: this.speed || 0 } );
+
+	}
+
+	// the plane's radio on takeoff: the forecast where she flies
+	_radio() {
+
+		const g = this.app && this.app.game;
+		if ( g && typeof g.toast === 'function' ) g.toast( `Radio: ${ this.forecastText() }`, 4600 );
+
+	}
+
+	_emit( name, e ) {
+
+		if ( this.features && typeof this.features.emit === 'function' ) this.features.emit( name, e );
+
+	}
+
 	// ---- save and lifecycle
 
 	toJSON() {
@@ -439,6 +667,8 @@ export class Weather {
 		this._settle = 3;
 		this._pulses.length = 0;
 		this.lightning = 0;
+		this._lastA = null;
+		this._frontK = this._calmK = 0;
 
 	}
 
@@ -448,6 +678,12 @@ export class Weather {
 		if ( s && this._expLast !== undefined && s.exposure === this._expLast ) s.exposure = this._expBase;
 		if ( this.rain ) this.rain.dispose();
 		this.rain = null;
+		if ( this.frontFx ) this.frontFx.dispose();
+		this.frontFx = null;
+		for ( const off of this._offs ) try { off(); } catch ( e ) { /* gone */ }
+		this._offs.length = 0;
+		const sp = this.features && this.features.get ? this.features.get( 'seaplane' ) : null;
+		if ( this._planeWind && sp && sp.flight && sp.flight.wind ) sp.flight.wind.set( 0, 0, 0 );
 		this.audio.dispose();
 		this.hud.dispose();
 

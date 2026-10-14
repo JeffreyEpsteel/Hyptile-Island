@@ -169,3 +169,28 @@ export function advance( cur ) {
 	return ev;
 
 }
+
+// ------------------------------------------------------------------ wave 19B: the navy's waters
+//
+// NAVY_JETTY: the naval jetty on Tidemark's east shore, south of the town pier (inside Tidemark's calm circle: no fights there).
+// A plank deck from the shore (x0, ground ~2.3 m) out to the head (x1, ~4.7 m of water) along z; ships lie at `berths` off
+// its head (6 m of water). The office (bounties, the navy chandler, the forecast) stands at its foot. Measured on the Tidemark
+// tile (TidemarkTerrain): the shore crosses 0 m at x ~1862 on z 140.
+export const NAVY_JETTY = {
+	port: 'tidemark', x0: 1826, x1: 1952, z: 140, deck: 2.2, width: 4,
+	office: { x: 1834, z: 136.4 },
+	berths: [ { x: 1975, z: 150, yaw: 0 }, { x: 1972, z: 122, yaw: Math.PI }, { x: 1992, z: 168, yaw: 0 } ],
+	home: { x: 1985, z: 140 },
+};
+
+// the navy's patrol lanes (ping-pong, read from WORLD.ports so they follow the layout): the Tidemark approach from its roads to
+// the middle of the sea, and the middle stretch of the trade lane between the home roads and Tidemark
+export function navyLanes() {
+
+	const tm = ( WORLD.ports || [] ).find( ( p ) => p.id === 'tidemark' );
+	const ap = tm && Array.isArray( tm.approach ) ? tm.approach : [ [ 900, 330 ], [ 1500, 560 ], [ 1996, 58 ] ];
+	const outer = ap.filter( ( p ) => p[ 0 ] >= 880 ).reverse(); // roads -> (900, 330)
+	const mid = ap.filter( ( p ) => p[ 0 ] >= 250 && p[ 0 ] <= 1550 );
+	return [ outer, mid ].filter( ( l ) => l.length >= 2 );
+
+}

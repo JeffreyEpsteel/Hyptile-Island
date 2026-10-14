@@ -200,7 +200,7 @@ function uninstallDom() {
 	ok( typeof wx.install === 'function' && typeof wx.default.install === 'function', 'the module exports install( app, features )' );
 	ok( w && w === features.get( 'weather' ), 'features.add returns the instance' );
 	ok( [ 'update', 'dispose', 'toJSON', 'fromJSON', 'reset', 'biteModifier', 'setManual' ].every( ( k ) => typeof w[ k ] === 'function' ), 'update / dispose / toJSON / fromJSON / reset / biteModifier / setManual' );
-	ok( app.scene.children.length === 1 && app.scene.children[ 0 ].name === 'Rain', 'the rain mesh is added to the scene' );
+	ok( app.scene.children.length === 2 && app.scene.children[ 0 ].name === 'Rain' && app.scene.children[ 1 ].name === 'StormFront', 'the rain mesh and the storm front are added to the scene' );
 	w.update( 1 / 60 );
 	const c = w.current;
 	ok( KINDS.includes( c.kind ) && c.intensity >= 0 && c.intensity <= 1 && c.wind > 0, 'current: { kind, intensity 0..1, wind m/s }' );

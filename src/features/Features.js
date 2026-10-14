@@ -53,6 +53,7 @@
 //   castawayRescued { x, z }   routeRun { from, to, good, profit }   (story, wave 16D)
 //   practiceStarted { count }   practiceEnded { result }   rockThrown { by, x, z }   (melee: the practice fight, the rock thrower)
 //   questPin { id, x, z, label }   questPinClear { id }        (story -> the maps: a quest step's place)
+//   (navy) navyHail navyBoarded navyBounty navyBountyPaid navyStanding pressGang convoyAttacked convoySaved convoyLost manOverboardRescued; world events navyWanted / navyHail   (weather) frontArrived lightningStrike
 //
 // Mode rules (Sandbox / Campaign / Multiplayer): features.mode is app.mode or 'campaign'; features.sandbox.
 // Money and the save stay in GameState: features.state is app.game.state (money, earn, spend, career...).

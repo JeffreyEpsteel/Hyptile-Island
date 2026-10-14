@@ -56,7 +56,31 @@ export const SHIP_CLASSES = {
 		loot: { crates: 0, value: [ 0, 0 ] },
 		helm: { x: 0, z: - 2.5 }, wheel: { x: 0, y: 1.55, z: - 2.02 }, lamp: { x: 0, y: 3.42, z: - 1.32 },
 	},
+	// wave 19B: the navy (features/navy; Brains.thinkNavy sails every class with navy: true). No GLB of their own: model 'navy'
+	// draws the base class's GLB (brigantine / sloop) at `scale` in navy dress (navy/NavyModels.js wraps naval's ModelSet), so
+	// they cost no extra textures. The frigate carries two gun decks (three guns a side on each: the lower deck's ports 1.15 m
+	// under the upper's), turns slowly and is heavy; the revenue cutter is the quick patrol boat. hull: what a taken one sails as.
+	frigate: {
+		id: 'frigate', label: 'Navy frigate', faction: 'navy', navy: true, glb: null, model: 'navy', base: 'brigantine', scale: 1.3, hull: 'brigantine',
+		length: 26, beam: 8.8, draft: 2.5, sheer: 4.85, deck: 3.4, mast: 19.8,
+		speed: 5.6, accel: 0.45, decel: 0.7, turn: 0.19,
+		mass: 140000, hp: 520, guns: 6,
+		stations: [ ...stations( [ - 5.4, 0, 5.4 ], 3.8, 3.4 ), ...stations( [ - 5.4, 0, 5.4 ], 4.1, 2.25 ) ],
+		sight: 520, engage: 170, lose: 950, fleeAt: 0.14, shot: 0.013, damage: 32, reload: 7.4, traverse: 20 * DEG,
+		loot: { crates: 2, value: [ 60, 120 ] },
+	},
+	revenue: {
+		id: 'revenue', label: 'Navy revenue cutter', faction: 'navy', navy: true, glb: null, model: 'navy', base: 'sloop', scale: 1.05, hull: 'sloop',
+		length: 15.1, beam: 5.5, draft: 1.5, sheer: 3.37, deck: 2.3, mast: 12.5,
+		speed: 7.8, accel: 1.1, decel: 1.3, turn: 0.55,
+		mass: 29000, hp: 160, guns: 2, stations: stations( [ - 2.5, 2.5 ], 2.2, 2.3 ),
+		sight: 460, engage: 140, lose: 820, fleeAt: 0.26, shot: 0.016, damage: 24, reload: 5.0, traverse: 24 * DEG,
+		loot: { crates: 1, value: [ 30, 60 ] },
+	},
 };
+
+// the navy's classes (features/navy spawns them; Brains.think hands them to thinkNavy)
+export const NAVY_KINDS = Object.keys( SHIP_CLASSES ).filter( ( k ) => SHIP_CLASSES[ k ].navy === true );
 
 // the classes with a GLB (naval's ModelSet loads them); the procedural ones (cls.model) are drawn by their own builder
 export const SHIP_KINDS = Object.keys( SHIP_CLASSES ).filter( ( k ) => !! SHIP_CLASSES[ k ].glb );
@@ -64,6 +88,8 @@ export const PROCEDURAL_KINDS = Object.keys( SHIP_CLASSES ).filter( ( k ) => ! S
 
 export const PIRATE_CAPTAINS = [ 'Mad Meg Orrow', 'One-Eye Pell', 'Black Tam', 'Salt Annick', 'Captain Vane', 'Rook Delacroix', 'Old Bess Harrow', 'Tobias Grim', 'Sable Jory', 'Dread Hallam' ];
 export const PIRATE_SHIPS = [ 'Black Gull', 'Salt Widow', 'Grey Cormorant', 'Hollow Tide', 'Red Kestrel', 'The Gannet\'s Debt', 'Night Heron', 'Drowned Lantern', 'Ashen Wake', 'Sable Petrel' ];
+export const NAVY_SHIPS = [ 'HMS Resolute', 'HMS Tidemark', 'HMS Vigilant', 'HMS Kestrel', 'HMS Steadfast', 'HMS Heron', 'HMS Warden', 'HMS Gannet' ];
+export const NAVY_CAPTAINS = [ 'Captain Ashby', 'Commander Vell', 'Lieutenant Corran', 'Captain Merrow', 'Commander Hale-Ivory', 'Lieutenant Sedge' ];
 export const MERCHANT_SHIPS = [ 'Margit & Sons', 'Pons Packet', 'Gull Harbour Hauler', 'Brine & Barley', 'Tidewater Pride', 'Patient Mary' ];
 
 // loot crate value roll, coins

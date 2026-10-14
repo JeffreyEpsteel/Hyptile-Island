@@ -40,6 +40,9 @@
 // dock and every port's dock (inSafeZone), and a pirate inside one (or after a target inside one) neither hunts nor fires. A
 // struck, boarded or moored hull ('adrift', 'boarded', 'moored': NO_STEER) is left alone by the merchant brain too (a hijacked
 // or sneaked-aboard merchant does not run off under the boarders).
+//
+// Wave 19B (the navy): thinkNavy for the navy classes (patrol / escort / hunt / broadside / hail / board / pursue / flee: see
+// the section at the end), and a pirate's s.foe (a ship) as her target while it is nearer than the player: AI vs AI broadsides.
 
 import { angleDiff, clamp, sideSign } from './util.js';
 import { advance, nearestIndex, inSafeZone } from './Routes.js';
@@ -408,12 +411,355 @@ export function thinkMerchant( s, w, dt ) {
 
 }
 
+// ------------------------------------------------------------------ wave 19B: the navy, and pirates fighting ships
+//
+// Navy ships (ShipClasses navy: true: the frigate and the revenue cutter) read their orders from s.navy, which the navy
+// feature (features/navy) writes every frame: { foe: Ship | null (a pirate to fight), ward: Ship | null (a merchant to
+// escort), wanted: bool (the player's boat is to be stopped), home: { x, z } (Tidemark's naval jetty) }.
+//   patrol     follow the route (the trade lanes)
+//   escort     hold station NAVY.escort.off m off the ward's quarter at her speed; a pirate near her makes it a hunt
+//   hunt       chase the foe; inside her engage range -> broadside (AI vs AI through naval's guns: s.tgt = the foe's record)
+//   hail       a wanted player at sea within sight: close to NAVY.hail.call m and call him to heave to (s.mem.say 'hail', the
+//              navy feature toasts "Heave to!"); slowing under NAVY.hail.heave m/s for NAVY.hail.hold s -> board; still making
+//              way after NAVY.hail.grace s -> a warning (say 'warn'), NAVY.hail.fireAfter s later -> pursue
+//   board      come alongside the hove-to boat; within NAVY.hail.board m: say 'board' (the feature searches her, fines her and
+//              clears the wanted mark); making way again -> pursue
+//   pursue     chase and broadside the player (he ran); hove to again -> board
+//   flee       below her class's fleeAt: home to the jetty
+//   moored     at the jetty (the feature puts her there): nothing to steer
+// The calm waters hold for the navy too: no hail, hunt or shot while either ship lies in a calm circle (Routes CALM).
+// A navy ship only ever fires at the record in s.tgt it chose itself (NAVY_OFF otherwise), so a ripple in flight never turns
+// on an innocent boat when she changes her mind.
+//
+// Pirates: s.foe (a Ship, set by the navy feature or a sea event: a navy ship fighting her, a convoy she attacks) stands in for
+// the player as her target while it is nearer than him (or he is no target): the same patrol / chase / broadside brain.
+
+export const NAVY = {
+	hail: { call: 210, grace: 14, heave: 1.4, hold: 4, board: 28, fireAfter: 4, lose: 6 },
+	escort: { off: 70, back: - 35, guard: 520 },
+	hold: 100, // m: the broadside distance (pirates 90)
+};
+const NAVY_OFF = Object.freeze( { ok: false, x: 0, y: 0, z: 0, vx: 0, vz: 0, mass: 0 } );
+const NAVY_FIGHT = new Set( [ 'hunt', 'broadside' ] );
+const NAVY_PLAYER = new Set( [ 'hail', 'board', 'pursue' ] );
+
+// a target record for a ship (the shape of Naval's player records: _shipFire / _fireShipGun aim at it), refreshed in place
+export function shipTarget( ship, out = {} ) {
+
+	out.x = ship.x;
+	out.y = ship.pose ? ship.pose.y : 0;
+	out.z = ship.z;
+	const sp = ship.speed || 0;
+	out.vx = Math.sin( ship.yaw ) * sp + ( ship.push ? ship.push.x : 0 );
+	out.vz = Math.cos( ship.yaw ) * sp + ( ship.push ? ship.push.z : 0 );
+	out.ok = !! ship.alive && ! inSafeZone( ship.x, ship.z ) && ! inPeace( ship.x, ship.z );
+	out.mass = ship.cls ? ship.cls.mass || 30000 : 30000;
+	out.ship = ship;
+	return out;
+
+}
+
+// the broadside drill against record t (the pirates' circle-and-fire, held at NAVY.hold m)
+function navyBroadside( s, t, w, dt, d, bearing, fire ) {
+
+	const rel = angleDiff( bearing, s.yaw );
+	if ( ! s.mem.side ) s.mem.side = rel >= 0 ? 1 : - 1;
+	s.mem.wearT = ( s.mem.wearT || 0 ) - dt;
+	const engaged = s.mem.side > 0 ? 'port' : 'starboard', other = engaged === 'port' ? 'starboard' : 'port';
+	if ( s.mem.wearT <= 0 && ( s.reload[ engaged ] > BROADSIDE.reloadLead || ! sideOk( s, engaged ) ) && s.reload[ other ] <= 0 && sideOk( s, other ) ) {
+
+		s.mem.side = - s.mem.side;
+		s.mem.wearT = BROADSIDE.wear * 1.3; // (a frigate wears slowly)
+
+	}
+
+	const bias = clamp( ( d - NAVY.hold ) / 70, - 1, 1 );
+	s.want = bearing - s.mem.side * ( Math.PI / 2 - bias * 0.75 );
+	const tv = Math.hypot( t.vx || 0, t.vz || 0 );
+	s.wantSpeed = clamp( 0.35 + ( tv / Math.max( 1, s.cls.speed ) ) * 0.75 + Math.abs( bias ) * 0.2, d < 70 ? 0.4 : 0.5, 1 );
+	if ( ! fire || gunless( s ) ) return;
+	for ( const side of [ 'port', 'starboard' ] ) {
+
+		if ( s.reload[ side ] > 0 || ! sideOk( s, side ) || sideSign( side ) !== ( rel >= 0 ? 1 : - 1 ) ) continue;
+		w.fire( s, side );
+
+	}
+
+}
+
+export function thinkNavy( s, w, dt ) {
+
+	const c = s.cls, o = s.navy || {}, m = s.mem;
+	s.avoidMargin = 1.4;
+	s.avoidLook = 120;
+	if ( s.puppet || s.state === 'moored' || NO_STEER.has( s.state ) ) {
+
+		s.tgt = NAVY_OFF;
+		if ( ! s.puppet ) s.wantSpeed = 0; // (moored, struck, boarded: she lies where she is)
+		return;
+
+	}
+
+	const calmHere = !! inSafeZone( s.x, s.z ) || inPeace( s.x, s.z );
+	const t = w.target;
+	let d = Infinity, bearing = 0;
+	if ( t ) {
+
+		d = Math.hypot( t.x - s.x, t.z - s.z );
+		bearing = bearingTo( s, t.x, t.z );
+
+	}
+
+	const player = !! ( t && t.ok ) && ! inPeace( t.x, t.z ) && ! inSafeZone( t.x, t.z ) && ! calmHere;
+	const ts = t ? Math.hypot( t.vx || 0, t.vz || 0 ) : 0;
+	const foe = o.foe && o.foe.alive ? shipTarget( o.foe, m.foeRec || ( m.foeRec = {} ) ) : null;
+	const fd = foe ? Math.hypot( foe.x - s.x, foe.z - s.z ) : Infinity;
+	const fight = !! foe && foe.ok && ! calmHere && fd < c.lose;
+	const ward = o.ward && o.ward.alive ? o.ward : null;
+	const sight = c.sight * ( w.night ? 0.75 : 1 ) * ( w.storm ? 0.7 : 1 );
+	// (wanted / hostile: a flag, or a function of the target record: the host's navy judges every player's boat)
+	const wanted = !! t && ( typeof o.wanted === 'function' ? !! o.wanted( t ) : !! o.wanted );
+	const hostile = wanted && ( typeof o.hostile === 'function' ? !! o.hostile( t ) : !! o.hostile );
+	m.say = m.say || null;
+	if ( t ) m.who = t.remote || null; // (whom she hails: a remote player's peer id, or ours)
+
+	// ---- what she should be doing (priority: her life, a fight in hand, the wanted boat, her ward, the lanes)
+	if ( s.state !== 'flee' && s.hpFraction <= ( s.fleeAt ?? c.fleeAt ) ) s.setState( 'flee' );
+	if ( s.state === 'flee' ) {
+
+		const h = o.home;
+		s.wantSpeed = 1;
+		if ( h ) s.want = bearingTo( s, h.x, h.z );
+		else follow( s, 60, 1 );
+		s.tgt = NAVY_OFF;
+		return;
+
+	}
+
+	// he fired on the navy (o.hostile): no hail, she fights
+	if ( hostile && player && d < c.lose && s.state !== 'pursue' ) {
+
+		s.setState( 'pursue' );
+		m.side = 0;
+		m.say = 'fire';
+
+	}
+
+	if ( s.state === 'pursue' || s.state === 'board' || s.state === 'hail' ) {
+
+		// the wanted boat: lost (calm water, out of reach, no longer wanted) for a while -> back to work
+		if ( ! wanted || ! player || d > c.lose ) {
+
+			m.lostT = ( m.lostT || 0 ) + dt;
+			if ( m.lostT > NAVY.hail.lose || ! wanted ) { s.setState( ward ? 'escort' : 'patrol' ); m.lostT = 0; }
+
+		} else m.lostT = 0;
+
+	} else if ( fight && ( fd < sight * 1.2 || NAVY_FIGHT.has( s.state ) ) ) {
+
+		if ( ! NAVY_FIGHT.has( s.state ) ) s.setState( 'hunt' );
+
+	} else if ( NAVY_FIGHT.has( s.state ) ) {
+
+		s.setState( ward ? 'escort' : 'patrol' );
+
+	} else if ( wanted && player && d < sight ) {
+
+		s.setState( 'hail' );
+		m.hailT = 0;
+		m.called = false;
+		m.warned = false;
+		m.stillT = 0;
+
+	} else if ( ward && s.state !== 'escort' ) s.setState( 'escort' );
+	else if ( ! ward && s.state === 'escort' ) s.setState( 'patrol' );
+
+	// how long the wanted boat has lain still (hove to)
+	if ( NAVY_PLAYER.has( s.state ) ) m.stillT = ts < NAVY.hail.heave ? ( m.stillT || 0 ) + dt : 0;
+	let target = NAVY_OFF;
+
+	switch ( s.state ) {
+
+		case 'patrol': {
+
+			follow( s, 60, 0.6 );
+			break;
+
+		}
+
+		case 'escort': {
+
+			if ( ! ward ) break;
+			// her station: off the ward's quarter (on the side away from the nearest danger is too clever: the port quarter)
+			const fx = Math.sin( ward.yaw ), fz = Math.cos( ward.yaw );
+			const px = ward.x + fz * NAVY.escort.off + fx * NAVY.escort.back, pz = ward.z - fx * NAVY.escort.off + fz * NAVY.escort.back;
+			const dd = Math.hypot( px - s.x, pz - s.z );
+			s.want = dd > 12 ? bearingTo( s, px, pz ) : ward.yaw;
+			s.wantSpeed = clamp( ( ward.speed || 0 ) / Math.max( 1, c.speed ) + ( dd - 10 ) / 120, 0.15, 1 );
+			break;
+
+		}
+
+		case 'hunt': {
+
+			if ( ! foe ) break;
+			const lead = clamp( fd / Math.max( s.speed, 3 ), 0, 6 ) * 0.7;
+			s.want = Math.atan2( foe.x + foe.vx * lead - s.x, foe.z + foe.vz * lead - s.z );
+			s.wantSpeed = 1;
+			if ( fd < c.engage ) {
+
+				s.setState( 'broadside' );
+				m.side = 0;
+
+			}
+
+			break;
+
+		}
+
+		case 'broadside': {
+
+			if ( ! foe ) break;
+			if ( fd > c.engage * 1.35 ) { s.setState( 'hunt' ); break; }
+			target = foe;
+			s.tgt = foe; // (before w.fire: Naval aims at ship.tgt)
+			navyBroadside( s, foe, w, dt, fd, bearingTo( s, foe.x, foe.z ), foe.ok );
+			break;
+
+		}
+
+		case 'hail': {
+
+			if ( ! t ) break;
+			m.hailT = ( m.hailT || 0 ) + dt;
+			// close in on his bow quarter, slowing as she gets near
+			const lead = clamp( d / Math.max( s.speed, 3 ), 0, 5 ) * 0.6;
+			s.want = Math.atan2( t.x + ( t.vx || 0 ) * lead - s.x, t.z + ( t.vz || 0 ) * lead - s.z );
+			s.wantSpeed = d > NAVY.hail.call ? 1 : clamp( 0.3 + ts / Math.max( 1, c.speed ), 0.3, 1 );
+			if ( ! m.called && d < NAVY.hail.call ) {
+
+				m.called = true;
+				m.hailT = 0;
+				m.say = 'hail';
+
+			}
+
+			if ( ! m.called ) break;
+			if ( m.stillT >= NAVY.hail.hold ) { s.setState( 'board' ); break; }
+			if ( ! m.warned && m.hailT > NAVY.hail.grace && ts > NAVY.hail.heave * 1.5 ) {
+
+				m.warned = true;
+				m.warnT = 0;
+				m.say = 'warn';
+
+			}
+
+			if ( m.warned ) {
+
+				m.warnT = ( m.warnT || 0 ) + dt;
+				if ( m.warnT > NAVY.hail.fireAfter && ts > NAVY.hail.heave ) {
+
+					s.setState( 'pursue' );
+					m.say = 'fire';
+					m.side = 0;
+
+				}
+
+			}
+
+			break;
+
+		}
+
+		case 'board': {
+
+			if ( ! t ) break;
+			// alongside: a point 18 m off his beam on her side, at his speed
+			const side = angleDiff( bearingTo( s, t.x, t.z ), s.yaw ) >= 0 ? - 1 : 1;
+			const hx = t.x + side * 18 * Math.cos( s.yaw ), hz = t.z - side * 18 * Math.sin( s.yaw );
+			const dd = Math.hypot( hx - s.x, hz - s.z );
+			s.want = dd > 6 ? bearingTo( s, hx, hz ) : s.want;
+			s.wantSpeed = clamp( dd / 80, 0.12, 0.6 );
+			if ( d < NAVY.hail.board && ! m.boarded ) {
+
+				m.boarded = true;
+				m.say = 'board';
+
+			}
+
+			if ( ts > NAVY.hail.heave * 2.5 && s.stateTime > 3 ) {
+
+				s.setState( 'pursue' );
+				m.say = 'fire';
+				m.side = 0;
+
+			}
+
+			break;
+
+		}
+
+		case 'pursue': {
+
+			if ( ! t ) break;
+			if ( m.stillT >= NAVY.hail.hold ) { s.setState( 'board' ); m.boarded = false; break; }
+			if ( d > c.engage ) {
+
+				const lead = clamp( d / Math.max( s.speed, 3 ), 0, 6 ) * 0.7;
+				s.want = Math.atan2( t.x + ( t.vx || 0 ) * lead - s.x, t.z + ( t.vz || 0 ) * lead - s.z );
+				s.wantSpeed = 1;
+				break;
+
+			}
+
+			target = t;
+			s.tgt = t;
+			navyBroadside( s, t, w, dt, d, bearing, player );
+			break;
+
+		}
+
+		default:
+			break;
+
+	}
+
+	// never leave the player's record in s.tgt unless she means to shoot him (a ripple in flight aims at s.tgt)
+	s.tgt = target;
+	if ( s.mem.avoidT > 0 ) {
+
+		s.mem.avoidT -= dt;
+		if ( s.state === 'patrol' || s.state === 'escort' ) s.want += ( s.mem.avoidDir || 1 ) * AVOID.turn;
+
+	}
+
+}
+
+// a pirate's world: her s.foe (a ship) stands in for the player while it is nearer than him or he is no target
+function pirateWorld( s, w ) {
+
+	const f = s.foe;
+	if ( ! f || ! f.alive ) return w;
+	const rec = shipTarget( f, s.mem.foeRec || ( s.mem.foeRec = {} ) );
+	if ( ! rec.ok ) return w;
+	const t = w.target;
+	const dp = t && t.ok ? Math.hypot( t.x - s.x, t.z - s.z ) : Infinity;
+	if ( dp <= Math.hypot( rec.x - s.x, rec.z - s.z ) * 0.85 ) return w;
+	const fw = s.mem.foeWorld || ( s.mem.foeWorld = {} );
+	Object.assign( fw, w );
+	fw.target = rec;
+	s.tgt = rec; // (Naval._shipFire and the ripple aim at ship.tgt)
+	return fw;
+
+}
+
 export function think( s, w, dt ) {
 
 	if ( ! s.alive ) return;
-	if ( s.faction === 'pirate' ) {
+	if ( s.cls && s.cls.navy ) thinkNavy( s, w, dt );
+	else if ( s.faction === 'pirate' ) {
 
-		thinkPirate( s, w, dt );
+		thinkPirate( s, pirateWorld( s, w ), dt );
 		keepOut( s );
 
 	} else thinkMerchant( s, w, dt );
