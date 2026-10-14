@@ -48,6 +48,17 @@ const DECK_RADIUS = 0.24;
 const DECK_STEP = 0.36; // highest ledge you step up onto
 const HELM_REACH = 0.75; // m from the helm seat to take the wheel
 
+// Climbing out of the water (wave 15D: "the ability to jump on an object when in water"): one rule for everything at the
+// waterline. Ahead of the swimmer (reaches, m) the highest thing whose top is min..max above the water is a target: a
+// ledge (walkable collider), the rocks (terrain), a box tagged afloat (FLOAT_TAGS: the rescue feature's rider boxes on
+// buoys, planks, floats and shallow wrecks; the seaplane wreck's perch), your own boat (the freeboard under `freeboard`
+// pulls you over the rail, else the ladder), or what a provider offers (player.addClimbable: the AI hulls). Space or W
+// held for `time` s pulls you up.
+export const CLIMB = { reaches: [ 0.5, 0.9, 1.2 ], min: 0.2, max: 2.6, time: 0.35, freeboard: 1.6, rail: 0.35 };
+export const FLOAT_TAGS = new Set( [ 'floating', 'deck', 'hull', 'seaplane-wreck' ] );
+const TAG_TEXT = { 'seaplane-wreck': 'Climb onto the wreck', hull: 'Climb aboard', deck: 'Climb aboard', floating: 'Climb onto it' };
+const _hq = new THREE.Quaternion();
+
 // Walker / swimmer / boat captain, seen in third person (V: first person).
 //   walk : capsule on terrain + walkable colliders, wading slows you down
 //   swim : floats with the head at the surface; look down + W (or C) to dive, Space to rise
@@ -56,6 +67,11 @@ const HELM_REACH = 0.75; // m from the helm seat to take the wheel
 //   boat : at the helm, driving; V toggles helm (1st person) / chase (3rd person) camera, E stands up
 //   plane: piloting a vehicle another module simulates (the seaplane feature): enterVehicle( v ) / exitVehicle( ... ),
 //          see updatePlane for what `v` provides; seated pose, cockpit eye or chase camera
+//   aboard: walking the deck of a hull that is not yours (an AI ship you climbed onto, the harbour launch that picked you
+//          up): boardHull( hull, lx, lz ) / leaveHull( x, y, z, mode ), see updateAboard for what `hull` provides. The
+//          avatar pose is 'deck' in the hull's heading frame; App.netState sends it as 'walk' (Protocol MODES)
+// Climbing out of the water: CLIMB above; player.addClimbable( fn ) -> remover, fn( x, z, waterY, player ) -> null |
+//   { kind, text, top, x, z, min?, max?, enter?( player ) -> bool }   (enter: what landing there does, else stand at x, top, z)
 export class Player {
 
 	constructor( { camera, input, terrain, colliders, query, boat, reef = null, audio = null } ) {
@@ -128,6 +144,24 @@ export class Player {
 		// set by the fishing game: while a line is out the helm / step ashore prompts give way
 		this.busy = false;
 		this.vehicle = null; // mode 'plane': what is being piloted (enterVehicle)
+		this.hull = null; // mode 'aboard': the foreign hull underfoot (boardHull)
+		this.climbables = []; // climb providers (addClimbable)
+		this.climb = null; // the climb target ahead of the swimmer this frame (climbTarget)
+		this._climb = 0; // s of the pull-up so far
+
+	}
+
+	// a climb provider: fn( x, z, waterY, player ) -> target | null (see the header); returns its remover
+	addClimbable( fn ) {
+
+		if ( typeof fn !== 'function' ) return () => {};
+		this.climbables.push( fn );
+		return () => {
+
+			const i = this.climbables.indexOf( fn );
+			if ( i >= 0 ) this.climbables.splice( i, 1 );
+
+		};
 
 	}
 
@@ -192,6 +226,16 @@ export class Player {
 		this.waterH = this.waterHeight();
 		this.waterMean = this.waterMean === null ? this.waterH : this.waterMean + ( this.waterH - this.waterMean ) * ( 1 - Math.exp( - dt / 4 ) );
 		this.prompt = null;
+		this.climb = null;
+		// something else moved the player off the foreign deck (boarding's crossing, a respawn): let go of the hull
+		if ( this.hull && this.mode !== 'aboard' ) this.hull = null;
+
+		if ( this.mode === 'aboard' ) {
+
+			this.updateAboard( dt );
+			return;
+
+		}
 
 		if ( this.mode === 'plane' && this.vehicle ) {
 
@@ -290,6 +334,7 @@ export class Player {
 
 		if ( this.mode === 'boat' || this.mode === 'plane' ) return false;
 		if ( this.mode === 'deck' ) this.exitBoat( null, Math.sign( this.deckPos.x ) || 1 );
+		if ( this.mode === 'aboard' ) this.overboard( Math.sign( this.deckPos.x ) || 1 );
 		this.mode = this.mode === 'swim' ? 'swim' : 'walk';
 		const d = _v2.set( dir.x, 0, dir.z );
 		if ( d.lengthSq() < 1e-6 ) d.set( - Math.sin( this.yaw ), 0, - Math.cos( this.yaw ) );
@@ -429,6 +474,20 @@ export class Player {
 			out.speed = 0;
 			out.vy = 0;
 			out.grounded = true;
+			return out;
+
+		}
+
+		if ( this.mode === 'aboard' && this.hull ) {
+
+			// on a foreign deck: the deck pose in the hull's heading frame (her heave is in the feet; no roll / pitch)
+			out.mode = 'deck';
+			out.frame = _hq.setFromAxisAngle( _yAxis, this.hull.yaw() );
+			out.speed = Math.hypot( this.deckVel.x, this.deckVel.z );
+			out.vy = this.deckVel.y;
+			{ const sy = Math.sin( this.deckYaw ), cy = Math.cos( this.deckYaw ); out.forward = - sy * this.deckVel.x - cy * this.deckVel.z; out.strafe = cy * this.deckVel.x - sy * this.deckVel.z; } // (the deck mode's convention)
+			out.grounded = this.deckGrounded;
+			out.yaw = this.deckYaw + Math.PI;
 			return out;
 
 		}
@@ -637,29 +696,37 @@ export class Player {
 
 		}
 
-		// any ledge within reach (a pier deck, a boardwalk, a jetty, a rock shelf up to 1.7 m above the water): pull
-		// yourself up with Space or W (user 2026-10-13: "get up on the board if I fall into water")
+		// anything within reach (a pier deck, a boardwalk, a rock shelf, your boat's rail, a ship's side, a buoy, a wreck):
+		// pull yourself up with Space or W (user 2026-10-13: "get up on the board if I fall into water"; wave 15D: "the
+		// ability to jump on an object when in water")
 		if ( this.mode === 'swim' && atSurface ) {
 
-			const ax = p.x + Math.sin( this.yaw ) * - 0.9, az = p.z + Math.cos( this.yaw ) * - 0.9; // (yaw faces -z)
-			const deck = this.colliders.groundHeightAt ? this.colliders.groundHeightAt( ax, az, surfaceY + 2.6 ) : - Infinity;
-			const land = this.groundAt( ax, az, surfaceY + 2.6 );
-			const top = Math.max( deck, land );
-			const rise = top - surfaceY;
-			if ( rise > 0.2 && rise < 2.6 ) { // (the main pier deck is 2.3 m up)
+			const c = this.climb = this.climbTarget( surfaceY );
+			if ( c && c.ladder ) {
 
-				this.prompt = { key: 'Space', text: 'Climb up' };
+				this.prompt = { key: '…', text: c.text };
+				this._climb = 0;
+
+			} else if ( c ) {
+
+				this.prompt = { key: 'Space', text: c.text };
 				if ( inp.down( 'Space' ) || inp.down( 'KeyW' ) ) {
 
-					this._climb = ( this._climb || 0 ) + dt;
-					p.y += dt * 1.6;
-					if ( this._climb > 0.35 ) {
+					// the pull-up: the body rises toward the top over the climb time, then lands on it
+					this._climb += dt;
+					const k = Math.min( 1, this._climb / CLIMB.time );
+					p.y = Math.max( p.y, eyeTarget + ( c.top - eyeTarget ) * k * 0.75 );
+					this.velocity.set( 0, 0, 0 );
+					if ( this._climb >= CLIMB.time ) {
 
-						p.set( ax, top, az );
-						this.mode = 'walk';
-						this.velocity.set( 0, 0, 0 );
 						this._climb = 0;
+						this.climb = null;
+						this.velocity.set( 0, 0, 0 );
 						if ( this.audio && this.audio.splash ) this.audio.splash( 0.4, p );
+						if ( c.enter && c.enter( this ) !== false ) return;
+						p.set( c.x, c.top, c.z );
+						this.mode = 'walk';
+						this.grounded = true;
 						return;
 
 					}
@@ -709,14 +776,330 @@ export class Player {
 
 	}
 
+	// ------------------------------------------------------------------ climbing out (CLIMB)
+
+	// the climb target ahead of the swimmer (the nearest reach that has one), or null
+	climbTarget( surfaceY = this.waterH ) {
+
+		const p = this.position;
+		const fx = - Math.sin( this.yaw ), fz = - Math.cos( this.yaw ); // (yaw 0 faces -z)
+		for ( const r of CLIMB.reaches ) {
+
+			const t = this._climbAt( p.x + fx * r, p.z + fz * r, surfaceY );
+			if ( t ) return t;
+
+		}
+
+		return null;
+
+	}
+
+	// one probe point: what offers, then your boat, then the ledges / rocks / afloat boxes
+	_climbAt( x, z, surfaceY ) {
+
+		const fits = ( c ) => {
+
+			const rise = c.top - surfaceY;
+			return rise > ( c.min ?? CLIMB.min ) && rise < ( c.max ?? CLIMB.max );
+
+		};
+
+		for ( const fn of this.climbables ) {
+
+			let c = null;
+			try { c = fn( x, z, surfaceY, this ); } catch ( e ) { c = null; }
+			if ( c && Number.isFinite( c.top ) && ( c.ladder || fits( c ) ) ) return { kind: 'thing', text: 'Climb up', x, z, ...c };
+
+		}
+
+		const own = this._boatClimb( x, z, surfaceY );
+		if ( own && ( own.ladder || fits( own ) ) ) return own;
+
+		// static: the highest walkable box or afloat-tagged box under the point, and the ground (terrain, reef)
+		let top = - Infinity, box = null;
+		const col = this.colliders, lim = surfaceY + CLIMB.max;
+		if ( col && col.boxes ) {
+
+			for ( const b of col.boxes ) {
+
+				if ( ! b.walkable && ! FLOAT_TAGS.has( b.tag ) ) continue;
+				if ( b.top > lim || b.top <= top ) continue;
+				if ( Math.abs( x - b.center.x ) > b.radius + 0.01 || Math.abs( z - b.center.z ) > b.radius + 0.01 ) continue;
+				const dx = x - b.center.x, dz = z - b.center.z;
+				const lx = dx * b.cos - dz * b.sin, lz = dx * b.sin + dz * b.cos;
+				if ( Math.abs( lx ) > b.half.x || Math.abs( lz ) > b.half.z ) continue;
+				top = b.top;
+				box = b;
+
+			}
+
+		} else if ( col && col.groundHeightAt ) top = col.groundHeightAt( x, z, lim );
+
+		let land = this.terrain.heightAt( x, z );
+		if ( this.reef && this.reef.floorHeightAt ) land = Math.max( land, this.reef.floorHeightAt( x, z ) );
+		if ( land > top && land <= lim ) {
+
+			top = land;
+			box = null;
+
+		}
+
+		const c = { kind: box ? ( FLOAT_TAGS.has( box.tag ) ? 'floating' : 'ledge' ) : 'rock', x, z, top, box };
+		if ( box && Number.isFinite( box.minRise ) ) c.min = box.minRise; // (a plank or a buoy rides lower than a ledge)
+		c.text = box ? ( box.label || TAG_TEXT[ box.tag ] || 'Climb up' ) : 'Climb onto the rocks';
+		return fits( c ) ? c : null;
+
+	}
+
+	// your own boat: anywhere along her hull. Over the rail when the freeboard there is low enough, else the ladder
+	_boatClimb( x, z, surfaceY ) {
+
+		const b = this.boat;
+		if ( ! b || ! b.model || ! b.position || b.enabled === false || b.sunk || ! b.model.lines ) return null;
+		const L = b.model.lines, dims = b.model.dimensions || {};
+		const yaw = b.getYaw ? b.getYaw() : 0, c = Math.cos( yaw ), s = Math.sin( yaw );
+		const dx = x - b.position.x, dz = z - b.position.z;
+		const lx = dx * c - dz * s, lz = dx * s + dz * c; // (boat frame: inverse of toWorld's yaw)
+		const half = Number.isFinite( dims.length ) ? dims.length / 2 : 4;
+		const zAft = Number.isFinite( L.zAft ) ? L.zAft : - half, zFore = Number.isFinite( L.zFore ) ? L.zFore : half;
+		if ( lz < zAft - CLIMB.rail || lz > zFore + CLIMB.rail ) return null;
+		const zi = THREE.MathUtils.clamp( lz, zAft + 0.4, zFore - 0.6 );
+		let hb = Number.isFinite( dims.beam ) ? dims.beam / 2 : 1.4;
+		let sheer = L.deckY + 0.4;
+		try {
+
+			const t = L.tAtSheerZ( zi );
+			if ( L.halfBreadth ) hb = L.halfBreadth( t, L.deckY );
+			if ( L.sheerY ) sheer = L.sheerY( t );
+
+		} catch ( e ) { /* plain lines: the box above */ }
+
+		if ( Math.abs( lx ) > hb + CLIMB.rail ) return null;
+		const rail = b.toWorld( _v.set( Math.sign( lx ) * hb, sheer, zi ), new THREE.Vector3() ).y;
+		const inX = THREE.MathUtils.clamp( lx, - Math.max( 0, hb - 0.5 ), Math.max( 0, hb - 0.5 ) );
+		const deck = b.toWorld( _v.set( inX, L.deckY, zi ), new THREE.Vector3() );
+		if ( rail - surfaceY >= CLIMB.freeboard ) return { kind: 'boat', ladder: true, text: 'Too high here · swim to the ladder', x: deck.x, z: deck.z, top: deck.y };
+		return { kind: 'boat', text: 'Climb aboard', x: deck.x, z: deck.z, top: deck.y, max: CLIMB.freeboard + 0.6, enter: () => {
+
+			this.boardBoat( new THREE.Vector3( inX, L.deckY, zi ) );
+			return true;
+
+		} };
+
+	}
+
+	// ------------------------------------------------------------------ aboard a foreign hull
+
+	// hull: { yaw() (rad; forward = ( sin, cos ) in x / z), x(), z(), y() (her waterline in the world), deckY (deck above
+	//   the waterline), length, beam, alive?() (false: she sank under you), prompt?( player ) -> { key, text } | null,
+	//   interact?( player ) (E while that prompt shows) } - a yaw-only frame (+X port, +Z forward) like naval's Ship.toWorld
+	boardHull( hull, lx = 0, lz = 0 ) {
+
+		if ( ! hull ) return false;
+		if ( this.mode === 'boat' && this.boat ) {
+
+			this.boat.driven = false;
+			this.boat.throttle = 0;
+			if ( this.audio ) this.audio.engineStop();
+
+		}
+
+		this.hull = hull;
+		this.mode = 'aboard';
+		this.seat = null;
+		this.vehicle = null;
+		const d = this._hullDeck( hull );
+		this.deckPos.set( lx, hull.deckY, lz );
+		this._clampHull( this.deckPos, d );
+		this.deckVel.set( 0, 0, 0 );
+		this.deckYaw = this.yaw - ( hull.yaw() + Math.PI );
+		this.deckGrounded = true;
+		this.velocity.set( 0, 0, 0 );
+		this.armInit = false;
+		this._camY = null;
+		this.hullToWorld();
+		return true;
+
+	}
+
+	// off the foreign deck at a world point: 'walk' (a dock) or 'swim' (waterY: the water level there)
+	leaveHull( x, y, z, mode = 'walk', waterY = null ) {
+
+		this.hull = null;
+		this.mode = mode === 'swim' ? 'swim' : 'walk';
+		this.position.set( x, y, z );
+		this.velocity.set( 0, 0, 0 );
+		if ( waterY !== null ) this.waterH = this.waterMean = waterY;
+		this.armInit = false;
+		this._camY = null;
+
+	}
+
+	// over the side (E at the rail, a shove, she went down): into the water beside her
+	overboard( side = 1 ) {
+
+		const h = this.hull;
+		if ( ! h ) return;
+		const w = this._hullWorld( h, ( h.beam * 0.5 + 0.8 ) * ( side || 1 ), 0, this.deckPos.z, _v2 );
+		const water = h.y();
+		this.leaveHull( w.x, water - 0.2, w.z, 'swim', water );
+		this.yaw = h.yaw() + Math.PI;
+		if ( this.audio ) this.audio.splash( 0.8, this.position );
+
+	}
+
+	// the walkable deck: an ellipse inside the bulwarks (half length, half beam)
+	_hullDeck( h ) {
+
+		return { hl: Math.max( 1.2, h.length * 0.5 - 1.1 ), hb: Math.max( 0.6, h.beam * 0.5 - 0.45 ) };
+
+	}
+
+	_clampHull( p, d ) {
+
+		const q = Math.sqrt( ( p.x / d.hb ) ** 2 + ( p.z / d.hl ) ** 2 );
+		if ( q > 0.97 ) {
+
+			p.x *= 0.97 / q;
+			p.z *= 0.97 / q;
+
+		}
+
+	}
+
+	_hullWorld( h, lx, ly, lz, out ) {
+
+		const yaw = h.yaw(), s = Math.sin( yaw ), c = Math.cos( yaw );
+		return out.set( h.x() + lx * c + lz * s, h.y() + ly, h.z() - lx * s + lz * c );
+
+	}
+
+	hullToWorld() {
+
+		const h = this.hull;
+		this._hullWorld( h, this.deckPos.x, this.deckPos.y, this.deckPos.z, this.position );
+		this.yaw = h.yaw() + Math.PI + this.deckYaw;
+
+	}
+
+	updateAboard( dt ) {
+
+		const inp = this.input, h = this.hull;
+		if ( ! h || ( h.alive && ! h.alive() ) ) {
+
+			// she went down (or was taken away): in the water where you stood
+			if ( h ) this.overboard( Math.sign( this.deckPos.x ) || 1 );
+			else this.mode = 'swim';
+			return;
+
+		}
+
+		const look = inp.consumeLook();
+		this.deckYaw -= look.x * 0.0022;
+		this.pitch = THREE.MathUtils.clamp( this.pitch - look.y * 0.0022, - 1.5, 1.5 );
+		if ( inp.hit( 'KeyV' ) ) this.toggleView();
+		this.armDist = THREE.MathUtils.clamp( this.armDist * ( 1 + inp.consumeWheel() * 0.1 ), ARM.min, ARM.max );
+
+		// walking in her frame, as on your own deck (no fittings: an open deck inside the bulwarks)
+		const sy = Math.sin( this.deckYaw ), cy = Math.cos( this.deckYaw );
+		_fwd.set( sy, 0, cy );
+		_right.set( - cy, 0, sy );
+		_wish.set( 0, 0, 0 );
+		if ( inp.down( 'KeyW' ) ) _wish.add( _fwd );
+		if ( inp.down( 'KeyS' ) ) _wish.sub( _fwd );
+		if ( inp.down( 'KeyD' ) ) _wish.add( _right );
+		if ( inp.down( 'KeyA' ) ) _wish.sub( _right );
+		if ( _wish.lengthSq() > 0 ) _wish.normalize();
+		const speed = inp.down( 'ShiftLeft' ) ? 2.6 : 1.6;
+		const k = 1 - Math.exp( - 12 * dt );
+		const v = this.deckVel, p = this.deckPos;
+		v.x += ( _wish.x * speed - v.x ) * k;
+		v.z += ( _wish.z * speed - v.z ) * k;
+		if ( this.deckGrounded && inp.hit( 'Space' ) ) {
+
+			v.y = 3.2;
+			this.deckGrounded = false;
+
+		}
+
+		v.y -= 9.81 * dt;
+		const ox = p.x, oz = p.z;
+		p.addScaledVector( v, dt );
+		const d = this._hullDeck( h );
+		this._clampHull( p, d );
+		if ( p.y <= h.deckY ) {
+
+			p.y = h.deckY;
+			if ( v.y < 0 ) v.y = 0;
+			this.deckGrounded = true;
+
+		} else this.deckGrounded = p.y - h.deckY < 0.04;
+
+		const moved = Math.hypot( p.x - ox, p.z - oz );
+		if ( this.deckGrounded ) {
+
+			this.bob += moved * 2.4;
+			this.stepDist += moved;
+			if ( this.stepDist > 0.6 ) {
+
+				this.stepDist = 0;
+				if ( this.audio ) this.audio.footstep( 'wood' );
+
+			}
+
+		}
+
+		this.hullToWorld();
+
+		// the hull's own prompt (the launch: "Take me to my boat"), else over the side at the rail
+		let pr = null;
+		try { pr = h.prompt ? h.prompt( this ) : null; } catch ( e ) { pr = null; }
+		const atRail = ( p.x / d.hb ) ** 2 + ( p.z / d.hl ) ** 2 > 0.6;
+		if ( pr && ! this.busy ) {
+
+			this.prompt = pr;
+			if ( inp.hit( pr.key === 'E' || ! pr.key ? 'KeyE' : 'Key' + pr.key ) && h.interact ) h.interact( this );
+
+		} else if ( atRail && ! this.busy ) {
+
+			this.prompt = { key: 'E', text: 'Jump overboard' };
+			if ( inp.hit( 'KeyE' ) ) {
+
+				this.overboard( Math.sign( p.x ) || 1 );
+				return;
+
+			}
+
+		}
+
+		if ( this.mode !== 'aboard' || this.hull !== h ) return; // (the prompt's action moved us)
+		_q.setFromAxisAngle( _yAxis, h.yaw() + Math.PI );
+		if ( this.view === 'third' ) {
+
+			const saveYaw = this.yaw;
+			this.yaw = this.deckYaw;
+			this.springArm( dt, this.position, _q );
+			this.yaw = saveYaw;
+			return;
+
+		}
+
+		this._hullWorld( h, p.x, p.y + EYE + Math.sin( this.bob ) * 0.02, p.z, this.camera.position );
+		this._camY = this.camera.position.y;
+		this.camera.quaternion.copy( _q ).multiply( _qa.setFromEuler( _e.set( this.pitch, this.deckYaw, 0 ) ) );
+
+	}
+
 	// ------------------------------------------------------------------ boat
 
-	// step aboard from the pier / beach / water: onto the cockpit sole at the boarding point
-	boardBoat() {
+	// step aboard from the pier / beach / water: onto the cockpit sole at the boarding point (or `at`, boat frame: over
+	// the rail from the water)
+	boardBoat( at = null ) {
 
 		const b = this.boat;
 		this.mode = 'deck';
-		this.deckPos.copy( b.model.boardPoint );
+		this.hull = null;
+		this.deckPos.copy( at || b.model.boardPoint );
 		this.deckVel.set( 0, 0, 0 );
 		// keep looking where you looked (relative to the boat)
 		this.deckYaw = this.yaw - ( b.getYaw() + Math.PI );

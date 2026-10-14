@@ -193,7 +193,7 @@ export function contextButtons( s = {} ) {
 	const act = promptAction( s.prompt );
 	if ( act && act.code ) out.add( 'interact' );
 	if ( s.freeCam ) return out;
-	const onFoot = mode === 'walk' || mode === 'deck' || mode === 'ride' || mode === 'seat';
+	const onFoot = mode === 'walk' || mode === 'deck' || mode === 'ride' || mode === 'seat' || mode === 'aboard';
 	if ( onFoot && ( s.canFish || s.rod ) && ! s.fight ) out.add( 'rod' );
 	if ( s.rod ) {
 
@@ -216,6 +216,7 @@ export function contextButtons( s = {} ) {
 	// a pistol / musket: Gun draws it on foot, then Fire and Aim replace the melee swing
 	if ( onFoot && s.gunOwned && ! s.fight ) out.add( 'draw' );
 	if ( s.gunDrawn ) { out.add( 'fire' ); out.add( 'aim' ); }
+	if ( s.canFlare ) out.add( 'flare' ); // wave 15D: a distress flare where one makes sense
 
 	if ( mode === 'boat' ) {
 
@@ -270,7 +271,7 @@ export function buttonIsOn( id, s = {} ) {
 // ---- the fold (wave 10E): on touch only the primary controls stay on screen, the rest sits in a tray under a handle
 
 // what folds away, in tray order (the interact button, the lever, cast / fire / reel, board and the 1 / 2 choices stay)
-export const TRAY_ORDER = [ 'rod', 'jump', 'dive', 'draw', 'aim', 'dodge', 'guard', 'emote', 'camera', 'deck', 'cockpit', 'lights', 'navLights', 'landing', 'bail', 'brake', 'search', 'fireL', 'fireR' ];
+export const TRAY_ORDER = [ 'rod', 'jump', 'dive', 'draw', 'aim', 'dodge', 'guard', 'emote', 'camera', 'deck', 'cockpit', 'lights', 'navLights', 'landing', 'bail', 'brake', 'search', 'flare', 'fireL', 'fireR' ];
 const TRAY_SET = new Set( TRAY_ORDER );
 // in a fight these come up beside the primary buttons so the fight stays playable (the rest is dropped: the handle is gone)
 const FIGHT_PRIMARY = new Set( [ 'dodge', 'guard', 'aim' ] );

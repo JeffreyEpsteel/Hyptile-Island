@@ -885,7 +885,7 @@ fn terrainWetness( xz: vec2f, h: f32 ) -> vec2f {
 		const p = this.player, b = this.boatCtl, st = this.game.state;
 		const pose = p.pose( this._netPose || ( this._netPose = {} ) );
 		const out = {
-			p: [ pose.position.x, pose.position.y, pose.position.z ], yaw: pose.yaw, mode: p.mode, speed: pose.speed, vy: pose.vy,
+			p: [ pose.position.x, pose.position.y, pose.position.z ], yaw: p.mode === 'aboard' ? p.yaw : pose.yaw, mode: p.mode === 'aboard' ? 'walk' : p.mode, speed: pose.speed, vy: pose.vy,
 			grounded: !! pose.grounded, diving: !! pose.diving, action: p.action || null, character: st.character,
 			boat: st.boat ? { id: st.boat, p: [ b.position.x, b.position.y, b.position.z ], q: [ b.quaternion.x, b.quaternion.y, b.quaternion.z, b.quaternion.w ], throttle: b.throttle, steer: b.steer, rpm: b.rpm * 2400, driven: b.driven } : null,
 		};
@@ -1080,7 +1080,7 @@ fn terrainWetness( xz: vec2f, h: f32 ) -> vec2f {
 
 		// ---- player / boat (boat physics first so the cameras follow this frame's pose)
 		this.gamepad.update();
-		if ( this.input.hit( 'KeyF' ) ) this.setFreeCam( ! this.freeCam );
+		if ( this.input.hit( 'KeyF' ) && ! this.features?.get( 'rescue' )?.wantsKey?.( 'KeyF' ) ) this.setFreeCam( ! this.freeCam ); // (F fires a flare when one makes sense)
 		if ( this.input.hit( 'KeyT' ) ) this.toggleTime();
 		if ( this.input.hit( 'KeyL' ) ) {
 

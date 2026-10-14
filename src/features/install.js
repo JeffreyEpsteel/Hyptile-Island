@@ -29,6 +29,7 @@ import * as exploration from './exploration/index.js';
 import * as seaplane from './seaplane/index.js';
 import * as customs from './customs/index.js';
 import * as death from './death/index.js';
+import * as rescue from './rescue/index.js';
 import * as firearms from './firearms/index.js';
 import * as crew from './crew/index.js';
 import * as emotes from './emotes/index.js';
@@ -60,6 +61,7 @@ export const MODULES = [
 	[ 'night', night ],
 	[ 'seaplane', seaplane ], // the floatplane and its hangar west of the pier
 	[ 'death', death ], // respawn at Jade Landing, the sea chest, wreck / death markers
+	[ 'rescue', rescue ], // wave 15D: distress flares and the harbour launch that answers them
 	[ 'firearms', firearms ], // flintlock pistol and musket (G draws, LMB fires, RMB aims, R reloads; cartridges at the chandlery)
 	[ 'inverted', inverted ], // the upside-down sky layer (off until ?inverted or the Inverted Isles)
 	[ 'life', life ],

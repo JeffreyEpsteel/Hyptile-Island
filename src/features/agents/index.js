@@ -348,6 +348,10 @@ export class Agents {
 
 			}
 
+		// wave 15D: distress flares, sold here too
+		const rescue = this.features?.get?.( 'rescue' );
+		if ( rescue && rescue.agentRow ) out.push( rescue.agentRow( port ) );
+
 		}
 
 		if ( port === 'tidemark' && ! kestrel ) out.push( { key: 'kestrel', label: 'The Kestrel: ask at the airstrip', note: 'The land plane is sold, kept and recovered at the airstrip hangar behind the town', have: 'Airstrip' } );
@@ -365,6 +369,7 @@ export class Agents {
 		if ( key === 'ferry' ) return this.ferryBoat( port );
 		if ( key === 'plane' ) return !! this.recoverPlane( port )?.ok;
 		if ( key === 'planeFerry' ) return !! this.ferryPlane( port )?.ok;
+		if ( key === 'flares' ) return !! this.features?.get?.( 'rescue' )?.buy?.( { port } ); // wave 15D
 		return false;
 
 	}
