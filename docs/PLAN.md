@@ -438,9 +438,17 @@ Asked for: planes visible and findable at the airstrip, the parachute discoverab
 a replacement boat at every dock and a replacement plane at every landing place, Blackwater further from the seaplane's
 take-off run. Take-off runs measured in the flight model (Jade lifts at 318 m and reaches 30 m at 629 m, Petrel 133 / 387,
 Albatross 504 / 798): Blackwater's shore sat 480 m dead ahead of the berth and nothing else fits in the heightmap's
-south band, so it moves onto its own terrain tile far south (14D, w14-blackwater-tile.md). 14A cockpits per airframe
-(w14-cockpits.md), 14B parked airframes, strip hangar discoverability, bail-out hints, plane delivery sites
-(w14-parked-planes.md), 14C harbour agents at every dock (w14-replacements.md): in progress.
+south band, so it moved onto its own 2 m terrain tile at (-120, 1520) (14D, w14-blackwater-tile.md, 5ab2476:
+BlackwaterTerrain.js ports the heightmap's islet recipe, the fort / town / docks match to the centimetre, one patrol lane
+keeps the south band and four circle the island; the land mesh for the tile is being added). 14A cockpits per airframe
+(w14-cockpits.md, 5b37824: Panels.js layouts, the Albatross's engine columns with feather switches, the Kestrel's gear
+lever and parking brake, the face rebuilds on an airframe change). 14B (w14-parked-planes.md, 18817bc): parked airframes
+on the strip apron and the ramp with E to buy or fly, a 4 m office prompt and an arrival toast, takeOut / recall with a
+delivery site, the bail-out hint in the HUD (only Quote bails: naval claims X). 14C (w14-replacements.md, 55d97d3): the
+agents feature, Roid & Co. lecterns at every port's dock head, the yard window there with boats moored at that dock,
+salvage, seaplane recovery into the port's water, fees by distance and standing, a pin when stranded. Verified in the
+browser: the Pons agent moors a lobster boat at Pons, the parked Kestrel prompts for sale on the apron, the Jade and
+Kestrel panels differ.
 Root: climb out of the water onto a pier or ledge (Space / W, rise 0.2-2.6 m); the crash toast says where to recover a
 wreck (hangar or yard); the world map refreshes its discovery state.
 
