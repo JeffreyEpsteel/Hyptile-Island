@@ -17,6 +17,7 @@ import {
 } from '../src/features/pirates/index.js';
 import { GameState } from '../src/game/GameState.js';
 import { TerrainData } from '../src/world/TerrainData.js';
+import { ensureBlackwater } from '../src/world/islands/BlackwaterTerrain.js';
 import { Colliders } from '../src/world/Colliders.js';
 import { WORLD } from '../src/world/WorldLayout.js';
 import { inSafeZone } from '../src/features/naval/Routes.js';
@@ -31,6 +32,7 @@ const ok = ( c, msg ) => {
 const section = ( s ) => console.log( '\n== ' + s );
 const DT = 1 / 20;
 const terrain = new TerrainData();
+ensureBlackwater( terrain ); // wave 14D: the pirates' island on its own tile (TerrainData does this itself once root applies the patch; idempotent)
 
 // ---------------------------------------------------------------- stubs
 

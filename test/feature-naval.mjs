@@ -23,6 +23,7 @@ import { Loot, LOOT_LIFE } from '../src/features/naval/Loot.js';
 import { NavalAudio } from '../src/features/naval/NavalAudio.js';
 import { makeRng, wrap, angleDiff, normaliseSide } from '../src/features/naval/util.js';
 import { TerrainData } from '../src/world/TerrainData.js';
+import { ensureBlackwater } from '../src/world/islands/BlackwaterTerrain.js';
 import { SEA_STACKS, PONS_STACKS } from '../src/world/terrain/IslandShape.js';
 import { WORLD } from '../src/world/WorldLayout.js';
 import { parseGLB } from '../src/engine/loaders/GLTF.js';
@@ -44,6 +45,7 @@ const deg = ( r ) => r * 180 / Math.PI;
 
 const t0 = performance.now();
 const terrain = new TerrainData();
+ensureBlackwater( terrain ); // wave 14D: the pirates' island on its own tile (TerrainData does this itself once root applies the patch; idempotent)
 console.log( `heightmap built in ${ ( performance.now() - t0 ).toFixed( 0 ) } ms` );
 
 function makeApp( over = {} ) {
