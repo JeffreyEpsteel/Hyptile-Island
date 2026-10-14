@@ -222,7 +222,7 @@ export class Seaplane {
 				position: () => f.toWorldXYZ( f.geom.door[ 0 ], f.geom.door[ 1 ], f.geom.door[ 2 ], _v2 ),
 				radius: 3.2,
 				when: () => ! this.piloted && ! this._aboard() && ! this.lost && ! this.chute,
-				prompt: () => ( ! this.owned ? t( 'seaplane.forSale', 'Seaplane for sale · ask at the hangar' ) : this.hp <= 0 ? t( 'seaplane.broken', 'Seaplane · needs repair at the hangar' ) : t( 'seaplane.board', 'Fly the seaplane' ) ),
+				prompt: () => ( ! this.owned ? t( 'seaplane.forSale', 'Seaplane for sale · ask at the hangar' ) : this.hp <= 0 ? t( 'seaplane.broken', 'Seaplane · needs repair at the hangar' ) : ( this.airframe && this.airframe.base === 'strip' ? t( 'seaplane.boardPlane', 'Fly the plane' ) : t( 'seaplane.board', 'Fly the seaplane' ) ) ),
 				onInteract: () => this.board(),
 			} ) );
 			this._interact.push( this.features.interactable( {
