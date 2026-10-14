@@ -8,6 +8,6 @@ ship models (owns public/models/navy/**, tools/navy/**, src/features/navy/NavyMo
 src/features/naval/ShipClasses.js). Never edit their files.
 
 Seven workers share one tree: only your owned files; every other change is a reported patch with exact anchors. No
-browsers, dev servers, npm install, commits, git stash / checkout / reset. Every new player-facing string gets en and ro
-(src/i18n: the i18n test fails otherwise). Phone budgets hold (docs/PERF.md: <= 387 MB GPU at the towns). Report under
+browsers, dev servers, npm install, commits, git stash / checkout / reset. The game is English only (user, 2026-10-15): no
+Romanian or other translations; write player-facing text in English. Phone budgets hold (docs/PERF.md: <= 387 MB GPU at the towns). Report under
 300 words: files, tests run and results, image paths if visual, patches.
