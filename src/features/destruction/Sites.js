@@ -79,7 +79,7 @@ export function planProps( { terrain, colliders = null, keep = [], ports = WORLD
 	const starts = [ WORLD.start && WORLD.start.position, WORLD.spawn && WORLD.spawn.position ].filter( Boolean );
 	const pathDist = typeof T.pathDistance === 'function' ? ( x, z ) => T.pathDistance( x, z ) : () => Infinity;
 
-	const fits = ( x, z, r, land ) => {
+	const fits = ( x, z, r, land, paved = false ) => {
 
 		for ( const s of starts ) if ( Math.hypot( x - s.x, z - s.z ) < r + 6 ) return false;
 		for ( const b of berths ) if ( Math.hypot( x - b.x, z - b.z ) < r + 7 ) return false;
@@ -88,7 +88,7 @@ export function planProps( { terrain, colliders = null, keep = [], ports = WORLD
 		for ( const p of out ) if ( Math.hypot( x - p.x, z - p.z ) < r + p.r + 0.9 ) return false;
 		if ( land ) {
 
-			if ( pathDist( x, z ) < r + 0.8 ) return false;
+			if ( ! paved && pathDist( x, z ) < r + 0.8 ) return false; // (paved: a city quay, where crates belong)
 			const h = T.heightAt( x, z );
 			if ( colliderClearance( colliders, x, z, h - 0.3, h + 2.5 ) < r + 0.5 ) return false;
 
@@ -125,7 +125,7 @@ export function planProps( { terrain, colliders = null, keep = [], ports = WORLD
 			const g = ground( x, z, Math.min( r, 1.6 ) );
 			if ( g.lo < 0.3 || g.lo > 9 || g.span > 0.45 ) continue;
 			if ( extra.avoid && extra.avoid.some( ( k ) => Math.hypot( x - k.x, z - k.z ) < k.r + r ) ) continue;
-			if ( ! fits( x, z, r, true ) ) continue;
+			if ( ! fits( x, z, r, true, !! extra.paved ) ) continue;
 			const p = { id: `${ site }.${ kind }.${ n }`, kind, site, port, x, y: g.lo - 0.02, z, yaw: rng() * Math.PI * 2, r, opts: extra.opts || {} };
 			out.push( p );
 			return p;
@@ -163,7 +163,9 @@ export function planProps( { terrain, colliders = null, keep = [], ports = WORLD
 		const ax = line ? line[ 0 ] : port.stand ? port.stand.x : port.center.x, az = line ? line[ 1 ] : port.stand ? port.stand.z : port.center.z;
 		const rng = rngFor( 'port:' + port.id );
 		const kinds = port.id === 'home' ? SITE_KINDS.home : SITE_KINDS.port;
-		for ( const kind of kinds ) place( port.id, port.id, kind, ax, az, 7, port.id === 'home' ? 38 : 28, rng, nextN( port.id, kind ) );
+		// (wave 21: Meridian's quays are paved city ground: its crates and barrels may stand on them)
+		const extra = port.id === 'meridian' ? { paved: true } : {};
+		for ( const kind of kinds ) place( port.id, port.id, kind, ax, az, 7, port.id === 'home' ? 38 : 28, rng, nextN( port.id, kind ), extra );
 		// a railing on the dock: landward half, away from the berth
 		if ( port.id !== 'home' && line && port.dock && port.dock.deckHeight ) {
 
