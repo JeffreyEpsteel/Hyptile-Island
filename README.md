@@ -11,10 +11,17 @@ tablets: Chrome on Android, Safari on iOS / iPadOS 26+, in landscape, with touch
 installs it.
 
 **Host a universe or play offline:** download the alpha from [Releases](https://github.com/JeffreyEpsteel/Hyptile-Island/releases),
-install [Node.js 22](https://nodejs.org/), then run `PLAY_HYPTILE_ISLAND_3.0-alpha.2.cmd` or `HOST_UNIVERSE.cmd`
+install [Node.js 22](https://nodejs.org/), then run `PLAY_HYPTILE_ISLAND_3.1-alpha.cmd` or `HOST_UNIVERSE.cmd`
 (see `HOSTING.md` in the download).
 
 ![Fishing off the pier at golden hour](docs/screenshot.jpg)
+
+## New in 3.1-alpha
+
+Two new islands (Tidemark, a town with an airstrip; Blackwater, the pirates' stronghold far south), combat you can play
+(aimed cannons, ramming, boarding, pistol and musket, crews), four airframes with their own cockpits, a parachute,
+crashes and wreck recovery, Roid & Co. agents at every dock for a replacement boat or plane, seven quest lines, lights
+that light, place ambience and maps that explain themselves. Details: `releases/NOTES-3.1-alpha.md`.
 
 ## What's in the alpha (3.0)
 
