@@ -1,6 +1,7 @@
 import * as THREE from '../engine/index.js';
 import { ISLETS_BY_ID, isletWorld } from './terrain/IslandShape.js';
 import { TIDEMARK, tidemarkWorld } from './terrain/IslandShape.js'; // Tidemark (wave 12A)
+import { registerMeridian } from './islands/meridian/World.js'; // Meridian (wave 21A)
 
 // Shared world layout. Coordinates in meters, y up, sea level y = 0.
 // The open ocean lies to the south (+z); the island to the north (-z).
@@ -257,3 +258,7 @@ for ( const [ id, radius, standUV, roadsUV, approach ] of [
 	} );
 
 }
+
+// Meridian (wave 21A): the city island west of home on its own terrain tile (islands/meridian/World.js: WORLD.meridian with
+// its dock, bay, airstrip and town; the island entry, tile: true, city: true; the port entry, size 2)
+registerMeridian( WORLD );

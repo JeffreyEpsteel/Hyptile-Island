@@ -2572,7 +2572,7 @@ export class UI {
 
 		if ( e.repeat || this._start ) return;
 
-		if ( e.code === 'KeyH' ) {
+		if ( e.code === 'KeyH' && ! globalThis.__hyptileDriving ) {
 
 			if ( this._photo ) this.setPhotoMode( false );
 			this.togglePanel();

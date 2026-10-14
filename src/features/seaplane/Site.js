@@ -203,17 +203,21 @@ export class SeaplaneSite {
 // (or [ x, z ]), where a plane is parked; missing: near the strip's south-west end. The hangar office (the E spot of
 // the same hangar window, scoped to the strip) stands beside the pad, off the runway.
 
-export function findAirstrip( world ) {
+export function findAirstrip( world, near = null ) {
 
 	if ( ! world ) return null;
+	let best = null, bd = Infinity;
 	for ( const isl of world.islands || [] ) {
 
 		const s = isl && world[ isl.id ] && world[ isl.id ].airstrip;
-		if ( s && Number.isFinite( s.x ) && Number.isFinite( s.z ) ) return { island: isl.id, ...s };
+		if ( ! s || ! Number.isFinite( s.x ) || ! Number.isFinite( s.z ) ) continue;
+		if ( ! near ) return { island: isl.id, ...s };
+		const d = Math.hypot( s.x - near.x, s.z - near.z ); // (wave 21A: Meridian's airport too: the nearest strip)
+		if ( d < bd ) { bd = d; best = { island: isl.id, ...s }; }
 
 	}
 
-	return null;
+	return best;
 
 }
 

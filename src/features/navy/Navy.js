@@ -236,7 +236,10 @@ export class Navy {
 		let level = 0, offences = 0;
 		try { level = pr && pr.notorietyLevel ? num( pr.notorietyLevel() ) : 0; } catch ( e ) { level = 0; }
 		if ( cu && typeof cu.offences === 'function' ) for ( const p of WORLD.ports || [] ) try { offences += num( cu.offences( p.id ) ); } catch ( e ) { /* skip */ }
-		return { hull: !! ( hj && hj.vessel && hj.vessel.wanted ), level, offences, standing: this.standing };
+		const cw = this.get( 'citywreck' );
+		let city = 0;
+		try { city = cw && cw.wanted ? num( cw.wanted() ) : 0; } catch ( e ) { city = 0; }
+		return { hull: !! ( hj && hj.vessel && hj.vessel.wanted ), level, offences, standing: this.standing, city };
 
 	}
 
@@ -247,7 +250,7 @@ export class Navy {
 		const c = this.crimes();
 		const P = this.pardon;
 		if ( P && this.hours < P.until ) return ( c.hull && ! P.hull ) || c.level > P.level || c.offences > P.offences;
-		return c.hull || c.level >= WANTED.notoriety || c.offences >= WANTED.offences || c.standing <= WANTED.standing;
+		return c.hull || c.level >= WANTED.notoriety || c.offences >= WANTED.offences || c.standing <= WANTED.standing || c.city >= 2;
 
 	}
 

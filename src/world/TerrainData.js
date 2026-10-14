@@ -4,6 +4,7 @@ import { softRamp, erosionNoise, sampleGrid, upsample2, boxBlur } from './terrai
 import { ridgeEnvelope, SEA_STACKS, PATHS, polylineDistance, PONS, PONS_STACKS, ISLETS, ISLET_STACKS, isletWorld } from './terrain/IslandShape.js';
 import { ensureTidemark } from './islands/town/TidemarkTerrain.js';
 import { ensureBlackwater } from './islands/BlackwaterTerrain.js';
+import { ensureMeridian } from './islands/MeridianTerrain.js';
 
 const smin = ( a, b, k ) => {
 
@@ -90,6 +91,7 @@ export class TerrainData {
 		this.buildMinMax();
 		ensureTidemark( this ); // Tidemark's own tile, outside the heightmap's domain (queries inside it are untouched)
 		ensureBlackwater( this ); // wave 14D: Blackwater's tile far south, clear of the seaplane's take-off run
+		ensureMeridian( this ); // wave 21A: Meridian, the city island west of home, on its own tile
 
 	}
 

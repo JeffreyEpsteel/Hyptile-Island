@@ -707,6 +707,7 @@ export class NetSync {
 
 		// the airframe's upgrades, the parachute, a pilot seated (mode 'plane' is no protocol mode); near Blackwater: let in?
 		try { this.planes.decorate( s ); } catch ( e ) { /* optional */ }
+		try { this.features?.get?.( 'cars' )?.decorateState?.( s ); } catch ( e ) { /* optional */ }
 		try { this.fort.decorate( s ); } catch ( e ) { /* optional */ }
 		try { this.rescue.decorate( s ); } catch ( e ) { /* optional */ }
 

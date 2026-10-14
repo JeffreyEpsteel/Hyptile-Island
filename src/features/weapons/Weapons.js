@@ -794,6 +794,7 @@ export class Weapons {
 		const id = 'wfire-' + pr.id;
 		const y = hit.kind === 'ground' ? hit.y : at.y;
 		this.fires.push( { id, x: at.x, y, z: at.z, t: 0, tick: 0, time: THROWN.firebottle.time } );
+		this.emit( 'firePool', { id, x: at.x, y, z: at.z, by: 'player' } ); // (citywreck: the building it splashed is alight)
 		this.stats.fires ++;
 		const vfx = this._get( 'vfx' );
 		try { if ( vfx && vfx.fire ) vfx.fire( id, at.x, y, at.z, 0.6 ); } catch ( e ) { /* optional */ }

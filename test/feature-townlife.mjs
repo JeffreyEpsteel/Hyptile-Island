@@ -20,6 +20,7 @@ import { externalSeats } from '../src/features/townlife/Towns.js';
 import { villageSeats } from '../src/world/Village.js';
 import { tidemarkSeats } from '../src/world/islands/town/Waterfront.js';
 import { blackwaterSeats } from '../src/world/islands/Blackwater.js';
+import { Meridian } from '../src/world/islands/meridian/Meridian.js';
 
 let fails = 0, n = 0;
 const ok = ( c, msg, info = '' ) => {
@@ -39,6 +40,14 @@ const SEATS = {
 	tidemark: externalSeats( tidemarkSeats( terrain ), ( x, z ) => terrain.heightAt( x, z ) ),
 	blackwater: externalSeats( blackwaterSeats( terrain ), ( x, z ) => terrain.heightAt( x, z ) ),
 };
+globalThis.__quietKit = true;
+const meridianCity = new Meridian( { scene: null, terrain, colliders: null, kit: false } );
+{
+
+	const mg = plans.find( ( p ) => p.id === 'meridian' ).grid, F = mg.frame;
+	SEATS.meridian = externalSeats( meridianCity.seats.filter( ( s ) => s.x - F.x > mg.u0 + 2 && s.x - F.x < mg.u1 - 2 && s.z - F.z > mg.v0 + 2 && s.z - F.z < mg.v1 - 2 ), ( x, z ) => terrain.heightAt( x, z ) );
+
+}
 
 const BASE = [ 'Idle_Breathe', 'Walk_InPlace', 'Run_InPlace', 'Talk', 'Wave', 'Look_Around', 'Cheer_Clap', 'Dance', 'Fishing_Hold', 'Fishing_Reel', 'Chat_Gesture',
 	'Sweep_Work', 'Inspect_Catch', 'Shrug', 'Point', 'Laugh', 'Beckon', 'Swagger_Idle', 'Friendly_Wave', 'Seated_Idle' ];
@@ -62,6 +71,7 @@ function world( { hour = 10, at = null, phone = false, made = [] } = {} ) {
 		settings: { timeOfDay: hour }, terrainData: terrain, residents: null, mode: 'campaign',
 		game: { toasts: [], toast( t ) { this.toasts.push( t ); } },
 		player: { mode: 'walk', position: new Vector3( p.x, terrain.heightAt( p.x, p.z ), p.z ) },
+		meridian: meridianCity,
 	};
 	const features = new Features( app );
 	const tl = townlife.install( app, features, { avatarFactory: fakeFactory( made ), phone, rand: seq() } );
@@ -215,7 +225,7 @@ for ( const plan of plans ) {
 section( 'budgets per tier' );
 {
 
-	const want = { home: 12, tidemark: 47, blackwater: 16 };
+	const want = { home: 12, tidemark: 47, blackwater: 16, meridian: 42 };
 	const d = world();
 	for ( const t of d.tl.towns ) ok( t.sim.list.length === want[ t.plan.id ], `desktop: ${ t.plan.id } has ${ t.sim.list.length } townsfolk` );
 	const ph = world( { phone: true } );

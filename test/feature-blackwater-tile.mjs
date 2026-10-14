@@ -199,14 +199,14 @@ section( '5. two tiles coexist' );
 {
 
 	const tiles = terrainTiles( T );
-	ok( tiles.length === 2 && tiles[ 0 ].id === 'tidemark' && tiles[ 1 ].id === 'blackwater', 'terrainTiles: Tidemark then Blackwater', tiles.map( ( q ) => `${ q.id } ${ q.n }x${ q.n }` ).join( ', ' ) );
+	ok( tiles.length === 3 && tiles[ 0 ].id === 'tidemark' && tiles[ 1 ].id === 'blackwater' && tiles[ 2 ].id === 'meridian', 'terrainTiles: Tidemark, Blackwater, then Meridian (wave 21A)', tiles.map( ( q ) => `${ q.id } ${ q.n }x${ q.n }` ).join( ', ' ) );
 	const a = tiles[ 0 ], b = tiles[ 1 ];
 	ok( a.x0 > b.x0 + b.size || b.x0 > a.x0 + a.size || a.z0 > b.z0 + b.size || b.z0 > a.z0 + a.size, 'their boxes do not overlap' );
 	const layout = heightAtlasLayout( T ), strip = buildHeightStrip( layout );
 	const probes = [ [ L.fort.x, L.fort.z ], [ L.cove.x, L.cove.z ], [ WORLD.tidemark.center.x, WORLD.tidemark.center.z ], [ WORLD.tidemark.dock.start.x, WORLD.tidemark.dock.start.z ] ];
 	ok( probes.every( ( [ x, z ] ) => Math.abs( stripHeightAt( layout, strip, x, z ) - T.heightAt( x, z ) ) < 1e-3 ), 'the GPU height atlas packs both (the WGSL lookup on the CPU = TerrainData.heightAt)', `${ layout.stripRows } strip rows` );
 	const wgsl = tileHeightWGSL( layout );
-	ok( ( wgsl.match( /textureLoad/g ) || [] ).length === 1 && ( wgsl.match( /if \( f\.x >= 0\.0/g ) || [] ).length === 2, 'one tile branch each in the WGSL' );
+	ok( ( wgsl.match( /textureLoad/g ) || [] ).length === 1 && ( wgsl.match( /if \( f\.x >= 0\.0/g ) || [] ).length === 3, 'one tile branch each in the WGSL' );
 	const ext = mapExtent( T );
 	ok( ext.z0 + ext.size >= tile.z1 && ext.x0 + ext.size >= a.x0 + a.size && ext.x0 <= - 1024, 'the world map\'s picture covers both tiles', JSON.stringify( ext ) );
 	ok( T.heightAt( 0, 0 ) === ref.heightAt( 0, 0 ) && T.heightAt( 600, 560 ) === ref.heightAt( 600, 560 ), 'the home island and Pons are untouched' );

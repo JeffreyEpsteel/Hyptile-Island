@@ -76,6 +76,9 @@ export function resolveClip( model, name ) {
 }
 
 const _yAxis = new Vector3( 0, 1, 0 );
+// wave 20A: the roster faces' pupils, rims and lids sit on the eyeball (inside its silhouette): they cast no shadow of their own
+// (6 of a body's 9 meshes, each drawn again in every shadow cascade); the eyes themselves still do
+export const EYE_PART = /_(Pupil|Rim|Lid)_[lr]$/;
 
 export class TownLife {
 
@@ -329,7 +332,7 @@ export class TownLife {
 		// the benches and logs wave 18C exports (the built object's list when it has one, else the module's)
 		t.sim.setSeats( this._seats( plan.id ).filter( ( s ) => t.grid.nearestFree( s.x, s.z, 2 ) ) );
 		// (wave 19E) the taverns' interiors (src/world/interiors): tavern-goers past a full patio sit inside
-		t.sim.interiorSeats = () => this.features?.get?.( 'interiors' )?.seatsFor?.( plan.id, { tavern: true } ) || [];
+		t.sim.interiorSeats = () => ( this.features?.get?.( 'interiors' )?.seatsFor?.( plan.id, { tavern: true } ) || [] ).filter( ( s ) => this.features?.get?.( 'citywreck' )?.seatOpen?.( s ) ?? true );
 		this.animals.addTown( plan.id, { pens: plan.pens, animals: scaleAnimals( plan.animals, this.scale ), free: ( x, z ) => t.grid.free( x, z ), ground: t.sim.ground } );
 
 	}
@@ -339,7 +342,7 @@ export class TownLife {
 		const a = this.app, terrain = a.terrainData || a.terrain;
 		const g = terrain && terrain.heightAt ? ( x, z ) => terrain.heightAt( x, z ) : null;
 		const sh = this.features && this.features.get ? this.features.get( 'stronghold' ) : null;
-		const built = id === 'home' ? a.village && a.village.seats : id === 'tidemark' ? a.ports && a.ports.tidemark && a.ports.tidemark.seats : sh && sh.island && sh.island.seats;
+		const built = id === 'meridian' ? ( a.meridian && a.meridian.seats ) || [] : id === 'home' ? a.village && a.village.seats : id === 'tidemark' ? a.ports && a.ports.tidemark && a.ports.tidemark.seats : sh && sh.island && sh.island.seats;
 		let list = Array.isArray( built ) ? built : null;
 		if ( ! list && terrain ) {
 
@@ -544,7 +547,13 @@ export class TownLife {
 		c.body = body;
 		this.bound.set( c, body );
 		const g = body.avatar.group;
-		if ( g ) g.visible = true;
+		if ( g ) {
+
+			g.visible = true;
+			if ( g.userData ) g.userData.townlife = true; // (tools/perf --draw-list counts the townsfolk's draws by this)
+
+		}
+
 		return true;
 
 	}
@@ -637,7 +646,20 @@ export class TownLife {
 
 				}
 
-				if ( c.body || d2 < hide * hide ) c.y = ( c.indoorFloor !== null ? c.indoorFloor : ground ? ground( c.x + ox, c.z + oz ) : 0 ) + sit; // (wave 19E: an interior's floor)
+				if ( c.body || d2 < hide * hide ) {
+
+					// (wave 20A: the ground under a citizen who has not moved is the ground it had: most stand, sit or work)
+					const gx = c.x + ox, gz = c.z + oz;
+					if ( c._gx !== gx || c._gz !== gz || c._gt !== ground ) {
+
+						c._gx = gx; c._gz = gz; c._gt = ground;
+						c._gy = ground ? ground( gx, gz ) : 0;
+
+					}
+
+					c.y = ( c.indoorFloor !== null ? c.indoorFloor : c._gy ) + sit; // (wave 19E: an interior's floor)
+
+				}
 				const body = c.body;
 				if ( body && body.model ) {
 
@@ -689,7 +711,7 @@ export class TownLife {
 			if ( casts !== body.casts && g.traverse ) {
 
 				body.casts = casts;
-				g.traverse( ( o ) => { if ( o.isMesh ) o.castShadow = casts; } );
+				g.traverse( ( o ) => { if ( o.isMesh ) o.castShadow = casts && ! EYE_PART.test( o.name ); } );
 
 			}
 

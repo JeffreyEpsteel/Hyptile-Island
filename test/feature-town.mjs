@@ -97,8 +97,9 @@ const area = land.length * 16;
 let rmax = 0;
 for ( const [ x, z ] of land ) rmax = Math.max( rmax, Math.hypot( x - I.x, z - I.z ) );
 const isl = WORLD.islands.find( ( q ) => q.id === 'tidemark' );
-const others = WORLD.islands.filter( ( q ) => q.id !== 'tidemark' && q.id !== 'home' );
-ok( isl && isl.radius >= 400 && isl.radius <= 460 && others.every( ( q ) => q.radius < isl.radius ), 'the biggest island after the home island (WORLD radius)', isl && isl.radius + ' m (next: ' + Math.max( ...others.map( ( q ) => q.radius ) ) + ' m)' );
+// (wave 21A: Meridian, the city island, is bigger still)
+const others = WORLD.islands.filter( ( q ) => q.id !== 'tidemark' && q.id !== 'home' && q.id !== 'meridian' );
+ok( isl && isl.radius >= 400 && isl.radius <= 460 && others.every( ( q ) => q.radius < isl.radius ), 'the biggest island after the home island and Meridian (WORLD radius)', isl && isl.radius + ' m (next: ' + Math.max( ...others.map( ( q ) => q.radius ) ) + ' m)' );
 ok( rmax > 380 && rmax < 470 && area > 300000, 'a big island: ~420 m from its centre to its farthest shore', 'land ' + Math.round( area / 1000 ) + 'k m2, farthest shore ' + rmax.toFixed( 0 ) + ' m, peak ' + peak.toFixed( 1 ) + ' m' );
 const B = worldBounds( WORLD, t );
 ok( land.every( ( [ x, z ] ) => x > B.x0 && x < B.x1 && z > B.z0 && z < B.z1 ), 'inside the world extent (the world map\'s bounds)', JSON.stringify( B ) );

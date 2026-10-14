@@ -6,6 +6,7 @@ import { strongholdLayout, bw, bwYaw } from '../../world/islands/stronghold/Layo
 import { FILLERS as TM_FILLERS } from '../../world/islands/town/Buildings.js';
 import { STREET as TM_STREET } from '../../world/islands/town/Waterfront.js';
 import { BLACKWATER_SHACKS } from '../../world/islands/Blackwater.js';
+import { meridianTownPlan, MERIDIAN_POPULATION } from '../../world/islands/meridian/TownLife.js';
 
 // The three towns of townlife (plain data, no engine): the home village, Tidemark and Blackwater's pirate town. Each
 // plan says where the town's walkable grid lies, its decks (piers, quays, jetties), its buildings and props (obstacles:
@@ -71,6 +72,7 @@ export const POPULATION = {
 	home: { roles: { vendor: 1, fisher: 2, dockworker: 1, carter: 1, folk: 3, child: 3, watchman: 1 } },
 	tidemark: { roles: { vendor: 4, fisher: 5, dockworker: 4, carter: 2, carpenter: 2, folk: 15, child: 4, regular: 6, watchman: 2, lamplighter: 1, sweeper: 2 } },
 	blackwater: { roles: { pirate: 10, pirateHand: 3, fence: 1, pirateWatch: 2 } },
+	meridian: MERIDIAN_POPULATION,
 };
 
 // ------------------------------------------------------------------ the home village
@@ -404,7 +406,7 @@ function blackwaterPlan() {
 let cache = null;
 export function townPlans() {
 
-	if ( ! cache ) cache = [ homePlan(), tidemarkPlan(), blackwaterPlan() ];
+	if ( ! cache ) cache = [ homePlan(), tidemarkPlan(), blackwaterPlan(), meridianTownPlan() ];
 	return cache;
 
 }

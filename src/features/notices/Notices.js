@@ -266,6 +266,8 @@ export class Notices {
 		let worst = null;
 		for ( const [ k, m ] of Object.entries( this.memory[ port ] ) ) if ( m.until > this.hours && ( ! worst || m.n > worst[ 1 ].n ) ) worst = [ k, m ];
 		if ( worst ) note = `${ keeper } has not forgotten the ${ ( TYPE_LABEL[ worst[ 0 ] ] || worst[ 0 ] ).toLowerCase() } you left hanging: fewer of those today.`;
+		const works = this.features && this.features.get ? this.features.get( 'citywreck' )?.bulletin?.( port ) : null;
+		if ( works && works.length ) note = [ note, ...works ].filter( Boolean ).join( ' ' );
 		return { keeper, line, note };
 
 	}

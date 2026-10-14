@@ -315,15 +315,15 @@ const ports = new Ports( { scene, terrain: t, colliders } );
 ok( true, 'Ports builds all six islands', Math.round( performance.now() - tb ) + ' ms' );
 const kinds = ports.vendors.map( ( v ) => v.kind + ':' + v.name.split( ' ' )[ 0 ] );
 // (wave 12A: Tidemark's fish hall and chandler join them; test/feature-town.mjs checks the town itself)
-ok( ports.vendors.length === 6 && ports.havenPort.chandler.kind === 'shop' && ports.havenPort.market.kind === 'buyer' && ports.shrinePort.vendor.kind === 'buyer' && ports.tidemarkPort.market.kind === 'buyer' && ports.tidemarkPort.chandler.kind === 'shop', 'vendors: Pengu, the Haven chandler (shop) and market (buyer), the hermit (buyer), the Tidemark fish hall (buyer) and chandler (shop)', kinds.join() );
+ok( ports.vendors.length === 8 && ports.meridianPort.market.kind === 'buyer' && ports.meridianPort.chandler.kind === 'shop' && ports.havenPort.chandler.kind === 'shop' && ports.havenPort.market.kind === 'buyer' && ports.shrinePort.vendor.kind === 'buyer' && ports.tidemarkPort.market.kind === 'buyer' && ports.tidemarkPort.chandler.kind === 'shop', 'vendors: Pengu, the Haven chandler (shop) and market (buyer), the hermit (buyer), the Tidemark fish hall (buyer) and chandler (shop)', kinds.join() );
 for ( const v of ports.vendors.slice( 1 ) ) ok( t.heightAt( v.position.x, v.position.z ) > 0.5, v.name + ' stands on land', t.heightAt( v.position.x, v.position.z ).toFixed( 2 ) + ' m' );
 const fish = [ { species: 'tuna', value: 40 }, { species: 'mullet', value: 10 }, { species: 'crookedcod', value: 30 }, { species: 'rootfin', value: 8 } ];
 const mk = ports.havenPort.market, hm = ports.shrinePort.vendor;
 ok( ports.priceFor( mk, fish[ 0 ] ) === 50 && ports.priceFor( mk, fish[ 1 ] ) === 10 && ports.premiumBonus( mk, fish ) === 10 + 8, 'the Haven market: a deep-water premium', 'bonus $' + ports.premiumBonus( mk, fish ) );
 ok( ports.priceFor( hm, fish[ 2 ] ) === 45 && ports.priceFor( hm, fish[ 0 ] ) === 40 && ports.premiumBonus( hm, fish ) === 15 + 4, 'the hermit: a premium on the strange fish', 'bonus $' + ports.premiumBonus( hm, fish ) );
 ok( ports.premiumBonus( ports.havenPort.chandler, fish ) === 0, 'the chandler buys no fish' );
-ok( ports.lights.length >= 8 + 14 + 3 && ports.lights.length <= 8 + 24 + 6, 'lights: a few per island', ports.lights.length + ' (8 were Gull Rock and Saltmarsh Key; Tidemark adds ' + ( ports.tidemark.lights.length + ports.tidemarkPort.lights.length ) + ')' );
-ok( ports.markers.length === 8 && ports.markers.every( ( m ) => t.heightAt( m.x, m.z ) > 0.5 ) && ports.markers.some( ( m ) => m.id === 'tidemark:airstrip' ), 'markers: seven ports and the Tidemark airstrip, all on land', ports.markers.map( ( m ) => m.id ).join() );
+ok( ports.lights.length - ports.meridian.lights.length - ports.meridianPort.lights.length >= 8 + 14 + 3 && ports.lights.length - ports.meridian.lights.length - ports.meridianPort.lights.length <= 8 + 24 + 6 && ports.meridian.lights.length < 400, 'lights: a few per island (Meridian\'s street lamps: LocalLights takes the 16 nearest)', ports.lights.length + ' (8 were Gull Rock and Saltmarsh Key; Tidemark adds ' + ( ports.tidemark.lights.length + ports.tidemarkPort.lights.length ) + ')' );
+ok( ports.markers.length === 10 && ports.markers.some( ( m ) => m.id === 'meridian:airstrip' ) && ports.markers.every( ( m ) => t.heightAt( m.x, m.z ) > 0.5 ) && ports.markers.some( ( m ) => m.id === 'tidemark:airstrip' ), 'markers: seven ports and the Tidemark airstrip, all on land', ports.markers.map( ( m ) => m.id ).join() );
 for ( const id of NEW ) {
 
 	const d = WORLD[ id ].dock;

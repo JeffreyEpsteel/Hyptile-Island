@@ -214,6 +214,7 @@ export class App {
 		this.pons = new PonsPort( { scene, terrain: this.terrainData, colliders: this.colliders } );
 		// Gull Rock (lighthouse) and Saltmarsh Key (a fish buyer paying a premium): more islands with ports
 		this.ports = new Ports( { scene, terrain: this.terrainData, colliders: this.colliders, village: this.village } );
+		this.meridian = this.ports.meridian; // wave 21A: Meridian's handle (plan, building( id ), roadHeight, onStage, signalState)
 
 		// ---------------------------------------------------------------- ocean
 		await progress( 0.3, 'Simulating the ocean…' );
@@ -407,6 +408,7 @@ fn terrainWetness( xz: vec2f, h: f32 ) -> vec2f {
 		this.features.on( 'fishHarpooned', ( e ) => { try { const f = this.game.state.addFish( e.species, e.kg, this.game.hour ?? 12, { habitat: 'harpoon', aboard: this.player.mode !== 'walk' && this.player.mode !== 'swim' } ); if ( f ) this.game.toast?.( `Harpooned: ${ e.kg.toFixed( 1 ) } kg`, 2600 ); } catch ( err ) { console.warn( 'harpooned fish', err ); } } );
 		// Tidemark's buildings crack / smoke under cannonballs, explosions and plane crashes
 		this.ports?.tidemark?.connect( this.features );
+		import( './core/Quality.js' ).then( ( q ) => q.farCull( this.scene ) ); // wave 20A: far props skip their draws
 		this.game.state.featuresProvider = () => this.features.toJSON();
 		this.features.fromJSON( this.game.state.featuresData );
 		// the owned boat (or none) and the character from the save
@@ -1095,6 +1097,12 @@ fn terrainWetness( xz: vec2f, h: f32 ) -> vec2f {
 
 			// at the helm L works the boat's lights (a touch button too); on foot and on deck it is the flashlight
 			if ( this.player && this.player.mode === 'boat' ) this.toggleBoatLights();
+			else if ( this.features?.get?.( 'cars' )?.driving ) {
+
+				const on = this.features.get( 'cars' ).toggleLights();
+				if ( this.ui ) this.ui.ui.toast( on === null ? 'Headlights: automatic' : on ? 'Headlights on' : 'Headlights off' );
+
+			}
 			else {
 
 				const on = this.localLights.toggleFlashlight();
@@ -1132,7 +1140,7 @@ fn terrainWetness( xz: vec2f, h: f32 ) -> vec2f {
 		if ( ! this.paused && this.features ) this.features.update( dt );
 		// the character: shown in third person (and from the free camera), hidden behind the first-person eye
 		const p = this.player;
-		this.avatar.visible = this.freeCam || ( p.mode === 'boat' ? p.camMode === 'third' : p.view === 'third' );
+		this.avatar.visible = this.freeCam || ( ! this.features?.get?.( 'cars' )?.hidesDriver?.() && ( p.mode === 'boat' ? p.camMode === 'third' : p.view === 'third' ) );
 		const pose = p.pose( this._pose || ( this._pose = {} ) );
 		// hands on the helm / rod, feet on the ground: contact IK targets for this frame
 		this.avatar.setIKTargets( contactTargets( this._ikTargets || ( this._ikTargets = {} ), { player: p, rod: this.game && this.game.rod, boat: this.boatCtl, action: pose.action } ) );

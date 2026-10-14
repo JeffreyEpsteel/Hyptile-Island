@@ -1839,18 +1839,22 @@ export class Naval {
 		this._ctx.terrain = this.terrain;
 		// destructible props (the destruction feature) stop balls too
 		const de = this.features && this.features.get ? this.features.get( 'destruction' ) : null;
-		this._ctx.raycastProps = de && typeof de.raycastSegment === 'function'
+		// (wave 21C) and Meridian's buildings: the nearer of the two
+		const cw = this.features && this.features.get ? this.features.get( 'citywreck' ) : null;
+		const rays = [ de, cw ].filter( ( f ) => f && typeof f.raycastSegment === 'function' );
+		this._ctx.raycastProps = rays.length
 			? ( a, b ) => {
 
-				try {
+				let best = null;
+				for ( const f of rays ) {
 
-					return de.raycastSegment( a.x, a.y, a.z, b.x, b.y, b.z );
-
-				} catch ( e ) {
-
-					return null;
+					let h = null;
+					try { h = f.raycastSegment( a.x, a.y, a.z, b.x, b.y, b.z ); } catch ( e ) { h = null; }
+					if ( h && ( ! best || h.t < best.t ) ) best = h;
 
 				}
+
+				return best;
 
 			}
 			: null;
