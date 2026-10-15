@@ -4,7 +4,7 @@
 //
 //   const models = new ModelSet( { scene, baseUrl: '/' } );
 //   const v = models.create( 'sloop' );           // a ShipVisual (empty until the template has loaded)
-//   v.apply( ship, pose );                         // position / yaw / pitch / roll from a Ship + finalPose()
+//   v.apply( ship, pose );                         // position / yaw / pitch / roll from a Ship + finalPose(); picks the LOD
 //   v.setNear( bool )                              // shadows only for close ships; v.group.visible hides far ones
 //   models.setNight( 0..1 )                        // the stern lantern glows
 //   models.ready( kind ) -> Promise                // resolves when that class has loaded
@@ -13,13 +13,55 @@
 // Orientation: the GLBs are +X forward (the fork's Blender export; the stern lantern is at -X, the bowsprit at
 // +X); the Group inside the ship's group is turned by -PI/2 about Y so the bow points along +Z, the boat frame.
 // Rotation order of the outer group is YXZ: yaw, then pitch (bow up = negative rotation about X), then roll.
+//
+// Wave 24C (the ships rebuilt by tools/ships/build_ships.py):
+// - Levels of detail: <glb>_lod1.glb (~half the triangles: no ratlines, no small deck gear) and <glb>_lod2.glb (~1000
+//   triangles: the silhouette, its sails and spars) beside every class GLB. They carry no textures: their meshes are named
+//   like the full model's (one per material) and a visual swaps each mesh's geometry for the LOD's, keeping the full
+//   model's materials (one set of textures, the sail shader everywhere). ShipVisual.apply picks the level from ship.dist
+//   (LOD_DIST, nearer on phones) with a margin against flicker; a LOD file loads the first time a ship needs it.
+// - shipMaterials( glb ) (ShipLooks.js): the sails fill on the side the wind blows to (square sails from astern, aback from ahead; fore-
+//   and-aft sails to leeward) and shiver when they cannot fill, the flags wave, canvas glows when the sun is behind it,
+//   the hull darkens and shines at the waterline. The GLB's UVs carry what the shader needs (tools/ships/shipkit.py).
+//   The player's ship (world/boat/ShipBoatModel.js) calls it too (mirrored: the brigantine).
+// - The maps are 512 px tiles shared by every material of a class (tools/ships/textures.py: painted planks, sheathing,
+//   deck, timber, canvas, flags); the LOD files add none. (StaticGLB caches a file's textures per URL, so the player's ship
+//   of a class shares the AI ships' set.)
 
 import { Group, Mesh } from '../../engine/index.js';
 import { LAYERS } from '../../core/SceneRenderer.js';
 import { SHIP_CLASSES } from './ShipClasses.js';
 import { MODEL_YAW, centreOnHull } from '../../world/boat/ShipFrame.js';
+import { shipMaterials, SAIL_BRACE } from './ShipLooks.js';
 
-export { MODEL_YAW, centreOnHull };
+export { MODEL_YAW, centreOnHull, shipMaterials, SAIL_BRACE };
+
+// metres from the camera where a ship drops to LOD 1 / LOD 2 (phones: nearer)
+export const LOD_DIST = [ 70, 190 ];
+export const LOD_DIST_PHONE = [ 38, 110 ];
+const LOD_MARGIN = 0.08;
+
+export function lodUrl( url, level ) {
+
+	return level > 0 ? String( url ).replace( /\.glb$/, `_lod${ level }.glb` ) : url;
+
+}
+
+// the level for a distance, from the current one (a margin each way so a ship at the edge does not flicker)
+export function lodFor( dist, current = 0, dists = LOD_DIST ) {
+
+	if ( ! Number.isFinite( dist ) ) return current;
+	let l = 0;
+	for ( let i = 0; i < dists.length; i ++ ) {
+
+		const d = dists[ i ] * ( current > i ? 1 - LOD_MARGIN : 1 + LOD_MARGIN );
+		if ( dist > d ) l = i + 1;
+
+	}
+
+	return l;
+
+}
 
 function defaultBase() {
 
@@ -77,6 +119,7 @@ export class ShipVisual {
 		this.meshes = [];
 		this.loaded = false;
 		this.near = true;
+		this.lod = 0;
 		this.group.visible = false;
 		if ( set.scene ) set.scene.add( this.group );
 
@@ -94,6 +137,7 @@ export class ShipVisual {
 			c.castShadow = m.castShadow && this.near;
 			c.receiveShadow = m.receiveShadow;
 			c.renderOrder = m.renderOrder;
+			c.userData.geo0 = m.geometry;
 			if ( m.name === 'ship-glass' ) c.layers.set( LAYERS.TRANSPARENT );
 			this.pivot.add( c );
 			this.meshes.push( c );
@@ -125,6 +169,7 @@ export class ShipVisual {
 		pivot.add( spin );
 		this.group.add( pivot );
 		this.wheel = spin;
+		this.wheelPivot = pivot;
 		this.wheelTurns = w.turns;
 
 	}
@@ -147,15 +192,44 @@ export class ShipVisual {
 		const g = this.group;
 		g.position.set( ship.x, pose.y, ship.z );
 		g.rotation.set( - pose.pitch, ship.yaw, pose.roll );
+		if ( this.loaded ) this.setLod( lodFor( ship.dist, this.lod, this.set.lodDist ) );
 		this.steerWheel( ship );
 
 	}
 
-	setNear( near ) {
+	// swap every mesh's geometry for the level's (the LOD file loads the first time; until then the level stays)
+	setLod( level ) {
 
-		if ( near === this.near ) return;
+		if ( level === this.lod || ! this.loaded ) return this.lod;
+		let geos = null;
+		if ( level > 0 ) {
+
+			const t = this.set._lodTemplate ? this.set._lodTemplate( this.kind, level ) : null;
+			if ( ! t || ! t.geos ) return this.lod;
+			geos = t.geos;
+
+		}
+
+		for ( const m of this.meshes ) {
+
+			const g = level === 0 ? m.userData.geo0 : geos.get( m.name );
+			if ( g ) m.geometry = g;
+
+		}
+
+		this.lod = level;
+		if ( this.wheelPivot ) this.wheelPivot.visible = level === 0;
+		this.setNear( this.near, true );
+		return level;
+
+	}
+
+	setNear( near, force = false ) {
+
+		if ( near === this.near && ! force ) return;
 		this.near = near;
-		for ( const m of this.meshes ) m.castShadow = near && m.name !== 'ship-glass';
+		// (the far silhouette casts none: at that distance the shadow map's texels are bigger than its spars)
+		for ( const m of this.meshes ) m.castShadow = near && this.lod < 2 && m.name !== 'ship-glass';
 
 	}
 
@@ -177,12 +251,14 @@ export class ShipVisual {
 
 export class ModelSet {
 
-	constructor( { scene = null, baseUrl = defaultBase(), loader = null } = {} ) {
+	constructor( { scene = null, baseUrl = defaultBase(), loader = null, lodDist = null } = {} ) {
 
 		this.scene = scene;
 		this.baseUrl = baseUrl;
 		this.loader = loader; // ( url, options ) -> Promise<{ group, meshes, materials, dispose }>, default loadStaticGLB
 		this.templates = new Map();
+		this.lods = new Map(); // kind + ':' + level -> { geos: Map( mesh name -> geometry ), failed, promise }
+		this.lodDist = lodDist || ( globalThis.__phoneBudget ? LOD_DIST_PHONE : LOD_DIST );
 		this.visuals = new Set();
 		this.night = 0;
 		this.disposed = false;
@@ -193,7 +269,7 @@ export class ModelSet {
 
 		let t = this.templates.get( kind );
 		if ( t ) return t;
-		t = { glb: null, failed: false, promise: null };
+		t = { glb: null, failed: false, promise: null, url: SHIP_CLASSES[ kind ].glb };
 		this.templates.set( kind, t );
 		t.promise = ( async () => {
 
@@ -208,9 +284,8 @@ export class ModelSet {
 
 			centreOnHull( glb );
 			glb.wheel = await carveShipWheel( kind, glb );
+			this._adopt( glb );
 			t.glb = glb;
-			for ( const m of glb.materials ) m.underwaterLighting = 'lite';
-			this._lantern( glb );
 			for ( const v of this.visuals ) if ( v.kind === kind ) v.fill( glb );
 			return glb;
 
@@ -218,6 +293,51 @@ export class ModelSet {
 
 			t.failed = true;
 			console.warn( `naval: ship model ${ kind } failed to load`, e );
+			return null;
+
+		} );
+		return t;
+
+	}
+
+	// what every class template gets once loaded (the navy's too: NavyModels calls it): the wind in the sails, the flags,
+	// the canvas lit from behind, the wet waterline, the lantern glass
+	_adopt( glb ) {
+
+		for ( const m of glb.materials ) m.underwaterLighting = 'lite';
+		shipMaterials( glb );
+		this._lantern( glb );
+
+	}
+
+	// a level of detail of a class: its GLB's meshes by name (the template's materials stay); loaded once, on demand
+	_lodTemplate( kind, level ) {
+
+		const key = kind + ':' + level;
+		let t = this.lods.get( key );
+		if ( t ) return t;
+		const base = this.templates.get( kind );
+		if ( ! base || ! base.glb || ! base.url ) return null; // (the full model first)
+		t = { geos: null, failed: false, promise: null };
+		this.lods.set( key, t );
+		t.promise = ( async () => {
+
+			const load = this.loader || ( await import( '../../world/boat/StaticGLB.js' ) ).loadStaticGLB;
+			const glb = await load( this.baseUrl + lodUrl( base.url, level ), { shadows: true, prefix: 'ship-' } );
+			if ( this.disposed ) { glb.dispose(); return null; }
+			centreOnHull( glb );
+			const geos = new Map();
+			for ( const m of glb.meshes ) if ( ! geos.has( m.name ) ) geos.set( m.name, m.geometry );
+			// (only the geometry is kept: the full model's materials draw it)
+			for ( const m of glb.materials ) if ( m.dispose ) m.dispose();
+			t.geos = geos;
+			t.dispose = () => { for ( const g of geos.values() ) if ( g.dispose ) g.dispose(); };
+			return t;
+
+		} )().catch( ( e ) => {
+
+			t.failed = true;
+			console.warn( `naval: LOD ${ level } of ${ kind } failed to load (the full model stays)`, e );
 			return null;
 
 		} );
@@ -269,7 +389,9 @@ export class ModelSet {
 		this.disposed = true;
 		for ( const v of [ ...this.visuals ] ) v.dispose();
 		for ( const t of this.templates.values() ) if ( t.glb ) t.glb.dispose();
+		for ( const t of this.lods.values() ) if ( t.dispose ) t.dispose();
 		this.templates.clear();
+		this.lods.clear();
 
 	}
 

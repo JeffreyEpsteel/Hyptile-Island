@@ -1,4 +1,5 @@
-// The navy's looks. Wave 19F: the navy sails its own ships, public/models/navy/frigate.glb and revenue.glb (tools/navy/
+// The navy's looks. Wave 24C: the frigate and the cutter rebuilt by tools/ships/build_ships.py (fair hulls, two tiers of ports,
+// full rigs with billowing canvas, LOD files beside them; the old tools/navy builder is kept for reference). Wave 19F: the navy sails its own ships, public/models/navy/frigate.glb and revenue.glb (tools/navy/
 // build_navy_ships.py, Blender headless, in the brigantine_v2's conventions: +X forward, origin at the waterline centre, the
 // brigantine's materials and textures plus the navy's blue / white paint, blue canvas and the helm wheel). drawNavy( models )
 // teaches naval's ModelSet (Models.js) to load, for a class with model 'navy' and a navyGlb (ShipClasses: the frigate, the
@@ -130,7 +131,7 @@ function navyTemplate( set, kind, cls ) {
 
 	let t = set.templates.get( kind );
 	if ( t && t.navy ) return t;
-	t = { glb: null, failed: false, promise: null, navy: true };
+	t = { glb: null, failed: false, promise: null, navy: true, url: cls.navyGlb };
 	set.templates.set( kind, t );
 	t.promise = ( async () => {
 
@@ -146,8 +147,15 @@ function navyTemplate( set, kind, cls ) {
 		centreOnHull( glb );
 		glb.wheel = liftWheel( glb );
 		t.glb = glb;
-		for ( const m of glb.materials ) m.underwaterLighting = 'lite';
-		if ( typeof set._lantern === 'function' ) set._lantern( glb );
+		// (wave 24C: naval's ModelSet teaches the sails, flags and hull their shading; the LOD files load through it as well)
+		if ( typeof set._adopt === 'function' ) set._adopt( glb );
+		else {
+
+			for ( const m of glb.materials ) m.underwaterLighting = 'lite';
+			if ( typeof set._lantern === 'function' ) set._lantern( glb );
+
+		}
+
 		for ( const v of set.visuals ) if ( v.kind === kind ) v.fill( glb );
 		return glb;
 
