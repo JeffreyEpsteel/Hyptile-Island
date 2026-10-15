@@ -417,9 +417,11 @@ section( '6. fronts: deterministic, moving, bounded gusts, lightning timing, for
 	ok( gmax <= FRONT.maxGust + 1e-9 && gmax > FRONT.maxGust * 0.4 && gn > 0, `squall gusts up to ${ gmax.toFixed( 1 ) } m/s (bound ${ FRONT.maxGust })` );
 	// lightning: deterministic strikes, inside the band
 	const s1 = [], s2 = [];
-	strikesBetween( f, mid, mid + 0.05, ( s ) => s1.push( s ), 999 );
-	strikesBetween( f, mid, mid + 0.05, ( s ) => s2.push( s ), 999 );
-	ok( s1.length > 0 && JSON.stringify( s1 ) === JSON.stringify( s2 ), `lightning on a schedule: ${ s1.length } strikes in 0.05 h, the same every time` );
+	strikesBetween( f, mid, mid + 3, ( s ) => s1.push( s ), 999 );
+	strikesBetween( f, mid, mid + 3, ( s ) => s2.push( s ), 999 );
+	ok( s1.length > 0 && JSON.stringify( s1 ) === JSON.stringify( s2 ), `lightning on a schedule: ${ s1.length } strikes in 3 h, the same every time` );
+	// (the wave 21 play-test: the sea strobed. A slot is seconds of real time apart and most slots are quiet)
+	ok( FRONT.strikeStep * 100 >= 5 && s1.length <= 3 / FRONT.strikeStep * 0.5, `strike slots ${ ( FRONT.strikeStep * 100 ).toFixed( 0 ) } s apart at the 40-minute day, ${ s1.length } strikes in ${ Math.round( 3 / FRONT.strikeStep ) } slots` );
 	ok( s1.every( ( s ) => { const q = influence( f, s.x, s.z, s.at ); return q.depth > 0 && q.depth < FRONT.width; } ), 'every strike falls inside the band' );
 	const sp = [];
 	for ( let k = 2; k < 400 && sp.length < 1; k ++ ) { const g = frontAt( k * FRONT.every + 4 ); if ( g && g.spout ) for ( let t = g.t0; t < g.t1; t += 0.02 ) { const w = spoutAt( g, t ); if ( w ) { sp.push( [ g, w, t ] ); break; } } }
@@ -458,6 +460,19 @@ section( '6. fronts: deterministic, moving, bounded gusts, lightning timing, for
 	const th = W.w.strike( 1.715 );
 	ok( Math.abs( th.delay - 5 ) < 1e-9, 'the thunder: 1.715 km away, 5 s after the flash (343 m/s)' );
 	ok( /squall|front|fronts/.test( W.w.forecastText() ), `the forecast at the helm: "${ W.w.forecastText() }"` );
+	// the front's lightning on the screen (wave 21 play-test: it strobed the whole sea several times a second): only under
+	// the band, only a strike near the player, never two flashes within seconds; ahead of the band the sky stays dark
+	const flashes = [];
+	const U = mk( at + 0.25 );
+	U.features.on( 'lightningStrike', ( e ) => flashes.push( { ...e, t: U.w._age } ) );
+	for ( let i = 0; i < 300; i ++ ) { U.app.settings.timeOfDay = ( at + 0.25 + i * 0.01 ) % 24; U.w.update( 0.25 ); }
+	const gaps = flashes.slice( 1 ).map( ( s, i ) => s.t - flashes[ i ].t );
+	ok( flashes.length >= 1 && flashes.length <= 15 && flashes.every( ( s ) => s.distanceKm <= 2.5 ) && gaps.every( ( g ) => g >= 8 - 1e-6 ), `under the band: ${ flashes.length } flashes in 3 island hours, all within 2.5 km, ${ gaps.length ? Math.min( ...gaps ).toFixed( 1 ) : '-' } s apart at least` );
+	const ahead = [];
+	const V = mk( at - 2 );
+	V.features.on( 'lightningStrike', ( e ) => ahead.push( e ) );
+	for ( let i = 0; i < 50; i ++ ) { V.app.settings.timeOfDay = ( at - 2 + i * 0.01 ) % 24; V.w.update( 0.25 ); }
+	ok( V.w.front && V.w.front.id === f.id && ahead.length === 0 && V.w.strikes === 0, `ahead of the band (the edge ${ Math.round( - V.w.local.depth ) } m off): no flash on the screen` );
 	// two clients on one universe clock
 	const clock = { timeOfDay: at % 24, at: 1_700_000_000_000, timeSpeed: 0.01 };
 	const day = Math.floor( at / 24 );

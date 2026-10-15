@@ -56,6 +56,9 @@ import { FISH } from '../../game/FishTable.js';
 
 const clamp = ( v, a, b ) => ( v < a ? a : v > b ? b : v );
 const FLASH_GAIN = 2.2; // exposure x(1 + 2.2) at the peak of a flash
+// a front's strikes (_frontStrikes): glow in the cloud bank within `glow` m, the screen flashes within `near` m under the band,
+// never two screen flashes closer than `gap` s
+const FLASH = { glow: 6000, near: 2500, gap: 8 };
 const MANUAL_SECONDS = 25; // an owner's pick takes effect faster than the scheduled weather
 const MANUAL_INTENSITY = { clear: 0.8, breezy: 0.5, overcast: 0.7, rain: 0.6, storm: 0.9, fog: 0.8 };
 const UP = { x: 0, y: 1, z: 0 };
@@ -563,9 +566,13 @@ export class Weather {
 		strikesBetween( f, last, A, ( s ) => {
 
 			const d = Math.hypot( s.x - cam.x, s.z - cam.z );
-			if ( d > 15000 ) return;
-			this._flashEv = { amount: Math.max( 0.25, 1 - d / 15000 ), x: s.x, z: s.z };
-			if ( d > 9000 ) return;
+			// a faint glow in the cloud bank for a strike a few km off; the screen itself flashes only for one close by, when
+			// the storm is over the player (the band's rain here), and not while the storm's own lightning (_lightningTick)
+			// already runs its schedule: lightning is rare and near, never a strobe over a clear sea
+			if ( d > FLASH.glow ) return;
+			this._flashEv = { amount: Math.max( 0.15, 0.6 * ( 1 - d / FLASH.glow ) ), x: s.x, z: s.z };
+			if ( d > FLASH.near || this.cur.danger > 0.45 || this._frontK < 0.2 || this._age - ( this._lastFlashAt ?? - 1e9 ) < FLASH.gap ) return;
+			this._lastFlashAt = this._age;
 			const r = this.strike( Math.max( 0.1, d / 1000 ) );
 			this._emit( 'lightningStrike', { x: Math.round( s.x ), z: Math.round( s.z ), distanceKm: r.distanceKm, delay: r.delay } );
 

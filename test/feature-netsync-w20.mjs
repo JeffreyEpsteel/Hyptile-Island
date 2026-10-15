@@ -557,9 +557,10 @@ async function weatherCheck( base ) {
 		// the lightning is a function of the hour (Fronts.strikesBetween): the next front's, on both clients' hours
 		let h = hA, f = null;
 		for ( ; h < hA + 200 && ! f; h += 0.5 ) f = frontAt( h );
-		const strikes = ( H0 ) => { const o = []; strikesBetween( frontAt( H0 ), H0 - 0.05, H0, ( s ) => o.push( `${ Math.round( s.x ) },${ Math.round( s.z ) }` ), 99 ); return o.join( ' ' ); };
+		const strikes = ( H0 ) => { const o = []; strikesBetween( frontAt( H0 ), H0 - 2, H0, ( s ) => o.push( `${ Math.round( s.x ) },${ Math.round( s.z ) }` ), 99 ); return o.join( ' ' ); };
 		const off = hB - hA;
-		ok( f && strikes( h ) && strikes( h ) === strikes( h + off ), `front ${ f && f.id }'s lightning falls in the same places for both (${ strikes( h ).split( ' ' ).length } strikes in 3 minutes)` );
+		h += 2; // (two island hours into the crossing: the slots before the front's start are quiet)
+		ok( f && strikes( h ) && strikes( h ) === strikes( h + off ), `front ${ f && f.id }'s lightning falls in the same places for both (${ strikes( h ).split( ' ' ).length } strikes in 2 island hours)` );
 		A.app.disconnect();
 		B.app.disconnect();
 		await run( [ B ], 0.2 );

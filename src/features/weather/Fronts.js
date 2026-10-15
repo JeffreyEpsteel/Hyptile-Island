@@ -34,8 +34,10 @@ export const FRONT = {
 	center: { x: 700, z: 150 },
 	wobble: 170, // m: how ragged the line is
 	maxGust: 13, // m/s
-	strikeStep: 0.0012, // island hours per lightning slot (~7 s of real time at the 40-minute day)
-	strikeP: 0.5, // chance per slot, times the front's strength
+	// (an island hour is 100 s of real time at the 40-minute day: 0.1 h is a slot every 10 s. It was 0.0012 h, a slot every
+	// 0.12 s, which strobed the whole sea with the front's lightning several times a second: the wave 21 play-test)
+	strikeStep: 0.1, // island hours per lightning slot (10 s of real time at the 40-minute day)
+	strikeP: 0.35, // chance per slot, times the front's strength: a strike somewhere along the line every ~30 - 50 s
 	spoutChance: 0.12,
 	spoutLife: 0.5, // island hours
 };
