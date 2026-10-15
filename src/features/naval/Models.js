@@ -38,6 +38,8 @@ export { MODEL_YAW, centreOnHull, shipMaterials, SAIL_BRACE };
 
 // metres from the camera where a ship drops to LOD 1 / LOD 2 (phones: nearer)
 export const LOD_DIST = [ 70, 190 ];
+// the meshes MastFall takes with a mast (its MAST_MESH, kept here to leave MastFall out of the model loader's imports)
+const MAST_PART = /spar|sail|canvas|rigging|mast/i;
 export const LOD_DIST_PHONE = [ 38, 110 ];
 const LOD_MARGIN = 0.08;
 
@@ -210,10 +212,25 @@ export class ShipVisual {
 
 		}
 
+		// A material the level has nothing of (its file holds a 2 mm stand-in triangle) is not drawn at all: the mesh hides
+		// (lodHidden) and comes back with a level that has it, unless its mast went over the side meanwhile (MastFall hid
+		// the other spars: they stay hidden together)
+		const mastDown = this.meshes.some( ( m ) => MAST_PART.test( m.name ) && ! m.visible && ! m.userData.lodHidden );
 		for ( const m of this.meshes ) {
 
 			const g = level === 0 ? m.userData.geo0 : geos.get( m.name );
-			if ( g ) m.geometry = g;
+			if ( ! g ) continue;
+			m.geometry = g;
+			if ( g.userData && g.userData.lodStandIn ) {
+
+				if ( m.visible ) { m.visible = false; m.userData.lodHidden = true; }
+
+			} else if ( m.userData.lodHidden ) {
+
+				m.userData.lodHidden = false;
+				m.visible = ! ( mastDown && MAST_PART.test( m.name ) );
+
+			}
 
 		}
 
@@ -327,7 +344,15 @@ export class ModelSet {
 			if ( this.disposed ) { glb.dispose(); return null; }
 			centreOnHull( glb );
 			const geos = new Map();
-			for ( const m of glb.meshes ) if ( ! geos.has( m.name ) ) geos.set( m.name, m.geometry );
+			for ( const m of glb.meshes ) {
+
+				if ( geos.has( m.name ) ) continue;
+				const g = m.geometry;
+				// (the builder's stand-in for a material this level does not draw: one triangle)
+				if ( ( g.index ? g.index.count : g.attributes.position.count ) <= 3 ) { g.userData = g.userData || {}; g.userData.lodStandIn = true; }
+				geos.set( m.name, g );
+
+			}
 			// (only the geometry is kept: the full model's materials draw it)
 			for ( const m of glb.materials ) if ( m.dispose ) m.dispose();
 			t.geos = geos;

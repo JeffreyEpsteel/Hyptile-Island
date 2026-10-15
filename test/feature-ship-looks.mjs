@@ -341,6 +341,8 @@ if ( ! NO_GPU ) {
 		v.apply( s, s.finalPose( {} ) );
 		const tri = v.meshes.reduce( ( a, m ) => a + ( m.geometry.index ? m.geometry.index.count : 0 ) / 3, 0 );
 		ok( v.lod === 2 && tri < 2200 && v.meshes.every( ( m ) => m.geometry !== m.userData.geo0 ) && ( ! v.wheelPivot || ! v.wheelPivot.visible ) && v.meshes.every( ( m ) => ! m.castShadow ), `${ k }: at 400 m the far silhouette (${ tri } triangles), no wheel, no shadow` );
+		const hidden = v.meshes.filter( ( m ) => ! m.visible );
+		ok( hidden.every( ( m ) => m.userData.lodHidden && m.geometry.userData.lodStandIn ) && v.meshes.filter( ( m ) => m.visible ).every( ( m ) => ! ( m.geometry.userData && m.geometry.userData.lodStandIn ) ), `${ k }: the materials LOD 2 has nothing of are not drawn (${ hidden.length } of ${ v.meshes.length } meshes)` );
 		const s1 = ship( k, 120 );
 		v.apply( s1, s1.finalPose( {} ) );
 		await set._lodTemplate( k, 1 ).promise;
@@ -348,7 +350,22 @@ if ( ! NO_GPU ) {
 		ok( v.lod === 1, `${ k }: at 120 m LOD 1` );
 		const s0 = ship( k, 12 );
 		v.apply( s0, s0.finalPose( {} ) );
-		ok( v.lod === 0 && v.meshes.every( ( m ) => m.geometry === m.userData.geo0 ) && ( ! v.wheelPivot || v.wheelPivot.visible ), `${ k }: back to full detail at 12 m, the wheel again` );
+		ok( v.lod === 0 && v.meshes.every( ( m ) => m.geometry === m.userData.geo0 && m.visible ) && ( ! v.wheelPivot || v.wheelPivot.visible ), `${ k }: back to full detail at 12 m, every mesh drawn, the wheel again` );
+
+	}
+
+	// a mast shot away at a distance stays down when the ship comes near (the LOD swap leaves MastFall's hiding alone)
+	{
+
+		const { hideMast } = await import( '../src/features/naval/MastFall.js' );
+		const v = vis.brigantine, far = ship( 'brigantine', 400 ), near = ship( 'brigantine', 12 );
+		v.apply( far, far.finalPose( {} ) );
+		const gone = hideMast( v.group );
+		v.apply( near, near.finalPose( {} ) );
+		const back = v.meshes.filter( ( m ) => /spar|sail|canvas|rigging|mast/i.test( m.name ) && m.visible );
+		ok( v.lod === 0 && gone.length >= 2 && back.length === 0, `a mast shot away at LOD 2 stays down at full detail (${ gone.length } hidden, ${ back.length } back)` );
+		for ( const m of v.meshes ) { m.visible = true; m.userData.lodHidden = false; }
+
 
 	}
 

@@ -247,6 +247,8 @@ for ( const id of only ) {
 
 				ms.sort( ( x, y ) => x - y );
 				console.log( `  fleet ${ t } frame ${ ms[ 30 ].toFixed( 2 ) } ms (median of 60)` );
+				const st = app.engine && app.engine.meshRenderer && app.engine.meshRenderer.stats;
+				if ( st ) console.log( `  fleet ${ t } draws ${ st.draws }, triangles ${ Math.round( st.triangles ) } (every pass of the last frame)` );
 
 			}
 
