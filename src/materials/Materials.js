@@ -24,7 +24,24 @@ const SIDES = { 0: 'front', 1: 'back', 2: 'double', front: 'front', back: 'back'
 //  - the splash zone: surfaces in the last half metre above the sea (piles, hull sides, quay stones, rocks)
 //    darker and glossier, with a ragged upper edge, fading out under water (the water's own absorption takes
 //    over there)
+//  - wave 24D: rain (frame.wetness, materials/Wetness.js): surfaces open to the sky darken by their porosity (rough
+//    stone, wood, soil, cloth: water fills the pores) and go glossy; flat ground holds sheets of water in patches.
+//    Every tier (a few ALU; the patches need the detail noise: not on phones)
 const SURFACE_DETAIL = /* wgsl */`
+	if ( frame.wetness > 0.001 ) {
+		let up = smoothstep( -0.2, 0.75, s.normal.y );
+		let wR = frame.wetness * mix( 0.35, 1.0, up ) * ( 1.0 - s.metalness );
+		let porous = smoothstep( 0.3, 0.9, s.roughness );
+		s.albedo *= 1.0 - 0.38 * wR * porous;
+		s.roughness = mix( s.roughness, min( s.roughness, 0.3 ), wR * 0.8 ); // (bumped rock at 0.18 sparkled)
+		s.specularIntensity = max( s.specularIntensity, mix( s.specularIntensity, 1.0, wR ) );
+#if MATERIAL_DETAIL
+		// standing water on flat ground (the hollows of a slow noise): a mirror-smooth film
+		let pud = smoothstep( 0.15, 0.4, perlin3( vec3f( in.P.x * 0.35, 0.0, in.P.z * 0.35 ) ) ) * smoothstep( 0.92, 0.98, s.normal.y ) * smoothstep( 0.5, 1.0, frame.wetness );
+		s.roughness = mix( s.roughness, 0.03, pud );
+		s.normal = normalize( mix( s.normal, vec3f( 0.0, 1.0, 0.0 ), pud * 0.85 ) );
+#endif
+	}
 #if MATERIAL_DETAIL
 	{
 		let dn = perlin3( in.P * 2.7 ) * 0.6 + perlin3( in.P * 9.1 + vec3f( 3.1, 7.3, 1.7 ) ) * 0.4;

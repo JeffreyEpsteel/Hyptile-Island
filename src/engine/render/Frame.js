@@ -55,7 +55,8 @@ const FRAME_FIELDS = {
 	windDir: [ 'vec2f', new Vector2( 0.35, 0.94 ).normalize() ],
 	// 1 when the frame renders with reversed depth (always, except shadow maps)
 	reversedDepth: [ 'f32', 1 ],
-	pad0: [ 'f32', 0 ],
+	// how wet the world's surfaces are from rain, 0..1 (materials/Wetness.js eases it from the weather's rain)
+	wetness: [ 'f32', 0 ],
 	// free slots for experiments / debug views
 	debug: [ 'vec4f', new Vector4() ],
 };
@@ -103,6 +104,7 @@ export const G = {
 	windSpeed: F.windSpeed,
 	night: F.night,
 	envIntensity: F.envIntensity,
+	wetness: F.wetness,
 };
 
 export const GRAVITY = 9.81;
