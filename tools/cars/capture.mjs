@@ -147,7 +147,11 @@ for ( const id of only ) {
 		const rec = cars._record( 'sports', { x: v.at.x, y, z: v.at.z, yaw: Math.PI, state: 'idle', color: 0xd23a10 } );
 		cars.records.push( rec );
 		cars.enter( rec );
-		cars.opts.input = () => ( { throttle: 0.55, brake: 0, steer: 0, handbrake: false } );
+		// --keys: the throttle through the game's own key path (app.input -> Cars._input: what the player's W does; the
+		// wave 21 play-test found that path dead while a feature answered isOpen()), else the headless input hook
+		if ( arg( 'keys' ) !== null ) { cars.opts.input = null; app.input.keys.add( 'KeyW' ); }
+		else cars.opts.input = () => ( { throttle: 0.55, brake: 0, steer: 0, handbrake: false } );
+		v.start = { x: rec.x, z: rec.z, rec };
 
 	} else {
 
@@ -178,6 +182,13 @@ for ( const id of only ) {
 	const file = join( out, `${ profile }-${ id }.png` );
 	await canvasPNG( GPU, file );
 	console.log( `  ${ id }: ${ cars.traffic.cars.length } moving, ${ cars.records.length } other cars, ${ cars.render ? cars.render.drawn : 0 } drawn in ${ cars.render ? cars.render.draws() : 0 } draws -> ${ file }` );
+	if ( v.start ) {
+
+		const r = v.start.rec;
+		console.log( `  driven ${ Math.hypot( r.x - v.start.x, r.z - v.start.z ).toFixed( 1 ) } m in 4 s, ${ ( r.body ? r.body.speed : 0 ).toFixed( 1 ) } m/s now (${ arg( 'keys' ) !== null ? 'W held through app.input' : 'the input hook' }), panelOpen ${ app.features.panelOpen() }` );
+		app.input.keys.delete( 'KeyW' );
+
+	}
 
 }
 
