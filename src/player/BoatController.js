@@ -34,7 +34,7 @@ export function isSmallHull( mass, length ) {
 // new grounding faster than `touch` is an impact too ('ground', speed across the slope weighted by its steepness).
 export const CONTACT = {
 	restitution: 0.3, hard: 0.08, hardAt: 6, // bounce at a nudge -> at hardAt m/s and over
-	friction: 0.35, ground: 0.7,
+	friction: 0.35, ground: 1.0, // (the keel ploughs into the sand as well as sliding on it)
 	slop: 0.02, beta: 0.3, deep: 0.12, // m left, of the rest pushed out a step, past this the excess at once
 	touch: 0.35, // m/s: slower is a rest (moored against the fenders), not a blow
 	gather: 0.25, margin: 6, // s between gathering the colliders within her reach (+ margin m)
