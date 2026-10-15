@@ -25,7 +25,7 @@ import { Naval } from '../src/features/naval/Naval.js';
 import { Navy } from '../src/features/navy/Navy.js';
 import { BOUNTY, fineFor } from '../src/features/navy/NavyData.js';
 import { Weather } from '../src/features/weather/index.js';
-import { frontAt, strikesBetween } from '../src/features/weather/Fronts.js';
+import { frontAt, strikesBetween, FRONT } from '../src/features/weather/Fronts.js';
 import { crewMembers, crewString } from '../src/features/netsync/CrewLink.js';
 import { NAVY_SYNC } from '../src/features/netsync/NavyLink.js';
 import { Universe } from '../server/universe.mjs';
@@ -560,7 +560,12 @@ async function weatherCheck( base ) {
 		const strikes = ( H0 ) => { const o = []; strikesBetween( frontAt( H0 ), H0 - 2, H0, ( s ) => o.push( `${ Math.round( s.x ) },${ Math.round( s.z ) }` ), 99 ); return o.join( ' ' ); };
 		const off = hB - hA;
 		h += 2; // (two island hours into the crossing: the slots before the front's start are quiet)
-		ok( f && strikes( h ) && strikes( h ) === strikes( h + off ), `front ${ f && f.id }'s lightning falls in the same places for both (${ strikes( h ).split( ' ' ).length } strikes in 2 island hours)` );
+		// both clients' windows end on the same lightning slot (a window edge mid-slot would cut a strike from one of them)
+		const snap = ( H ) => Math.floor( H / FRONT.strikeStep ) * FRONT.strikeStep;
+		h = snap( h ) + FRONT.strikeStep / 2; // (mid-slot: the clocks' sub-second offset never crosses a slot edge)
+		// lightning is rare since the strobe fix (fe2a36c): walk on to a window of the crossing that has some
+		for ( let k = 0; k < 40 && f && ! strikes( snap( h ) ); k ++ ) h += 1;
+		ok( f && strikes( snap( h ) ) && strikes( snap( h ) ) === strikes( snap( h + off ) ), `front ${ f && f.id }'s lightning falls in the same places for both (${ strikes( h ).split( ' ' ).length } strikes in 2 island hours)` );
 		A.app.disconnect();
 		B.app.disconnect();
 		await run( [ B ], 0.2 );
