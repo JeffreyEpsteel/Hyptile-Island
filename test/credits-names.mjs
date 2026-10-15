@@ -2,6 +2,7 @@
 // (CREDITS.md at the root and the in-game panel src/ui/Credits.js).
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { NPCS, VENDOR_NPC } from '../src/features/story/StoryData.js';
 import { CREDIT_SECTIONS, ART_CREDIT, creditsHTML, Credits } from '../src/ui/Credits.js';
 
@@ -11,7 +12,7 @@ const ok = ( c, msg ) => {
 	if ( ! c ) { fails ++; console.log( 'FAIL', msg ); } else console.log( 'ok  ', msg );
 
 };
-const ROOT = new URL( '..', import.meta.url ).pathname.replace( /^\/([A-Za-z]:)/, '$1' );
+const ROOT = fileURLToPath( new URL( '..', import.meta.url ) );
 const read = ( f ) => readFileSync( join( ROOT, f ), 'utf8' );
 
 // ---- the old names are gone from everything a player sees (src, the page, the readme); "Tar Joe" is a raider

@@ -1,7 +1,6 @@
 // Plain-node tests of the destructible city (src/features/citywreck, wave 21C) against the stand-in city (StubCity.js: the
-// w21-common.md plan shape and building handles) until 21A's Meridian exists: HP and stages by kind, the towers' rule (no
-// structural damage from anything, never from aircraft, never burn, never collapse, on every path), crashes (low and
-// midrise only), fire spread in dry weather and rain, the crews, repairs over in-game hours, road-blocked events, the
+// shared plan shape and building handles): HP and stages by kind, destructible towers, aircraft impacts,
+// fire spread in dry weather and rain, the crews, repairs over in-game hours, road-blocked events, the
 // collapse queue (two at once), the looks, the save round trip, the host-authoritative stage stream, wanted / mood / shops.
 //   node test/feature-citywreck.mjs
 import { Features } from '../src/features/Features.js';
@@ -60,7 +59,7 @@ section( 'the plan, classes and hit points' );
 	ok( cw.model && m.list.length === stubPlan().buildings.length, `the stub city attaches (${ m.list.length } buildings)` );
 	ok( classOf( { kind: 'tower' } ) === 'tower' && classOf( { kind: 'highrise' } ) === 'high' && classOf( { kind: 'shop' } ) === 'low' && classOf( { kind: 'landmark', h: 30, collapsible: true } ) === 'mid', 'kinds map to classes (tower / high / mid / low)' );
 	ok( classOf( { kind: 'midrise', collapsible: false } ) === 'high', 'a building the plan flags not collapsible never falls (class high)' );
-	ok( ! Number.isFinite( hpOf( { kind: 'tower', w: 30, d: 30 } ) ), 'the towers have no hit points to lose' );
+	ok( Number.isFinite( hpOf( { kind: 'tower', w: 30, d: 30 } ) ), 'the towers have finite structural hit points' );
 	const lo = m.byId.get( 'stub.low.0' ), mid = m.byId.get( 'stub.mid.0' ), hi = m.byId.get( 'stub.high.0' );
 	ok( lo.hp < mid.hp && mid.hp < hi.hp, `HP by kind: lowrise ${ lo.hp.toFixed( 0 ) } < midrise ${ mid.hp.toFixed( 0 ) } < highrise ${ hi.hp.toFixed( 0 ) } kJ` );
 	ok( m.byId.get( 'stub.low.0' ).neighbours.some( ( o ) => o.id === 'stub.low.1' ) && ! m.byId.get( 'stub.low.0' ).neighbours.some( ( o ) => o.id === 'stub.tower.0' ), 'adjacent low buildings are neighbours (the towers are far)' );
@@ -107,45 +106,30 @@ section( 'highrises: breached and burning, never down' );
 
 }
 
-section( 'the twin towers: no structural damage from anything, ever' );
+section( 'the twin towers: structure, fire, collapse and recovery' );
 {
-
-	const { cw, m, city, features, step, of } = rig();
-	const T = m.byId.get( 'stub.tower.0' ), h = city.building( T.id );
-	// aircraft: every crash at the tower, any speed, at the base, the middle, the top
-	for ( const y of [ 3, 120, 290 ] ) for ( const speed of [ 30, 80, 200 ] ) features.emit( 'planeCrashed', { x: T.x - T.hw - 1, y: T.y0 + y, z: T.z, speed, mass: 30000, cause: 'test' } );
-	ok( T.stage === 0 && T.dmg === 0 && T.fire === 0 && T.marks === 0, 'plane crashes into a tower: nothing (no stage, damage, fire or marks)' );
-	ok( m.crash( T.x, T.y0 + 100, T.z, 1e9, 'aircraft' ) === 0, 'Model.crash refuses the tower outright' );
-	// cannon and bombs: marks low on the facade only
-	ball( cw, T.id, 60 );
-	for ( let i = 0; i < 30; i ++ ) features.emit( 'explosion', { x: T.x, y: T.y0 + 2, z: T.z - T.hd - 1, radius: 8, energy: 5e6, by: 'player' } );
-	ok( T.stage === 0 && T.dmg === 0 && T.fire === 0, 'sixty balls and thirty heavy blasts: stage 0, no damage, no fire' );
-	ok( T.marks > 0, `cannon / bombs leave cosmetic marks low down (${ T.marks })` );
-	const marks = T.marks;
-	features.emit( 'cannonballImpact', { x: T.x - T.hw, y: T.y0 + 150, z: T.z, energy: 30000, hit: 'prop', target: T.id, owner: 'player' } );
-	ok( T.marks === marks, 'a ball high on the tower leaves no mark (lower facade only)' );
-	// fire: bottles, ignite, spread, debris, the gutting hook
-	ok( m.ignite( T.id, 1, 'player' ) === false && m.firePool( T.x - T.hw - 0.5, T.y0, T.z, 'player' ) === null && T.fire === 0, 'the towers never burn (ignite and fire pools refused)' );
-	// remote stream and saves cannot set a stage on them
-	m.apply( [ [ T.id, 3, 100, 0 ] ], { remote: true } );
-	ok( T.stage === 0 && T.fire === 0, 'a stage-3 stream entry for a tower is refused' );
-	cw.fromJSON( { v: 1, hours: 0, b: [ [ T.id, 3, 90, 0, 1000, null, null, 0, 2 ] ] } );
-	ok( T.stage === 0 && T.fire === 0, 'a save naming a tower collapsed is refused' );
-	ok( m._setStage( T, 3, {} ) === false && T.stage === 0, 'even the internal stage setter refuses it' );
-	ok( h.stages.length === 0, 'the tower handle was never asked for another stage' );
-	ok( ! of( 'buildingCollapsed' ).some( ( e ) => e.id.startsWith( 'stub.tower' ) ) && ! of( 'cityFire' ).some( ( e ) => e.id.startsWith( 'stub.tower' ) ), 'no collapse or fire events for the towers' );
-	// a whole day of everything around them: the towers stand
-	for ( const b of m.list ) if ( b.cls !== 'tower' ) ball( cw, b.id, 200 );
-	step( 60 );
-	ok( m.list.filter( ( b ) => b.cls === 'tower' ).every( ( b ) => b.stage === 0 && b.dmg === 0 && b.fire === 0 ), 'the city around them in ruins: both towers whole' );
-	// the marks mend
-	cw.reset();
-	ball( cw, T.id, 3 );
-	ok( T.marks > 0, 'marked again' );
-	step( 20, 0.4 ); // 8 in-game hours
-	ok( T.marks === 0, 'the marks mend within hours' );
-	ok( cw.raycastSegment( T.x - 100, T.y0 + 50, T.z, T.x + 100, T.y0 + 50, T.z )?.id === T.id, 'balls still strike the tower (raycast) and stop there' );
-
+ const { cw, m, city, features, of } = rig();
+ const T = m.byId.get( 'stub.tower.0' ), h = city.building( T.id );
+ m.hit( T.id, T.hp * 0.4, { by: 'player', cause: 'cannon' } );
+ ok( T.stage === 1 && T.dmg > 0, 'cannon fire scars a tower' );
+ ok( m.ignite( T.id, 1, 'player' ) && T.fire === 1, 'a tower can burn' );
+ m.hit( T.id, T.hp * 2, { by: 'player', cause: 'blast' } );
+ ok( T.stage === 3 && h.stage === 3 && T.fire === 0, 'explosive damage collapses tower and handle' );
+ ok( of( 'buildingCollapsed' ).some( e => e.id === T.id ), 'tower collapse emits the normal event' );
+ ok( cw.raycastSegment( T.x - 25, T.y0 + 50, T.z, T.x + 25, T.y0 + 50, T.z ) === null, 'upper tower absent from damage collision after collapse' );
+ const saved = cw.toJSON();
+ cw.reset(); cw.fromJSON( saved );
+ ok( T.stage === 3 && h.stage === 3, 'collapsed tower survives a save round trip' );
+ cw.reset();
+ m.apply( [ [ T.id, 2, 70, 0 ] ], { remote: true } );
+ ok( T.stage === 2 && T.fire === 0.7 && h.stage === 2, 'authoritative tower stage and fire replicate' );
+ cw.reset();
+ features.emit( 'planeCrashed', { x: T.x, y: T.y0 + 120, z: T.z, speed: 80, mass: 30000 } );
+ ok( T.dmg > 0, 'aircraft transfers impact energy into tower structure' );
+ cw.reset();
+ m.hit( T.id, T.hp * 2, { by: 'player', cause: 'blast' } );
+ m.update( 0, { hours: 2 } ); m.update( 0, { hours: 9 } ); m.update( 0, { hours: 49 } );
+ ok( T.stage === 0 && T.dmg === 0 && h.stage === 0, 'clearance and rebuilding restore a tower' );
 }
 
 section( 'plane crashes: low and midrise only' );
@@ -275,7 +259,7 @@ section( 'the looks' );
 	ok( looks( lo, { stage: 3, phone: true } ).length < n3, 'phones: a smaller heap' );
 	const hiDecals = looks( hi, { stage: 2 } );
 	ok( hiDecals.filter( ( it ) => it.s[ 0 ] > 2.5 && it.s[ 2 ] === 0.5 ).every( ( it ) => it.p[ 1 ] > hi.y0 + hi.top * 0.5 ), 'a highrise is breached on its upper floors' );
-	ok( looks( T, { stage: 3, marks: 0 } ).length === 0 && looks( T, { marks: 4 } ).every( ( it ) => it.p[ 1 ] < T.y0 + 40 ), 'a tower shows only its marks, low on the facade' );
+	ok( looks( T, { stage: 3, marks: 0 } ).length > 0 && looks( T, { stage: 2 } ).length > 0, 'a tower shows breaches and a collapsed rubble heap' );
 	const scaf = looks( lo, { stage: 2, repair: { phase: 'build' }, progress: 0.5 } ).length;
 	ok( scaf > n2, `scaffolding during repair (${ scaf } boxes)` );
 	const c = new Collapse( lo, 30 );
@@ -303,7 +287,7 @@ section( 'save round trip: the damaged city restored' );
 	const same = a.m.list.every( ( x ) => { const y = b.m.byId.get( x.id ); return y.stage === x.stage && Math.abs( y.fire - x.fire ) < 0.011 && y.blocked.join() === x.blocked.join(); } );
 	ok( same, 'every stage, fire and blocked road comes back' );
 	ok( b.city.building( 'stub.low.0' ).stage === 3 && b.city.building( 'stub.mid.1' ).stage === a.m.byId.get( 'stub.mid.1' ).stage, 'the handles are set to the saved stages' );
-	ok( b.m.byId.get( 'stub.tower.1' ).stage === 0 && b.m.byId.get( 'stub.tower.1' ).marks === a.m.byId.get( 'stub.tower.1' ).marks, 'the tower: whole, with its marks' );
+	ok( b.m.byId.get( 'stub.tower.1' ).stage === 0 && b.m.byId.get( 'stub.tower.1' ).marks === a.m.byId.get( 'stub.tower.1' ).marks, 'light tower damage round-trips' );
 	ok( b.cw.wanted() === a.cw.wanted(), `the wanted level too (${ b.cw.wanted() })` );
 	ok( ! b.of( 'buildingCollapsed' ).some( ( e ) => ! e.replay ), 'a load replays no collapse' );
 	// a load before the city exists waits for it
@@ -355,9 +339,9 @@ section( 'multiplayer: the host owns the stages' );
 	link.guest = late;
 	late.step( 0.2 );
 	ok( late.m.byId.get( 'stub.low.0' ).stage === 3 && late.m.byId.get( 'stub.shop.1' ).stage === H.m.byId.get( 'stub.shop.1' ).stage, 'a late joiner gets the damaged city from the host' );
-	// a guest cannot raise a tower's stage through the stream
+	// A host stream includes tower destruction.
 	late.m.apply( [ [ 'stub.tower.0', 3, 0, 0 ] ], { remote: true } );
-	ok( late.m.byId.get( 'stub.tower.0' ).stage === 0, 'the stream cannot touch a tower' );
+	ok( late.m.byId.get( 'stub.tower.0' ).stage === 3, 'the host stream synchronizes a collapsed tower' );
 	const bytes = JSON.stringify( H.m.snapshot( false ) ).length;
 	ok( bytes < 2048, `a damaged-street snapshot fits one event (${ bytes } chars)` );
 
@@ -402,7 +386,7 @@ section( 'the real Meridian plan (21A\'s CityPlan.js, when present)' );
 		const plan = CP.cityPlan();
 		const m = new CityModel( plan, { seed: 3 } );
 		const towers = m.list.filter( ( b ) => b.cls === 'tower' );
-		ok( towers.length === 2 && towers.every( ( b ) => b.p.protected === true || b.kind === 'tower' ), `the plan's two towers are recognised (${ towers.map( ( b ) => b.id ).join( ', ' ) })` );
+		ok( towers.length === 2 && towers.every( ( b ) => ! b.p.protected && b.kind === 'tower' ), `the plan's two towers are recognised (${ towers.map( ( b ) => b.id ).join( ', ' ) })` );
 		ok( m.list.filter( ( b ) => b.kind === 'highrise' ).every( ( b ) => b.cls === 'high' ), 'every highrise is class high (never falls)' );
 		ok( m.list.every( ( b ) => Math.abs( b.y0 - ( Number.isFinite( b.p.y ) ? b.p.y : 0 ) ) < 1e-9 ), 'bases on the plan\'s pad heights' );
 		let t0 = performance.now();
@@ -419,7 +403,7 @@ section( 'the real Meridian plan (21A\'s CityPlan.js, when present)' );
 		const lows = m.list.filter( ( b ) => b.cls === 'low' || b.cls === 'mid' );
 		ok( lows.every( ( b ) => b.stage === 3 ), `the barrage flattens every low and midrise (${ lows.length })` );
 		ok( m.list.filter( ( b ) => b.cls === 'high' ).every( ( b ) => b.stage === 2 ), 'the highrises stand gutted' );
-		ok( towers.every( ( b ) => b.stage === 0 && b.dmg === 0 && b.fire === 0 ), 'the Twins stand untouched' );
+		ok( towers.every( ( b ) => b.stage >= 1 && b.dmg > 0 ), 'the barrage damages both Twins' );
 		const edges = new Set( plan.roads.edges.map( ( e ) => e.id ) );
 		const blocked = m.blockedEdges();
 		ok( blocked.size > 20 && [ ...blocked ].every( ( id ) => edges.has( id ) ), `roadBlocked names real edges (${ blocked.size } of ${ edges.size })` );

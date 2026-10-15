@@ -1,6 +1,6 @@
 import { SaveVault, inspectSlots, unwrapSave, wrapExport, validateSave } from '../game/SaveVault.js';
 import { SLOTS } from '../game/GameState.js';
-import { MODES, MODE_IDS, modeLabel, isMode } from '../game/GameMode.js';
+import { MODES, MODE_IDS, modeLabel, isMode, isOnlineSession } from '../game/GameMode.js';
 import { CHARACTERS } from '../game/Characters.js';
 import { BOATS } from '../game/Boats.js';
 import { levelFor } from '../game/Progression.js';
@@ -127,7 +127,7 @@ export class SaveManager {
 	get readOnly() {
 
 		const st = this.state;
-		return !! ( st && st.storage && st.storage.universe );
+		return isOnlineSession( this.app ) || !! ( st && st.storage && st.storage.universe );
 
 	}
 
@@ -361,8 +361,8 @@ export class SaveManager {
 
 	_refuse() {
 
-		this._note( 'Playing on a universe: the save is kept by the server, local slots are read-only here (export still works).', true );
-		return { ok: false, errors: [ { path: '', msg: 'read-only while playing on the universe' } ], warnings: [] };
+		this._note( 'Local saves are read-only during multiplayer. Leave the online session before importing, restoring or changing slots.', true );
+		return { ok: false, errors: [ { path: '', msg: 'read-only during multiplayer' } ], warnings: [] };
 
 	}
 

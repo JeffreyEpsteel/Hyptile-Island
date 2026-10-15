@@ -36,6 +36,7 @@ const PAN_KEYS = { KeyW: [ 0, 1 ], ArrowUp: [ 0, 1 ], KeyS: [ 0, - 1 ], ArrowDow
 const FOG_PX = 4; // fog canvas px per cell
 const FOG_COLOR = 'rgba(8, 24, 38, 0.93)';
 const REGION_R = 180; // m: a bounty's last known region
+const HELICOPTER_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 10c0-4 1-6 3-6s3 2 3 6v3H9zM12 13v8M8 20h8M3 9h18M8 14v3M16 14v3"/><circle cx="12" cy="9" r="1.4"/></svg>';
 
 // optional localisation (src/i18n/index.js, if another worker added it): t( key, fallback )
 let i18n = null;
@@ -71,6 +72,7 @@ const h = ( tag, cls, html ) => {
 
 };
 
+const CHART_URL = `${ import.meta.env?.BASE_URL || '/' }ui/codex-nautical-chart.png`;
 const CSS = /* css */`
 .wm-root { position: absolute; inset: 0; z-index: 45; display: none; pointer-events: auto; background: rgba(3, 9, 15, 0.5);
 	-webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px); opacity: 0; transition: opacity var(--tw-med) var(--tw-ease); }
@@ -82,6 +84,20 @@ const CSS = /* css */`
 .wm-view { position: relative; width: 100%; height: 100%; border-radius: calc(21 * var(--tw-u)); overflow: hidden; background: #0b2c48;
 	box-shadow: inset 0 0 0 1px rgba(255,255,255,0.08), inset 0 0 28px rgba(0,0,0,0.45); cursor: crosshair; touch-action: none; user-select: none; }
 .wm-view.is-drag { cursor: grabbing; }
+.wm-art { position:absolute; inset:0; pointer-events:none; background:url('${ CHART_URL }') center / cover; opacity:.18; mix-blend-mode:soft-light; filter:saturate(.4); }
+.wm-grid { position:absolute; inset:0; pointer-events:none; background-image:linear-gradient(#d9e5c01a 1px,transparent 1px),linear-gradient(90deg,#d9e5c01a 1px,transparent 1px); }
+.wm-bearing { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; overflow:hidden; }
+.wm-bearing line { stroke:#f2cc7d; stroke-width:2; stroke-dasharray:7 7; opacity:.8; }
+.wm-root .gm-mk.is-tracked { z-index:5; }.wm-root .gm-mk.is-tracked > i { background:#f4cf83; box-shadow:0 0 0 3px #142a30,0 0 0 5px #f4cf8399,0 0 26px #f4cf8366; }
+.wm-root .gm-mk.is-tracked > em { color:#fff1c6; background:#0a202ee6; padding:5px 8px; border:1px solid #d6b57670; border-radius:5px; max-width:260px; overflow:hidden; text-overflow:ellipsis; }
+.wm-controls { position:absolute; right:16px; top:75px; display:flex; flex-direction:column; gap:6px; }
+.wm-controls button { cursor:pointer; min-width:44px; min-height:44px; border:1px solid #b6c7ae60; border-radius:7px; color:#f4e8cb; background:#102933ed; font:500 12px var(--tw-font); padding:8px; box-shadow:0 2px 8px #0004; }
+.wm-controls button:hover { background:#305353; }.wm-controls button:focus-visible { outline:2px solid #f4cf83; outline-offset:2px; }
+.wm-target { position:absolute; top:76px; left:16px; display:flex; flex-direction:column; gap:6px; max-width:min(330px,calc(100% - 130px)); padding:12px 15px; border-left:3px solid #e9c480; border-radius:4px; background:#0a202eea; box-shadow:0 8px 24px #0005; color:#e2e9dd; pointer-events:none; }
+.wm-target[hidden] { display:none; }.wm-target small { color:#d4b77c; letter-spacing:.12em; font-size:9px; }.wm-target b { font-size:14px; font-weight:500; }.wm-target span { font:11px var(--tw-mono); color:#afc8c9; }
+.wm-view { border:1px solid #bac7ab50; }.wm-head { text-shadow:0 1px 3px #000; }.wm-compass { color:#f0d4a1; }
+@media(max-width:600px) { .wm-target { top:68px; max-width:calc(100% - 115px); padding:8px; }.wm-target b { font-size:12px; }.wm-controls { right:10px; top:68px; }.wm-root .gm-mk.is-tracked > em { max-width:165px; } }
+@media(max-height:520px) { .wm-controls { top:62px; right:10px; display:grid; grid-template-columns:repeat(2,minmax(44px,auto)); gap:5px; }.wm-target { top:62px; max-width:calc(100% - 200px); } }
 .wm-view canvas { position: absolute; left: 0; top: 0; transform-origin: 0 0; pointer-events: none; image-rendering: auto; }
 .wm-vig { position: absolute; inset: 0; pointer-events: none; background: radial-gradient(ellipse at 50% 50%, transparent 62%, rgba(4, 12, 20, 0.5) 100%); }
 .wm-marks { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
@@ -90,6 +106,8 @@ const CSS = /* css */`
 .wm-root .gm-mk.is-edge > em { display: none; }
 .wm-root .gm-mk.is-yard > i, .wm-lg .is-yard { background: #f2efe6; }
 .wm-root .gm-mk.is-plane > i, .wm-lg .is-plane { background: #dfe9ee; }
+.wm-root .gm-mk.is-helicopter > i, .wm-lg .is-helicopter { background: #f2c487; }
+.wm-root .gm-mk.is-me.is-helicopter > i { background:#f2c487; color:#132831; border-radius:50%; box-shadow:0 0 0 2px #eaf2d9; }
 .wm-root .gm-mk.is-trade > i, .wm-lg .is-trade { background: #a8d68a; }
 .wm-root .gm-mk.is-board > i, .wm-lg .is-board { background: #e8dcc0; }
 .wm-root .gm-mk.is-camp > i, .wm-lg .is-camp { background: #d98a6a; }
@@ -206,7 +224,11 @@ export class WorldMap {
 
 		this.el = h( 'div', 'wm-root tw-interactive', `<div class="wm-frame tw-glass"><div class="wm-view">
 				<canvas class="wm-terrain"></canvas><canvas class="wm-fog"></canvas><canvas class="wm-sil"></canvas>
+				<div class="wm-art" aria-hidden="true"></div><div class="wm-grid" aria-hidden="true"></div>
+				<svg class="wm-bearing" aria-hidden="true"><line /></svg>
 				<div class="wm-vig"></div><div class="wm-marks"></div><div class="wm-cross"></div>
+				<div class="wm-target" hidden><small>TRACKED QUEST · DIRECT BEARING</small><b></b><span></span></div>
+				<div class="wm-controls" role="group" aria-label="Chart controls"><button type="button" data-map-control="in" aria-label="Zoom in">＋</button><button type="button" data-map-control="out" aria-label="Zoom out">−</button><button type="button" data-map-control="fit">Fit chart</button><button type="button" data-map-control="you">You</button><button type="button" data-map-control="quest">Quest</button><button type="button" data-map-control="clear">Untrack</button><button type="button" data-map-control="journal">Journal</button></div>
 				<div class="wm-head"><b></b><span></span></div>
 				<button type="button" class="wm-close" aria-label="Close">×</button>
 				<div class="wm-compass">${ COMPASS }</div>
@@ -219,6 +241,20 @@ export class WorldMap {
 		this.el.setAttribute( 'aria-modal', 'true' );
 		const q = ( s ) => this.el.querySelector( s );
 		this.viewEl = q( '.wm-view' );
+		this.gridEl = q( '.wm-grid' );
+		this.bearingEl = q( '.wm-bearing line' );
+		this.targetEl = q( '.wm-target' );
+		for ( const b of this.el.querySelectorAll( '[data-map-control]' ) ) b.onclick = () => {
+
+			const action = b.dataset.mapControl;
+			if ( action === 'in' || action === 'out' ) { this.view.zoomAt( action === 'in' ? 1.4 : 1 / 1.4 ); this._zoomed = true; }
+			else if ( action === 'fit' ) this.view.fit();
+			else if ( action === 'you' ) { const p = this._playerPos(); if ( p ) this.view.centerOn( p.x, p.z ); }
+			else if ( action === 'quest' ) { const m = this.feature.markers.get( 'journal-target' ); if ( m ) this.focusOn( m ); }
+			else if ( action === 'clear' ) this.feature.clearTrackedQuest();
+			else if ( action === 'journal' ) { this.close(); this.app.features?.get?.( 'notices' )?.toggleJournal(); }
+
+		};
 		this.terrainCanvas = q( '.wm-terrain' );
 		this.fogCanvas = q( '.wm-fog' );
 		this.silCanvas = q( '.wm-sil' );
@@ -323,7 +359,7 @@ export class WorldMap {
 		this._pinched = false; // two fingers were down: no waypoint until every finger is up
 		this._onDown = ( e ) => {
 
-			if ( e.target.closest && e.target.closest( '.wm-close, .wm-legend-btn' ) ) return;
+			if ( e.target.closest && e.target.closest( '.wm-close, .wm-legend-btn, .wm-controls' ) ) return;
 			if ( e.button !== 0 && e.button !== 2 ) return;
 			e.preventDefault();
 			this._pad.mode = false;
@@ -587,6 +623,17 @@ export class WorldMap {
 	}
 
 	// gesture: closed by a key or a click (the pointer lock can come back), not by Escape
+	focusOn( p ) {
+
+		if ( ! p || ! Number.isFinite( p.x ) || ! Number.isFinite( p.z ) ) return false;
+		this.view.k = Math.min( this.view.kMax, Math.max( this.view.kMin * 2.5, 0.35 ) );
+		this.view.centerOn( p.x, p.z );
+		this._zoomed = true;
+		this._render( 0 );
+		return true;
+
+	}
+
 	close( gesture = false ) {
 
 		if ( ! this.isOpen ) return;
@@ -658,6 +705,7 @@ export class WorldMap {
 		const kinds = new Set( now.map( ( m ) => String( m.kind ).split( ' ' )[ 0 ] ) );
 		const rows = legendRows( { discovered: ( id ) => this.feature.discovered( id ), sandbox: this.feature.sandbox, kinds } )
 			.map( ( r ) => [ r.kind, r.icon === '?' ? '?' : r.icon ? ICON[ r.icon ] || '' : '', t( r.key, r.text ) ] );
+		if ( now.some( ( m ) => m.key === 'helicopter' || m.kind.includes( 'is-helicopter' ) ) ) rows.splice( 3, 0, [ 'helicopter', HELICOPTER_ICON, t( 'worldmap.helicopter', 'Rescue helicopter' ) ] );
 		this.legendBtn.textContent = t( 'worldmap.legend', 'Legend' );
 		this.legendEl.innerHTML = rows.map( ( [ k, icon, text ] ) => `<span class="wm-lg"><i class="is-${ k }">${ icon }</i>${ esc( text ) }</span>` ).join( '' );
 
@@ -829,6 +877,30 @@ export class WorldMap {
 		}
 
 		const W = V.w, H = V.h;
+		if ( this.gridEl ) {
+
+			const step = niceScale( V.k, 160 ).metres * V.k;
+			const origin = V.toScreen( 0, 0, {} );
+			this._setStyle( this.gridEl, 'backgroundSize', `${ step }px ${ step }px` );
+			this._setStyle( this.gridEl, 'backgroundPosition', `${ origin.x % step }px ${ origin.y % step }px` );
+			const target = this.feature.markers.get( 'journal-target' );
+			this.targetEl.hidden = ! target;
+			this.bearingEl.style.display = target ? '' : 'none';
+			if ( target ) {
+
+				const q = V.toScreen( target.x, target.z, {} ), player = this._playerPos();
+				this.targetEl.querySelector( 'b' ).textContent = target.label.replace( /^Tracked: /, '' );
+				this.targetEl.querySelector( 'span' ).textContent = player ? `${ dist( Math.hypot( target.x - player.x, target.z - player.z ) ) } ${ compass( target.x - player.x, target.z - player.z ) } · plan around land` : 'Current objective';
+				if ( player ) {
+
+					const p = V.toScreen( player.x, player.z, {} );
+					for ( const [ name, value ] of Object.entries( { x1: p.x, y1: p.y, x2: q.x, y2: q.y } ) ) this.bearingEl.setAttribute( name, String( value ) );
+
+				} else this.bearingEl.style.display = 'none';
+
+			}
+
+		}
 
 		// held pan keys
 		if ( this._held.size && dt > 0 ) {
@@ -1106,11 +1178,26 @@ export class WorldMap {
 
 		// the seaplane, the boat when the player is not aboard, the other players
 		const sp = feats && feats.get && feats.get( 'seaplane' );
+		if ( F.discovered( 'meridian' ) && sp?.airportMarkers ) for ( const stand of sp.airportMarkers() ) {
+
+			add( stand.id, 'plane', ICON.plane, stand.x, stand.z, {
+				label: `${ stand.name } · ${ stand.available ? 'airport pickup' : 'airport service' }`,
+			} );
+
+		}
 		let pl = null;
 		try { pl = sp && sp.marker ? sp.marker() : null; } catch ( e ) { pl = null; }
 		const afName = sp && typeof sp.af === 'string' && sp.af ? sp.af[ 0 ].toUpperCase() + sp.af.slice( 1 ) : '';
 		if ( pl ) add( 'plane', 'plane', ICON.plane, pl.x, pl.z, { rot: Number.isFinite( pl.heading ) ? yawAngle( pl.heading ) : null, label: afName } );
 		const p = app.player, b = app.boatCtl;
+		const helicopter = feats && feats.get && feats.get( 'helicopter' );
+		let hm = null;
+		try { hm = helicopter?.marker?.() || null; } catch ( e ) { hm = null; }
+		const flyingHelicopter = !! ( helicopter?.piloted || ( p?.mode === 'plane' && p?.vehicle?.kind === 'helicopter' ) );
+		if ( hm && ! flyingHelicopter ) add( 'helicopter', 'helicopter', HELICOPTER_ICON, hm.x, hm.z, {
+			rot: Number.isFinite( hm.heading ) ? yawAngle( hm.heading ) : null,
+			label: ( hm.label || t( 'worldmap.helicopter', 'Rescue helicopter' ) ) + ( helicopter?.flight?.grounded ? ' · ' + t( 'worldmap.parkedHelicopter', 'parked' ) : '' ), edge: true,
+		} );
 		if ( st && st.boat && b && b.position && ! ( p && [ 'boat', 'deck', 'seat' ].includes( p.mode ) ) ) {
 
 			const crew = feats && feats.get && feats.get( 'crew' ), n = crew && crew.posts ? Object.keys( crew.posts ).length : 0;
@@ -1129,7 +1216,7 @@ export class WorldMap {
 		// the waypoint and the player: always on the map (on its edge with an arrow when out of view)
 		const wp = F.waypoint;
 		if ( wp ) add( 'wp', 'wp', ICON.flag, wp.x, wp.z, { edge: true } );
-		const me = this._playerPos();
+		const me = flyingHelicopter && hm && Number.isFinite( hm.x ) && Number.isFinite( hm.z ) ? hm : this._playerPos();
 		if ( me ) {
 
 			const cam = app.camera;
@@ -1142,7 +1229,12 @@ export class WorldMap {
 
 			}
 
-			add( 'me', 'me', ICON.arrow, me.x, me.z, { rot, edge: true } );
+			if ( flyingHelicopter ) {
+
+				if ( hm && Number.isFinite( hm.heading ) ) rot = yawAngle( hm.heading );
+				add( 'me', 'me is-helicopter', HELICOPTER_ICON, me.x, me.z, { rot, edge: true, label: t( 'worldmap.helicopterPilot', 'You · rescue helicopter' ) } );
+
+			} else add( 'me', 'me', ICON.arrow, me.x, me.z, { rot, edge: true } );
 
 		}
 

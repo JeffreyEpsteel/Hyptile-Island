@@ -44,6 +44,14 @@ import { HyptileState, Player, writePlayerState, writeShips, writeMoored, writeW
 
 const SHIP_GATE = { ...CANNON_GATE, reload: CANNON_GATE.shipReload };
 const PROP_EVENTS = new Set( [ 'propDestroyed', 'propRespawned', 'propsRespawned' ] );
+// CityWreck._sendStages and TownLink._flush publish host simulation state, not guest actions.
+// Single prop respawns use the same authority as the batched form. Navy hails already have host-only delivery below.
+const HOST_WORLD_EVENTS = new Set( [ 'cityStages', 'propRespawned', 'propsRespawned', 'navyHail' ] );
+// These notices originate in this room's moor/unmoor lifecycle and must never be client-authored.
+const SERVER_WORLD_EVENTS = new Set( [ 'boatMoored', 'boatUnmoored' ] );
+// Exhaustive current hostRequest consumers: CityWreck._onHostRequest and Story's raid listener.
+// Keep action validation in those consumers; the server only restricts which requests can reach them.
+const HOST_REQUESTS = new Set( [ 'cityHit', 'citySnap', 'raid' ] );
 // wave 22A: the host's cars snapshot (src/features/cars/CarNet.js): 2 Hz, 4 Hz in a chase; a little room over that
 export const CARS_RATE = { n: 8, ms: 1000 };
 const CARS_MAX = { traffic: 64, free: 16 };
@@ -866,12 +874,12 @@ export function makeRooms( ctx ) {
 		on_event( c, m ) {
 
 			// a world event (a destroyed prop, a trade, a claimed bounty): to everybody else; the universe keeps the known kinds.
-			// Props have their own budget (a powder store's blast breaks a dozen at once)
-			const prop = typeof m.kind === 'string' && PROP_EVENTS.has( m.kind );
-			if ( ! ( prop ? this.allow( c, 'event:prop', 40, 1000 ) : this.allow( c, 'event', 10, 1000 ) ) ) return;
 			const e = sanitizeEvent( m );
-			if ( ! e ) return;
-			if ( e.kind === 'propsRespawned' && ! ( Array.isArray( e.data.ids ) && e.data.ids.every( ( id ) => typeof id === 'string' ) ) ) return;
+			if ( ! e || SERVER_WORLD_EVENTS.has( e.kind ) || HOST_WORLD_EVENTS.has( e.kind ) && this.state.host !== c.id ) return;
+			// Props have their own budget (a powder store's blast breaks a dozen at once)
+			const prop = PROP_EVENTS.has( e.kind );
+			if ( ! ( prop ? this.allow( c, 'event:prop', 40, 1000 ) : this.allow( c, 'event', 10, 1000 ) ) ) return;
+			if ( e.kind === 'propsRespawned' && ! ( Array.isArray( e.data?.ids ) && e.data.ids.every( ( id ) => typeof id === 'string' ) ) ) return;
 			if ( e.kind === 'gunshot' ) {
 
 				// a flintlock holds one ball: a weapon's shots come no faster than it reloads
@@ -1029,12 +1037,11 @@ export function makeRooms( ctx ) {
 		// a guest asks the host to run something only the host may (src/features/netsync: sync.askHost)
 		on_ask( c, m ) {
 
-			if ( ! this.allow( c, 'ask', 4, 1000 ) ) return;
 			const hid = this.state.host;
 			if ( hid === c.id ) return; // (the host runs it itself)
 			const a = sanitizeAsk( m );
 			const h = hid ? this.order.get( hid ) : null;
-			if ( ! a || ! h ) return;
+			if ( ! a || ! HOST_REQUESTS.has( a.kind ) || ! h || h.dropped || ! this.allow( c, 'ask', 4, 1000 ) ) return;
 			this.tell( h, 'ask', { from: c.id, kind: a.kind, data: a.data } );
 
 		}

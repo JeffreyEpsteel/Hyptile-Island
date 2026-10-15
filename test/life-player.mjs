@@ -73,9 +73,14 @@ const hullSamples = [];
 for ( let i = 0; i < 5; i ++ ) for ( let j = 0; j < 3; j ++ ) hullSamples.push( { position: new E.Vector3( ( j - 1 ) * 0.95, - 0.22, - 3.2 + i * 1.5 ), area: 1.1, bottomY: - 0.6 } );
 const volume = hullSamples.reduce( ( a, s ) => a + s.area * - s.position.y, 0 );
 const calls = { throttle: 0, steer: 0, rpm: 0 };
+// the deck layout the walker on deck reads (BoatModel.lines): the sole 0.9 m up, 0.2 m of shell, the beam half 1.4 m
+const lines = { zAft: - 3.9, zFore: 3.6, shell: 0.2, deckY: 0.9, tAtSheerZ: ( z ) => ( z + 3.9 ) / 7.5, halfBreadth: () => 1.4 };
 const model = {
 	group: new E.Group(),
 	hullSamples,
+	lines,
+	colliders: [], // (no house, no seats: the deck is open)
+	helmPoint: { x: 0.4, z: 0.3 },
 	hydro: { suggestedMass: Math.round( 1025 * volume ), centerOfMass: new E.Vector3( 0, 0.3, - 0.2 ), centerOfBuoyancy: new E.Vector3( 0, - 0.11, - 0.2 ), inertia: new E.Vector3( 14600, 15700, 3500 ) },
 	helmEye: new E.Vector3( 0.4, 1.85, 0.3 ),
 	boardPoint: new E.Vector3( 0, 0.9, - 1.75 ),
@@ -124,6 +129,7 @@ const run = ( sec, each = null ) => {
 };
 
 // ---- boat settles at the mooring
+for ( let i = 0; i < 3; i ++ ) { run( dt ); const bad = Object.keys( boat ).filter( ( k ) => typeof boat[ k ] === 'number' && ! Number.isFinite( boat[ k ] ) ); console.log( 'DEBUG nan frame', i, bad.join( ',' ), 'vel', boat.velocity.toArray(), 'ang', boat.angular.toArray(), 'isFinite', boat.isFinite(), 'hEff', boat.hEff, 'waterH0', boat.waterH[ 0 ], boat.hasWater, boat._qVersion, 'wet', boat.wetFraction ); }
 run( 4 );
 check( finite( boat.position ) && Math.abs( boat.position.y ) < 0.6, `boat floats at the mooring: y ${ boat.position.y.toFixed( 3 ) } m (mass ${ boat.mass } kg)` );
 check( boat.position.distanceTo( WORLD.boatDock.position ) < 3, `boat stays moored: ${ boat.position.distanceTo( WORLD.boatDock.position ).toFixed( 2 ) } m from the dock` );
@@ -138,7 +144,14 @@ const walked = Math.hypot( player.position.x - p0.x, player.position.z - p0.z );
 const g = terrain.heightAt( player.position.x, player.position.z );
 check( player.mode === 'walk' && walked > 3 && walked < 30, `walk: moved ${ walked.toFixed( 2 ) } m in 3 s, mode ${ player.mode }` );
 check( Math.abs( player.position.y - g ) < 0.3, `walk: feet on the ground (y ${ player.position.y.toFixed( 2 ) }, ground ${ g.toFixed( 2 ) })` );
-check( finite( camera.position ) && Math.abs( camera.position.y - player.position.y - 1.62 ) < 0.3, `walk: eye at ${ ( camera.position.y - player.position.y ).toFixed( 2 ) } m` );
+// the eye height is first person's; the third-person spring arm (the default view) hangs the camera higher and behind
+player.setView( 'first' );
+run( 1.5 );
+check( finite( camera.position ) && Math.abs( camera.position.y - player.position.y - 1.62 ) < 0.3, `walk: eye at ${ ( camera.position.y - player.position.y ).toFixed( 2 ) } m (first person)` );
+player.setView( 'third' );
+run( 1.5 );
+const armOff = camera.position.clone().sub( player.position );
+check( finite( camera.position ) && armOff.y > 1.62 && armOff.length() > 2 && armOff.length() < 12, `walk: the third-person arm hangs ${ armOff.length().toFixed( 1 ) } m off, ${ armOff.y.toFixed( 1 ) } m up` );
 
 // ---- swim: drop the player into deep water off the beach
 let sx = 20, sz = 80;
@@ -164,10 +177,20 @@ const bp = boat.toWorld( model.boardPoint, new E.Vector3() );
 player.position.set( bp.x + 1, bp.y, bp.z );
 player.mode = 'walk';
 run( 0.1 );
+console.log( 'DEBUG before board', boat.speed, boat.moored, boat.hasWater, boat.waterH );
 check( player.nearBoat(), 'boat: near the board point' );
 input.press( 'KeyE' );
 run( dt );
-check( player.mode === 'boat' && boat.driven && ! boat.moored, `boat: boarded (mode ${ player.mode })` );
+check( player.mode === 'deck' && ! boat.driven, `boat: E steps aboard onto the deck (mode ${ player.mode })` );
+// walk to the helm and take the wheel: a second E within reach of the helm seat
+player.deckPos.set( model.helmPoint.x + 0.3, lines.deckY, model.helmPoint.z );
+run( 0.2 );
+check( player.mode === 'deck' && player.prompt && /helm/i.test( player.prompt.text ), `boat: at the helm the prompt reads "${ player.prompt && player.prompt.text }"` );
+input.press( 'KeyE' );
+run( dt );
+for ( let i = 0; i < 3; i ++ ) { run( dt ); console.log( 'DEBUG frame', i, boat.driven, boat.moored, boat.speed, boat.throttle, boat.rpm, boat.hasWater, boat.waterH ); }
+console.log( 'DEBUG helm', player.mode, boat.driven, boat.moored, boat.speed, boat.position.toArray(), boat.velocity.toArray(), JSON.stringify( Object.keys( boat ).filter( ( k ) => typeof boat[ k ] !== 'function' ).slice( 0, 60 ) ) );
+check( player.mode === 'boat' && boat.driven && ! boat.moored, `boat: E takes the helm (mode ${ player.mode })` );
 
 // ---- drive: full ahead, then a turn
 const b0 = boat.position.clone();
@@ -195,8 +218,15 @@ input.press( 'KeyV' );
 run( 1 );
 check( player.camMode === 'first' && camera.position.distanceTo( boat.toWorld( model.helmEye, new E.Vector3() ) ) < 0.4, 'boat: helm camera at the helm eye (within one boat step)' );
 
-// ---- coast, then leave the boat (out at sea: swim)
+// ---- coast, then leave the helm (E) and the boat over the rail (E at an exit point: out at sea, a swim)
 run( 15 );
+input.press( 'KeyE' );
+run( 1 );
+check( player.mode === 'deck' && ! boat.driven, `boat: E leaves the helm for the deck (mode ${ player.mode })` );
+const rail = model.exitPoints[ 0 ];
+player.deckPos.set( rail.x, lines.deckY, rail.z );
+run( 0.2 );
+check( player.prompt && /overboard|ashore/i.test( player.prompt.text ), `boat: at the rail the prompt reads "${ player.prompt && player.prompt.text }"` );
 input.press( 'KeyE' );
 run( 1 );
 check( player.mode === 'swim' || player.mode === 'walk', `boat: left the boat (mode ${ player.mode })` );

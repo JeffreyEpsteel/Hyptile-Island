@@ -155,14 +155,6 @@ export function looks( b, { stage = b.stage, marks = b.marks || 0, repair = b.re
 
 	const out = [];
 	const rnd = rng32( hashStr( b.id + ':looks' ) );
-	if ( b.cls === 'tower' ) {
-
-		// cosmetic only: a few scorch marks low on the facade (they mend)
-		for ( let i = 0; i < marks; i ++ ) out.push( decal( b, rnd, i % 3 === 0 ? 'window' : 'scorch', 1.5, 36 ) );
-		return out;
-
-	}
-
 	if ( stage === 3 ) {
 
 		if ( repair && repair.phase === 'build' ) return out.concat( heap( b, Math.round( heapN * 0.2 ), { shrink: 1 } ), scaffold( b, progress, true ) );
@@ -258,7 +250,7 @@ export class Collapse {
 
 		}
 
-		this.duration = Math.min( COLLAPSE.duration + 2, end + 0.4 );
+		this.duration = b.cls === 'tower' ? end + 0.4 : Math.min( COLLAPSE.duration + 2, end + 0.4 );
 		this.landedAt = Math.min( ...this.chunks.map( ( c ) => c.delay + c.T ) );
 
 	}

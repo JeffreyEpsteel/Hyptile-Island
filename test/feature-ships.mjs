@@ -739,21 +739,24 @@ if ( ! NO_RENDER ) {
 
 }
 
-section( '9. ballast: a heeled or capsized boat rights herself' );
+section( '9. ballast: a heeled big hull rights herself; a small one stays over past CAPSIZE.at (wave 22B)' );
 {
 
 	// the hydrostatics alone turned the launch over past ~60 deg of heel and the lobster boat past ~40, and a 1 m beam sea
-	// (storm chop in a harbour) left her upside down for good with the player on deck (the Meridian play-test)
+	// (storm chop in a harbour) left her upside down for good with the player on deck (the Meridian play-test). Wave 22B: the
+	// big hulls keep the ballast at every heel; a small hull (BoatController CAPSIZE: the launch) comes back from a knock-down
+	// under CAPSIZE.keep and stays hull up past it until righted (src/features/capsize, test/feature-capsize.mjs)
 	const _s = new E.Vector3(), _u = new E.Vector3();
 	const rollOf = ( b ) => Math.atan2( _s.set( 1, 0, 0 ).applyQuaternion( b.quaternion ).y, _u.set( 0, 1, 0 ).applyQuaternion( b.quaternion ).y ) * 180 / Math.PI;
 	for ( const id of [ 'launch', 'lobster' ] ) {
 
-		for ( const heel of [ 70, 150 ] ) {
+		for ( const heel of [ 50, 70, 150 ] ) {
 
 			const r = rig( id );
 			r.boat.quaternion.setFromAxisAngle( new E.Vector3( 0, 0, 1 ), heel * Math.PI / 180 );
 			r.run( 20 );
-			ok( Math.abs( rollOf( r.boat ) ) < 5 && Math.abs( r.boat.position.y ) < 0.2, `the ${ id } heeled ${ heel } deg is upright again within 20 s (roll ${ rollOf( r.boat ).toFixed( 0 ) }, y ${ r.boat.position.y.toFixed( 2 ) })` );
+			if ( id === 'launch' && heel > 60 ) ok( r.boat.capsized && Math.abs( rollOf( r.boat ) ) > 165 && r.boat.isFinite(), `the small ${ id } heeled ${ heel } deg goes over and stays hull up (roll ${ rollOf( r.boat ).toFixed( 0 ) })` );
+			else ok( ! r.boat.capsized && Math.abs( rollOf( r.boat ) ) < 5 && Math.abs( r.boat.position.y ) < 0.2, `the ${ id } heeled ${ heel } deg is upright again within 20 s (roll ${ rollOf( r.boat ).toFixed( 0 ) }, y ${ r.boat.position.y.toFixed( 2 ) })` );
 
 		}
 
@@ -761,7 +764,7 @@ section( '9. ballast: a heeled or capsized boat rights herself' );
 		const r = rig( id, ( x, z, t ) => 1.0 * Math.sin( k * x - w * t ) );
 		let max = 0;
 		r.run( 30, () => { max = Math.max( max, Math.abs( rollOf( r.boat ) ) ); } );
-		ok( max < 60 && Math.abs( rollOf( r.boat ) ) < 60, `a 1 m beam sea rolls the ${ id } at most ${ max.toFixed( 0 ) } deg and never leaves her over` );
+		ok( max < 60 && Math.abs( rollOf( r.boat ) ) < 60 && ! r.boat.capsized, `a 1 m beam sea rolls the ${ id } at most ${ max.toFixed( 0 ) } deg and never leaves her over` );
 
 	}
 

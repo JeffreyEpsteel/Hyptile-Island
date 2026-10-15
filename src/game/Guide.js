@@ -383,6 +383,9 @@ export class Guide {
 
 			this.open = true;
 			this.el.classList.add( 'is-on' );
+			// The opening click captures the pointer. Release it when this dialog
+			// appears so Skip/Next receive clicks at their actual screen positions.
+			try { if ( document.pointerLockElement ) document.exitPointerLock?.(); } catch { /* unavailable */ }
 
 		}
 

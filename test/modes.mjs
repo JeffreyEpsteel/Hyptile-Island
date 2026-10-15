@@ -360,10 +360,11 @@ function fakeApp( storage ) {
 	m.startSession( { mode: 'multiplayer', slot: 1, name: 'Net', newGame: true, server: ' ws://host:8765/island ' } );
 	ok( m.mode === 'multiplayer' && m.game.state.mode === 'multiplayer' && m.calls.connect.length === 1 && m.calls.connect[ 0 ] === 'ws://host:8765/island', 'multiplayer connects to the typed server' );
 	m.settings.timeOfDay = 3;
-	m.saveNow();
+	const localBefore = st.map.get( `multiplayer.${ KEY }.slot1` );
+	ok( m.saveNow() === false, 'multiplayer refuses local quick-save' );
 	const mraw = JSON.parse( st.map.get( `multiplayer.${ KEY }.slot1` ) );
-	ok( mraw.world && mraw.world.timeOfDay === null && mraw.mode === 'multiplayer', 'a multiplayer save has no time of day (the server keeps it)' );
-	ok( m.saveNow( true ) === false && m.saveNow() === true, 'multiplayer does not autosave, but Save game works' );
+	ok( st.map.get( `multiplayer.${ KEY }.slot1` ) === localBefore && mraw.mode === 'multiplayer', 'shared-world quick-save leaves the pre-session local slot untouched' );
+	ok( m.saveNow( true ) === false && m.saveNow() === false, 'multiplayer exposes neither local autosave nor manual Save game' );
 	m.settings.timeOfDay = 9;
 	const m2 = fakeApp( st );
 	m2.settings.timeOfDay = 9;

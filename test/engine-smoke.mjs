@@ -1,6 +1,7 @@
 import { writePNG } from './headless.mjs';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { GPU } from '../src/engine/gpu/GPU.js';
 import { RenderTarget } from '../src/engine/gpu/Texture.js';
 import { readTexture } from '../src/engine/gpu/Readback.js';
@@ -60,7 +61,7 @@ for ( let f = 0; f < 2; f ++ ) {
 	GPU.submit();
 }
 const img = await readTexture( ldr.texture );
-const OUT = process.argv.slice( 2 ).find( ( a ) => ! a.startsWith( '--' ) ) || new URL( './out/engine-smoke.png', import.meta.url ).pathname.replace( /^\/([A-Za-z]:)/, '$1' );
+const OUT = process.argv.slice( 2 ).find( ( a ) => ! a.startsWith( '--' ) ) || fileURLToPath( new URL( './out/engine-smoke.png', import.meta.url ) );
 mkdirSync( dirname( OUT ), { recursive: true } );
 writePNG( OUT, W, H, new Uint8Array( img.data ) );
 console.log( 'stats', mr.stats );
@@ -79,7 +80,6 @@ if ( limitsDefault ) {
 	// harbour stalls (17); they are skipped (no crash) and named on the error card. Anything else fails.
 	const KNOWN = [ 'water', 'stall' ];
 	const { spawnSync } = await import( 'node:child_process' );
-	const { fileURLToPath } = await import( 'node:url' );
 	const pass = process.argv.filter( ( a ) => /^--(dawn|backend|size|features)=/.test( a ) );
 	const script = fileURLToPath( new URL( '../tools/perf/headless.mjs', import.meta.url ) );
 	const r = spawnSync( process.execPath, [ script, '--boot=20', '--limits=default', '--mobile', '--size=402x874', ...pass ], { encoding: 'utf8', maxBuffer: 64 << 20 } );

@@ -17,6 +17,14 @@
 
 export const DEFAULT_MODE = 'campaign';
 
+// Use the running connection as well as the menu mode: a connected session must
+// never inherit local save/debug privileges from a stale mode selection.
+export function isOnlineSession( app ) {
+
+	return !! ( app && ( app.mode === 'multiplayer' || app.rules?.online || app.net?.online || app.game?.state?.storage?.universe ) );
+
+}
+
 // a 40-minute day: the island clock where the player does not control it (also the server's default)
 export const DAY_SPEED = 0.01;
 

@@ -39,7 +39,7 @@ import {
 	sanitizeState, stateChanged, helloMessage, cleanName, cleanCharacter, cleanBoat,
 	sanitizeCrewCode, isCrewRoom, crewUrl, isUniverseUrl, MAX_SAVE, MAX_MARKET,
 } from './Protocol.js';
-import { universeToken, universeError, isDefaultUniverse } from './Universe.js';
+import { universeToken, universeError, isDefaultUniverse, DEFAULT_UNIVERSE } from './Universe.js';
 import { ColyseusLink } from './ColyseusLink.js';
 
 // refusals after which reconnecting cannot help
@@ -62,6 +62,15 @@ export function defaultServerUrl() {
 		}
 
 		const crew = crewCodeFromLocation( loc );
+		// Pages is a static host. Secure room/crew defaults use the same deployed
+		// Fly host as the persistent universe instead of a socket on github.io.
+		if ( loc?.protocol === 'https:' ) {
+
+			const u = new URL( DEFAULT_UNIVERSE );
+			u.pathname = u.pathname.replace( /\/universe\/?$/i, '/' + ( crew || DEFAULT_ROOM ) );
+			return u.href;
+
+		}
 		if ( crew ) {
 
 			const secure = loc.protocol === 'https:';
@@ -73,6 +82,7 @@ export function defaultServerUrl() {
 
 	const host = loc && loc.hostname ? loc.hostname : 'localhost';
 	const secure = loc && loc.protocol === 'https:';
+	if ( secure ) return ''; // Invalid configured secure host: require an explicit address.
 	return `${ secure ? 'wss' : 'ws' }://${ host }:${ DEFAULT_PORT }/${ DEFAULT_ROOM }`;
 
 }

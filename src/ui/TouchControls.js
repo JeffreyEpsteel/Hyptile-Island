@@ -31,6 +31,9 @@ import { detectDevice, stickVector, stickKeys, lookDelta, boatThrottleKeys, snap
 //                             the cluster (away from the gas), Siren in a police car. They write cars.touch = { active, steer,
 //                             throttle, brake, handbrake, horn }; the stick, the lever and the action buttons stand down;
 //                             the right of the screen still turns the camera. carLayout( W, H, { k } ) is the geometry.
+//   capsize (wave 22B)        beside your upturned hull the game's prompt is the wide button ("Right her", E); on the hull it
+//                             reads "Hold to pull" (held: E down while the thumb stays) and Let go (Space) comes up beside
+//                             it (capsizeButtons). Never on screen otherwise.
 // Discrete buttons send a real key event (keydown on press, keyup on release, through the player's bindings) so the
 // panels' own key listeners (the map's M, the menu's Escape) answer too; held state goes through input.setTouchKeys.
 //
@@ -76,7 +79,20 @@ const BUTTONS = {
 	heave: { label: 'Heave to' }, // wave 20D: a navy hail's two answers (the lever, not a key)
 	run: { label: 'Run' },
 	shot: { label: 'Round' }, // the next cannon shot kind (Digit1..3, as on a keyboard)
+	letGo: { label: 'Let go', code: 'Space' }, // wave 22B: off the upturned hull into the water
+	heliRise: { label: 'Rise', code: 'ShiftLeft', hold: true },
+	heliDescend: { label: 'Descend', code: 'KeyC', hold: true },
+	heliHover: { label: 'Hover / brake', code: 'Space', hold: true },
+	heliLeft: { label: 'Slide left', code: 'Comma', hold: true },
+	heliRight: { label: 'Slide right', code: 'Period', hold: true },
 };
+export const HELICOPTER_BUTTONS = [ 'heliRise', 'heliDescend', 'heliHover', 'heliLeft', 'heliRight' ];
+export function helicopterButtons( s = {} ) {
+	if ( s.busy || s.mode !== 'helicopter' ) return new Set();
+	const out = new Set( [ ...HELICOPTER_BUTTONS, 'camera', 'cockpit' ] );
+	if ( promptAction( s.prompt )?.code ) out.add( 'interact' );
+	return out;
+}
 export const HAIL_MS = 25000; // how long a hail's answer buttons stay up
 const SHOT_KINDS = [ 'round', 'chain', 'grape' ];
 
@@ -91,6 +107,16 @@ export function hailButtons( s = {} ) {
 
 }
 
+// the contextual buttons of wave 22B: Let go while you work an upturned hull (s.righting: capsize.righting())
+export function capsizeButtons( s = {} ) {
+
+	const out = new Set();
+	if ( s.busy || ! s.righting ) return out;
+	out.add( 'letGo' );
+	return out;
+
+}
+
 // the shot kind after `sel` among those aboard (round shot is always there)
 export function nextShot( sel, kinds ) {
 
@@ -101,8 +127,8 @@ export function nextShot( sel, kinds ) {
 // the driving cluster (wave 22A): the boxes in px for a W x H screen at touch size k (Settings > Touch > size, 0.75..1.4),
 // measured from the safe area's edges: anchor 'br' (ox from the right, oy from the bottom) or 'bl' (ox from the left).
 // rect: the box on a screen without insets. Every target is >= 44 px (48 at the smallest size).
-export const CAR_IDS = [ 'wheel', 'tilt', 'gas', 'brake', 'hand', 'horn', 'exit', 'siren' ];
-export const CAR_LABELS = { tilt: 'Tilt', gas: 'Gas', brake: 'Brake', hand: 'Handbrake', horn: 'Horn', exit: 'Exit', siren: 'Siren' };
+export const CAR_IDS = [ 'wheel', 'tilt', 'cockpit', 'gas', 'brake', 'hand', 'horn', 'exit', 'siren' ];
+export const CAR_LABELS = { tilt: 'Tilt', cockpit: 'Dash', gas: 'Gas', brake: 'Brake', hand: 'Handbrake', horn: 'Horn', exit: 'Exit', siren: 'Siren' };
 export function carLayout( W, H, { k = 1 } = {} ) {
 
 	k = clamp( Number( k ) || 1, 0.75, 1.4 );
@@ -128,6 +154,8 @@ export function carLayout( W, H, { k = 1 } = {} ) {
 	const wh = q( 88 * Math.min( k, Math.max( hs, 0.9 ) ) );
 	bl( 'wheel', m, m, ww, wh );
 	bl( 'tilt', m, m + wh + gap, q( 72 * k ), ex );
+	const stackDash = q( 72 * k ) + gap + q( 48 * k ) > ww;
+	bl( 'cockpit', stackDash ? m : m + q( 72 * k ) + gap, m + wh + gap + ( stackDash ? ex + gap : 0 ), q( 48 * k ), ex );
 	return out;
 
 }
@@ -283,8 +311,11 @@ export class TouchControls {
 		this.interactText = this.interactEl.firstChild;
 		this.btns = {};
 		const rowA = this.rowA = el( 'div', 'tc-row tc-row-a' ), rowB = this.rowB = el( 'div', 'tc-row tc-row-b' );
-		for ( const id of [ 'choice1', 'choice2', 'board', 'reel', 'heave', 'run', 'shot' ] ) rowA.append( this._btn( id ) );
+		for ( const id of [ 'choice1', 'choice2', 'board', 'reel', 'heave', 'run', 'shot', 'letGo' ] ) rowA.append( this._btn( id ) );
 		for ( const id of [ 'cast', 'fire' ] ) rowB.append( this._btn( id ) );
+		for ( const id of HELICOPTER_BUTTONS ) {
+			const b = this._btn( id ); b.style.minHeight = '48px'; b.style.minWidth = '64px'; rowB.append( b );
+		}
 		this.actions.append( this.interactEl, rowA, rowB );
 		// the fold: a tray of the secondary buttons above a slim handle at the bottom edge
 		this.tray = el( 'div', 'tc-tray' );
@@ -813,6 +844,7 @@ export class TouchControls {
 		if ( app.freeCam ) return 'free';
 		// (a car is a vehicle of Player mode 'plane': the cars feature says whether it is one)
 		if ( app.player.mode === 'plane' && this._feature( 'cars' )?.driving ) return 'car';
+		if ( app.player.mode === 'plane' && ( app.player.vehicle?.kind === 'helicopter' || this._feature( 'helicopter' )?.piloted ) ) return 'helicopter';
 		return app.player.mode || 'walk';
 
 	}
@@ -906,6 +938,12 @@ export class TouchControls {
 
 				}
 
+			} else if ( mode === 'helicopter' ) {
+
+				// Left stick flies forward/back and yaws. Its outer sprint ring never
+				// climbs: altitude changes only on the explicit Rise/Descend buttons.
+				stickKeys( v, keys ); keys.delete( 'ShiftLeft' );
+
 			} else {
 
 				stickKeys( v, keys );
@@ -964,6 +1002,7 @@ export class TouchControls {
 			planeLanding: !! get( 'seaplane' )?.systems?.landing,
 			hail: this._hailOn ? this._hailOn() : false,
 			shot: this._shotState ? this._shotState() : null,
+			righting: !! ( get( 'capsize' ) && get( 'capsize' ).righting && get( 'capsize' ).righting() ),
 		};
 
 	}
@@ -984,12 +1023,14 @@ export class TouchControls {
 
 		if ( away ) return;
 		const s = this.snapshot( prompt );
-		const show = contextButtons( s );
+		const show = s.mode === 'helicopter' ? helicopterButtons( s ) : contextButtons( s );
 		const busy = s.busy;
+		if ( s.mode === 'helicopter' && busy && ! this._lastBusy ) this._releaseAll();
 		const t0 = now();
 		const fight = fightOn( s );
 		const { primary, tray } = splitButtons( show, s.mode, { fight } );
 		for ( const id of hailButtons( s ) ) primary.add( id ); // wave 20D: contextual, in the row above the big buttons
+		for ( const id of capsizeButtons( s ) ) primary.add( id ); // wave 22B: Let go on an upturned hull
 		if ( primary.has( 'shot' ) && s.shot.sel !== this._shotLabel ) {
 
 			this._shotLabel = s.shot.sel;
@@ -1141,6 +1182,7 @@ export class TouchControls {
 		C.held.set( e.pointerId, id );
 		const cars = this._feature( 'cars' );
 		if ( id === 'exit' ) this._key( 'KeyE', 'keydown' );
+		else if ( id === 'cockpit' ) this._key( 'Digit3', 'keydown' );
 		else if ( id === 'siren' && cars && cars.toggleSiren ) cars.toggleSiren();
 		else if ( id === 'tilt' ) this._tiltToggle();
 
@@ -1163,6 +1205,7 @@ export class TouchControls {
 		C.held.delete( pointerId );
 		if ( ! [ ...C.held.values() ].includes( id ) ) this.carBtns[ id ].classList.remove( 'is-down' );
 		if ( id === 'exit' ) this._key( 'KeyE', 'keyup' );
+		else if ( id === 'cockpit' ) this._key( 'Digit3', 'keyup' );
 
 	}
 

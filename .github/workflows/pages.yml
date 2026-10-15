@@ -1,7 +1,6 @@
 # Builds the game and publishes it to GitHub Pages on every push to main.
 # Single player runs entirely from the static site; Multiplayer > Universe joins a server somebody hosts (HOSTING.md).
-# The site is built from the `live` branch, not from main: main carries work in progress (waves 19-21 under repair,
-# 2026-10-15) while `live` holds the release players get (wave 18, a990a7b). Move `live` forward to release.
+# Build the immutable triggering commit. The universe workflow deploys this run's head_sha.
 name: Deploy to GitHub Pages
 
 on:
@@ -20,17 +19,21 @@ concurrency:
 
 jobs:
   build:
+    if: github.repository == 'JeffreyEpsteel/Hyptile-Island' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    env:
+      VITE_UNIVERSE_URL: wss://hyptile-universe.fly.dev/universe
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: live
+          ref: ${{ github.sha }}
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: npx vite build
+      - run: npm run test:release
+      - run: npm run build
       - uses: actions/configure-pages@v5
         with:
           enablement: true

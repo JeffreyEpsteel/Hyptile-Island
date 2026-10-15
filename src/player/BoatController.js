@@ -8,6 +8,17 @@ const DEG = Math.PI / 180;
 // the righting ballast past a heel (rad): gm the lever in metres of mass x g per radian of excess heel, damp the roll
 // damping (s) on the same lever
 const BALLAST = { from: 35 * DEG, gm: 2.0, damp: 0.25 };
+// Small hulls (wave 22B: the skiff, the canoe, the cutter, the launch: a few hundred kg, under 6.5 m) carry no ballast keel
+// that rights them from anywhere: the ballast above still holds them up to `keep` of heel (an ordinary knock-down comes back),
+// but past `at` they are over and stay over, hull up (turtle: a hold torque about +-PI, damped), until the player rights them
+// (src/features/capsize: ctl.pull 0..1 lifts her from inverted towards upright, ctl.right() lets the ballast bring her up over
+// `assist` s). The big hulls keep the ballast at every heel (or sink by flooding).
+export const CAPSIZE = { mass: 1500, length: 6.5, keep: 60 * DEG, at: 100 * DEG, hold: 1.4, damp: 0.6, assist: 4, lift: 0.22 };
+export function isSmallHull( mass, length ) {
+
+	return Number.isFinite( mass ) && Number.isFinite( length ) && mass <= CAPSIZE.mass && length <= CAPSIZE.length;
+
+}
 
 const sstep = THREE.MathUtils.smoothstep;
 const clamp = THREE.MathUtils.clamp;
@@ -85,6 +96,12 @@ export class BoatController {
 
 		this.bowWorld = new THREE.Vector3();
 		this.sternWorld = new THREE.Vector3();
+		// capsizing (small hulls): over and staying over; the side she went over to (+-1); the righting's pull 0..1
+		this.capsized = false;
+		this.capsizeSide = 1;
+		this.pull = 0;
+		this._assist = 0;
+		this.onCapsize = null;
 
 		this.apply();
 
@@ -137,12 +154,16 @@ export class BoatController {
 		// the hull's own size for the resistance curve (the lobster boat's constants scale with length)
 		const L = model.dimensions ? model.dimensions.length : 8.2;
 		this.sizeK = L / 8.2;
+		this.length = L;
+		this.draft = model.dimensions && Number.isFinite( model.dimensions.draft ) ? model.dimensions.draft : 0.85;
 		// engine
 		const ph = model.physics || {};
 		this.maxThrust = ph.maxThrust ?? 26000; // N, bollard pull at full rpm
 		this.pitchSpeed = ph.pitchSpeed ?? 16; // m/s, propeller pitch speed at full rpm (thrust -> 0 there)
 		this.reverseFactor = ph.reverseFactor ?? 0.45; // astern thrust relative to ahead
 		if ( ph.mass ) this.mass = ph.mass;
+		this.small = isSmallHull( this.mass, L );
+		if ( ! this.small ) this.capsized = false;
 		this.hasWater = false;
 		this._qVersion = undefined;
 		this._age = 0; // s since the latest read-back was issued
@@ -264,6 +285,15 @@ export class BoatController {
 
 		}
 
+		// hull up: no helm, the engine drowned
+		if ( this.capsized ) {
+
+			this.driven = false;
+			this.throttle = 0;
+
+		}
+
+		if ( this._assist > 0 ) this._assist = Math.max( 0, this._assist - Math.min( dt, 0.1 ) );
 		// engine: spools up after the lever (~0.9 s), a little slower down; idles while driven
 		const lever = this.driven ? Math.abs( this.throttle ) : 0;
 		const target = Math.max( lever, this.driven ? 0.15 : 0 );
@@ -429,12 +459,36 @@ export class BoatController {
 		// ---- ballast: she rights herself. The hydrostatics alone turn the launch over past ~60 deg of heel and the
 		// lobster boat past ~40, and a 1 m beam sea (the storm chop in a harbour) leaves her upside down for good with
 		// the player "on deck". Past BALLAST.from the keel pulls her back with a torque that grows with the heel, and the
-		// roll is damped while she is far over (nothing changes under BALLAST.from: the ordinary heel is the hull's)
+		// roll is damped while she is far over (nothing changes under BALLAST.from: the ordinary heel is the hull's).
+		// Wave 22B: a small hull's ballast gives out at CAPSIZE.keep (past it the hydrostatics take her over, as before
+		// 3af2572) and past CAPSIZE.at she is capsized: hull up until righted (src/features/capsize)
 		const roll = Math.atan2( side.y, up.y ); // about the forward axis: 0 upright, +-PI inverted
 		const over = Math.abs( roll ) - BALLAST.from;
-		if ( over > 0 ) {
+		const k = m * GRAV * BALLAST.gm;
+		if ( this.small && ! this.capsized && Math.abs( roll ) > CAPSIZE.at && this._assist <= 0 ) {
 
-			const k = m * GRAV * BALLAST.gm;
+			// a small hull past the point of no return: she turns turtle and stays there
+			this.capsized = true;
+			this.capsizeSide = Math.sign( roll ) || 1;
+			this.pull = 0;
+			if ( this.onCapsize ) try { this.onCapsize( this ); } catch ( e ) { /* the listener's problem */ }
+
+		}
+
+		if ( this.capsized ) {
+
+			// hull up: a hold towards +-PI (the side she went over to), eased towards upright by the righting's pull; the
+			// trapped air keeps her bottom `lift` m out of the water (the waterplane samples alone would float her awash)
+			const target = this.capsizeSide * Math.PI * ( 1 - clamp( this.pull, 0, 1 ) );
+			const err = Math.atan2( Math.sin( roll - target ), Math.cos( roll - target ) );
+			T.addScaledVector( fwd, - k * CAPSIZE.hold * err - aLoc.z * k * CAPSIZE.damp );
+			const keel = this.toWorld( _p.set( 0, - this.draft, this.com.z ), _p );
+			const sea = this.sampleWaterAt( keel );
+			const lift = clamp( ( sea + CAPSIZE.lift - keel.y ) / 0.3, - 0.5, 1 ) * ( 1 - clamp( this.pull, 0, 1 ) );
+			F.y += m * GRAV * 0.5 * lift - this.velocity.y * m * 1.5;
+
+		} else if ( over > 0 && ( ! this.small || Math.abs( roll ) < CAPSIZE.keep || this._assist > 0 ) ) {
+
 			T.addScaledVector( fwd, - Math.sign( roll ) * k * over * ( 1 + over ) - aLoc.z * k * BALLAST.damp );
 
 		}
@@ -502,6 +556,47 @@ export class BoatController {
 		this.moored = true;
 		this.mooring.anchor.copy( this.dockPosition() );
 		this.mooring.heading = WORLD.boatDock.heading;
+		this.capsized = false;
+		this.pull = 0;
+		this._assist = 0;
+
+	}
+
+	// Turn her over where she lies, hull up (a save or another player's capsized boat; tests). Only small hulls stay over.
+	capsize( side = 1 ) {
+
+		if ( ! this.small ) return false;
+		const yaw = this.getYaw();
+		this.capsizeSide = side < 0 ? - 1 : 1;
+		this.quaternion.setFromAxisAngle( _g.set( 0, 1, 0 ), yaw ).multiply( _dq.setFromAxisAngle( _t.set( 0, 0, 1 ), this.capsizeSide * Math.PI * 0.999 ) );
+		this.angular.set( 0, 0, 0 );
+		this.velocity.set( 0, 0, 0 );
+		this.position.y = - this.draft;
+		this.driven = false;
+		this.throttle = 0;
+		this.pull = 0;
+		this.capsized = true;
+		this.apply();
+		return true;
+
+	}
+
+	// the righting worked: the ballast brings her the rest of the way up (it acts at any heel for CAPSIZE.assist s)
+	right() {
+
+		if ( ! this.capsized ) return false;
+		this.capsized = false;
+		this._assist = CAPSIZE.assist;
+		this.pull = 0;
+		return true;
+
+	}
+
+	// her heel from upright (rad, 0..PI)
+	heel() {
+
+		const side = _c1.set( 1, 0, 0 ).applyQuaternion( this.quaternion ), up = _c2.set( 0, 1, 0 ).applyQuaternion( this.quaternion );
+		return Math.abs( Math.atan2( side.y, up.y ) );
 
 	}
 

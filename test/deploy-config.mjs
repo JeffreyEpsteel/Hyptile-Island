@@ -250,9 +250,11 @@ if ( fly ) {
 	const pages = read( '.github/workflows/pages.yml' );
 	const pagesName = ( /^name:\s*(.+)$/m.exec( pages ) || [] )[ 1 ].trim();
 	ok( wf.includes( `workflows: [ "${ pagesName }" ]` ) && /types: \[ completed \]/.test( wf ) && /branches: \[ main \]/.test( wf ) && /conclusion == 'success'/.test( wf ), `it runs after a successful "${ pagesName }" on main` );
-	// (2026-10-15: both workflows build the `live` branch, the release, so the game and the universe stay one commit)
-	ok( /ref: live/.test( wf ) && /ref: live/.test( pages ) && /git rev-parse --short=7 HEAD/.test( wf ) && /flyctl deploy --remote-only --build-arg BUILD_HASH=/.test( wf ), 'from the same commit, stamped into the image' );
-	ok( /secrets\.FLY_API_TOKEN/.test( wf ) && /FLY_API_TOKEN is not set/.test( wf ), 'with the FLY_API_TOKEN secret (a notice, not a red build, until it is set)' );
+	// Pages uses its immutable event SHA; workflow_run must use that run's SHA,
+	// rather than workflow_run's own github.sha or a moving branch checkout.
+	ok( /ref: \$\{\{ github\.sha \}\}/.test( pages ) && /ref: \$\{\{ github\.event_name == 'workflow_run' && github\.event\.workflow_run\.head_sha \|\| github\.sha \}\}/.test( wf ) && /git rev-parse --short=7 HEAD/.test( wf ) && /flyctl deploy[^\n]*--remote-only[^\n]*--build-arg BUILD_HASH=/.test( wf ) && ! /ref: live/.test( wf + pages ), 'the exact Pages release commit is checked out and stamped into the image' );
+	ok( /secrets\.FLY_API_TOKEN/.test( wf ) && /FLY_API_TOKEN is not set/.test( wf ) && /::error::FLY_API_TOKEN/.test( wf ), 'missing FLY_API_TOKEN fails instead of silently leaving an older server running' );
+	ok( /flyctl status --app/.test( wf ) && /flyctl volumes list --app/.test( wf ) && /refusing to provision a replacement/.test( wf ) && ! /flyctl (?:apps create|volumes create|scale)/.test( wf ), 'the existing app and save volume are checked without provisioning or scaling' );
 	ok( /\.fly\.dev\/health/.test( wf ) && /\\"build\\":/.test( wf ), 'and it checks /health reports that commit' );
 	const vite = read( 'vite.config.js' );
 	const ui = read( 'src/net/Universe.js' );

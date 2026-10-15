@@ -328,7 +328,7 @@ export function buildingInto( acc, b, { detail = true, stage = 0 } = {} ) {
 	const style = b.style, code = STYLE[ style ] ?? STYLE.concrete;
 	const [ fh, bay ] = GRID[ style ] || GRID.concrete;
 	const col = styleColor( b ), seed = seedOf( b );
-	const st = b.protected ? Math.min( stage, 1 ) : stage; // the Twins never go past cosmetic marks (w21-common.md)
+	const st = stage;
 	const aux = [ code, fh, bay, st + seed * 0.9 ];
 	const front = [ code, - fh, bay, st + seed * 0.9 ];
 	// the side facing the street (yaw: the front faces ( sin yaw, cos yaw ))
@@ -467,13 +467,14 @@ function shopFront( acc, b, t, side, seed ) {
 // ------------------------------------------------------------------ the material
 
 const FACADE_WGSL = /* wgsl */`
-	let style = in.vs.vAux.x;
-	let fhRaw = in.vs.vAux.y;
+	let facadeAux = bitcast<vec4f>( in.vs.vFacadeAux );
+	let style = facadeAux.x;
+	let fhRaw = facadeAux.y;
 	let isFront = fhRaw < 0.0;
 	let fh = max( abs( fhRaw ), 0.5 );
-	let bay = max( in.vs.vAux.z, 0.2 );
-	let stage = floor( in.vs.vAux.w );
-	let seed = fract( in.vs.vAux.w );
+	let bay = max( facadeAux.z, 0.2 );
+	let stage = floor( facadeAux.w );
+	let seed = fract( facadeAux.w );
 	let uv = in.uv;
 	let P = in.P;
 	var col = in.color.rgb;
@@ -558,8 +559,8 @@ const FACADE_WGSL = /* wgsl */`
 		// weathering: streaks down from the sills, a grime band at the street
 		let streak = gpNoise( vec3f( uv.x * 2.1, v * 0.08, seed * 9.0 ) );
 		col *= mix( 0.9, 1.04, streak ) * mix( 0.8, 1.0, smoothstep( 0.0, 3.0, v ) );
-		// damage (stages 1-2; the Twins only below 40 m): broken panes black, soot up the walls, stage 2 lit from inside by fire
-		let marks = select( stage, min( stage, 1.0 ) * step( v, 40.0 ), style < 0.5 );
+		// Damage extends over the full facade, including the twin towers.
+		let marks = stage;
 		let hw = gpHash( cell + vec3f( 3.1, 7.7, 1.3 ) );
 		var gl = glass;
 		var g2 = gRough;
@@ -576,7 +577,7 @@ const FACADE_WGSL = /* wgsl */`
 		let share = lit * mix( 0.55, 1.25, seed );
 		let on = step( hl, share ) * ( 1.0 - broken );
 		let warm = select( vec3f( 1.0, 0.8, 0.52 ), vec3f( 0.78, 0.88, 1.0 ), gpHash( cell + vec3f( 9.0 ) ) > 0.62 );
-		let litAvg = share * area;
+		let litAvg = share * area * ( 1.0 - min( marks * 0.28, 0.84 ) );
 		let glow = mix( on * inWin, litAvg, blur );
 		// (the far average dimmer than the sum of its windows: a lit pane is a point of light, not a glowing wall)
 		emis = warm * glow * nightK * mix( 1.6, 0.3, blur );
@@ -643,7 +644,14 @@ const FACADE_WGSL = /* wgsl */`
 `;
 
 const NOISE_WGSL = /* wgsl */`
-fn gpHash( p: vec3f ) -> f32 { return fract( sin( dot( p, vec3f( 127.1, 311.7, 74.7 ) ) ) * 43758.5453 ); }
+// Integer avalanche: sin/fract hashes amplify interpolation and driver errors into flashing windows.
+fn gpHash( p: vec3f ) -> f32 {
+ let q = bitcast<vec3u>( vec3i( round( p * 256.0 ) ) );
+ var h = ( q.x * 1597334677u ) ^ ( q.y * 3812015801u ) ^ ( q.z * 2798796415u );
+ h = ( h ^ ( h >> 16u ) ) * 2246822519u;
+ h = ( h ^ ( h >> 13u ) ) * 3266489917u;
+ return f32( ( h ^ ( h >> 16u ) ) & 16777215u ) / 16777216.0;
+}
 fn gpNoise( p: vec3f ) -> f32 {
 	let i = floor( p ); let f = fract( p ); let u = f * f * ( 3.0 - 2.0 * f );
 	let a = mix( mix( gpHash( i ), gpHash( i + vec3f( 1, 0, 0 ) ), u.x ), mix( gpHash( i + vec3f( 0, 1, 0 ) ), gpHash( i + vec3f( 1, 1, 0 ) ), u.x ), u.y );
@@ -661,9 +669,9 @@ export function createFacadeMaterial( name = 'meridianFacade' ) {
 		vertexColors: true,
 		modules: [ facadeModule() ],
 		attributes: { aux: 'vec4f' },
-		varyings: { vAux: 'vec4f' },
+		varyings: { vFacadeAux: 'vec4u' },
 		vertex: /* wgsl */`
-	o.vAux = v.aux;
+	o.vFacadeAux = bitcast<vec4u>( v.aux );
 `,
 	} );
 	m.name = name;

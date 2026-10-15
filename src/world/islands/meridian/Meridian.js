@@ -22,7 +22,7 @@ import { registerMeridian } from './World.js';
 //   city.plan                       the plan;  city.tile  the terrain tile (attached to `terrain`'s queries)
 //   city.building( id ) -> handle   { id, kind, plan, group (a Group at the building's foot, made on first use), bounds
 //                                   { min, max }, colliders [ Colliders boxes ], setStage( 0..3 ) -> stage, stage, fireAnchors
-//                                   [ { x, y, z } ] (none on the Twins: they never burn), landmark, collapsible, protected }
+//                                   [ { x, y, z } ] , landmark, collapsible, protected }
 //   city.buildings()                every handle;  city.onStage = ( id, stage ) => { ... }  (21C: called after each change)
 //   city.roadHeight( x, z )         the road surface (the terrain, the hill road's graded profile)
 //   city.signalState( node, axis )  'green' | 'yellow' | 'red' now (the heads the city draws show the same)
@@ -31,7 +31,7 @@ import { registerMeridian } from './World.js';
 //   city.update( dt ), city.stats, city.distance, city.dispose()
 //
 // Stage looks: 1 scarred (broken panes, soot), 2 gutted (fire glow behind the windows), 3 collapsed (a stump of the ground
-// floor; 21C's onStage adds the rubble). The Twins never pass stage 1 and only below 40 m (w21-common.md).
+// floor; 21C's onStage adds the rubble). The Twins share all destruction stages.
 // Distance: per chunk (~400 m) a near mesh (cornices, roof plant, water tanks, awnings, signs) or a far one (the tiers
 // alone); the kit (lamps, signals, benches, trees, cranes) and the streets only near the city; the land at 4 m (hills) /
 // 8 m (the city plain) near and 24 m far. Phones: shorter distances, coarser land, NearRelease when far.
@@ -292,6 +292,45 @@ export class Meridian {
 
 			const ts = b.kind === 'tower' ? [ { x0: b.x - b.w / 2, x1: b.x + b.w / 2, z0: b.z - b.d / 2, z1: b.z + b.d / 2, y0: b.y - 2, y1: b.y + b.h } ] : tiers;
 			for ( const t of ts ) colliders.push( this.colliders.addBox( new Vector3( ( t.x0 + t.x1 ) / 2, ( t.y0 + t.y1 ) / 2, ( t.z0 + t.z1 ) / 2 ), new Vector3( ( t.x1 - t.x0 ) / 2, ( t.y1 - t.y0 ) / 2, ( t.z1 - t.z0 ) / 2 ), 0, { tag: 'meridianBuilding' } ) );
+			if ( b.kind === 'tower' ) {
+
+				// Roof support is separate from the solid walls: aircraft still strike the facade.
+				// Two crossing rectangles stay inside the roof's chamfered corners.
+				const roof = ( x0, x1, z0, z1, y ) => {
+
+					const c = this.colliders.addBox( new Vector3( ( x0 + x1 ) / 2, y - 0.1, ( z0 + z1 ) / 2 ), new Vector3( ( x1 - x0 ) / 2, 0.1, ( z1 - z0 ) / 2 ), 0, { walkable: true, solid: false, tag: 'meridianRoof' } );
+					c._roof = true;
+					colliders.push( c );
+
+				};
+				const top = b.y + b.h, h = b.w / 2;
+				roof( b.x - h + 2.2, b.x + h - 2.2, b.z - h, b.z + h, top );
+				roof( b.x - h, b.x + h, b.z - h + 2.2, b.z + h - 2.2, top );
+				const ph = h - 7.5;
+				const plant = this.colliders.addBox( new Vector3( b.x, top + 3, b.z ), new Vector3( ph, 3, ph ), 0, { tag: 'meridianRoofPlant' } );
+				plant._roofObstacle = true;
+				colliders.push( plant );
+				roof( b.x - ph, b.x + ph, b.z - ph, b.z + ph, top + 6 );
+				if ( b.id === 'twin-north' ) {
+
+					for ( const [ y0, y1, radius ] of [ [ top + 6, top + 20, 2.2 ], [ top + 20, top + 63, 1.4 ] ] ) {
+
+						const mast = this.colliders.addBox( new Vector3( b.x, ( y0 + y1 ) / 2, b.z ), new Vector3( radius, ( y1 - y0 ) / 2, radius ), 0, { tag: 'meridianRoofMast' } );
+						mast._roofObstacle = true;
+						colliders.push( mast );
+
+					}
+
+				} else if ( b.id === 'twin-south' ) {
+
+					const pavilion = this.colliders.addBox( new Vector3( b.x, top + 8, b.z ), new Vector3( 9, 2, 6 ), 0, { tag: 'meridianRoofPlant' } );
+					pavilion._roofObstacle = true;
+					colliders.push( pavilion );
+					roof( b.x - 9, b.x + 9, b.z - 6, b.z + 6, top + 10 );
+
+				}
+
+			}
 
 		}
 
@@ -303,6 +342,20 @@ export class Meridian {
 			bounds: { min: { x: f.x0, y: b.y, z: f.z0 }, max: { x: f.x1, y: b.y + b.h, z: f.z1 } },
 			colliders,
 			fireAnchors: b.protected ? [] : fireAnchors( b, f ),
+			setCollisionStage( s ) {
+
+				for ( const c of colliders ) {
+
+					if ( c._roof ) { c.walkable = s < 3; continue; }
+					if ( c._roofObstacle ) { c.solid = s < 3; continue; }
+					if ( c._top === undefined ) c._top = c.top;
+					c.top = s >= 3 ? Math.max( c.bottom + 0.5, Math.min( c._top, b.y + Math.min( 4, b.h * 0.15 ) ) ) : c._top;
+					c.half.y = ( c.top - c.bottom ) / 2;
+					c.center.y = c.bottom + c.half.y;
+
+				}
+
+			},
 			get group() {
 
 				if ( ! group ) {
@@ -320,21 +373,12 @@ export class Meridian {
 			setStage( s ) {
 
 				s = Math.max( 0, Math.min( 3, Math.round( Number( s ) || 0 ) ) );
-				if ( b.protected ) s = Math.min( s, 1 ); // the Twins: cosmetic marks at most (w21-common.md)
 				if ( b.collapsible === false ) s = Math.min( s, 2 );
 				if ( s === h.stage ) return h.stage;
 				h.stage = s;
 				chunk.dirty = true;
 				self._dirty = true;
-				// a collapsed building's colliders drop to its stump
-				for ( const c of colliders ) {
-
-					if ( c._top === undefined ) c._top = c.top;
-					c.top = s >= 3 ? Math.max( c.bottom + 0.5, Math.min( c._top, b.y + Math.min( 4, b.h * 0.15 ) ) ) : c._top;
-					c.half.y = ( c.top - c.bottom ) / 2;
-					c.center.y = c.bottom + c.half.y;
-
-				}
+				h.setCollisionStage( s );
 
 				if ( typeof self.onStage === 'function' ) {
 
@@ -353,6 +397,29 @@ export class Meridian {
 	building( id ) {
 
 		return this.handles.get( id ) || null;
+
+	}
+
+	// Highest live roof at/below maxY. Callers must check a downward crossing themselves.
+	// pad is an inward clearance for a landing footprint, unlike groundHeightAt's outward pad.
+	landingSurfaceAt( x, z, maxY = Infinity, pad = 0 ) {
+
+		let best = null;
+		for ( const h of this.handles.values() ) for ( const c of h.colliders ) {
+
+			if ( ! c._roof || ! c.walkable || c.top > maxY ) continue;
+			const x0 = c.center.x - c.half.x, x1 = c.center.x + c.half.x, z0 = c.center.z - c.half.z, z1 = c.center.z + c.half.z;
+			if ( x < x0 + pad || x > x1 - pad || z < z0 + pad || z > z1 - pad ) continue;
+			if ( ! best || c.top > best.y ) best = { id: h.id, x0, x1, z0, z1, y: c.top, top: c.top, tag: c.tag };
+
+		}
+		if ( best ) for ( const c of this.handles.get( best.id ).colliders ) {
+
+			if ( ! c._roofObstacle || ! c.solid || c.top <= best.y + 0.01 || c.bottom > best.y + 0.2 ) continue;
+			if ( Math.abs( x - c.center.x ) < c.half.x + pad && Math.abs( z - c.center.z ) < c.half.z + pad ) return null;
+
+		}
+		return best;
 
 	}
 

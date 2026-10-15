@@ -422,3 +422,8 @@ The full licence text as shipped in `node_modules/@dimforge/rapier3d-compat/LICE
    See the License for the specific language governing permissions and
    limitations under the License.
 ```
+
+### October 15, 2026 additions
+
+`public/ui/codex-nautical-chart.png` was generated with ChatGPT Image for this project.
+The map renders navigable terrain and quest locations from game coordinates; the image supplies the chart decoration.

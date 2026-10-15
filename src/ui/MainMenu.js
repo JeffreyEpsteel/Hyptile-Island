@@ -249,6 +249,8 @@ export class MainMenu {
 	_startMode() {
 
 		if ( this.app && this.app.pendingServer ) return 'multiplayer';
+		const requested = this.app?.qs?.get?.( 'mode' );
+		if ( isMode( requested ) ) return requested;
 		try {
 
 			const m = localStorage.getItem( MODE_KEY );

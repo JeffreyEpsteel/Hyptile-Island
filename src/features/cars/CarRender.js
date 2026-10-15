@@ -9,7 +9,10 @@
 //                                                    lights, steer, spin, hidden }
 //   r.dispose()
 
-import { InstancedMesh, Matrix4, Quaternion, Vector3, Color } from '../../engine/index.js';
+import { InstancedMesh, Matrix4, Quaternion, Vector3, Color, BufferGeometry, BufferAttribute, BoxGeometry } from '../../engine/index.js';
+import { Material } from '../../engine/render/Material.js';
+import { mergeGeometries } from '../../engine/geometry/BufferGeometryUtils.js';
+import { LAYERS } from '../../core/SceneRenderer.js';
 import { loadStaticGLB } from '../../world/boat/StaticGLB.js';
 import { KINDS, KIND_IDS } from './CarData.js';
 
@@ -36,7 +39,7 @@ const LAMP_SURFACE = /* wgsl */`
 `;
 
 const CAPS = { sedan: 140, taxi: 60, police: 24, pickup: 70, van: 70, sports: 30, bus: 8 };
-const PARTS = [ 'CarPaint', 'CarTrim', 'CarLamp' ];
+const PARTS = [ 'CarPaint', 'CarTrim', 'CarLamp', 'CarGlass', 'CarCabin' ];
 const DENT = [ 0, 0.07, 0.17 ]; // m: how far the shell is pushed in per variant
 
 const _m = new Matrix4(), _mw = new Matrix4(), _mb = new Matrix4(), _q = new Quaternion(), _qw = new Quaternion(), _p = new Vector3(), _s = new Vector3( 1, 1, 1 ), _c = new Color();
@@ -44,6 +47,144 @@ const _ax = new Vector3( 1, 0, 0 ), _ay = new Vector3( 0, 1, 0 );
 
 // the damage variant of a stage
 export const variantOf = ( stage ) => ( stage <= 0 ? 0 : stage <= 2 ? 1 : 2 );
+
+// The authored trim atlas includes opaque glass. Split triangles, preserving the atlas on all real trim.
+function trianglesWhere( geo, keep ) {
+
+	const src = geo.index ? geo.index.array : Array.from( { length: geo.attributes.position.count }, ( _, i ) => i );
+	const arrays = Object.fromEntries( Object.keys( geo.attributes ).map( ( k ) => [ k, [] ] ) );
+	for ( let i = 0; i < src.length; i += 3 ) {
+
+		const ids = [ src[ i ], src[ i + 1 ], src[ i + 2 ] ];
+		if ( ! keep( ids ) ) continue;
+		for ( const k in arrays ) for ( const j of ids ) {
+
+			const a = geo.attributes[ k ];
+			for ( let c = 0; c < a.itemSize; c ++ ) arrays[ k ].push( a.array[ j * a.itemSize + c ] );
+
+		}
+
+	}
+	const out = new BufferGeometry();
+	for ( const k in arrays ) out.setAttribute( k, new BufferAttribute( new Float32Array( arrays[ k ] ), geo.attributes[ k ].itemSize ) );
+	out.computeBoundingBox(); out.computeBoundingSphere();
+	return out;
+
+}
+
+export function splitCarTrimGeometry( geo ) {
+
+	const uv = geo.attributes.uv;
+	const isGlass = ( ids ) => {
+
+		const u = ids.reduce( ( s, i ) => s + uv.array[ i * 2 ], 0 ) / 3;
+		const v = ids.reduce( ( s, i ) => s + uv.array[ i * 2 + 1 ], 0 ) / 3;
+		const col = Math.floor( u * 8 ), row = Math.floor( ( 1 - v ) * 8 );
+		return col === 0 && row === 0 || col === 3 && row === 2;
+
+	};
+	return { trim: trianglesWhere( geo, ( ids ) => ! isGlass( ids ) ), glass: trianglesWhere( geo, isGlass ) };
+
+}
+
+export function carCabinBounds( spec, glassGeometry ) {
+
+	const bounds = glassGeometry.boundingBox.clone();
+	// Bus doors use the window atlas cell down to the steps, below the actual window belt.
+	bounds.min.y = Math.max( bounds.min.y, spec.hgt * 0.4 );
+	return bounds;
+
+}
+
+export function openCarCabin( geo, bounds ) {
+
+	const p = geo.attributes.position.array, n = geo.attributes.normal.array;
+	const src = geo.index ? geo.index.array : Array.from( { length: geo.attributes.position.count }, ( _, i ) => i );
+	const arrays = Object.fromEntries( Object.keys( geo.attributes ).map( ( k ) => [ k, [] ] ) );
+	const vertex = ( i ) => Object.fromEntries( Object.entries( geo.attributes ).map( ( [ k, a ] ) => [ k, Array.from( a.array.slice( i * a.itemSize, ( i + 1 ) * a.itemSize ) ) ] ) );
+	const clip = ( poly, axis, edge, sign ) => {
+
+		const out = [];
+		for ( let i = 0; i < poly.length; i ++ ) {
+
+			const a = poly[ i ], b = poly[ ( i + 1 ) % poly.length ];
+			const da = ( a.position[ axis ] - edge ) * sign, db = ( b.position[ axis ] - edge ) * sign;
+			if ( da >= 0 ) out.push( a );
+			if ( ( da >= 0 ) !== ( db >= 0 ) ) {
+
+				const t = da / ( da - db );
+				out.push( Object.fromEntries( Object.keys( arrays ).map( ( k ) => [ k, a[ k ].map( ( v, j ) => v + ( b[ k ][ j ] - v ) * t ) ] ) ) );
+
+			}
+
+		}
+		return out;
+
+	};
+	const emit = ( poly ) => {
+
+		for ( let j = 1; j + 1 < poly.length; j ++ ) for ( const v of [ poly[ 0 ], poly[ j ], poly[ j + 1 ] ] ) for ( const k in arrays ) arrays[ k ].push( ...v[ k ] );
+
+	};
+	for ( let i = 0; i < src.length; i += 3 ) {
+
+		const ids = [ src[ i ], src[ i + 1 ], src[ i + 2 ] ];
+		const y = ids.reduce( ( s, i ) => s + p[ i * 3 + 1 ], 0 ) / 3;
+		const up = ids.every( ( i ) => n[ i * 3 + 1 ] > 0.65 );
+		let poly = ids.map( vertex );
+		if ( ! up || y >= bounds.min.y + 0.1 || y <= bounds.min.y - 0.2 ) { emit( poly ); continue; }
+		// Subtract the greenhouse opening, clipping large body-cap triangles rather than deleting the bonnet.
+		for ( const [ axis, edge, sign ] of [ [ 0, bounds.min.x + 0.04, 1 ], [ 0, bounds.max.x - 0.04, - 1 ], [ 2, bounds.min.z, 1 ], [ 2, bounds.max.z, - 1 ] ] ) {
+
+			emit( clip( poly, axis, edge, - sign ) );
+			poly = clip( poly, axis, edge, sign );
+			if ( ! poly.length ) break;
+
+		}
+
+	}
+	const out = new BufferGeometry();
+	for ( const k in arrays ) out.setAttribute( k, new BufferAttribute( new Float32Array( arrays[ k ] ), geo.attributes[ k ].itemSize ) );
+	out.computeBoundingBox(); out.computeBoundingSphere();
+	return out;
+
+}
+
+export function carCabinGeometry( spec, bounds ) {
+
+	const parts = [];
+	const box = ( x, y, z, w, h, d, rgb ) => {
+
+		const g = new BoxGeometry( w, h, d ).translate( x, y, z );
+		const c = new Float32Array( g.attributes.position.count * 3 );
+		for ( let i = 0; i < c.length; i += 3 ) c.set( rgb, i );
+		g.setAttribute( 'color', new BufferAttribute( c, 3 ) );
+		parts.push( g );
+
+	};
+	const w = spec.wid - 0.28, z0 = bounds.min.z + 0.12, z1 = bounds.max.z - 0.12;
+	const belt = Math.max( spec.seat[ 1 ] + 0.35, bounds.min.y ), floor = belt - 0.55;
+	const seatY = floor + 0.22, seatZ = spec.eye[ 2 ] - 0.18;
+	const dashY = spec.eye[ 1 ] - 0.28, dashZ = z1 - 0.18;
+	box( 0, floor, ( z0 + z1 ) / 2, w, 0.08, z1 - z0, [ 0.11, 0.12, 0.13 ] );
+	for ( const x of [ spec.seat[ 0 ], - spec.seat[ 0 ] ] ) {
+
+		box( x, seatY, seatZ, 0.5, 0.16, 0.48, [ 0.32, 0.25, 0.18 ] );
+		box( x, seatY + 0.22, seatZ - 0.27, 0.5, 0.5, 0.13, [ 0.27, 0.21, 0.15 ] );
+
+	}
+	box( 0, dashY, dashZ, w - 0.1, 0.16, 0.3, [ 0.12, 0.14, 0.16 ] );
+	// A legible instrument binnacle and steering rim below the driver's sight line.
+	box( spec.eye[ 0 ], dashY + 0.06, dashZ - 0.17, 0.35, 0.08, 0.025, [ 0.18, 0.43, 0.34 ] );
+	for ( const x of [ - 0.15, 0.15 ] ) box( spec.eye[ 0 ] + x, dashY - 0.08, dashZ - 0.32, 0.035, 0.2, 0.035, [ 0.2, 0.21, 0.22 ] );
+	for ( const y of [ - 0.18, 0.02 ] ) box( spec.eye[ 0 ], dashY + y, dashZ - 0.32, 0.33, 0.035, 0.035, [ 0.2, 0.21, 0.22 ] );
+	for ( const side of [ - 1, 1 ] ) box( side * w / 2, ( floor + belt ) / 2, ( z0 + z1 ) / 2, 0.06, belt - floor, z1 - z0, [ 0.23, 0.24, 0.25 ] );
+	const out = mergeGeometries( parts );
+	for ( const p of parts ) p.dispose();
+	out.computeBoundingBox(); out.computeBoundingSphere();
+	return out;
+
+}
 
 // a dented copy of a shell (positions hashed so the copies of a vertex on every face move together)
 export function dentGeometry( geo, amount, spec ) {
@@ -81,6 +222,8 @@ export class CarRender {
 		this.base = base.endsWith( '/' ) ? base : base + '/';
 		this.sets = new Map(); // kind -> { parts: [ [ InstancedMesh x3 ] x PARTS ], wheel, wheelPos, n: [ per variant ], nw }
 		this.loaded = [];
+		this.derived = [];
+		this.cabinMats = [];
 		this.lampMats = new Map();
 		this.caps = caps;
 		this.shadows = shadows;
@@ -103,7 +246,7 @@ export class CarRender {
 			materials: ( info ) => {
 
 				if ( /CarLamp/.test( info.name ) ) return { uniforms: { glow: [ 'f32', 0 ], beaconA: [ 'f32', 0 ], beaconB: [ 'f32', 0 ] }, surface: LAMP_SURFACE, roughness: 0.25 };
-				if ( /CarPaint/.test( info.name ) ) return { roughness: 0.32, metalness: 0.2, color: new Color( 1, 1, 1 ) };
+				if ( /CarPaint/.test( info.name ) ) return { roughness: 0.32, metalness: 0.2, color: new Color( 1, 1, 1 ), side: 'double' };
 				return {};
 
 			},
@@ -111,10 +254,40 @@ export class CarRender {
 		this.loaded.push( glb );
 		const cap = this.caps[ kind ] || 40;
 		const set = { kind, parts: [], wheel: null, wheelPos: [], n: [ 0, 0, 0 ], nw: 0, cap };
+		const trimSrc = glb.meshes.find( ( m ) => m.material.name === 'car-CarTrim' );
+		const extras = new Map();
+		if ( trimSrc ) {
+
+			const split = splitCarTrimGeometry( trimSrc.geometry );
+			this.derived.push( split.trim, split.glass );
+			extras.set( 'CarTrim', { geometry: split.trim, material: trimSrc.material } );
+			if ( split.glass.attributes.position.count ) {
+
+				const glassMat = new Material( { name: 'car-clearGlass', color: new Color( 0.45, 0.57, 0.65 ), transparent: true, opacity: 0.16, depthWrite: false, side: 'double', roughness: 0.16, metalness: 0, velocityWeight: 0 } );
+				const cabinMat = new Material( { name: 'car-cabin', vertexColors: true, roughness: 0.9, side: 'double', surface: 's.emissive += s.albedo * 0.025;' } );
+				this.cabinMats.push( glassMat, cabinMat );
+				extras.set( 'CarGlass', { geometry: split.glass, material: glassMat } );
+				const bounds = carCabinBounds( K, split.glass );
+				set.cabinBounds = bounds;
+				const cabin = carCabinGeometry( K, bounds );
+				this.derived.push( cabin );
+				extras.set( 'CarCabin', { geometry: cabin, material: cabinMat } );
+				const paint = glb.meshes.find( ( m ) => m.material.name === 'car-CarPaint' );
+				if ( paint ) {
+
+					const open = openCarCabin( paint.geometry, bounds );
+					this.derived.push( open );
+					extras.set( 'CarPaint', { geometry: open, material: paint.material } );
+
+				}
+
+			}
+
+		}
 		const wheels = [];
 		for ( const part of PARTS ) {
 
-			const src = glb.meshes.find( ( m ) => m.name === 'car-' + part || m.material.name === 'car-' + part );
+			const src = extras.get( part ) || glb.meshes.find( ( m ) => m.name === 'car-' + part || m.material.name === 'car-' + part );
 			if ( ! src ) { set.parts.push( null ); continue; }
 			if ( part === 'CarLamp' ) this.lampMats.set( kind, src.material );
 			const variants = DENT.map( ( d, v ) => {
@@ -122,6 +295,7 @@ export class CarRender {
 				const geo = v === 0 ? src.geometry : dentGeometry( src.geometry, d, K );
 				const im = new InstancedMesh( geo, src.material, cap );
 				im.name = `car-${ kind }-${ part }-${ v }`;
+				if ( part === 'CarGlass' ) { im.layers.set( LAYERS.TRANSPARENT ); im.renderOrder = 1; }
 				im.frustumCulled = false;
 				im.castShadow = this.shadows && part === 'CarPaint';
 				im.receiveShadow = true;
@@ -210,7 +384,8 @@ export class CarRender {
 				if ( ! vs ) continue;
 				const im = PARTS[ k ] === 'CarLamp' ? vs[ 0 ] : vs[ v ];
 				const idx = PARTS[ k ] === 'CarLamp' ? set.n[ 0 ] + set.n[ 1 ] + set.n[ 2 ] - 1 : i;
-				im.setMatrixAt( idx, _mb );
+				// Only the occupied car has a detailed local cabin; the city's other cabins stay instanced.
+				im.setMatrixAt( idx, r.cockpitDetailed && PARTS[ k ] === 'CarCabin' ? _m.copy( _mb ).scale( _s.set( 0, 0, 0 ) ) : _mb );
 				if ( k === 0 ) {
 
 					if ( wreck ) _c.setRGB( 0.06, 0.055, 0.05 );
@@ -220,7 +395,8 @@ export class CarRender {
 					im.setColorAt( idx, _c );
 
 				} else if ( k === 1 ) im.setColorAt( idx, _c.setRGB( wreck ? 0.2 : 1, wreck ? 0.2 : 1, wreck ? 0.2 : 1 ) );
-				else im.setColorAt( idx, wreck ? _c.setRGB( 0.1, 0.1, 0.1 ) : r.lights ? _c.setRGB( 1, 1, 1 ) : _c.setRGB( 0.42, 0.42, 0.42 ) );
+				else if ( k === 2 ) im.setColorAt( idx, wreck ? _c.setRGB( 0.1, 0.1, 0.1 ) : r.lights ? _c.setRGB( 1, 1, 1 ) : _c.setRGB( 0.42, 0.42, 0.42 ) );
+				else im.setColorAt( idx, _c.setRGB( wreck ? 0.15 : 1, wreck ? 0.15 : 1, wreck ? 0.15 : 1 ) );
 
 			}
 
@@ -305,6 +481,9 @@ export class CarRender {
 		}
 
 		for ( const g of this.loaded ) g && g.dispose && g.dispose();
+		for ( const g of this.derived ) g.dispose();
+		for ( const m of this.cabinMats ) m.dispose();
+		this.derived.length = this.cabinMats.length = 0;
 		this.sets.clear();
 
 	}

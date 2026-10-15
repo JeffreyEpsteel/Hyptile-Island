@@ -408,7 +408,7 @@ export function sanitizeState( o ) {
 	for ( const k of Object.keys( o ) ) {
 
 		if ( STATE_KEYS.has( k ) || ! EXTRA_KEY.test( k ) || BAD_KEYS.has( k ) || n >= 8 ) continue;
-		const v = cleanData( o[ k ], 3 );
+		const v = k === 'helicopter' ? sanitizeHelicopter( o[ k ] ) : cleanData( o[ k ], 3 );
 		if ( v === undefined ) continue;
 		const len = JSON.stringify( v ).length + k.length;
 		if ( len > room ) continue;
@@ -419,6 +419,22 @@ export function sanitizeState( o ) {
 	}
 
 	return s;
+
+}
+
+// Rotorcraft state is presentation only, but must never feed invalid transforms
+// into another player's renderer. The server runs the same sanitizer.
+export function sanitizeHelicopter( h ) {
+
+	if ( h === null ) return null;
+	if ( ! h || ! Array.isArray( h.p ) || h.p.length !== 3 || ! Array.isArray( h.q ) || h.q.length !== 4 ) return undefined;
+	if ( ! h.p.every( v => Number.isFinite( v ) && Math.abs( v ) <= WORLD_LIMIT ) || ! h.q.every( Number.isFinite ) ) return undefined;
+	const len = Math.hypot( ...h.q );
+	if ( len < 1e-6 || ! Number.isFinite( len ) ) return undefined;
+	return { p: h.p.map( v => round( v, 100 ) ), q: h.q.map( v => round( v / len, 1e4 ) ),
+		rpm: round( num( h.rpm, 0, 1 ), 100 ), piloted: h.piloted === true,
+		homeSlot: Math.round( num( h.homeSlot, 0, 15 ) ),
+		...( h.lights === undefined ? {} : { lights: Math.round( num( h.lights, 0, 15, 0 ) ) } ) };
 
 }
 

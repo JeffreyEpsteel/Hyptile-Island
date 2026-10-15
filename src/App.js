@@ -78,7 +78,7 @@ import { Residents } from './world/Residents.js';
 import { CaptainRoid } from './game/CaptainRoid.js';
 import { Clicks } from './audio/Clicks.js';
 import { BOATS } from './game/Boats.js';
-import { DEFAULT_MODE, DAY_SPEED, SANDBOX_ONLY, isMode, rules as modeRules } from './game/GameMode.js';
+import { DEFAULT_MODE, DAY_SPEED, SANDBOX_ONLY, isMode, isOnlineSession, rules as modeRules } from './game/GameMode.js';
 import { NetClient, defaultServerUrl } from './net/NetClient.js';
 import { RemotePlayers } from './net/RemotePlayers.js';
 import { ChatInput } from './net/ChatInput.js';
@@ -616,7 +616,7 @@ fn terrainWetness( xz: vec2f, h: f32 ) -> vec2f {
 	setMenuOpen( open ) {
 
 		this.menuOpen = !! open;
-		this.paused = this.menuOpen && ! this.rules.online;
+		this.paused = this.menuOpen && ! isOnlineSession( this );
 		this.input.enabled = ! this.menuOpen;
 		if ( this.menuOpen ) this.input.keys.clear();
 
@@ -706,6 +706,7 @@ fn terrainWetness( xz: vec2f, h: f32 ) -> vec2f {
 	// Pause menu > Load: the slot list of the main menu for this mode. The game is saved first; a chosen slot loads in place.
 	async openLoadMenu() {
 
+		if ( isOnlineSession( this ) ) { this.game?.toast?.( 'Leave multiplayer before loading a local save.', 2400 ); return false; }
 		if ( ! this.menu || this._loadOpen ) return;
 		this._loadOpen = true;
 		this.saveNow();
@@ -735,6 +736,9 @@ fn terrainWetness( xz: vec2f, h: f32 ) -> vec2f {
 	saveNow( auto = false ) {
 
 		if ( ! this.game ) return false;
+		// Universe profiles use their server storage adapter. Crew rooms must not
+		// overwrite a local slot with a shared world's live state.
+		if ( isOnlineSession( this ) && ! this.game.state.storage?.universe ) return false;
 		if ( auto && ( ! this.session || ! this.rules.autosave ) ) return false;
 		return this.game.state.save();
 
@@ -844,6 +848,20 @@ fn terrainWetness( xz: vec2f, h: f32 ) -> vec2f {
 
 	connect( url ) {
 
+		if ( ! url || ! String( url ).trim() ) {
+			this.game?.toast?.( 'Set a server address in Online settings before connecting.', 4000 );
+			return false;
+		}
+
+		// Settings can connect from solo play too. Load the separate multiplayer
+		// profile through the normal session path before creating a connection.
+		if ( this.mode !== 'multiplayer' ) {
+
+			if ( this.session ) this.saveNow();
+			return this.startSession( { mode: 'multiplayer', slot: 0, server: url } );
+
+		}
+
 		if ( this.net ) this.net.disconnect();
 		const st = this.game.state;
 		const hud = this.ui ? ( this.ui.ui.hud || this.ui.ui.root ) : null;
@@ -859,7 +877,7 @@ fn terrainWetness( xz: vec2f, h: f32 ) -> vec2f {
 
 			},
 			onPeerLeave: ( id ) => this.remotePlayers.removePeer( id ),
-			onStates: ( list, at ) => { this.remotePlayers.applyStates( list, at ); this.features?.get( 'seaplane' )?.updateRemote?.( list ); },
+			onStates: ( list, at ) => { this.remotePlayers.applyStates( list, at ); this.features?.get( 'seaplane' )?.updateRemote?.( list ); this.features?.get( 'helicopter' )?.updateRemote?.( list ); },
 			onChat: ( msg ) => this.remotePlayers.pushChat( msg ),
 			onClock: ( c ) => {
 
@@ -901,6 +919,7 @@ fn terrainWetness( xz: vec2f, h: f32 ) -> vec2f {
 			boat: st.boat ? { id: st.boat, p: [ b.position.x, b.position.y, b.position.z ], q: [ b.quaternion.x, b.quaternion.y, b.quaternion.z, b.quaternion.w ], throttle: b.throttle, steer: b.steer, rpm: b.rpm * 2400, driven: b.driven } : null,
 		};
 		this.features?.get( 'seaplane' )?.decorateState?.( out ); // out.plane while flying
+		this.features?.get( 'helicopter' )?.decorateState?.( out );
 		return this.netsync && this.netsync.decorateState ? this.netsync.decorateState( out ) : out;
 
 	}
@@ -949,7 +968,7 @@ fn terrainWetness( xz: vec2f, h: f32 ) -> vec2f {
 	// T: let the day run or stop it (sandbox only: the other modes keep the island's clock)
 	toggleTime() {
 
-		if ( ! this.rules.timeControl ) {
+		if ( ! this.rules.timeControl || isOnlineSession( this ) ) {
 
 			this.lockedToast( 'Pausing time' );
 			return;
@@ -982,7 +1001,7 @@ fn terrainWetness( xz: vec2f, h: f32 ) -> vec2f {
 	setFreeCam( on ) {
 
 		if ( on === this.freeCam ) return;
-		if ( on && ! this.rules.freeCam ) {
+		if ( on && ( ! this.rules.freeCam || isOnlineSession( this ) ) ) {
 
 			this.lockedToast( 'Free camera' );
 			return;

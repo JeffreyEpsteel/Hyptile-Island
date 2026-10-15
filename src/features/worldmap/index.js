@@ -2,6 +2,7 @@ import { WORLD } from '../../world/WorldLayout.js';
 import { FogGrid, worldBounds, revealRadius, FOG_CELL, questPinMarker, questPinId, parkedAirframes } from './MapLogic.js';
 import { WorldMap } from '../../ui/WorldMap.js';
 import { iconFor } from '../../game/Minimap.js';
+import { questJournalModel } from '../../ui/QuestJournal.js';
 
 // The world map (feature module): a full-screen chart in the minimap's style (src/ui/WorldMap.js draws it) with
 // every island and port, the player, the boat, the seaplane, the other players, the stalls and the yard, the notice
@@ -48,6 +49,9 @@ export class WorldMapFeature {
 		this.bounds = worldBounds( WORLD, this.app.terrainData );
 		this.fog = new FogGrid( this.bounds, FOG_CELL );
 		this.waypoint = null;
+		this.selectedQuest = null;
+		this.trackedQuest = null;
+		this._questT = 0;
 		this.markers = new Map();
 		this.pins = new Map(); // quest id -> marker (saved)
 		this._parked = new Set(); // ids of the parked-plane markers
@@ -74,6 +78,52 @@ export class WorldMapFeature {
 	}
 
 	// a quest step's place as a pin on both maps (the same id again moves / relabels it)
+	questRows() { return questJournalModel( this.app, this.features ).rows; }
+
+	selectQuest( id ) {
+
+		if ( id !== null && ! this.questRows().some( ( r ) => r.id === id ) ) return false;
+		this.selectedQuest = id;
+		return true;
+
+	}
+
+	trackQuest( id ) {
+
+		if ( id !== null && ! this.selectQuest( id ) ) return false;
+		this.trackedQuest = id;
+		this.reconcileQuests();
+		return true;
+
+	}
+
+	reconcileQuests( rows = this.questRows() ) {
+
+		if ( this.selectedQuest && ! rows.some( ( q ) => q.id === this.selectedQuest ) ) this.selectedQuest = null;
+		const q = rows.find( ( r ) => r.id === this.trackedQuest );
+		if ( ! q ) this.trackedQuest = null;
+		if ( q?.target ) this.addMarker( { id: 'journal-target', kind: 'quest', icon: 'quest', ...q.target, label: `Tracked: ${ q.title } · ${ q.target.label }` } );
+		else this.removeMarker( 'journal-target' );
+
+	}
+
+	showQuest( id ) {
+
+		const q = this.questRows().find( ( r ) => r.id === id );
+		if ( ! q?.target || ! this.open() ) return false;
+		this.trackQuest( id );
+		this.ui.focusOn( q.target, q.title );
+		return true;
+
+	}
+
+	clearTrackedQuest() {
+
+		this.trackQuest( null );
+		if ( this.ui?.targetEl ) this.ui.targetEl.hidden = true;
+
+	}
+
 	pinQuest( e ) {
 
 		const m = questPinMarker( e );
@@ -135,7 +185,9 @@ export class WorldMapFeature {
 	open() {
 
 		const ui = this._ensureUI();
-		return ui ? ui.open() : false;
+		const opened = ui ? ui.open() : false;
+		if ( opened ) this.features?.get?.( 'notices' )?.closeBoard?.();
+		return opened;
 
 	}
 
@@ -232,7 +284,7 @@ export class WorldMapFeature {
 
 			const d = p ? Math.hypot( m.x - p.x, m.z - p.z ) : null;
 			const far = d === null ? '' : d >= 1000 ? `${ ( d / 1000 ).toFixed( d >= 10000 ? 0 : 1 ) } km` : `${ Math.round( d ) } m`;
-			list.push( { key: 'pin:' + m.id, kind: m.kind, icon: iconFor( m.icon ), x: m.x, z: m.z, label: m.label ? ( far ? `${ m.label } · ${ far }` : m.label ) : far, minor: m.kind === 'parked', edge: m.kind !== 'parked', rot: null, hot: m.kind === 'death' } );
+			list.push( { key: 'pin:' + m.id, kind: m.kind + ( m.id === 'journal-target' ? ' is-tracked' : '' ), icon: iconFor( m.icon ), x: m.x, z: m.z, label: m.label ? ( far ? `${ m.label } · ${ far }` : m.label ) : far, minor: m.kind === 'parked', edge: m.kind !== 'parked', rot: null, hot: m.kind === 'death' } );
 
 		}
 
@@ -292,6 +344,8 @@ export class WorldMapFeature {
 
 		const app = this.app, p = app.player;
 		this._ensureUI();
+		this._questT -= dt;
+		if ( this._questT <= 0 ) { this._questT = 0.5; this.reconcileQuests(); }
 
 		// the fog lifts around the player (not from the free camera)
 		this._t -= dt;
@@ -330,7 +384,7 @@ export class WorldMapFeature {
 
 		const wp = this.waypoint;
 		const pins = [ ...this.pins.values() ].map( ( m ) => ( { id: m.id.slice( 6 ), x: Math.round( m.x * 10 ) / 10, z: Math.round( m.z * 10 ) / 10, label: m.label } ) );
-		return { v: SAVE_VERSION, fog: this.fog.toJSON(), wp: wp ? { x: Math.round( wp.x * 10 ) / 10, z: Math.round( wp.z * 10 ) / 10 } : null, ...( pins.length ? { pins } : {} ) };
+		return { v: SAVE_VERSION, fog: this.fog.toJSON(), wp: wp ? { x: Math.round( wp.x * 10 ) / 10, z: Math.round( wp.z * 10 ) / 10 } : null, selectedQuest: this.selectedQuest, trackedQuest: this.trackedQuest, ...( pins.length ? { pins } : {} ) };
 
 	}
 
@@ -338,6 +392,11 @@ export class WorldMapFeature {
 
 		if ( ! d || typeof d !== 'object' ) return;
 		this.fog.fromJSON( d.fog );
+		const questId = ( v ) => typeof v === 'string' && /^(story|notice|contract):.{1,100}$/.test( v ) ? v : null;
+		this.selectedQuest = questId( d.selectedQuest );
+		this.trackedQuest = questId( d.trackedQuest );
+		this.removeMarker( 'journal-target' );
+		this._questT = 0; // resolve after every feature has restored its save
 		for ( const id of [ ...this.pins.keys() ] ) this.clearQuestPin( id.slice( 6 ) );
 		if ( Array.isArray( d.pins ) ) for ( const p of d.pins.slice( 0, 24 ) ) this.pinQuest( p );
 		const wp = d.wp;
@@ -349,6 +408,8 @@ export class WorldMapFeature {
 
 		this.close();
 		this.fog.clear();
+		this.selectedQuest = this.trackedQuest = null;
+		this.removeMarker( 'journal-target' );
 		this.setWaypoint( null );
 		for ( const id of [ ...this.pins.keys() ] ) this.clearQuestPin( id.slice( 6 ) );
 		for ( const id of [ ...this._parked ] ) this.removeMarker( id );

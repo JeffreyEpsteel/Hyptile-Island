@@ -27,6 +27,7 @@ import * as inverted from './inverted/index.js';
 import * as life from './life/index.js';
 import * as exploration from './exploration/index.js';
 import * as seaplane from './seaplane/index.js';
+import * as helicopter from './helicopter/index.js';
 import * as hijack from './hijack/index.js';
 import * as customs from './customs/index.js';
 import * as death from './death/index.js';
@@ -70,6 +71,7 @@ export const MODULES = [
 	[ 'vfx', vfx ], // after naval: ship state is current when the fires update
 	[ 'night', night ],
 	[ 'seaplane', seaplane ], // the floatplane and its hangar west of the pier
+	[ 'helicopter', helicopter ], // coastal rescue rotorcraft and landable city roofs
 	[ 'hijack', hijack ], // wave 15C: take any vessel (after boarding, naval, seaplane)
 	[ 'death', death ], // respawn at Jade Landing, the sea chest, wreck / death markers
 	[ 'rescue', rescue ], // wave 15D: distress flares and the harbour launch that answers them

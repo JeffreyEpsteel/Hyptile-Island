@@ -55,10 +55,14 @@ export function impactDamage( speed, tough = 1, D = DAMAGE ) {
 
 }
 
-// the city's wanted level (like the navy's at sea): heat 0..100, a level per 20; the police answer with level cars (max)
+// the city's wanted level (like the navy's at sea): heat 0..100, a level per 20; the police answer with level cars (max).
+// Heat is for crimes the police know of: a driver thrown out (jack), a police car taken, somebody run down, a shot fired or
+// another's car wrecked with a police car in sight, a stranger's car taken within a patrol's sight or its alarm within one's
+// earshot. Honest driving, crashing your own car, driving it into the sea or taking a car you bought cost nothing.
 export const WANTED = {
-	gain: { jack: 26, parked: 6, alarm: 10, pedestrian: 12, police: 18, wreck: 14, explosion: 10, ram: 4 },
+	gain: { jack: 26, parked: 6, alarm: 10, pedestrian: 12, police: 18, wreck: 14, explosion: 10, ram: 4, shot: 8 },
 	alarmChance: 0.3, // a parked car's alarm goes off when it is taken
+	earshot: 160, // m: a police car this near hears that alarm
 	witness: 90, // m: a police car this near sees a parked car taken
 	decay: 2.5, // heat / s once out of sight for `cool` s
 	cool: 12,

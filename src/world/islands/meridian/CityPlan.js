@@ -11,9 +11,7 @@
 //                a multiple of PI / 2, so the world footprint is axis aligned (footprint( b ) gives it);
 //                h: roof height above y (masts and spires not included); y: the ground (pad) height under it;
 //                floors: storeys; style: the facade family (STYLES); block: the block id it stands in;
-//                landmark: a named sight (map, discovery); collapsible: may reach stage 3 (false: the two towers only);
-//                protected: true on the two towers alone (w21-common.md: never collapse, never burn, never structural
-//                damage from aircraft; cosmetic marks on the lower facade only, that mend)
+//                landmark: a named sight (map, discovery); collapsible: may reach stage 3; protected: legacy metadata.
 //     roads      { nodes: [ { id, x, z, y, signal } ], edges: [ { id, a, b, lanes, width, speed, oneWay, kind, name } ] }
 //                lanes: both directions together; width: the carriageway (kerb to kerb, m); speed: the limit (m/s);
 //                kind: 'avenue' | 'street' | 'quay' | 'hill' | 'access'; edges are straight between their nodes;
@@ -460,10 +458,10 @@ function build( seed ) {
 
 	};
 
-	// the Meridian Twins: identical square towers, the tallest things in the world (never collapse: w21-common.md)
+	// the Meridian Twins: identical square towers, the tallest things in the world (destructible landmarks)
 	const tw = blocks.find( ( b ) => b.id === 'twins' );
-	add( { id: 'twin-north', kind: 'tower', u: TOWER.north[ 0 ], v: TOWER.north[ 1 ], w: TOWER.size, d: TOWER.size, h: TOWER.h, floors: TOWER.floors, style: 'pinstripe', landmark: true, collapsible: false, protected: true, block: tw.id, name: 'Meridian Twins (North)', yaw: Math.PI } );
-	add( { id: 'twin-south', kind: 'tower', u: TOWER.south[ 0 ], v: TOWER.south[ 1 ], w: TOWER.size, d: TOWER.size, h: TOWER.h, floors: TOWER.floors, style: 'pinstripe', landmark: true, collapsible: false, protected: true, block: tw.id, name: 'Meridian Twins (South)' } );
+	add( { id: 'twin-north', kind: 'tower', u: TOWER.north[ 0 ], v: TOWER.north[ 1 ], w: TOWER.size, d: TOWER.size, h: TOWER.h, floors: TOWER.floors, style: 'pinstripe', landmark: true, collapsible: true, protected: false, block: tw.id, name: 'Meridian Twins (North)', yaw: Math.PI } );
+	add( { id: 'twin-south', kind: 'tower', u: TOWER.south[ 0 ], v: TOWER.south[ 1 ], w: TOWER.size, d: TOWER.size, h: TOWER.h, floors: TOWER.floors, style: 'pinstripe', landmark: true, collapsible: true, protected: false, block: tw.id, name: 'Meridian Twins (South)' } );
 
 	// the civic buildings
 	const blockAt = ( u, v ) => blocks.find( ( b ) => u > b.u0 && u < b.u1 && v > b.v0 && v < b.v1 );

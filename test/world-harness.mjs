@@ -3,7 +3,7 @@
 //   H.scene.add( ... ); H.shot( '/tmp/x.png', { pos: [ x, y, z ], target: [ x, y, z ], fov: 55 } );
 // Sun shadows from the engine, a simple sky-coloured clear, ACES tonemap. Stubs for modules owned
 // by other streams (shoreSim etc.) live in the tests that need them.
-import { writePNG } from './headless.mjs';
+import { writePNG, pngFilePath } from './headless.mjs';
 import { GPU } from '../src/engine/gpu/GPU.js';
 import { RenderTarget } from '../src/engine/gpu/Texture.js';
 import { readTexture } from '../src/engine/gpu/Readback.js';
@@ -56,6 +56,7 @@ export async function worldHarness( { width = 2560, height = 1267, sun = [ 0.45,
 		},
 		async shot( path, view, frames = 3 ) {
 
+			path = pngFilePath( path );
 			if ( view ) h.setView( view );
 			for ( let f = 0; f < frames; f ++ ) h.renderFrame();
 			const img = await readTexture( ldr.texture );

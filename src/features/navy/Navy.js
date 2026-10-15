@@ -236,9 +236,11 @@ export class Navy {
 		let level = 0, offences = 0;
 		try { level = pr && pr.notorietyLevel ? num( pr.notorietyLevel() ) : 0; } catch ( e ) { level = 0; }
 		if ( cu && typeof cu.offences === 'function' ) for ( const p of WORLD.ports || [] ) try { offences += num( cu.offences( p.id ) ); } catch ( e ) { /* skip */ }
-		const cw = this.get( 'citywreck' );
+		// Meridian's police level: the cars feature answers the higher of its own heat (jacked cars, people run down, shots)
+		// and the buildings' (citywreck); after a bust it is settled (cars.policeLevel 0), so the navy lets it go too
+		const cw = this.get( 'citywreck' ), cars = this.get( 'cars' );
 		let city = 0;
-		try { city = cw && cw.wanted ? num( cw.wanted() ) : 0; } catch ( e ) { city = 0; }
+		try { city = cars && typeof cars.policeLevel === 'function' ? num( cars.policeLevel() ) : cw && cw.wanted ? num( cw.wanted() ) : 0; } catch ( e ) { city = 0; }
 		return { hull: !! ( hj && hj.vessel && hj.vessel.wanted ), level, offences, standing: this.standing, city };
 
 	}

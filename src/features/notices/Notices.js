@@ -542,7 +542,12 @@ export class Notices {
 		const ui = this._getUI();
 		if ( ! ui ) return false;
 		if ( ui.isOpen ) ui.close();
-		else ui.open( 'journal', 'home' );
+		else {
+
+			this.features.get?.( 'worldmap' )?.close?.();
+			ui.open( 'journal', 'home' );
+
+		}
 		return true;
 
 	}

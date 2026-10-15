@@ -1,5 +1,5 @@
 // Plain-node test of Meridian (wave 21A): the shared city plan (meridian/CityPlan.js: deterministic, roads connected, no
-// building on a road, the Twins landmark / never collapsible), the terrain tile (MeridianTerrain: heights, shore, roads on
+// building on a road, the Twins landmark / destructible), the terrain tile (MeridianTerrain: heights, shore, roads on
 // the ground, the hill road's grade), the world entries (WORLD.meridian / ports / islands), the builder's handles (setStage,
 // onStage, the Twins' rule, colliders), the signals, the port's vendors' premium, the townlife plan and the budgets.
 //   node test/feature-meridian.mjs
@@ -38,7 +38,7 @@ ok( plan.buildings.every( ( b ) => kinds.has( b.kind ) && CP.STYLES.includes( b.
 ok( new Set( plan.buildings.map( ( b ) => b.id ) ).size === plan.buildings.length, 'building ids unique' );
 ok( plan.buildings.every( ( b ) => Math.abs( Math.round( b.yaw / ( Math.PI / 2 ) ) * ( Math.PI / 2 ) - b.yaw ) < 1e-9 ), 'yaws are quarter turns (axis-aligned footprints)' );
 const towers = plan.buildings.filter( ( b ) => b.kind === 'tower' );
-ok( towers.length === 2 && towers.every( ( t ) => t.landmark && t.collapsible === false && t.protected && t.h >= 280 && t.h <= 320 && t.w === t.d ), 'two square towers ~300 m: landmark, not collapsible, protected' );
+ok( towers.length === 2 && towers.every( ( t ) => t.landmark && t.collapsible && ! t.protected && t.h >= 280 && t.h <= 320 && t.w === t.d ), 'two square towers ~300 m: destructible landmarks' );
 ok( towers[ 0 ].w === towers[ 1 ].w && towers[ 0 ].h === towers[ 1 ].h, 'the Twins are identical' );
 const others = plan.buildings.filter( ( b ) => b.kind !== 'tower' );
 ok( others.every( ( b ) => b.collapsible && ! b.protected ), 'every other building is destructible' );
@@ -186,11 +186,11 @@ const city = new Meridian( { scene: null, terrain: fakeTerrain, colliders, kit: 
 ok( Date.now() - t0 < 5000, 'builds', ( Date.now() - t0 ) + ' ms' );
 ok( city.plan === plan && city.buildings().length === plan.buildings.length, 'a handle per building' );
 const hT = city.building( 'twin-north' );
-ok( hT.landmark && ! hT.collapsible && hT.protected && hT.fireAnchors.length === 0, 'the Twins: landmark, not collapsible, no fire anchors' );
+ok( hT.landmark && hT.collapsible && ! hT.protected && hT.fireAnchors.length > 0, 'the Twins: destructible landmarks with fire anchors' );
 const calls = [];
 city.onStage = ( id, s ) => calls.push( [ id, s ] );
-ok( hT.setStage( 3 ) <= 1 && hT.stage <= 1, 'the Twins never pass cosmetic marks (setStage 3 -> 1)', hT.stage );
-ok( hT.colliders.length && hT.colliders[ 0 ].top > hT.plan.y + 250, 'the Twins keep their full collider' );
+ok( hT.setStage( 3 ) === 3 && hT.stage === 3, 'the Twins can collapse (stage 3)', hT.stage );
+ok( hT.colliders.length && hT.colliders[ 0 ].top <= hT.plan.y + 4, 'the collapsed Twins lose their high collider' );
 hT.setStage( 0 );
 city.flush();
 const lr = city.buildings().find( ( h ) => h.kind === 'lowrise' );

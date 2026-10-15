@@ -16,6 +16,10 @@ install [Node.js 22](https://nodejs.org/), then run `PLAY_HYPTILE_ISLAND_3.1-alp
 
 ![Fishing off the pier at golden hour](docs/screenshot.jpg)
 
+## October 15 city and vehicle update
+
+See [the update notes](docs/UPDATE-20261015.md) for the new car cockpits, helicopter, airport aircraft, destructible towers and quest map. Multiplayer uses the existing persistent Fly.io universe.
+
 ## New in 3.1-alpha
 
 Two new islands (Tidemark, a town with an airstrip; Blackwater, the pirates' stronghold far south), combat you can play
@@ -63,7 +67,7 @@ briefs are in `docs/briefs/`.
 | Fight | left click swing · right click guard (hold; time it to parry) · Q dodge |
 | Boat | E board, then the helm · W S throttle · A D steer · Z / X port / starboard broadside · B board a struck pirate |
 | Seaplane | Shift throttle up · C throttle down · W S pitch · A D roll · , . rudder |
-| Panels | M map · J journal · I cooler · G spyglass · Esc menu · H settings · F1 all controls · Ctrl+S quick save · F11 fullscreen |
+| Panels | M map · J journal · I cooler · backslash spyglass · Esc menu · H settings · F1 all controls · Ctrl+S quick save · F11 fullscreen |
 
 ## Running from source
 

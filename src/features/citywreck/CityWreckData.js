@@ -2,8 +2,8 @@
 // the fire crews, repairs, the city's mood and wanted level, the repair bills, and the render / collapse budgets.
 // Damage is counted in kJ: a 6-pounder ball ~16, a powder bomb 60 (with falloff), a seaplane crash ~700.
 
-// building classes: what a kind may suffer. Towers (the Meridian Twins) never take structural damage, never burn and never
-// collapse (w21-common.md); highrises are breached and burn but never fall; the rest fall.
+// Towers can burn and collapse, with heavier structure than ordinary buildings.
+// Other highrises remain breached/gutted shells.
 export const CLASS_OF = {
 	tower: 'tower',
 	highrise: 'high',
@@ -16,18 +16,18 @@ export const CLASS_OF = {
 };
 
 // hit points (kJ) by kind at the reference footprint; scaled by sqrt( area / REF_AREA ) in 0.6 .. 2.2
-export const HP = { tower: Infinity, highrise: 1600, midrise: 560, lowrise: 190, shop: 150, warehouse: 260, station: 420, landmark: 640 };
+export const HP = { tower: 4000, highrise: 1600, midrise: 560, lowrise: 190, shop: 150, warehouse: 260, station: 420, landmark: 640 };
 export const REF_AREA = 220; // m^2
-export const ARMOR = { tower: 0, high: 0.8, mid: 1, low: 1 }; // fraction of the energy that counts
+export const ARMOR = { tower: 0.65, high: 0.8, mid: 1, low: 1 }; // fraction of the energy that counts
 
 // the damage fraction at which each stage begins (1 scarred, 2 gutted, 3 collapsed)
 export const STAGE_AT = [ 0, 0.2, 0.55, 1 ];
-export const MAX_STAGE = { tower: 0, high: 2, mid: 3, low: 3 };
+export const MAX_STAGE = { tower: 3, high: 2, mid: 3, low: 3 };
 
 // how far a blast reaches a building (its radius times this) and the energy share of a cannonball that lands near one
 export const BLAST_REACH = 1.6;
 export const NEAR_BALL = 2.0; // m from a facade: a ball that lands this close still hits it
-export const CRASH = { mass: 900, radius: 9, classes: [ 'low', 'mid' ] }; // plane crashes: low and midrise only
+export const CRASH = { mass: 900, radius: 9, classes: [ 'low', 'mid', 'tower' ] };
 
 // the towers: cosmetic marks on the lower facade (cannon, bombs), mended over a few in-game hours
 export const TOWER_MARKS = { below: 40, max: 10, mendHours: 3 };
@@ -45,7 +45,7 @@ export const FIRE = {
 	spreadChance: 0.09, // per check at fire 1 in dry weather, to each adjacent low building
 	spreadGap: 7, // m between footprints: neighbours
 	dryBelow: 0.15, // weather.rain below this is dry weather
-	classes: [ 'low', 'mid', 'high' ], // what burns (towers never)
+	classes: [ 'low', 'mid', 'high', 'tower' ],
 	bottleReach: 2.6, // m from a footprint: a fire pool there sets it alight
 	shownMax: 4, // the nearest burning buildings drawn with vfx fires (the rest smoke only)
 };
@@ -113,7 +113,7 @@ export const KIND_COLOR = { highrise: 'concrete', midrise: 'stone', lowrise: 'br
 export function classOf( b ) {
 
 	if ( ! b ) return 'low';
-	if ( b.kind === 'tower' || b.protected === true ) return 'tower'; // (the plan's protected flag: the Twins alone)
+	if ( b.kind === 'tower' ) return 'tower';
 	if ( b.kind === 'landmark' ) return b.collapsible === false || ( b.h || 0 ) > 60 ? 'high' : 'mid';
 	const c = CLASS_OF[ b.kind ] || 'low';
 	// the plan's own word wins over the kind: a building flagged not collapsible never falls
@@ -124,7 +124,6 @@ export function classOf( b ) {
 
 export function hpOf( b ) {
 
-	if ( classOf( b ) === 'tower' ) return Infinity;
 	const base = HP[ b.kind ] ?? HP.lowrise;
 	if ( ! Number.isFinite( base ) ) return Infinity;
 	const area = Math.max( 1, ( b.w || 10 ) * ( b.d || 10 ) );

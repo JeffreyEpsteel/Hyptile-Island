@@ -16,8 +16,16 @@
 // Causes: 'melee' (the melee module's knockout: it emits playerDied and lets this feature respawn you), 'seaplane' (a
 // piloted crash, Seaplane.js), 'boarding' (boardersWon: pirates took your deck), 'sunk' (your boat went down while a
 // hostile boarding party held her: playerBoatSunk { boarded }), 'lost' (thrown overboard with no land within
-// LOST_RANGE: "no way out"). Drowning is not here: the player has no breath meter. Anything else may emit
-// playerDied { cause, x, y, z, text? } and is handled the same way.
+// LOST_RANGE: "no way out"), 'drowned' (wave 22B: Breath.js, below). Anything else may emit playerDied { cause, x, y, z,
+// text? } and is handled the same way.
+//
+// Breath (wave 22B): d.breath (Breath.js) runs while the head is under water (headUnder: swimming with the eyes under the
+// surface, or trapped under an upturned hull: features.get( 'capsize' ).trapped( player )); never in a vehicle, at the helm,
+// on a deck or wading. ~30 s of air (x breath.bonus; sprint-swimming burns it 1.6 times as fast), the ring near the centre
+// (BreathRing.js, contextual), amber with a closing vignette in the last 8 s, then 6 s of damage (the melee hit points fall
+// towards 1) and the end: 'drowned'. Surfacing refills the lungs in ~4 s. Crew and townsfolk never drown.
+//   d.breathless()  true while the air is out (the damage is running)
+// Events: breathLow { left } (8 s of air left, once per dive), breathOut {} (the damage starts): sfx patch.
 //
 // The chest (campaign; the sandbox keeps everything): the fish inventory, the cargo crates (trade) and the money above
 // KEEP. A new death replaces an unclaimed chest (its contents are lost); it expires after EXPIRE_HOURS in-game hours.
@@ -32,6 +40,10 @@ import { strip, stow, isEmpty, clean, summary } from './Belongings.js';
 import { ClaimSpot } from './Spot.js';
 import { DeathOverlay } from './Overlay.js';
 import { makeChestMesh } from './Crate.js';
+import { Breath } from './Breath.js';
+import { BreathRing } from './BreathRing.js';
+
+export { Breath, BREATH } from './Breath.js';
 
 export const KEEP = 100; // $ that stays in your pocket
 export const EXPIRE_HOURS = 48; // in-game hours (2 days)
@@ -43,6 +55,23 @@ const SAVE_V = 1;
 
 const PUMP_AFTER = 150; // ms without features.update before the cut drives itself (the game is paused)
 const finite = ( ...v ) => v.every( Number.isFinite );
+// Player.js SWIM_EYE (EYE 1.62 x 0.1): the eyes above the swimmer's float point
+export const SWIM_EYE = 0.162;
+
+// is the player's head under water now? (swimming only: walking, wading, decks, the helm and every vehicle never drown)
+export function headUnder( app, features ) {
+
+	const p = app && app.player;
+	if ( ! p || p.mode !== 'swim' || ! p.position ) return false;
+	const get = ( n ) => { try { return features && features.get ? features.get( n ) : null; } catch ( e ) { return null; } };
+	const cars = get( 'cars' );
+	if ( cars && cars.driving ) return false;
+	const water = Number.isFinite( p.waterH ) ? p.waterH : 0;
+	if ( ! p.floating && p.position.y + SWIM_EYE < water - 0.05 ) return true;
+	const cap = get( 'capsize' );
+	try { return !! ( cap && cap.trapped && cap.trapped( p ) ); } catch ( e ) { return false; }
+
+}
 const clock = () => ( typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now() );
 
 // the cause line of the cut
@@ -113,6 +142,10 @@ export class Death {
 		this._ticked = - Infinity; // when update() last ran (ms)
 		this._pumping = false;
 		this._disposed = false;
+		this.breath = new Breath();
+		this._ring = null;
+		this._ringTried = false;
+		this._time = 0;
 		const f = this.features;
 		if ( f && f.on ) {
 
@@ -316,11 +349,12 @@ export class Death {
 		const c = mel && mel.combat;
 		if ( c && Number.isFinite( c.maxHp ) ) c.hp = c.maxHp;
 
-		// you died aboard a boat that is still afloat: she is towed back to her berth
+		// you died aboard a boat that is still afloat (or left her hull up: wave 22B): she is towed back to her berth
 		let towed = false;
 		const b = app.boatCtl, nv = this.features && this.features.get ? this.features.get( 'naval' ) : null;
 		const wrecked = !! ( nv && ( nv.sinking || nv.wreck ) );
-		if ( d && d.aboard && b && b.enabled !== false && ! wrecked && b.reset ) {
+		this.breath.reset();
+		if ( d && ( d.aboard || ( b && b.capsized ) ) && b && b.enabled !== false && ! wrecked && b.reset ) {
 
 			b.driven = false;
 			b.reset();
@@ -403,6 +437,7 @@ export class Death {
 		if ( ! ( dt > 0 ) ) return;
 		this._ticked = this._now();
 		this.pump( dt );
+		this._breathe( dt );
 
 		// overboard far out: the end, unless you reached the shore or something picked you up
 		if ( this._lost && ! this.dying ) {
@@ -444,6 +479,62 @@ export class Death {
 		}
 
 		this._syncMarker();
+
+	}
+
+	// ------------------------------------------------------------------ breath (wave 22B)
+
+	breathless() {
+
+		return this.breath.air <= 0;
+
+	}
+
+	_breathe( dt ) {
+
+		this._time += dt;
+		const b = this.breath, app = this.app;
+		const under = ! this.dying && this.enabled && headUnder( app, this.features );
+		const inp = app.player && app.player.input;
+		const sprint = !! ( inp && inp.down && ( inp.down( 'ShiftLeft' ) || inp.down( 'ShiftRight' ) ) );
+		const ev = b.update( dt, { under, sprint } );
+		const f = this.features;
+		if ( ev === 'warn' && f && f.emit ) f.emit( 'breathLow', { left: Math.round( b.left ) } );
+		if ( ev === 'empty' && f && f.emit ) f.emit( 'breathOut', {} );
+		// drowning: the hit points slip towards 1 (the melee module keeps them), then the end
+		if ( b.drowning > 0 ) {
+
+			const mel = f && f.get ? f.get( 'melee' ) : null, c = mel && mel.combat;
+			if ( c && Number.isFinite( c.maxHp ) && Number.isFinite( c.hp ) ) c.hp = Math.max( 1, Math.min( c.hp, Math.round( c.maxHp * ( 1 - 0.95 * b.hurt ) ) ) );
+
+		}
+
+		if ( ev === 'drowned' ) this.kill( 'drowned' );
+		// (the ring is decoration: it never stops the breath, the cut or the chest)
+		try {
+
+			const r = this._ensureRing();
+			if ( r ) r.set( this.dying ? { show: false, frac: 1, tone: 'ok', vignette: 0, pulse: 0 } : b.ring(), this._time );
+
+		} catch ( e ) {
+
+			if ( ! this._ringFailed ) console.warn( 'death: the breath ring failed', e );
+			this._ringFailed = true;
+			this._ring = null;
+
+		}
+
+	}
+
+	_ensureRing() {
+
+		if ( this._ring || this._ringTried ) return this._ring;
+		const ui = this.app.ui && this.app.ui.ui;
+		if ( ! ui || this._ringFailed ) return null; // (the UI may come up after the features: try again next frame)
+		this._ringTried = true;
+		const parent = ui.hud || ui.root;
+		if ( parent ) this._ring = new BreathRing( parent );
+		return this._ring;
 
 	}
 
@@ -511,6 +602,7 @@ export class Death {
 		this._removeCrate();
 		this.dying = null;
 		this._lost = null;
+		this.breath.reset();
 		if ( this.overlay ) this.overlay.hide();
 		this.stats = { deaths: 0, claimed: 0, expired: 0 };
 
@@ -526,6 +618,8 @@ export class Death {
 		this._mesh = null;
 		if ( this.overlay ) this.overlay.dispose();
 		this.overlay = null;
+		if ( this._ring ) this._ring.dispose();
+		this._ring = null;
 
 	}
 

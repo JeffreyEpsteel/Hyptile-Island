@@ -60,6 +60,8 @@
 //
 // Mode rules (Sandbox / Campaign / Multiplayer): features.mode is app.mode or 'campaign'; features.sandbox.
 // Money and the save stay in GameState: features.state is app.game.state (money, earn, spend, career...).
+import { isOnlineSession } from '../game/GameMode.js';
+
 export class Features {
 
 	constructor( app ) {
@@ -87,7 +89,7 @@ export class Features {
 
 	get sandbox() {
 
-		return this.mode === 'sandbox';
+		return this.mode === 'sandbox' && ! isOnlineSession( this.app );
 
 	}
 

@@ -12,7 +12,7 @@ export function stubPlan( { x = 0, z = 0 } = {} ) {
 	const B = [];
 	const add = ( id, kind, bx, bz, w, d, h, extra = {} ) => B.push( {
 		id, kind, x: x + bx, z: z + bz, w, d, h, yaw: 0, floors: Math.max( 1, Math.round( h / 3.4 ) ), style: kind,
-		landmark: kind === 'tower', collapsible: kind !== 'tower' && kind !== 'highrise', block: extra.block || 'b0', ...extra,
+		landmark: kind === 'tower', collapsible: kind !== 'highrise', block: extra.block || 'b0', ...extra,
 	} );
 	// the north side of the avenue (z < 0): a row of touching low buildings, two shops, a midrise
 	add( 'stub.low.0', 'lowrise', - 52, - 16, 12, 12, 10, { block: 'n1' } );
@@ -109,8 +109,6 @@ export function stubCity( { plan = stubPlan(), scene = null, ground = null, Mesh
 			stages: [],
 			setStage( s ) {
 
-				// the towers stay whole whatever asks (w21-common.md)
-				if ( p.kind === 'tower' ) s = 0;
 				if ( s === h.stage ) return h.stage;
 				h.stage = s;
 				h.stages.push( s );

@@ -5,6 +5,7 @@
 //   node test/feature-dressing.mjs --no-render  logic only ( still needs the headless WebGPU for the Village )
 import './headless.mjs';
 import { readFileSync, existsSync, mkdirSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { Features } from '../src/features/Features.js';
 import * as dressingModule from '../src/features/dressing/index.js';
 import { kelpSites, palmSites, rockSites, ponsKeepOut, dockDistance, dockFrame, dockLength } from '../src/features/dressing/Sites.js';
@@ -380,7 +381,7 @@ if ( ! NO_RENDER ) {
 	section( '8. headless renders' );
 	const out = new URL( 'test/out/', root );
 	mkdirSync( out, { recursive: true } );
-	const png = ( n ) => new URL( n, out ).pathname.replace( /^\//, '' );
+	const png = ( n ) => fileURLToPath( new URL( n, out ) );
 	const { groundMesh } = await import( './life-harness.mjs' );
 	const { G } = await import( '../src/engine/render/Frame.js' );
 	const E = await import( '../src/engine/index.js' );

@@ -10,8 +10,7 @@
 //   m.isOpen( id )  m.blockedEdges()  m.bulletin()  m.snapshot( full ) / m.apply( list, { remote, silent } )
 //   m.toJSON() / m.fromJSON( d ) / m.reset()
 //
-// The towers (class 'tower', the Meridian Twins) are refused everything structural on every path (hits, fire, spread, debris,
-// remote stages, saves): only cosmetic marks on the lower facade from cannon and bombs, which mend. Aircraft never mark them.
+// The twin towers share damage, fire, replication and repair paths, with heavier structure.
 
 import {
 	classOf, hpOf, stageFor, repairCost, STAGE_AT, MAX_STAGE, ARMOR, BLAST_REACH, NEAR_BALL, CRASH, TOWER_MARKS, FIRE, CREW,
@@ -199,15 +198,6 @@ export class CityModel {
 
 		const b = typeof id === 'string' ? this.byId.get( id ) : id;
 		if ( ! b || ! ( kJ > 0 ) || this.puppet ) return 0;
-		if ( b.cls === 'tower' ) {
-
-			// the towers: no structural damage, ever; cannon and bombs leave marks low on the facade that mend
-			this.stats.refusedTower ++;
-			if ( ( cause === 'cannon' || cause === 'blast' ) && at && at.y - b.y0 < TOWER_MARKS.below && by !== 'aircraft' ) this._mark( b );
-			return 0;
-
-		}
-
 		if ( cause === 'crash' && ! CRASH.classes.includes( b.cls ) ) return 0; // aircraft: low and midrise only
 		if ( b.stage === 3 ) return 0; // (rubble: nothing more to break until it is rebuilt)
 		const frac = kJ * ( ARMOR[ b.cls ] ?? 1 ) / b.hp;
@@ -242,7 +232,6 @@ export class CityModel {
 
 	_setStage( b, stage, info = {} ) {
 
-		if ( b.cls === 'tower' ) return false; // (never: the towers stay whole on every path)
 		stage = Math.max( 0, Math.min( stage | 0, MAX_STAGE[ b.cls ] ?? 0 ) );
 		const prev = b.stage;
 		if ( stage === prev ) return false;
@@ -356,7 +345,7 @@ export class CityModel {
 			const d = boxDist( b, x, y, z );
 			if ( d >= reach ) continue;
 			const k = 1 - d / reach;
-			if ( this.hit( b, kJ * k * k, { by, cause: 'blast', at: { x, y, z } } ) > 0 || b.cls === 'tower' ) n ++;
+			if ( this.hit( b, kJ * k * k, { by, cause: 'blast', at: { x, y, z } } ) > 0 ) n ++;
 
 		}
 
@@ -364,14 +353,14 @@ export class CityModel {
 
 	}
 
-	// an aircraft breaking up: the buildings it struck (low and midrise only; highrises and the towers take nothing)
+	// Aircraft impact energy damages the eligible building classes.
 	crash( x, y, z, kJ, by = 'aircraft' ) {
 
 		if ( ! Number.isFinite( x ) || ! ( kJ > 0 ) || ! this._nearCity( x, z, CRASH.radius ) ) return 0;
 		let n = 0;
 		for ( const b of this.list ) {
 
-			if ( b.cls === 'tower' || ! CRASH.classes.includes( b.cls ) ) continue;
+			if ( ! CRASH.classes.includes( b.cls ) ) continue;
 			if ( Math.abs( b.x - x ) > b.radius + CRASH.radius || Math.abs( b.z - z ) > b.radius + CRASH.radius ) continue;
 			const d = boxDist( b, x, y, z );
 			if ( d >= CRASH.radius ) continue;
@@ -412,7 +401,6 @@ export class CityModel {
 
 	_ignite( b, amount, by, quietCall ) {
 
-		if ( b.cls === 'tower' ) { this.stats.refusedTower ++; return false; } // the towers never burn
 		if ( ! FIRE.classes.includes( b.cls ) || b.stage === 3 ) return false;
 		const was = b.fire;
 		b.fire = Math.max( b.fire, Math.min( 1, amount ) );
@@ -441,6 +429,25 @@ export class CityModel {
 	}
 
 	// ------------------------------------------------------------------ time
+
+	// Remote snapshots carry repair phases without deadlines. Once this client owns the city,
+	// restart only those inherited phases on its local clock; finite saved/local schedules remain intact.
+	setPuppet( puppet ) {
+
+		const was = this.puppet; this.puppet = !! puppet;
+		if ( ! was || this.puppet ) return 0;
+		let resumed = 0;
+		for ( const b of this.list ) {
+
+			if ( b.stage === 0 || ! b.repair || Number.isFinite( b.repair.due ) ) continue;
+			const clear = b.stage === 3 && ! b.cleared && b.repair.phase === 'clear';
+			b.repair = { phase: clear ? 'clear' : 'build', start: this.hours, due: this.hours + ( clear ? REPAIR.clearRubble : REPAIR.hours[ b.stage ] ) };
+			this.emit( 'cityRepair', { id: b.id, phase: b.repair.phase, due: b.repair.due } ); resumed ++;
+
+		}
+		return resumed;
+
+	}
 
 	update( dt, { rain = 0, hours = 0 } = {} ) {
 
@@ -517,13 +524,6 @@ export class CityModel {
 
 		const H = this.hours;
 		for ( const b of this.list ) {
-
-			if ( b.cls === 'tower' ) {
-
-				if ( b.marks > 0 && b.markMend !== null && H >= b.markMend ) { b.marks = 0; b.markMend = null; this.emit( 'towerMarked', { id: b.id, marks: 0 } ); }
-				continue;
-
-			}
 
 			if ( b.stage === 0 && b.dmg > 0 && b.fire <= 0 && H - b.lastHit >= REPAIR.quiet ) b.dmg = 0; // a few chips: mended
 			if ( b.stage === 0 || b.fire > 0 ) continue;
@@ -606,14 +606,14 @@ export class CityModel {
 
 	// ------------------------------------------------------------------ queries
 
-	// the buildings (not the towers) within reach of a point: what a blast or a ball there touched
+	// The buildings within reach of a point.
 	near( x, y, z, reach ) {
 
 		const out = [];
 		if ( ! Number.isFinite( x ) || ! this._nearCity( x, z, reach ) ) return out;
 		for ( const b of this.list ) {
 
-			if ( b.cls === 'tower' || Math.abs( b.x - x ) > b.radius + reach || Math.abs( b.z - z ) > b.radius + reach ) continue;
+			if ( Math.abs( b.x - x ) > b.radius + reach || Math.abs( b.z - z ) > b.radius + reach ) continue;
 			if ( boxDist( b, x, y, z ) < reach ) out.push( b.id );
 
 		}
@@ -669,7 +669,7 @@ export class CityModel {
 	bulletin( { owedOnly = false } = {} ) {
 
 		const L = this.ledger;
-		const fixing = this.list.filter( ( b ) => b.stage > 0 && b.cls !== 'tower' );
+		const fixing = this.list.filter( ( b ) => b.stage > 0 );
 		const out = [];
 		if ( ! owedOnly && fixing.length ) out.push( { key: 'citywreck.board.repairs', text: `City works: ${ fixing.length } building${ fixing.length === 1 ? '' : 's' } under repair, $${ L.open.toLocaleString( 'en-US' ) } charged to the insurers.`, vars: { n: fixing.length, cost: L.open } } );
 		if ( L.owed > L.paid ) out.push( { key: 'citywreck.board.owed', text: `The city claims $${ ( L.owed - L.paid ).toLocaleString( 'en-US' ) } in damages from the captain who did it.`, vars: { cost: L.owed - L.paid } } );
@@ -697,7 +697,7 @@ export class CityModel {
 
 	}
 
-	// a host's stream (remote) or a save (silent): set what each entry says; towers keep only their marks
+	// A host stream or saved state sets each building's stage.
 	apply( list, { remote = false, silent = false, full = false } = {} ) {
 
 		if ( ! Array.isArray( list ) ) return 0;
@@ -707,7 +707,6 @@ export class CityModel {
 			if ( ! Array.isArray( e ) || typeof e[ 0 ] !== 'string' ) continue;
 			const b = this.byId.get( e[ 0 ] );
 			if ( ! b ) continue;
-			if ( b.cls === 'tower' ) { b.marks = Math.min( TOWER_MARKS.max, Math.max( 0, e[ 8 ] | 0 ) ); if ( b.marks ) b.markMend = this.hours + TOWER_MARKS.mendHours; continue; }
 			const stage = Math.max( 0, Math.min( MAX_STAGE[ b.cls ] ?? 0, Number( e[ 1 ] ) | 0 ) );
 			const fire = Math.max( 0, Math.min( 1, ( Number( e[ 2 ] ) || 0 ) / 100 ) );
 			const ph = Number( e[ 3 ] ) | 0;

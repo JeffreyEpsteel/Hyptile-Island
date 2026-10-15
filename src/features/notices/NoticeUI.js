@@ -1,4 +1,5 @@
 import { CHARACTERS } from '../../game/Characters.js';
+import { QuestJournal, journalCloseKey } from '../../ui/QuestJournal.js';
 import { PORT_INFO, TYPE_LABEL, TIER_NAMES, STANDING, fmtLeft, fmtDistance, compassWord, progressText, regionText } from './NoticeData.js';
 
 // DOM for the notice boards, in the look of the game HUD (ui/ui.css --tw-* tokens, .tw-glass, the gm-panel layout):
@@ -227,16 +228,18 @@ export class NoticeUI {
 		this._t = 0;
 		this._sig = '';
 		this._trackerHTML = null;
+		this.questJournal = new QuestJournal( notices, this );
 		this._click = ( e ) => this._onClick( e );
 		this.panel.addEventListener( 'click', this._click );
 		// Escape, E (and J in the journal) close it; swallowed so the game does not also react to the key
 		this._key = ( e ) => {
 
-			if ( ! this.isOpen || e.repeat ) return;
-			if ( e.code === 'Escape' || ( e.code === 'KeyE' && this.view === 'board' ) || ( e.code === 'KeyJ' && this.view === 'journal' ) ) {
+			if ( ! this.isOpen ) return;
+			if ( ( this.view === 'journal' && journalCloseKey( e ) ) || e.code === 'Escape' || ( ! e.repeat && e.code === 'KeyE' && this.view === 'board' ) ) {
 
 				e.preventDefault();
 				e.stopPropagation();
+				e.stopImmediatePropagation?.();
 				this.close();
 
 			}
@@ -250,11 +253,16 @@ export class NoticeUI {
 	open( view, port ) {
 
 		this.view = view === 'journal' ? 'journal' : 'board';
+		this.panel.classList.toggle( 'qj-panel', this.view === 'journal' );
+		this.panel.setAttribute?.( 'role', 'dialog' );
+		this.panel.setAttribute?.( 'aria-modal', 'true' );
+		this.panel.setAttribute?.( 'aria-label', this.view === 'journal' ? 'Quest journal' : 'Notice board' );
 		this.port = PORT_INFO[ port ] ? port : 'home';
 		this.isOpen = true;
 		this._sig = '';
 		this.render();
 		this.panel.classList.add( 'is-open' );
+		if ( this.view === 'journal' ) this.panel.querySelector?.( '[data-qj-select],[data-close]' )?.focus?.();
 		try {
 
 			if ( document.pointerLockElement && document.exitPointerLock ) document.exitPointerLock();
@@ -272,6 +280,7 @@ export class NoticeUI {
 
 	render() {
 
+		if ( this.view === 'journal' ) { this.questJournal.render( true ); return; }
 		const m = this.n.model( this.port );
 		this._sig = m.postings.map( ( p ) => p.id ).join( ',' ) + '|' + m.active.map( ( a ) => a.id + a.progress ).join( ',' ) + '|' + ( m.storyHTML || '' ).length;
 		this.panel.innerHTML = this.view === 'journal' ? journalHTML( m, this.n.notes, this.n.stats ) : boardHTML( m );
@@ -309,9 +318,10 @@ export class NoticeUI {
 		const hours = this.n.hours;
 		if ( this.isOpen ) {
 
+			if ( this.view === 'journal' ) this.questJournal.render();
 			const m = this.n.model( this.port );
 			const sig = m.postings.map( ( p ) => p.id ).join( ',' ) + '|' + m.active.map( ( a ) => a.id + a.progress ).join( ',' ) + '|' + ( m.storyHTML || '' ).length;
-			if ( sig !== this._sig ) this.render();
+			if ( this.view !== 'journal' && sig !== this._sig ) this.render();
 
 		}
 
@@ -329,6 +339,7 @@ export class NoticeUI {
 
 	_onClick( e ) {
 
+		if ( this.view === 'journal' && this.questJournal.click( e ) ) return;
 		const t = e.target.closest ? e.target.closest( '[data-accept],[data-abandon],[data-close],[data-talk]' ) : null;
 		if ( ! t ) return;
 		if ( t.hasAttribute( 'data-close' ) ) this.close();

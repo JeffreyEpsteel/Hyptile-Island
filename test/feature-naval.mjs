@@ -6,6 +6,7 @@
 //   node test/feature-naval.mjs --no-render  logic only
 import './headless.mjs';
 import { readFileSync, existsSync, mkdirSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { inflateSync } from 'node:zlib';
 import { Features } from '../src/features/Features.js';
 import * as navalModule from '../src/features/naval/index.js';
@@ -1267,7 +1268,7 @@ if ( ! NO_RENDER ) {
 
 	}
 
-	await H.shot( new URL( 'naval-ships.png', out ).pathname.replace( /^\//, '' ), { pos: [ 95, 12, 0 ], target: [ 0, 5, 0 ], fov: 42 } );
+	await H.shot( fileURLToPath( new URL( 'naval-ships.png', out ) ), { pos: [ 95, 12, 0 ], target: [ 0, 5, 0 ], fov: 42 } );
 	// combat effects in the same scene: muzzle flash + smoke, a ball in flight, a splash ring, splinters, loot crates
 	{
 
@@ -1288,13 +1289,13 @@ if ( ! NO_RENDER ) {
 		balls.spawn( { x: g.x + 12, y: g.y + 0.6, z: g.z, vx: 120, vy: 3, vz: 0, owner: 'x', faction: 'pirate' } );
 		for ( let i = 0; i < 18; i ++ ) { fx.update( 1 / 30 ); loot.update( 1 / 30, 1.2, null ); balls.update( 1 / 30, { ships: [] } ); }
 		ok( fx.puffs.some( ( p ) => p.on ) && fx.rings.some( ( r ) => r.on ) && fx.splinters.some( ( q ) => q.on ), 'puffs, rings and splinters are live' );
-		await H.shot( new URL( 'naval-effects.png', out ).pathname.replace( /^\//, '' ), { pos: [ 60, 7, - 30 ], target: [ 5, 3, - 24 ], fov: 55 } );
+		await H.shot( fileURLToPath( new URL( 'naval-effects.png', out ) ), { pos: [ 60, 7, - 30 ], target: [ 5, 3, - 24 ], fov: 55 } );
 		fx.dispose(); loot.dispose(); balls.dispose();
 
 	}
 
 	models.setNight( 1 );
-	await H.shot( new URL( 'naval-ships-quarter.png', out ).pathname.replace( /^\//, '' ), { pos: [ 55, 16, - 95 ], target: [ 0, 4, 5 ], fov: 46 } );
+	await H.shot( fileURLToPath( new URL( 'naval-ships-quarter.png', out ) ), { pos: [ 55, 16, - 95 ], target: [ 0, 4, 5 ], fov: 46 } );
 	ok( existsSync( new URL( 'test/out/naval-ships.png', root ) ), 'wrote test/out/naval-ships.png and naval-ships-quarter.png' );
 	models.dispose();
 	console.log( `\n${ passes } checks passed, ${ fails } failed` );

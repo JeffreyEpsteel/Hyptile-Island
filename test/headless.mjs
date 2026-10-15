@@ -2,10 +2,19 @@
 import { create, globals } from 'webgpu';
 import { writeFileSync } from 'node:fs';
 import { deflateSync } from 'node:zlib';
+import { fileURLToPath } from 'node:url';
 
 Object.assign( globalThis, globals );
 Object.defineProperty( globalThis, 'navigator', { value: { gpu: create( [] ) }, configurable: true } );
 globalThis.location = { search: '' };
+
+// File URLs need platform-aware decoding; native paths (including literal % names) stay unchanged.
+export function pngFilePath( path ) {
+
+	if ( path instanceof URL || typeof path === 'string' && /^file:/i.test( path ) ) return fileURLToPath( path );
+	return path;
+
+}
 
 // minimal RGBA8 PNG writer
 export function writePNG( path, width, height, rgba ) {
@@ -46,6 +55,6 @@ export function writePNG( path, width, height, rgba ) {
 	ihdr.writeUInt32BE( width, 0 );
 	ihdr.writeUInt32BE( height, 4 );
 	ihdr[ 8 ] = 8; ihdr[ 9 ] = 6;
-	writeFileSync( path, Buffer.concat( [ Buffer.from( [ 137, 80, 78, 71, 13, 10, 26, 10 ] ), chunk( 'IHDR', ihdr ), chunk( 'IDAT', deflateSync( raw ) ), chunk( 'IEND', Buffer.alloc( 0 ) ) ] ) );
+	writeFileSync( pngFilePath( path ), Buffer.concat( [ Buffer.from( [ 137, 80, 78, 71, 13, 10, 26, 10 ] ), chunk( 'IHDR', ihdr ), chunk( 'IDAT', deflateSync( raw ) ), chunk( 'IEND', Buffer.alloc( 0 ) ) ] ) );
 
 }

@@ -467,6 +467,58 @@ section( 'the dealer, your cars, the save round trip' );
 
 // ---------------------------------------------------------------- Meridian's plan, budgets, models, remote cars
 
+section( 'the law: heat for crimes the police know of, none for honest driving or your own car' );
+{
+
+	// a stranger's parked car with nobody about: the alarm whoops, no heat (and no "the police want a word")
+	const W = makeWorld( { px: 60, pz: 1.6 } );
+	const { cars, f, player, toasts } = W;
+	for ( let i = 0; i < 60; i ++ ) f.update( DT );
+	cars.rng = () => 0; // the alarm always goes off
+	const police = []; // the patrols we put within reach
+	cars._policeNear = ( x, z, r ) => police.find( ( c ) => Math.hypot( c.x - x, c.z - z ) < r ) || null;
+	const near = f.nearestInteractable( player.position );
+	const n0 = toasts.length;
+	near.onInteract();
+	ok( cars.driving && cars.heat === 0 && cars.level === 0, 'a stranger\'s parked car taken with no patrol about: no heat', `(heat ${ cars.heat })` );
+	ok( toasts.slice( n0 ).some( ( t ) => /alarm/.test( t ) ) && ! toasts.slice( n0 ).some( ( t ) => /police want a word/.test( t ) ), 'the alarm whoops, the police do not want a word' );
+	// driven into a wall: the taken car is wrecked, which is a crime (another's car); your own bought car is not
+	const taken = cars.drive;
+	taken.hp = 1; taken.stage = 4;
+	cars._staged( taken, 2, 'crash' );
+	ok( cars.heat === WANTED.gain.wreck, 'wrecking the car you took costs heat', `(heat ${ cars.heat })` );
+	cars.exit( { force: true } );
+	cars.heat = 0; cars.level = 0;
+	W.state.money = 20000;
+	const own = cars.buy( 'pickup' ).ok ? cars.owned()[ 0 ] : null;
+	ok( !! own && own.own, 'a pickup bought' );
+	cars.enter( own );
+	ok( cars.drive === own && cars.heat === 0, 'driving your own car: no heat' );
+	own.hp = 1; own.stage = 4;
+	cars._staged( own, 2, 'crash' );
+	ok( cars.heat === 0, 'wrecking your own car against a wall: no heat' );
+	cars.exit( { force: true } );
+	// the same taking within a patrol's earshot: the alarm is heard, and within its sight the taking is seen
+	const idle = cars._record( 'sedan', { x: 60, y: 0, z: 30, yaw: 0, state: 'idle', id: null } );
+	cars.records.push( idle );
+	police.push( { x: idle.x + 120, z: idle.z } );
+	cars.enter( idle );
+	ok( cars.heat === WANTED.gain.alarm && cars.level === 1, 'a patrol 120 m off hears the alarm: heat, level 1', `(heat ${ cars.heat })` );
+	cars.exit( { force: true } );
+	cars.heat = 0; cars.level = 0;
+	// a shot fired in the city with a patrol in sight; none out of sight
+	cars._localNear = true;
+	police.push( { x: idle.x + 120, z: idle.z } );
+	f.emit( 'gunFired', { by: 'player', x: idle.x, y: 1.5, z: idle.z } );
+	ok( cars.heat === WANTED.gain.shot, 'a gun fired with a patrol in sight: heat', `(heat ${ cars.heat })` );
+	police.length = 0;
+	cars.heat = 0; cars.level = 0;
+	f.emit( 'gunFired', { by: 'player', x: idle.x, y: 1.5, z: idle.z } );
+	ok( cars.heat === 0, 'a gun fired with no patrol in sight: none' );
+	ok( WANTED.earshot > WANTED.witness, 'an alarm carries farther than a patrol sees' );
+
+}
+
 section( 'Meridian: the real plan, the budgets, the models' );
 {
 

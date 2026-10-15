@@ -254,6 +254,10 @@ export class CityWreck {
 
 	_onStage( b, stage, prev, info ) {
 
+		// Physics follows authoritative damage immediately, even while visual collapse awaits a budget slot.
+		const handle = this.city && this.city.building ? this.city.building( b.id ) : null;
+		if ( handle && handle.setCollisionStage ) handle.setCollisionStage( stage );
+
 		// the player's doing: heat for the stages their hits brought
 		if ( stage > prev ) {
 
@@ -347,7 +351,7 @@ export class CityWreck {
 
 		const hours = this._tickClock( dt );
 		const host = this._host();
-		this.model.puppet = ! host;
+		this.model.setPuppet( ! host );
 		const w = this._get( 'weather' );
 		const rain = w ? Number( w.rain ?? ( w.current && w.current.rain ) ) || 0 : 0;
 		this.model.update( dt, { rain, hours } );

@@ -9,7 +9,7 @@
 //   await L.run( 3, ( dt, t ) => system.update( dt, L.camera ) );
 //   await L.save( 'out.png' );
 //   const ms = await L.gpuTime( 20, onFrame );  // average ms per frame (whole frame, noisy)
-import { writePNG } from './headless.mjs';
+import { writePNG, pngFilePath } from './headless.mjs';
 import { GPU } from '../src/engine/gpu/GPU.js';
 import { RenderTarget } from '../src/engine/gpu/Texture.js';
 import { readTexture } from '../src/engine/gpu/Readback.js';
@@ -160,6 +160,7 @@ export async function setupLife( { W = 2560, H = 1267, ground = null, water = fa
 		},
 		async save( path ) {
 
+			path = pngFilePath( path );
 			const img = await readTexture( ldr.texture );
 			writePNG( path, W, H, new Uint8Array( img.data ) );
 			console.log( 'wrote', path );

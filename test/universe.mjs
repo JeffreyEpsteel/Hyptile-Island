@@ -56,7 +56,7 @@ const profileOf = ( money, extra = {} ) => ( { v: 2, mode: 'multiplayer', name: 
 
 ok( sanitizeCaptainName( '  Mad   Meg ' ) === 'Mad Meg' && captainKey( 'MAD  meg' ) === 'mad meg', 'captain names are cleaned and keyed case-blind' );
 ok( sanitizeCaptainName( 'x' ) === null && sanitizeCaptainName( 'Server' ) === null && sanitizeCaptainName( '<script>' ) === null, 'too short, reserved and odd names are refused' );
-ok( normalizeUniverseUrl( '192.168.1.20', { protocol: 'http:' } ) === 'ws://192.168.1.20:8765/universe', 'a bare LAN address gets ws, port 8765 and /universe' );
+ok( normalizeUniverseUrl( '192.168.1.20', { protocol: 'http:' } ) === 'ws://192.168.1.20:8765/universe', 'a bare LAN address keeps the original ws port 8765 and /universe' );
 ok( normalizeUniverseUrl( 'island.example.com', { protocol: 'https:' } ) === 'wss://island.example.com/universe', 'from an https page: wss on 443 (a TLS proxy)' );
 ok( normalizeUniverseUrl( 'ws://h:9000', null ) === 'ws://h:9000/universe' && isUniverseUrl( 'ws://h:9000/universe' ) && ! isUniverseUrl( 'ws://h:9000/island' ), 'a typed port is kept; isUniverseUrl tells the universe from a room' );
 {
@@ -411,23 +411,24 @@ try {
 {
 
 	const { DEFAULT_UNIVERSE, SHARED_UNIVERSE, BUILD_HASH, defaultUniverseAddress, isDefaultUniverse, buildsDiffer, universeHealthUrl, probeHealth, healthText, UPDATING_TEXT } = UniverseW15;
-	ok( DEFAULT_UNIVERSE === SHARED_UNIVERSE && DEFAULT_UNIVERSE === 'wss://hyptile-universe.fly.dev/universe' && BUILD_HASH === 'dev', 'the default universe is the shared one on Fly.io (no VITE_UNIVERSE_URL here; no build hash outside vite)' );
-	ok( normalizeUniverseUrl( DEFAULT_UNIVERSE, { protocol: 'https:' } ) === DEFAULT_UNIVERSE && isUniverseUrl( DEFAULT_UNIVERSE ) && isDefaultUniverse( 'hyptile-universe.fly.dev' ), 'it normalizes to itself (wss, port 443, /universe); the bare host name is the same address' );
-	ok( defaultUniverseAddress( { hostname: 'jeffreyepsteel.github.io', protocol: 'https:' } ) === DEFAULT_UNIVERSE && defaultUniverseAddress( null ) === DEFAULT_UNIVERSE, 'the Pages site (and no page at all) offers the shared universe' );
-	ok( defaultUniverseAddress( { hostname: '192.168.1.20', protocol: 'http:' } ) === '192.168.1.20:8765', 'a game page a PC serves over http offers that PC\'s own universe' );
+	const explicitUniverse = 'wss://friend.example.test/universe'; // mock health endpoint, never a real fetch
+	ok( DEFAULT_UNIVERSE === SHARED_UNIVERSE && DEFAULT_UNIVERSE === 'wss://hyptile-universe.fly.dev/universe' && BUILD_HASH === 'dev', 'the main game keeps its existing shared Fly universe (no environment override or build hash outside Vite)' );
+	ok( normalizeUniverseUrl( DEFAULT_UNIVERSE, { protocol: 'https:' } ) === DEFAULT_UNIVERSE && isUniverseUrl( DEFAULT_UNIVERSE ) && isDefaultUniverse( 'hyptile-universe.fly.dev' ), 'the existing Fly universe remains the default host' );
+	ok( defaultUniverseAddress( { hostname: 'jeffreyepsteel.github.io', protocol: 'https:' } ) === DEFAULT_UNIVERSE && defaultUniverseAddress( null ) === DEFAULT_UNIVERSE, 'Pages and no page offer the existing public Fly universe' );
+	ok( defaultUniverseAddress( { hostname: '192.168.1.20', protocol: 'http:' } ) === '192.168.1.20:8765', 'a PC serving over HTTP keeps its original local universe port' );
 	const { normalizeServerUrl } = await import( '../src/net/NetClient.js' );
-	ok( normalizeServerUrl( DEFAULT_UNIVERSE ) === DEFAULT_UNIVERSE && normalizeServerUrl( 'ws://h/island' ) === 'ws://h:8765/island', '?server=wss://... keeps port 443; plain ws still gets 8765' );
-	ok( universeHealthUrl( DEFAULT_UNIVERSE ) === 'https://hyptile-universe.fly.dev/health' && universeHealthUrl( 'ws://h:9000/net/universe' ) === 'http://h:9000/net/health', 'the health address sits beside the socket (a proxy prefix kept)' );
+	ok( normalizeServerUrl( explicitUniverse ) === explicitUniverse && normalizeServerUrl( 'ws://h/island' ) === 'ws://h:8765/island', '?server=wss://... keeps port 443; plain ws retains original local port' );
+	ok( universeHealthUrl( DEFAULT_UNIVERSE ) === 'https://hyptile-universe.fly.dev/health' && universeHealthUrl( explicitUniverse ) === 'https://friend.example.test/health' && universeHealthUrl( 'ws://h:9000/net/universe' ) === 'http://h:9000/net/health', 'default and explicit health URLs preserve TLS and proxy paths' );
 	ok( buildsDiffer( 'abc1234', 'def5678' ) && ! buildsDiffer( 'abc1234', 'abc1234def' ) && ! buildsDiffer( 'dev', 'abc1234' ) && ! buildsDiffer( 'abc1234', '' ), 'builds differ only when both are known commits (a short hash matches its long one)' );
-	ok( universeError( 'version', '', DEFAULT_UNIVERSE ) === UPDATING_TEXT && /updating, try again in a minute/.test( UPDATING_TEXT ), 'a version refusal from the shared universe reads "the universe is updating, try again in a minute"' );
+	ok( universeError( 'updating', '', explicitUniverse ) === UPDATING_TEXT && /updating, try again in a minute/.test( UPDATING_TEXT ), 'an explicit updating status keeps the readable retry sentence' );
 	ok( /another version/.test( universeError( 'version', '', 'ws://friend:8765/universe' ) ), 'a friend\'s server still says it runs another version' );
-	ok( /shared universe does not answer/.test( universeError( 'down', '', DEFAULT_UNIVERSE ) ), 'the shared universe down: a readable sentence' );
+	ok( /No universe server answers/.test( universeError( 'down', '', explicitUniverse ) ), 'an explicit server down has a readable address-specific sentence' );
 	const fake = ( body, status = 200 ) => async () => ( { ok: status === 200, status, json: async () => body } );
-	const hp1 = await probeHealth( DEFAULT_UNIVERSE, { build: 'abc1234', fetchImpl: fake( { ok: true, version: 2, build: 'abc1234', universe: { name: 'hyptile', players: 3, cap: 24, captains: 40 } } ) } );
+	const hp1 = await probeHealth( explicitUniverse, { build: 'abc1234', fetchImpl: fake( { ok: true, version: 2, build: 'abc1234', universe: { name: 'hyptile', players: 3, cap: 24, captains: 40 } } ) } );
 	ok( hp1.online && hp1.players === 3 && ! hp1.updating && healthText( hp1 ) === 'Online · 3 captains aboard (of 24)', `the panel's line: "${ healthText( hp1 ) }"` );
-	const hp2 = await probeHealth( DEFAULT_UNIVERSE, { build: 'abc1234', fetchImpl: fake( { ok: true, version: 2, build: 'fff0000', universe: { name: 'hyptile', players: 0, cap: 24 } } ) } );
+	const hp2 = await probeHealth( explicitUniverse, { build: 'abc1234', fetchImpl: fake( { ok: true, version: 2, build: 'fff0000', universe: { name: 'hyptile', players: 0, cap: 24 } } ) } );
 	ok( hp2.online && hp2.updating && /Updating/.test( healthText( hp2 ) ), 'another commit on the server: "Updating"' );
-	const hp3 = await probeHealth( DEFAULT_UNIVERSE, { fetchImpl: async () => { throw new TypeError( 'fetch failed' ); } } );
+	const hp3 = await probeHealth( explicitUniverse, { fetchImpl: async () => { throw new TypeError( 'fetch failed' ); } } );
 	ok( ! hp3.online && hp3.code === 'down' && /^Offline · /.test( healthText( hp3 ) ), `no answer: "${ healthText( hp3 ) }"` );
 	const hp4 = await probeHealth( 'ws://h:8765/universe', { fetchImpl: fake( { ok: true, version: 2, rooms: {} } ) } );
 	ok( ! hp4.online && hp4.code === 'nouniverse', 'a server without a universe says so' );

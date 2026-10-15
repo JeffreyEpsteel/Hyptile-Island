@@ -3,9 +3,7 @@
 // and go through the stages 1 scarred (scorch marks, broken windows), 2 gutted (fire through the floors, a breached facade,
 // a smoke column) and 3 collapsed (low and midrises: a progressive collapse of rigid chunks into a rubble heap, dust,
 // falling debris on what stands near, rubble on the road: roadBlocked). Highrises breach and burn, never fall.
-// THE TWO TOWERS (the Meridian Twins, kind 'tower'): never collapse, never burn, no structural damage from anything; cannon
-// and bombs leave a few marks low on the facade that mend in hours; aircraft leave nothing. Nothing here stages, scripts,
-// rewards or replays an aircraft striking them.
+// The twin towers share structural damage, fire, collapse and repair, with heavier structure.
 //
 // Fire spreads between adjacent low buildings in dry weather (weather.rain < 0.15); rain slows it and puts it out; the fire
 // crews arrive CREW.respond s after the call (event cityFireCall: a fire engine can answer it) and douse two fires at once.

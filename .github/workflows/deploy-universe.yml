@@ -2,8 +2,8 @@
 # the same commit, so the game on GitHub Pages and the server always come from one release. The commit goes into the
 # image (BUILD_HASH) and /health; the game compares it with its own (__BUILD_HASH__, vite.config.js) and says "the
 # universe is updating, try again in a minute" while the two differ (a minute or two per push).
-# Needs the repository secret FLY_API_TOKEN (`fly tokens create deploy`, docs/HOSTING.md); without it this job only
-# leaves a notice. The saves live on the Fly volume and survive every deploy (SIGTERM: the server writes them first).
+# Needs the repository secret FLY_API_TOKEN; a missing token, app or volume fails the deployment.
+# The existing saves stay on the existing Fly volume (SIGTERM writes them before shutdown).
 name: Deploy the universe to Fly.io
 
 on:
@@ -16,60 +16,74 @@ on:
 permissions:
   contents: read
 
-# one deploy at a time, the newest last (never cancelled half-way: a machine mid-update keeps its old image)
+# One deploy at a time; never cancel a machine update halfway through.
 concurrency:
   group: universe-deploy
   cancel-in-progress: false
 
 jobs:
   deploy:
-    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    if: >-
+      github.repository == 'JeffreyEpsteel/Hyptile-Island' &&
+      ((github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      github.event.workflow_run.head_repository.full_name == github.repository))
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
       FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+      RELEASE_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
     steps:
-      # the same `live` branch the Pages build uses (pages.yml), so the game and the universe are one release
+      # workflow_run's github.sha belongs to the workflow context, not necessarily the Pages release.
       - uses: actions/checkout@v4
         with:
-          ref: live
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Verify the exact release commit
+        run: test "$(git rev-parse HEAD)" = "$RELEASE_SHA"
 
       - name: Is Fly set up?
         id: gate
         run: |
           if [ -z "$FLY_API_TOKEN" ]; then
-            echo "::notice::FLY_API_TOKEN is not set: the universe is not deployed (docs/HOSTING.md, The shared universe)"
-            echo "go=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "go=true" >> "$GITHUB_OUTPUT"
+            echo "::error::FLY_API_TOKEN is not set: cannot deploy the existing universe"
+            exit 1
           fi
+          echo "go=true" >> "$GITHUB_OUTPUT"
 
       - name: The game's commit
         id: build
         if: steps.gate.outputs.go == 'true'
         run: |
           echo "hash=$(git rev-parse --short=7 HEAD)" >> "$GITHUB_OUTPUT"
-          echo "app=$(sed -n "s/^app *= *['\"]\([^'\"]*\)['\"].*/\1/p" fly.toml)" >> "$GITHUB_OUTPUT"
+          echo "app=hyptile-universe" >> "$GITHUB_OUTPUT"
 
       - uses: superfly/flyctl-actions/setup-flyctl@master
         if: steps.gate.outputs.go == 'true'
 
-      # first deploy only: the app in the personal organization (ia-l@ingura.ro) and its 1 GB save volume (needs a token that may
-      # create apps there; an app-scoped deploy token cannot, then create both once with flyctl by hand, fly.toml header)
+      # Deploy only to the existing app and save volume. Never provision replacements.
       - name: The app and its volume exist
         if: steps.gate.outputs.go == 'true'
         run: |
           app="${{ steps.build.outputs.app }}"
           if ! flyctl status --app "$app" >/dev/null 2>&1; then
-            flyctl apps create "$app" --org personal
+            echo "::error::Existing Fly app $app is missing or inaccessible; refusing to create a replacement"
+            exit 1
           fi
-          if ! flyctl volumes list --app "$app" --json | grep -q '"universe_data"'; then
-            flyctl volumes create universe_data --size 1 --region fra --app "$app" --yes
-          fi
+          volumes="$RUNNER_TEMP/hyptile-release-volumes.json"
+          flyctl volumes list --app "$app" --json > "$volumes"
+          node --input-type=module - "$volumes" <<'NODE'
+          import fs from 'node:fs';
+          const volumes = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+          if (!Array.isArray(volumes) || !volumes.some(v => v.name === 'universe_data' && v.region === 'fra')) {
+            throw new Error('Existing universe_data volume in fra is missing; refusing to provision a replacement');
+          }
+          NODE
 
       - name: Deploy
         if: steps.gate.outputs.go == 'true'
-        run: flyctl deploy --remote-only --build-arg BUILD_HASH=${{ steps.build.outputs.hash }} --wait-timeout 300
+        run: flyctl deploy --app hyptile-universe --config fly.toml --remote-only --build-arg BUILD_HASH=${{ steps.build.outputs.hash }} --wait-timeout 300
 
       - name: /health serves this commit
         if: steps.gate.outputs.go == 'true'

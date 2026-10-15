@@ -295,7 +295,7 @@ export class AppUI {
 		session.addInfo( { label: t( 'set.mode', 'Mode' ), get: () => tx( modeLabel( app.mode ) ) } );
 		session.addInfo( { label: t( 'set.slot', 'Slot' ), get: () => app.game && app.game.state ? `${ app.game.state.slot + 1 } · ${ app.game.state.name || 'Islander' }` : '—' } );
 		session.addInfo( { label: t( 'set.rank', 'Rank' ), get: () => app.game && app.game.state ? `Lv ${ app.game.state.level } · ${ app.game.state.progress.title }` : '—' } );
-		session.addButton( { label: t( 'set.save_game', 'Save game' ), icon: 'check', tooltip: t( 'set.save_game.tip', 'Write the current slot now (the game also saves itself every minute).' ), onClick: () => ui.toast( app.saveNow() ? t( 'pause.saved', 'Saved' ) : t( 'pause.save_failed_long', 'Could not save: the browser blocked its storage' ), 1800 ) } );
+		const localSave = session.addButton( { label: t( 'set.save_game', 'Save game' ), icon: 'check', tooltip: t( 'set.save_game.tip', 'Write the current slot now (the game also saves itself every minute).' ), onClick: () => ui.toast( app.saveNow() ? t( 'pause.saved', 'Saved' ) : t( 'pause.save_failed_long', 'Could not save: the browser blocked its storage' ), 1800 ) } );
 		session.addButton( { label: t( 'set.pause_menu_esc', 'Pause menu (Esc)' ), icon: 'pause', tooltip: t( 'set.pause_menu_esc.tip', 'Resume, save, load, settings, controls or back to the main menu.' ), onClick: () => {
 
 			ui.togglePanel( false );
@@ -441,6 +441,8 @@ export class AppUI {
 
 		const locks = [
 			{ target: sea, folder: true, when: ( r ) => ! r.worldControls },
+			{ target: water, folder: true, when: ( r ) => ! r.worldControls },
+			{ target: surf, folder: true, when: ( r ) => ! r.worldControls },
 			{ target: weather, folder: true, when: ( r ) => ! r.worldControls },
 			{ target: sun, folder: true, when: ( r ) => ! r.worldControls || ! r.timeControl },
 			...worldCtl.map( ( c ) => ( { target: c, when: ( r ) => ! r.worldControls } ) ),
@@ -456,10 +458,13 @@ export class AppUI {
 				const on = !! l.when( r );
 				if ( l.folder ) lockFolder( l.target, on );
 				else lockControl( l.target, on );
+				l.target.el?.classList.toggle( 'aw-online-hidden', r.online && on );
 
 			}
 
 			if ( ! r.worldControls ) resetWorld();
+			localSave.enabled = ! r.online;
+			localSave.el?.classList.toggle( 'aw-online-hidden', r.online );
 			// the clock controls follow the clock the mode left (the day runs by itself outside the sandbox)
 			s.advance = app.settings.timeSpeed !== 0;
 			if ( app.settings.timeSpeed ) s.timeSpeed = app.settings.timeSpeed;
@@ -527,6 +532,7 @@ export class AppUI {
 			: p.mode === 'deck' ? t( 'hud.deck', 'On deck' )
 			: p.mode === 'plane' && p.vehicle && p.vehicle.kind === 'chute' ? t( 'hud.chute', 'Parachute' )
 			: p.mode === 'plane' && p.vehicle && p.vehicle.kind === 'car' ? ( p.view === 'first' ? 'Driving · driver\'s eye' : 'Driving · chase view' ) // (wave 21B: a car is a vehicle too)
+			: p.mode === 'plane' && p.vehicle?.kind === 'helicopter' ? ( p.view === 'first' ? 'Helicopter · cockpit' : 'Helicopter · chase view' )
 			: p.mode === 'plane' ? t( p.view === 'first' ? 'hud.plane1' : 'hud.plane3', p.view === 'first' ? 'Seaplane · cockpit' : 'Seaplane · chase view' )
 				+ ( ( h ) => ( h ? ' · ' + h : '' ) )( app.features?.get?.( 'seaplane' )?.bailHint?.() ) // wave 14B: how to bail out, while high enough
 			: p.mode === 'swim' ? ( app.camera.position.y < ( app.cameraWaterHeight ?? 0 ) - 0.3 ? t( 'hud.dive', 'Diving' ) : t( 'hud.swim', 'Swimming' ) ) : t( 'hud.walk', 'Walking' );
@@ -570,6 +576,7 @@ export class AppUI {
 const LOCK_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>';
 
 const LOCK_CSS = /* css */`
+.aw-online-hidden { display: none !important; }
 .aw-locked { cursor: not-allowed; }
 .aw-locked > :not(.aw-lockrow) { opacity: 0.36; }
 .aw-lockrow { display: flex; align-items: center; gap: 5px; margin: 0 0 2px; font: 600 10px var(--tw-font); letter-spacing: 0.08em; text-transform: uppercase; color: var(--tw-sun); }

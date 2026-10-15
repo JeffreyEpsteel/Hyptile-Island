@@ -76,7 +76,7 @@ const store = () => {
 	const s = new GameState( st );
 	ok( s.load() && s.money === 123 && s.boat === 'lobster' && s.upgrades.hold === 1, 'v1 save: purse, gear and the lobster boat' );
 	s.save();
-	ok( st.map.has( 'hyptile-island.save.v2' ), 'saved under the new key' );
+	ok( st.map.has( 'hyptile-island.save.v2' ), 'saved under the original main-game key' );
 
 }
 

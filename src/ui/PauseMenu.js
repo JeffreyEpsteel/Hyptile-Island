@@ -1,7 +1,7 @@
 import { CHARACTERS, DEFAULT_CHARACTER } from '../game/Characters.js';
 import { Credits } from './Credits.js';
 import { rankTitle } from '../game/Progression.js';
-import { modeLabel } from '../game/GameMode.js';
+import { modeLabel, isOnlineSession } from '../game/GameMode.js';
 import { icon } from './icons.js';
 import { t, tx } from '../i18n/index.js';
 
@@ -120,6 +120,7 @@ export class PauseMenu {
 
 		const ui = this.ui, app = this.app, hud = app.game && app.game.hud;
 		if ( ui._start || ui.helpOpen || ui._menu ) return true; // the start overlay, the controls sheet, a dropdown: their own Escape
+		if ( app.game?.guide?.open ) return true;
 		if ( hud && ( hud.invOpen || hud.standOpen || hud.rosterOpen || hud.catchOpen ) ) return true; // Game.update closes them
 		if ( app.chat && app.chat.isOpen ) return true;
 		if ( app.features && app.features.panelOpen() ) return true; // a feature panel (world map, dialogue): its own Escape
@@ -203,7 +204,7 @@ export class PauseMenu {
 	_render() {
 
 		const app = this.app, st = app.game ? app.game.state : null;
-		const online = !! app.rules.online;
+		const online = isOnlineSession( app );
 		const who = st ? ( st.name || ( CHARACTERS[ st.character ] || CHARACTERS[ DEFAULT_CHARACTER ] ).name ) : '';
 		const sub = st ? `${ esc( who ) } · <b>${ esc( tx( modeLabel( st.mode ) ) ) }</b> · ${ esc( t( 'pause.slot', 'slot {n}', { n: st.slot + 1 } ) ) } · ${ esc( tx( rankTitle( st.level ) ) ) }` : '';
 		const note = online ? t( 'pause.note.online', 'The island keeps running while this is open.' ) : app.rules.autosave ? t( 'pause.note.autosave', 'The game is saved every minute and when you leave the page.' ) : '';
@@ -212,9 +213,9 @@ export class PauseMenu {
 				<div class="pm-title">${ esc( online ? t( 'pause.title.menu', 'MENU' ) : t( 'pause.title.paused', 'PAUSED' ) ) }</div>
 				<div class="pm-sub">${ sub }</div>
 				<button type="button" class="tw-btn tw-btn-primary" data-resume><span>${ icon( 'play' ) }${ esc( t( 'pause.resume', 'Resume' ) ) }</span><kbd>Esc</kbd></button>
-				<button type="button" class="tw-btn tw-btn-default" data-save><span>${ icon( 'check' ) }<i data-save-text style="font-style:normal">${ esc( t( 'pause.save', 'Save game' ) ) }</i></span></button>
+				${ online ? '' : `<button type="button" class="tw-btn tw-btn-default" data-save><span>${ icon( 'check' ) }<i data-save-text style="font-style:normal">${ esc( t( 'pause.save', 'Save game' ) ) }</i></span></button>
 				<button type="button" class="tw-btn tw-btn-default" data-load><span>${ icon( 'refresh' ) }${ esc( t( 'pause.load', 'Load' ) ) }</span></button>
-				<button type="button" class="tw-btn tw-btn-default" data-saves><span>${ icon( 'grid' ) }${ esc( t( 'pause.saves', 'Saves' ) ) }</span></button>
+				<button type="button" class="tw-btn tw-btn-default" data-saves><span>${ icon( 'grid' ) }${ esc( t( 'pause.saves', 'Saves' ) ) }</span></button>` }
 				<button type="button" class="tw-btn tw-btn-default" data-settings><span>${ icon( 'sliders' ) }${ esc( t( 'pause.settings', 'Settings' ) ) }</span><kbd>H</kbd></button>
 				<button type="button" class="tw-btn tw-btn-default" data-controls><span>${ icon( 'help' ) }${ esc( t( 'pause.controls', 'Controls' ) ) }</span><kbd>F1</kbd></button>
 				<button type="button" class="tw-btn tw-btn-default" data-credits><span>${ icon( 'sparkles' ) }${ esc( t( 'pause.credits', 'Credits' ) ) }</span></button>
@@ -227,14 +228,14 @@ export class PauseMenu {
 		this.saveBtn = q( '[data-save]' );
 		this.saveText = q( '[data-save-text]' );
 		q( '[data-resume]' ).addEventListener( 'click', () => this.close() );
-		this.saveBtn.addEventListener( 'click', () => this._save() );
-		q( '[data-load]' ).addEventListener( 'click', () => this._load() );
+		this.saveBtn?.addEventListener( 'click', () => this._save() );
+		q( '[data-load]' )?.addEventListener( 'click', () => this._load() );
 		q( '[data-settings]' ).addEventListener( 'click', () => this._settings() );
 		q( '[data-controls]' ).addEventListener( 'click', () => this._controls() );
 		q( '[data-home]' ).addEventListener( 'click', () => this._home() );
 		q( '[data-credits]' ).addEventListener( 'click', () => ( this.credits ||= new Credits( { ui: this.ui } ) ).open() );
 		// the save manager (export, import, backups: src/ui/SaveManager.js)
-		q( '[data-saves]' ).addEventListener( 'click', () => { const sv = this.app.features && this.app.features.get( 'saves' ); if ( sv && sv.open ) { this.close(); sv.open( { mode: this.app.mode } ); } } );
+		q( '[data-saves]' )?.addEventListener( 'click', () => { const sv = this.app.features && this.app.features.get( 'saves' ); if ( sv && sv.open ) { this.close(); sv.open( { mode: this.app.mode } ); } } );
 
 	}
 
