@@ -109,6 +109,8 @@ class Slots {
 
 }
 
+const RAIN_IN = new Set( [ 'eat', 'play', 'loiter', 'wake' ] );
+
 export class Director {
 
 	constructor( { places = {}, shelf = null, onMake = null } = {} ) {
@@ -120,6 +122,7 @@ export class Director {
 		this.info = new Map(); // resident id -> { act, station, dwell }
 		this.acc = TICK; // the first tick runs at once
 		this.hour = 12;
+		this.rain = 0; // (wave 24E) weather.rain: above 0.3 the outdoor leisure (eating out, play, loitering, waking) goes in
 
 	}
 
@@ -197,6 +200,30 @@ export class Director {
 				i.alarm -= step;
 				if ( i.alarm > 0 ) continue;
 				i.alarm = 0;
+				i.act = null;
+
+			}
+
+			// (wave 24E) in out of the rain (leisure only: work and the watch go on); out again once it stops
+			const wet = this.rain > ( i.wet ? 0.12 : 0.3 );
+			if ( wet && ! i.wet && RAIN_IN.has( act ) && ! r.hidden ) {
+
+				const home = this._home( r, this.place( r ) );
+				if ( home ) {
+
+					i.wet = true;
+					this.slots.release( r.id );
+					r.setTask( { id: 'shelter', x: home.x, z: home.z, yaw: home.yaw, indoors: true, run: Math.hypot( home.x - r.x, home.z - r.z ) < 40 } );
+					continue;
+
+				}
+
+			}
+
+			if ( i.wet ) {
+
+				if ( wet && RAIN_IN.has( act ) ) continue;
+				i.wet = false;
 				i.act = null;
 
 			}

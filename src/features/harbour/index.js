@@ -635,6 +635,9 @@ export class Harbour {
 
 		}
 
+		// (wave 24E) the rain sends the residents' outdoor leisure indoors (Director.rain)
+		const w = this.features && this.features.get ? this.features.get( 'weather' ) : null;
+		this.director.rain = w && Number.isFinite( w.rain ) ? w.rain : 0;
 		if ( this.R ) this.director.tick( this.R.list, h, dt );
 
 		const p = this.app && this.app.player && this.app.player.position;
