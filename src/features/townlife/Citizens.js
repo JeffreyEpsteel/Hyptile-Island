@@ -34,6 +34,8 @@ export const TOWN_SCHEDULES = {
 	pirateHand: [ [ 0, 2, 'tavern' ], [ 2, 10, 'sleep' ], [ 10, 12, 'eat' ], [ 12, 18, 'work' ], [ 18, 24, 'tavern' ] ],
 	fence: [ [ 0, 3, 'work' ], [ 3, 11, 'sleep' ], [ 11, 12, 'wake' ], [ 12, 24, 'work' ] ],
 	pirateWatch: [ [ 0, 8, 'watch' ], [ 8, 16, 'sleep' ], [ 16, 20, 'tavern' ], [ 20, 24, 'watch' ] ],
+	// (wave 24E) the busker plays the square from mid-morning to the evening; the crowd that gathers round faces the music
+	busker: [ [ 0, 9, 'sleep' ], [ 9, 10, 'wake' ], [ 10, 13, 'work' ], [ 13, 14, 'eat' ], [ 14, 20, 'work' ], [ 20, 22.5, 'tavern' ], [ 22.5, 24, 'sleep' ] ],
 };
 export const ACTIVITIES = new Set( [ 'sleep', 'wake', 'work', 'eat', 'tavern', 'play', 'stroll', 'watch', 'lamps', 'drunk', 'school', 'siesta', 'promenade', 'festival' ] );
 
@@ -61,8 +63,8 @@ export function townActivity( role, hour ) {
 }
 
 // which job a role works at, and the role a line comes from (ResidentData ROLE_LINES)
-const JOB = { vendor: 'stall', fence: 'stall', fisher: 'nets', dockworker: 'carry', pirateHand: 'carry', carter: 'barrow', carpenter: 'hammer', sweeper: 'sweep' };
-const LINE_ROLE = { vendor: 'merchant', fence: 'smuggler', carter: 'dockworker', carpenter: 'dockworker', sweeper: 'dockworker', pirateHand: 'dockworker', regular: 'tavern', folk: 'tavern', lamplighter: 'guard', watchman: 'guard', pirateWatch: 'guard', pirate: 'smuggler' };
+const JOB = { vendor: 'stall', fence: 'stall', fisher: 'nets', dockworker: 'carry', pirateHand: 'carry', carter: 'barrow', carpenter: 'hammer', sweeper: 'sweep', busker: 'busk' };
+const LINE_ROLE = { busker: 'tavern', vendor: 'merchant', fence: 'smuggler', carter: 'dockworker', carpenter: 'dockworker', sweeper: 'dockworker', pirateHand: 'dockworker', regular: 'tavern', folk: 'tavern', lamplighter: 'guard', watchman: 'guard', pirateWatch: 'guard', pirate: 'smuggler' };
 const EXTRA_LINES = {
 	vendor: [ 'Best prices on the island. Today only. Every day.', 'Take a look, no charge for looking.' ],
 	folk: [ 'Fine day for it.', 'Have you tried the stew at the tavern?', 'The boats came in heavy this morning.' ],
@@ -74,6 +76,7 @@ const EXTRA_LINES = {
 	fence: [ 'No names, no trouble.' ],
 	pirateWatch: [ 'The fort sees every sail.', 'Move along, landlubber.' ],
 	child: [ 'Tag! You are it!', 'Catch me if you can!' ],
+	busker: [ 'A coin for the song, friend?', 'Requests cost extra. Silence costs double.', 'I know three songs. This is the good one.' ],
 };
 const TIME_HELLO = ( hour ) => hour < 11 ? 'Morning!' : hour < 17 ? 'Afternoon!' : hour < 22 ? 'Evening!' : 'Late one, eh?';
 
@@ -109,6 +112,7 @@ const LOOK = {
 	dance: { base: 'Dance', gestures: [ 'Dance_2', 'Cheer_Clap', 'Clap' ] },
 	watchFest: { base: 'Clap', gestures: [ 'Cheer_Clap', 'Laugh', 'Talk_Group' ] },
 	stare: { base: 'Idle_Breathe', gestures: [] },
+	busk: { base: 'Dance_2', gestures: [ 'Cheer_Clap', 'Laugh', 'Friendly_Wave', 'Dance' ] },
 };
 
 const SPEED = { walk: 1.05, run: 3.1, drunk: 0.6, sweep: 0.4, barrow: 0.85, carry: 0.9, patrol: 0.85, chase: 2.6, flee: 2.2, promenade: 0.8, procession: 0.7, back: 1.3 };
@@ -386,6 +390,7 @@ export class TownSim {
 		const P = this.places, G = this.grid;
 		P.quay = onFreeGround( G, P.quay );
 		P.walk = onFreeGround( G, P.walk, 4 );
+		P.wells = onFreeGround( G, P.wells, 2 );
 		if ( P.fest ) { P.fest.dance = onFreeGround( G, P.fest.dance, 2 ); P.fest.watch = onFreeGround( G, P.fest.watch, 2 ); P.fest.posts = onFreeGround( G, P.fest.posts, 3 ); }
 		for ( const k in P.fronts ) P.fronts[ k ] = onFreeGround( G, P.fronts[ k ], 1.2 );
 
@@ -454,43 +459,62 @@ export class TownSim {
 	bucketChain( x, z, seconds = 45 ) {
 
 		if ( this.chain || this.dormant ) return 0;
-		const spots = this.quaySpots();
-		if ( ! spots.length ) return 0;
-		let src = spots[ 0 ], bd = Infinity;
-		for ( const s of spots ) { const d = Math.hypot( s.x - x, s.z - z ); if ( d < bd ) { bd = d; src = s; } }
+		// the water: the nearest of the town's fountains and wells, else the quay
+		const sources = [ ...this.places.wells, ...this.quaySpots() ];
+		if ( ! sources.length ) return 0;
+		let src = sources[ 0 ], bd = Infinity;
+		for ( const s of sources ) { const d = Math.hypot( s.x - x, s.z - z ); if ( d < bd ) { bd = d; src = s; } }
 		if ( bd > 140 ) return 0;
-		// the line: from the water's edge to 2.5 m short of the fire, a person every ~1.6 m (3 to 9 of them)
+		// the line: a person every ~1.6 m back from 2.5 m short of the fire (3 to 9 of them); when the water is further off
+		// than the line reaches, two runners carry the buckets from it to the line's head
 		const L = Math.max( 0, bd - 2.5 ), n = Math.max( 3, Math.min( 9, Math.round( L / 1.6 ) + 1 ) );
+		const span = Math.min( L, ( n - 1 ) * 1.6 );
+		const ux = ( x - src.x ) / Math.max( bd, 1e-3 ), uz = ( z - src.z ) / Math.max( bd, 1e-3 );
+		const end = { x: x - ux * 2.5, z: z - uz * 2.5 };
 		const pts = [];
 		for ( let i = 0; i < n; i ++ ) {
 
-			const k = n > 1 ? i / ( n - 1 ) : 0;
-			let px = src.x + ( x - src.x ) * ( L / Math.max( bd, 1e-3 ) ) * k, pz = src.z + ( z - src.z ) * ( L / Math.max( bd, 1e-3 ) ) * k;
+			const back = span * ( 1 - ( n > 1 ? i / ( n - 1 ) : 0 ) );
+			let px = end.x - ux * back, pz = end.z - uz * back;
 			if ( this.grid && this.grid.ready ) { const q = this.grid.nearestFree( px, pz, 3 ); if ( q ) { px = q.x; pz = q.z; } }
 			pts.push( { x: px, z: pz } );
 
 		}
 
+		const runners = L - span > 4 ? 2 : 0;
 		const cand = this.list.filter( ( c ) => c.role !== 'child' && ! c.eventRole && ! c.bucket && c.queueSlot < 0 && Math.hypot( c.x - x, c.z - z ) < 120 )
-			.sort( ( a, b ) => Math.hypot( a.x - x, a.z - z ) - Math.hypot( b.x - x, b.z - z ) ).slice( 0, n );
+			.sort( ( a, b ) => Math.hypot( a.x - x, a.z - z ) - Math.hypot( b.x - x, b.z - z ) ).slice( 0, n + runners );
 		if ( cand.length < 3 ) return 0;
-		const members = [];
+		const members = [], carriers = [];
 		cand.forEach( ( c, i ) => {
 
-			const p = pts[ i ], q = pts[ Math.min( i + 1, pts.length - 1 ) ], back = pts[ Math.max( 0, i - 1 ) ];
-			// each faces along the line, toward the fire (the last one faces it)
-			const yaw = i < pts.length - 1 ? yawToward( p.x, p.z, q.x, q.z ) : yawToward( p.x, p.z, x, z );
 			c.fleeing = false; c.fleeT = 0; c.react = null;
 			this.slots.release( c.id );
 			c.bucket = true;
 			c.eventRole = 'chain';
 			c.queueSlot = - 1;
+			if ( i >= n ) {
+
+				// a runner: back and forth between the water and the line's head with a bucket
+				const head = pts[ 0 ];
+				c.loop = [ { x: src.x, z: src.z, yaw: yawToward( src.x, src.z, head.x, head.z ) }, { x: head.x, z: head.z, yaw: yawToward( head.x, head.z, src.x, src.z ) } ];
+				c.loaded = false; c.stage = 0; c.unloadN = 1e6;
+				this._goal( c, { ...c.loop[ 0 ], look: LOOK.carryEnd, kind: 'carry', dwell: 1.5 }, 'run' );
+				carriers.push( c );
+				return;
+
+			}
+
+			const k = members.length;
+			const p = pts[ k ], q = pts[ Math.min( k + 1, pts.length - 1 ) ], back = pts[ Math.max( 0, k - 1 ) ];
+			// each faces along the line, toward the fire (the last one faces it)
+			const yaw = k < pts.length - 1 ? yawToward( p.x, p.z, q.x, q.z ) : yawToward( p.x, p.z, x, z );
 			this._goal( c, { x: p.x, z: p.z, yaw: Number.isFinite( yaw ) ? yaw : yawToward( back.x, back.z, p.x, p.z ), look: LOOK.chain, kind: 'chain', dwell: Infinity }, 'run' );
 			members.push( c );
 
 		} );
-		this.chain = { pts: pts.slice( 0, members.length ), members, fire: { x, z }, t: seconds, splashT: 0 };
-		return members.length;
+		this.chain = { pts: pts.slice( 0, members.length ), members, runners: carriers, source: { x: src.x, z: src.z }, fire: { x, z }, t: seconds, splashT: 0 };
+		return members.length + carriers.length;
 
 	}
 
@@ -520,6 +544,24 @@ export class TownSim {
 		}
 
 		return cand.length;
+
+	}
+
+	// a delivery: a dockhand or carter carries crates from a parked van (its back doors) to a shop door, a few trips
+	delivery( from, to, trips = 3 ) {
+
+		if ( this.dormant ) return 0;
+		const G = this.grid && this.grid.ready ? this.grid : null;
+		const a = G ? G.nearestFree( from.x, from.z, 3 ) : from, b = G ? G.nearestFree( to.x, to.z, 3 ) : to;
+		if ( ! a || ! b ) return 0;
+		const c = this.list.filter( ( q ) => ( q.role === 'dockworker' || q.role === 'carter' || q.role === 'pirateHand' ) && ! q.hidden && ! q.eventRole && ! q.bucket && ! q.fleeing && q.act === 'work' && ! ( q.unloadN > 0 ) )
+			.sort( ( p, q ) => Math.hypot( p.x - a.x, p.z - a.z ) - Math.hypot( q.x - a.x, q.z - a.z ) )[ 0 ];
+		if ( ! c ) return 0;
+		this.slots.release( c.id );
+		c.loop = [ { x: a.x, z: a.z, yaw: yawToward( a.x, a.z, b.x, b.z ) }, { x: b.x, z: b.z, yaw: yawToward( b.x, b.z, a.x, a.z ) } ];
+		c.loaded = false; c.stage = 0; c.unloadN = trips;
+		this._goal( c, { ...c.loop[ 0 ], look: LOOK.carryEnd, kind: 'carry', dwell: 2.5 }, 'carry' );
+		return 1;
 
 	}
 
@@ -602,7 +644,7 @@ export class TownSim {
 		C.t -= dt;
 		C.splashT -= dt;
 		if ( C.t > 0 ) return;
-		for ( const c of C.members ) { c.bucket = false; c.eventRole = null; c.act = null; }
+		for ( const c of [ ...C.members, ...C.runners ] ) { c.bucket = false; c.eventRole = null; c.act = null; c.unloadN = 0; c.loop = null; c.loaded = false; }
 		this.chain = null;
 
 	}
@@ -1018,6 +1060,15 @@ export class TownSim {
 
 			}
 
+			case 'busk': {
+
+				// the middle of the first gathering spot: its ring of three faces the busker
+				const g = this.plan.gathers[ 0 ];
+				if ( g && S.claim( 'busk', 1, c.id ) >= 0 ) return this._goal( c, { x: g.x, z: g.z, yaw: c.home.yaw, look: LOOK.busk, kind: 'busk', dwell: Infinity } );
+				break;
+
+			}
+
 			case 'sweep': {
 
 				const k = S.claim( 'sweep', W.sweep.length, c.id );
@@ -1222,7 +1273,8 @@ export class TownSim {
 
 				c.stage = 1 - c.stage;
 				const q = c.loop[ c.stage ];
-				return this._goal( c, { ...q, look: LOOK.carryEnd, kind: 'carry', dwell: 2.5 }, 'carry' );
+				// (the bucket chain's runners run)
+				return this._goal( c, { ...q, look: LOOK.carryEnd, kind: 'carry', dwell: c.bucket ? 1.5 : 2.5 }, c.bucket ? 'run' : 'carry' );
 
 			}
 

@@ -71,7 +71,7 @@ const boxOf = ( cx, cz, hx, hz, yaw, extra = {} ) => ( { x: r2( cx ), z: r2( cz 
 export const POPULATION = {
 	// (wave 24E: more folk, children and regulars: the far ones are one cheap instanced crowd)
 	home: { roles: { vendor: 1, fisher: 2, dockworker: 1, carter: 1, folk: 6, child: 4, regular: 2, watchman: 1 } },
-	tidemark: { roles: { vendor: 4, fisher: 5, dockworker: 4, carter: 2, carpenter: 2, folk: 22, child: 6, regular: 6, watchman: 2, lamplighter: 1, sweeper: 2 } },
+	tidemark: { roles: { vendor: 4, fisher: 5, dockworker: 4, carter: 2, carpenter: 2, folk: 22, child: 6, regular: 6, watchman: 2, lamplighter: 1, sweeper: 2, busker: 1 } },
 	blackwater: { roles: { pirate: 10, pirateHand: 3, fence: 1, pirateWatch: 2 } },
 	meridian: MERIDIAN_POPULATION,
 };

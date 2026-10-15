@@ -6,7 +6,7 @@ import { yawToward } from '../../world/residents/ResidentData.js';
 // for a second customer behind the one at the counter. Plain data; a spot's yaw is the way the person faces (Player.yaw).
 //
 //   townPlaces( plan ) -> { quay: [ spot ], school: spot, walk: [ { x, z } ], fest: { x, z, r, dance: [ spot ], watch: [ spot ],
-//                          posts: [ { x, z } ] } | null, fronts: { [ stallId ]: [ spot ] } }
+//                          posts: [ { x, z } ] } | null, fronts: { [ stallId ]: [ spot ] }, wells: [ spot ] (fountains, wells) }
 
 const r2 = ( v ) => Math.round( v * 100 ) / 100;
 const S = ( x, z, yaw ) => ( { x: r2( x ), z: r2( z ), yaw } );
@@ -14,7 +14,7 @@ const forward = ( yaw ) => [ - Math.sin( yaw ), - Math.cos( yaw ) ]; // the way 
 
 export function townPlaces( plan ) {
 
-	return { quay: quaySpots( plan ), school: schoolOf( plan ), walk: walkOf( plan ), fest: festOf( plan ), fronts: frontsOf( plan ) };
+	return { quay: quaySpots( plan ), school: schoolOf( plan ), walk: walkOf( plan ), fest: festOf( plan ), fronts: frontsOf( plan ), wells: wellsOf( plan ) };
 
 }
 
@@ -135,6 +135,19 @@ function festOf( plan ) {
 	}
 
 	return { x: r2( x ), z: r2( z ), r: 9 * k, dance, watch, posts };
+
+}
+
+// the town's fountains and wells (water for a bucket chain): a spot at the rim, on the town's side
+function wellsOf( plan ) {
+
+	const C = plan.center || { x: 0, z: 0 };
+	return ( plan.obstacles || [] ).filter( ( o ) => /fountain|well/i.test( o.id || '' ) && Number.isFinite( o.r ) ).map( ( o ) => {
+
+		const d = Math.hypot( C.x - o.x, C.z - o.z ) || 1;
+		return S( o.x + ( C.x - o.x ) / d * ( o.r + 0.8 ), o.z + ( C.z - o.z ) / d * ( o.r + 0.8 ), 0 );
+
+	} );
 
 }
 

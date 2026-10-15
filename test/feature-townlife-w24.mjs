@@ -161,6 +161,11 @@ section( 'the day: school, siesta, the evening walk, the stalls' );
 	const vendors = w.sim.list.filter( ( c ) => c.role === 'vendor' && c.goal && ( c.goal.kind === 'stall' || c.goal.kind === 'stallSetup' ) );
 	ok( vendors.length >= 3, `the vendors keep their stalls (${ vendors.length })` );
 	// a customer at a counter: the vendor gestures more (haggling)
+	const busker = w.sim.list.find( ( c ) => c.role === 'busker' );
+	w.app.settings.timeOfDay = 11;
+	run( w, 120 );
+	ok( busker && busker.goal && busker.goal.kind === 'busk' && busker.arrived, 'the busker plays the square', busker && busker.goal && busker.goal.kind );
+	w.app.settings.timeOfDay = 9.5;
 	const counters = w.sim.list.filter( ( c ) => c.goal && c.goal.kind === 'browse' && c.goal.look && c.goal.look.gestures.includes( 'Chat_Gesture' ) );
 	ok( counters.length >= 1, `customers haggle at the counters (${ counters.length })` );
 
@@ -362,6 +367,14 @@ section( 'Meridian: the lights, the bus; the harbour residents in the rain' );
 	ok( rider.goal.kind === 'board', 'the bus stops: on they get' );
 	run( w, 60, 0.1 );
 	ok( rider.hidden, 'and are gone with it' );
+
+	// a delivery van parked by the shops: a dockhand carries its load to the nearest door
+	const shop = w.P.homes[ 2 ];
+	const carsInst = w.features.get( 'cars' );
+	carsInst.records = [ { id: 'van1', kind: 'van', state: 'parked', x: shop.x + 4, z: shop.z + 3, yaw: 0 } ];
+	let hauled = 0;
+	run( w, 120, 0.1, () => { traffic.time += 0.1; hauled = Math.max( hauled, w.sim.list.filter( ( c ) => c.unloadN > 0 && c.loop && Math.hypot( c.loop[ 1 ].x - shop.x, c.loop[ 1 ].z - shop.z ) < 4 ).length ); } );
+	ok( hauled >= 1, 'a parked delivery van: its load carried to the shop door' );
 
 	// the harbour's residents (Director): leisure goes in out of the rain, work goes on, out again after it
 	const d = new Director( { places: { home: { homes: { h1: { door: { x: 0, z: 0, yaw: 0 } } }, plaza: [ { x: 6, z: 6, yaw: 0 } ] } } } );

@@ -225,7 +225,7 @@ for ( const plan of plans ) {
 section( 'budgets per tier' );
 {
 
-	const want = { home: 18, tidemark: 56, blackwater: 16, meridian: 51 }; // (wave 24E: more folk; the far ones are the instanced crowd)
+	const want = { home: 18, tidemark: 57, blackwater: 16, meridian: 52 }; // (wave 24E: more folk; the far ones are the instanced crowd)
 	const d = world();
 	for ( const t of d.tl.towns ) ok( t.sim.list.length === want[ t.plan.id ], `desktop: ${ t.plan.id } has ${ t.sim.list.length } townsfolk` );
 	const ph = world( { phone: true } );

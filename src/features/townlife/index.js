@@ -36,9 +36,17 @@ import { Calendar, EVENT_KINDS } from './Events.js';
 //   const tl = features.get( 'townlife' );
 //   tl.crowd( port ) -> people at that port's tavern     tl.citizens( townId ) / tl.sims / tl.townAt( x, z )
 //   tl.alarm( port, seconds ) / tl.cheer( x, z ) / tl.callQueue( port )
-//   tl.lights (the watch's lanterns), update( dt ), reset(), dispose()
-// Events emitted: townsfolkTalked { id, name, role, port }. Listens to: cannonFired, cannonballImpact, explosion,
-// gunshot, retaliationRaid, strongholdAlarm, fishCaught, fishSold.
+//   tl.lights (the watch's lanterns, the festival lamps), update( dt ), reset(), dispose()
+//   (wave 24E) tl.shipArrived( port ) / tl.fire( x, z ) / tl.startEvent( 'market' | 'festival' | 'procession' | 'regatta', townId )
+//   tl.occasions -> { townId: { market, festival, regatta, procession } }   tl.sea (SeaLife: fish, dolphins)   tl.calendar
+// Events emitted: townsfolkTalked { id, name, role, port }, townOccasion { kind, town, port, on, x, z }. Listens to:
+// cannonFired, cannonballImpact, explosion, gunshot, retaliationRaid, strongholdAlarm, fishCaught, fishSold, portVisited,
+// rivalArrived, firePool, cityFire; reads weather.rain / .day, firearms.drawn, naval.ships, cars.graph / .traffic / .busLoop().
+//
+// Wave 24E: the far crowd is Crowd.js's animated figures; the day has its morning stall set-up, haggling, school, a siesta
+// and the evening walk in pairs; rain, a drawn gun, a ship coming in and a fire each get their reaction (Citizens.js); the
+// calendar (Events.js) brings market days, festival nights, a wedding procession and a regatta; Places.js derives the quay,
+// the school, the walk and the festival square from each plan.
 
 const LOD_TICK = 0.25; // s between body assignments
 const BUILD_BUDGET = 3500; // grid cells a frame while a town's grid is built
@@ -158,7 +166,12 @@ export class TownLife {
 
 				const a = i / 3 * Math.PI * 2;
 				const src = { position: new Vector3( F.x + Math.cos( a ) * 4, 3.6, F.z + Math.sin( a ) * 4 ), color: new Color( 1.0, [ 0.55, 0.75, 0.62 ][ i ], [ 0.35, 0.5, 0.75 ][ i ] ), intensity: 9, range: 14, kind: 'festival', flicker: 0.05, scale: 0 };
-				src.update = () => { src.scale = t.sim.festival && t.ready ? 1 : 0; };
+				src.update = () => {
+
+					src.scale = t.sim.festival && t.ready ? 1 : 0;
+					if ( src.scale && ! src.grounded && t.sim.ground ) { src.grounded = true; src.position.y = t.sim.ground( src.position.x, src.position.z ) + 3.6; }
+
+				};
 				t.festLights.push( src );
 				this.lights.push( src );
 
@@ -539,6 +552,24 @@ export class TownLife {
 
 		if ( o.regatta && ! wet && ! this.regattas.has( id ) ) this._startRegatta( t );
 		if ( ( ! o.regatta || wet ) && this.regattas.has( id ) && ! this.regattas.get( id ).forced ) this.regattas.delete( id );
+		this._announce( t );
+
+	}
+
+	// townOccasion { kind: 'market' | 'festival' | 'procession' | 'regatta', town, on, x, z } when one starts or ends (the sfx
+	// feature's music and crowds, the HUD's tips)
+	_announce( t ) {
+
+		const was = t._occ || ( t._occ = { market: false, festival: false, procession: false, regatta: false } );
+		const now = { market: t.sim.marketDay, festival: t.sim.festival, procession: !! t.sim.event, regatta: this.regattas.has( t.plan.id ) };
+		for ( const k in now ) {
+
+			if ( now[ k ] === was[ k ] ) continue;
+			was[ k ] = now[ k ];
+			const F = t.sim.places.fest, at = k === 'festival' && F ? F : k === 'regatta' && this.regattas.get( t.plan.id ) ? this.regattas.get( t.plan.id ).marks[ 1 ] : t.plan.center;
+			if ( this.features && this.features.emit ) this.features.emit( 'townOccasion', { kind: k, town: t.plan.id, port: t.plan.port, on: now[ k ], x: at.x, z: at.z } );
+
+		}
 
 	}
 
@@ -640,6 +671,22 @@ export class TownLife {
 			}
 
 			t.sim.setStreets( { crossings, busStops, crossOK: ( cr ) => g.light( cr.node, cr.edge, tr ? tr.time : 0 ) === 'red' } );
+
+		}
+
+		// delivery vans parked in a town: one of its dockhands carries the load to the nearest shop door (each van once an hour)
+		const vans = this._vans || ( this._vans = new Map() );
+		for ( const rec of cars.records || [] ) {
+
+			if ( rec.kind !== 'van' || rec.state !== 'parked' || ! Number.isFinite( rec.x ) ) continue;
+			const t = this.townAt( rec.x, rec.z );
+			if ( ! t || ! t.ready || t.sim.dormant || ( vans.get( rec.id ) ?? - 1e9 ) > this.time - 300 ) continue;
+			let door = null, bd = 30;
+			for ( const h of t.plan.homes ) { const d = Math.hypot( h.x - rec.x, h.z - rec.z ); if ( d < bd ) { bd = d; door = h; } }
+			if ( ! door ) continue;
+			vans.set( rec.id, this.time );
+			const fx = Math.sin( rec.yaw || 0 ), fz = Math.cos( rec.yaw || 0 );
+			t.sim.delivery( { x: rec.x - fx * 3.4, z: rec.z - fz * 3.4 }, door, 3 );
 
 		}
 
@@ -1044,6 +1091,8 @@ export class TownLife {
 		const fx = - Math.sin( c.yaw ), fz = - Math.cos( c.yaw ); // facing
 		const s = c.scale;
 		if ( c.moving && c.mode === 'carry' && c.loaded ) M.crates.push( c.x + fx * 0.32 * s, c.y + 1.0 * s, c.z + fz * 0.32 * s, c.yaw, s );
+		// (wave 24E) a bucket chain's runner: the bucket swinging in the right hand
+		if ( c.bucket && c.moving ) M.buckets.push( c.x - Math.cos( c.yaw ) * 0.28 * s, c.y + 0.62 * s + Math.sin( this.time * 9 ) * 0.03, c.z + Math.sin( c.yaw ) * 0.28 * s, c.yaw, s );
 		if ( c.goal && c.goal.kind === 'barrow' && ! c.hidden ) M.barrows.push( c.x + fx * 1.05 * s, c.y, c.z + fz * 1.05 * s, c.yaw + Math.PI, 1 );
 		if ( c.lantern && c.act === 'watch' ) {
 
@@ -1086,7 +1135,7 @@ export class TownLife {
 		else if ( c.goal && c.goal.look ) {
 
 			const b = c.goal.look.base;
-			pose = b === 'Dance' ? POSE.dance : b === 'Clap' ? POSE.cheer : b === 'Talk_Group' || b === 'Chat_Gesture' || b === 'Drink' || c.goal.look.gestures.includes( 'Talk' ) ? POSE.talk : POSE.stand;
+			pose = b === 'Dance' || b === 'Dance_2' ? POSE.dance : b === 'Clap' ? POSE.cheer : b === 'Talk_Group' || b === 'Chat_Gesture' || b === 'Drink' || c.goal.look.gestures.includes( 'Talk' ) ? POSE.talk : POSE.stand;
 
 		}
 
