@@ -186,7 +186,8 @@ export class Ship {
 		const dvx = jx * invMass, dvz = jz * invMass;
 		const fx = Math.sin( this.yaw ), fz = Math.cos( this.yaw );
 		const along = dvx * fx + dvz * fz;
-		this.speed = clamp( this.speed + along, - 2, this.cls.speed * 1.3 );
+		// (a heavier hull may shove her astern as fast as she sails ahead: wave 24B, the momentum of a blow is kept)
+		this.speed = clamp( this.speed + along, - this.cls.speed, this.cls.speed * 1.3 );
 		this.push.x += dvx - along * fx;
 		this.push.z += dvz - along * fz;
 		const rx = px - this.x, rz = pz - this.z;
