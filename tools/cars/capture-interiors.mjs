@@ -122,17 +122,26 @@ for ( const kind of kinds ) for ( const time of times ) for ( const look of look
 	if ( app.setFreeCam ) app.setFreeCam( false );
 	const rec = cars._record( kind, { x: at.x, y, z: at.z, yaw: Math.PI, state: 'idle', color: 0x8e1b1b } );
 	cars.records.push( rec );
-	cars.enter( rec );
+	// peek: on foot by the driver's door, looking in through the glass (the interior loads for a car you stand beside)
+	const peek = look === 'peek';
+	if ( peek ) {
+
+		const S = rec.spec, side = S.wid / 2 + 1.1, ex = rec.x - side, ez = rec.z - S.eye[ 2 ];
+		if ( typeof app._placePlayer === 'function' ) app._placePlayer( rec.x - side - 0.4, y + 0.1, ez, 0 ); else app.player.position.set( rec.x - side - 0.4, y + 0.1, ez );
+		app.setFreeCam?.( true );
+		app.fly.setPose( app.fly.camera.position.clone().set( ex, y + S.eye[ 1 ] + 0.25, ez ), - Math.PI / 2, - 0.32 );
+
+	} else cars.enter( rec );
 	if ( cars.cockpit ) cars.cockpit.rainOverride = rain > 0 ? rain : null;
 	let t = 0;
 	// hold the speed near the target (the gauges read the simulation), steer as asked, indicators on with a steer
 	cars.opts.input = () => ( { throttle: Math.abs( rec.body?.speed || 0 ) < speed ? 0.6 : 0, brake: 0, steer, handbrake: false } );
-	app.player.setView( 'first' );
+	app.player.setView( look === 'chase' ? 'third' : 'first' );
 	const [ yaw, pitch ] = LOOKS[ look ] || LOOKS.forward;
 	for ( let i = 0; i < 200; i ++ ) {
 
 		t += 1 / 60;
-		app.player.helmYaw = yaw; app.player.helmPitch = pitch;
+		if ( ! peek && look !== 'chase' ) { app.player.helmYaw = yaw; app.player.helmPitch = pitch; }
 		if ( i === 30 && steer && cars.cockpit?.act ) cars.cockpit.act( steer > 0 ? 'indL' : 'indR' );
 		if ( i === 30 && time === 'night' && cars.cockpit?.act && look === 'back' ) cars.cockpit.act( 'dome' );
 		app.frame( 1 / 60 );
