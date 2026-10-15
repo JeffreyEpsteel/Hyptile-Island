@@ -227,6 +227,7 @@ export class Player {
 		this.waterMean = this.waterMean === null ? this.waterH : this.waterMean + ( this.waterH - this.waterMean ) * ( 1 - Math.exp( - dt / 4 ) );
 		this.prompt = null;
 		this.climb = null;
+		this.sinceExit = ( this.sinceExit ?? Infinity ) + dt; // s since exitVehicle (the same E press must not climb straight back in)
 		// something else moved the player off the foreign deck (boarding's crossing, a respawn): let go of the hull
 		if ( this.hull && this.mode !== 'aboard' ) this.hull = null;
 
@@ -1480,6 +1481,7 @@ export class Player {
 
 		this.vehicle = null;
 		this.mode = mode === 'swim' ? 'swim' : 'walk';
+		this.sinceExit = 0; // (Game.updateFeatureInteract: this frame's E was the exit, not a new boarding at the door beside you)
 		this.position.set( x, y, z );
 		this.velocity.set( 0, 0, 0 );
 		if ( waterY !== null ) this.waterH = this.waterMean = waterY;

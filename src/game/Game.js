@@ -731,7 +731,8 @@ export class Game {
 		let text = null;
 		try { text = it.prompt ? it.prompt() : null; } catch ( e ) { text = null; }
 		if ( text ) p.prompt = { key: 'E', text };
-		if ( inp.hit( 'KeyE' ) ) {
+		// (the E that just put the player out of a car or a plane is spent: the door beside him is not pressed again)
+		if ( inp.hit( 'KeyE' ) && ( p.sinceExit ?? Infinity ) > 0.3 ) {
 
 			try { it.onInteract(); } catch ( e ) { console.warn( 'feature interaction failed', e ); }
 

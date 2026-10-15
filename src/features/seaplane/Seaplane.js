@@ -221,7 +221,7 @@ export class Seaplane {
 				id: 'seaplane-door',
 				position: () => f.toWorldXYZ( f.geom.door[ 0 ], f.geom.door[ 1 ], f.geom.door[ 2 ], _v2 ),
 				radius: 3.2,
-				when: () => ! this.piloted && ! this._aboard() && ! this.lost && ! this.chute,
+				when: () => ! this.piloted && ! this._aboard() && ! this.lost && ! this.chute && this._sinceExit > 0.6, // (not the E that climbed out)
 				prompt: () => ( ! this.owned ? t( 'seaplane.forSale', 'Seaplane for sale · ask at the hangar' ) : this.hp <= 0 ? t( 'seaplane.broken', 'Seaplane · needs repair at the hangar' ) : ( this.airframe && this.airframe.base === 'strip' ? t( 'seaplane.boardPlane', 'Fly the plane' ) : t( 'seaplane.board', 'Fly the seaplane' ) ) ),
 				onInteract: () => this.board(),
 			} ) );
@@ -266,7 +266,7 @@ export class Seaplane {
 				id: 'seaplane-parked-' + slot,
 				position: () => ( this.parked.has( slot ) ? this.parked.get( slot ).door : FAR ),
 				radius: 4.0,
-				when: () => ! this.piloted && ! this.chute && this.parked.has( slot ),
+				when: () => ! this.piloted && ! this.chute && this._sinceExit > 0.6 && this.parked.has( slot ),
 				prompt: () => this.parkedPrompt( slot ),
 				onInteract: () => this.useParked( slot ),
 			} ) );
