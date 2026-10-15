@@ -236,7 +236,11 @@ export class PlayerCombat {
 		this.buffer = 0;
 		this.host.sfx( 'hookSwing', { rate: 1.35, gain: 0.3 } );
 		this.host.kick( 'dodge' );
-		if ( this.host.montage ) this.host.montage( 'dodge', { slot: 'full', blendIn: 0.04, blendOut: 0.12, rate: 1 } );
+		// the take follows the way you go: the Kimodo roll forward, a side-step left or right, the back-step otherwise
+		// (the default with no key held: behind)
+		const fwd = - dx * Math.sin( yaw ) - dz * Math.cos( yaw ), right = dx * Math.cos( yaw ) - dz * Math.sin( yaw );
+		const take = fwd > 0.5 ? 'dodgeRoll' : fwd < - 0.5 ? 'dodge' : right > 0 ? 'dodgeRight' : 'dodgeLeft';
+		if ( this.host.montage ) this.host.montage( take, { slot: 'full', blendIn: 0.04, blendOut: 0.12, rate: 1 } );
 		return 'evade';
 
 	}
