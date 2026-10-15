@@ -44,6 +44,8 @@
 //   waypointChanged { waypoint }                             (worldmap: a map click, null when cleared)
 //   explosion { x, y, z, radius, energy }                    (destruction listens to impacts and explosions)
 //   hullsCollided { a, b, x, z, speed, damage: { a, b }, byPlayer }   shipCrippled { id, name, by?, x?, z? } (naval / boarding)
+//   hullStruck { what: 'pier' | 'rock' | 'ground' | 'object', x, z, speed, damage, byPlayer } (naval, wave 24B: the player's boat
+//               against piles, piers, quays, rocks and the bottom; a nudge under 1.2 m/s is a fender thump, no event)
 //   gunshot { ... }                                          (firearms: a pistol / musket shot, synced as a world event)
 //   gullSquawk { x, y, z }   emote { id }                    (life cues; emotes, synced as a world event)
 //   seaplaneUpgraded { airframe, upgrade }   planeBailedOut   chuteLanded { x, y, z, water }   planeEngineFailed { engine }   (seaplane)

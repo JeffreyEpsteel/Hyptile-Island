@@ -18,7 +18,8 @@
 //   const hulls = new HullLink( sync );  hulls.bind( net );  hulls.update( dt );  hulls.onBump( m );  hulls.onRam( m )
 //   hulls.stats { contacts, blows, bumpsOut, bumpsIn, pushes, rams }
 
-import { obb2, satOverlap, contactPoint, resolveContact, isBowOn, ramDamage, yawInertia, COLLIDE } from '../naval/Collisions.js';
+import { obb2, satOverlap, contactPoint, resolveContact, isBowOn, ramDamage, yawInertia, COLLIDE, hullPair } from '../naval/Collisions.js';
+import { shapeFromDims } from '../../world/boat/HullShape.js';
 import { BOATS } from '../../game/Boats.js';
 import { MAX_BUMP_DAMAGE } from '../../net/Protocol.js';
 
@@ -36,6 +37,19 @@ const clamp = ( v, a, b ) => ( v < a ? a : v > b ? b : v );
 const r1 = ( v ) => Math.round( v * 10 ) / 10;
 const r2 = ( v ) => Math.round( v * 100 ) / 100;
 const finite = ( a, n ) => Array.isArray( a ) && a.length >= n && a.slice( 0, n ).every( Number.isFinite );
+
+// wave 24B: a remote boat's outline (HullShape): a ship class's as the naval feature drew it, else from her catalogue size
+const _outlines = new Map();
+function outlineOf( naval, id, spec ) {
+
+	const cls = spec.shipClass;
+	const drawn = cls && naval && naval._shapes ? naval._shapes.get( cls + '@1.000' ) : null;
+	if ( drawn ) return drawn;
+	let s = _outlines.get( id );
+	if ( ! s ) _outlines.set( id, s = shapeFromDims( spec.length, spec.beam ) );
+	return s;
+
+}
 
 // heading (rad about +Y, 0 = +Z) of a quaternion: its forward vector on the water plane
 export function yawOf( q ) {
@@ -144,6 +158,7 @@ export class HullLink {
 			r.invI = 1 / yawInertia( r.mass, r.hx, r.hz );
 			r.maxHp = hv && hv[ 4 ] > 0 ? hv[ 4 ] : spec.hp || 40 + 0.07 * r.mass;
 			r.boat = st.id;
+			r.shape = outlineOf( this._naval(), st.id, spec );
 			out.push( r );
 
 		}
@@ -195,6 +210,7 @@ export class HullLink {
 		r.vz = b.velocity ? b.velocity.z : 0;
 		r.w = b.angular ? b.angular.y : 0;
 		r.maxHp = n && n.playerHull && n.playerHull.max > 0 ? n.playerHull.max : spec.hp || 40 + 0.07 * r.mass;
+		r.shape = b.hullShape || outlineOf( n, id, spec );
 		return r;
 
 	}
@@ -281,8 +297,7 @@ export class HullLink {
 
 		const reach = Math.hypot( a.hx, a.hz ) + Math.hypot( b.hx, b.hz ) + HULL.margin + COLLIDE.skin;
 		if ( Math.abs( b.x - a.x ) > reach || Math.abs( b.z - a.z ) > reach ) return;
-		const A = obb2( a.x, a.z, a.yaw, a.hx, a.hz ), B = obb2( b.x, b.z, b.yaw, b.hx, b.hz );
-		const s = satOverlap( A, B, this._sat );
+		const s = hullPair( a, b, this._sat ); // (the outlines as drawn when both have one: wave 24B)
 		if ( s.sep > HULL.margin + COLLIDE.skin ) return; // apart (re-armed after the loop)
 		const key = a.id < b.id ? `${ a.id }|${ b.id }` : `${ b.id }|${ a.id }`;
 		let p = this.pairs.get( key );
@@ -291,7 +306,7 @@ export class HullLink {
 		if ( s.sep > HULL.margin ) return; // within the skin: touching
 		if ( this.time - p.jt < HULL.cool ) return; // the last impulse is still on its way to the owner
 		const nx = s.nx, nz = s.nz, depth = Math.max( 0, - s.sep );
-		const pt = contactPoint( A, B, nx, nz );
+		const pt = { x: s.x, z: s.z };
 		const c = { x: pt.x, z: pt.z, nx, nz, depth };
 		const bowA = isBowOn( a, nx, nz, pt ), bowB = isBowOn( b, - nx, - nz, pt );
 		if ( a.remote ) a.jx = a.jz = 0;
@@ -396,7 +411,7 @@ export class HullLink {
 
 			const reach = Math.hypot( lb.hx, lb.hz ) + Math.hypot( r.hx, r.hz );
 			if ( Math.abs( r.x - lb.x ) > reach || Math.abs( r.z - lb.z ) > reach ) continue;
-			const s = satOverlap( obb2( lb.x, lb.z, lb.yaw, lb.hx, lb.hz ), obb2( r.x, r.z, r.yaw, r.hx, r.hz ), this._sat );
+			const s = hullPair( lb, r, this._sat );
 			if ( ! s.hit ) continue;
 			const corr = s.depth - HULL.slop;
 			if ( corr <= 0 ) continue;
