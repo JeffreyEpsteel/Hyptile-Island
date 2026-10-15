@@ -391,7 +391,8 @@ export function installHudPanels( GameHUD ) {
 		const tab = this.standTab || 'sell';
 		const contracts = this.game.contracts;
 		const quests = contracts ? contracts.active : [];
-		const ready = quests.filter( ( q ) => q.done ).length;
+		// story rows (kind 'chain') are always "done" so their button works: the talk is the hand-in only at goal
+		const ready = quests.filter( ( q ) => q.done && ( q.kind !== 'chain' || q.progress >= q.goal ) ).length;
 		let body, foot;
 		if ( tab === 'quests' ) {
 
@@ -668,13 +669,13 @@ function bindCrew( hud, root ) {
 function questRow( q ) {
 
 	const pct = Math.min( 100, q.goal ? q.progress / q.goal * 100 : 0 );
-	const kind = q.kind === 'order' ? t( 'hud.q.order', 'Order' ) : q.kind === 'story' ? t( 'hud.tab.crew', 'Crew' ) : t( 'hud.q.welcome', 'Welcome' );
+	const kind = q.kind === 'order' ? t( 'hud.q.order', 'Order' ) : q.kind === 'story' ? t( 'hud.tab.crew', 'Crew' ) : q.kind === 'chain' ? t( 'hud.q.story', 'Story' ) : t( 'hud.q.welcome', 'Welcome' );
 	const unlock = q.reward.unlock && CHARACTERS[ q.reward.unlock ];
 	const reward = q.kind === 'order'
 		? `${ q.reward.rate }× <small>+ $${ q.reward.bonus }</small>`
 		: `$${ q.reward.money }${ unlock ? `<img class="gm-quest-face" src="${ portraitUrl( q.reward.unlock ) }" alt="" title="${ esc( t( 'hud.q.unlocks', 'Unlocks {name}', { name: unlock.name } ) ) }">` : '' }`;
 	const meter = q.kind === 'order' ? t( 'hud.q.in_hold', '{n} of {goal} in the hold', { n: q.progress, goal: q.goal } ) : `${ q.progress } / ${ q.goal }`;
-	const btn = q.kind === 'order' ? t( 'hud.q.deliver', 'Deliver' ) : t( 'hud.q.claim', 'Claim' );
+	const btn = q.kind === 'order' ? t( 'hud.q.deliver', 'Deliver' ) : q.kind === 'chain' ? t( 'hud.q.talk', 'Talk' ) : t( 'hud.q.claim', 'Claim' );
 	return `<div class="gm-quest is-${ q.kind } ${ q.done ? 'is-done' : '' }">
 		<div>
 			<div class="gm-quest-head"><span>${ q.title }</span><small>${ kind }</small></div>
