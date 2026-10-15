@@ -20,6 +20,7 @@
 export const SHAPE = {
 	maxVerts: 20, // polygon vertices kept (a ship's outline to ~5 cm; the SAT tests 2 x 20 axes a pair)
 	minPoints: 12, // fewer vertices in the band: the model is not a hull (or not loaded), fall back
+	perMesh: 4000, // vertices read per mesh at most
 };
 
 // Andrew's monotone chain on flat x / z pairs -> CCW hull (flat array), collinear points dropped
@@ -169,7 +170,9 @@ export function shapeFromObject( root, { yLo = - 0.6, yHi = 3, max = SHAPE.maxVe
 		if ( withRoot ) chain.push( root.matrix && root.matrix.elements );
 
 		const a = pos.array, stride = pos.itemSize || 3, count = pos.count ?? Math.floor( a.length / stride );
-		for ( let i = 0; i < count; i ++ ) {
+		// (a dense mesh is read every few vertices: the outline is the same to a centimetre, at a few ms instead of 30)
+		const step = Math.max( 1, Math.floor( count / SHAPE.perMesh ) );
+		for ( let i = 0; i < count; i += step ) {
 
 			let x = a[ i * stride ], y = a[ i * stride + 1 ], z = a[ i * stride + 2 ];
 			for ( const e of chain ) {
@@ -228,12 +231,24 @@ export function hullBody( pts ) {
 	const thin = SHAPE.spar * widest;
 	while ( a < b && hb[ a ] < thin ) a ++;
 	while ( b > a && hb[ b ] < thin ) b --;
+	// what the outline needs of each kept station: its outermost points either side (all of the two end stations')
 	const lo = z0 + a * SHAPE.bin, hi = z0 + ( b + 1 ) * SHAPE.bin;
-	const out = [];
+	const mn = new Int32Array( bins ).fill( - 1 ), mx = new Int32Array( bins ).fill( - 1 ), out = [];
 	for ( let i = 0; i < n; i ++ ) {
 
-		const z = pts[ 2 * i + 1 ];
-		if ( z >= lo && z < hi ) out.push( pts[ 2 * i ], z );
+		const x = pts[ 2 * i ], z = pts[ 2 * i + 1 ];
+		if ( z < lo || z >= hi ) continue;
+		const k = Math.floor( ( z - z0 ) / SHAPE.bin );
+		if ( k === a || k === b ) { out.push( x, z ); continue; }
+		if ( mn[ k ] < 0 || x < pts[ 2 * mn[ k ] ] ) mn[ k ] = i;
+		if ( mx[ k ] < 0 || x > pts[ 2 * mx[ k ] ] ) mx[ k ] = i;
+
+	}
+
+	for ( let k = a + 1; k < b; k ++ ) {
+
+		if ( mn[ k ] >= 0 ) out.push( pts[ 2 * mn[ k ] ], pts[ 2 * mn[ k ] + 1 ] );
+		if ( mx[ k ] >= 0 ) out.push( pts[ 2 * mx[ k ] ], pts[ 2 * mx[ k ] + 1 ] );
 
 	}
 
