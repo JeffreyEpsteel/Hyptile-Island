@@ -194,7 +194,7 @@ export class PlayerCombat {
 		// the soft lock turns the swing onto its target (a little: the player still aims)
 		const h = this.host, lk = h.lock, p = h.player;
 		if ( lk && lk.targetable && p ) p.yaw += magnetTurn( p.yaw, p.position, lk );
-		if ( h.montage ) h.montage( W.montage || 'swing', { slot: W.montage && W.montage !== 'swing' ? W.slot || 'upper' : 'upper', blendIn: 0.06, blendOut: 0.18, rate: W.rate || 1 } );
+		if ( h.montage ) h.montage( ( W.chain ? W.chain[ ( this.combo - 1 ) % W.chain.length ] : W.montage ) || 'swing', { slot: W.montage && W.montage !== 'swing' ? W.slot || 'upper' : 'upper', blendIn: 0.06, blendOut: 0.18, rate: W.rate || 1 } );
 		return 'swing';
 
 	}

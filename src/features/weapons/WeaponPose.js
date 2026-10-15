@@ -1,4 +1,5 @@
-import { makeRig, poseClip, localsAt, fk, qconj, qmul, qaxis } from '../../player/anim/ClipTools.js';
+import { makeRig, poseClip, localsAt, fk, qconj, qmul, qaxis, FPS } from '../../player/anim/ClipTools.js';
+import ANIM from '../../player/anim/AnimDef.js';
 
 // The arms with a melee weapon or a throwable (wave 18D, the GunPose.js pattern: "no A-pose anywhere"): pose clips built on
 // the avatar's own rig from its idle with the AnimDef `{ base, keys }` recipe (ClipTools.poseClip), registered in the model's
@@ -13,7 +14,16 @@ import { makeRig, poseClip, localsAt, fk, qconj, qmul, qaxis } from '../../playe
 //   Wpn_Throw_Ready  a throwable raised by the shoulder
 //   Wpn_Throw        the throw: cocked back, released ahead at 0.25 s (THROW_RELEASE), the follow-through
 //
-//   const wp = weaponPoses( avatar ) -> { hold: { oneHand, pole, thrown, idle }, clips: WEAPON_CLIPS } | null
+//   Wpn_Slash_L, Wpn_Lunge   wave 19D: the cutlass's backhand and lunge (attackClip( 'cutlass', n ): cut, backhand, lunge)
+//   Wpn_Throw_Harpoon        wave 19D: the harpoon's javelin throw (released at THROW_RELEASE like Wpn_Throw)
+//
+// Wave 19D: where the roster GLB carries the Kimodo take (tools/roster/kimodo-combat: Sword_Slash_R / _L, Axe_Chop, Club_Swing,
+// Sword_Thrust, Harpoon_Throw, Throw_Overhand), the attack is that take instead of the pose clip: AnimDef's montage (MOTION_OF) names the
+// clip, the stretch played (from / to) and the rate that puts its 'contact' ('release') notify on MELEE[ id ].contact
+// (THROW_RELEASE), and build() slices that stretch into the pose clip's name, so Weapons and PlayerCombat play it unchanged.
+// A GLB without the take keeps the 18D pose clip (the fallback).
+//
+//   const wp = weaponPoses( avatar ) -> { hold: { oneHand, pole, thrown, idle }, clips: WEAPON_CLIPS, motion: [ sliced names ] } | null
 //   hold[ k ]: [ x, y, z, w ] the weapon in the weapon_r socket so that in that hold pose it lies as HOLD_AIM[ k ] says in model
 //   space (the socket inverse at the pose times the wanted turn); idle: a raider's weapon at his idle (the point down and
 //   ahead), for the hands that never play these clips. Built once per model; null when the rig lacks the arm bones or the idle.
@@ -23,12 +33,22 @@ import { makeRig, poseClip, localsAt, fk, qconj, qmul, qaxis } from '../../playe
 
 export const WEAPON_CLIPS = {
 	hold1h: 'Wpn_Hold_1H', holdPole: 'Wpn_Hold_Pole', slash: 'Wpn_Slash', chop: 'Wpn_Chop', club: 'Wpn_Club', thrust: 'Wpn_Thrust',
-	throwReady: 'Wpn_Throw_Ready', throw: 'Wpn_Throw',
+	throwReady: 'Wpn_Throw_Ready', throw: 'Wpn_Throw', slashL: 'Wpn_Slash_L', lunge: 'Wpn_Lunge', throwHarpoon: 'Wpn_Throw_Harpoon',
 };
 // the attack clip of each melee weapon (the paddle keeps AnimDef's 'swing': Melee_Paddle) and its hold
 export const ATTACK_OF = { cutlass: WEAPON_CLIPS.slash, axe: WEAPON_CLIPS.chop, pin: WEAPON_CLIPS.club, harpoon: WEAPON_CLIPS.thrust };
 export const HOLD_OF = { paddle: 'oneHand', cutlass: 'oneHand', axe: 'oneHand', pin: 'oneHand', harpoon: 'pole' };
 export const THROW_RELEASE = 0.25; // s into Wpn_Throw the hand lets go
+// wave 19D: the AnimDef montage (a Kimodo take) behind each attack clip, and the cuts a weapon alternates
+export const MOTION_OF = {
+	Wpn_Slash: 'cutlassSlashR', Wpn_Slash_L: 'cutlassSlashL', Wpn_Lunge: 'cutlassThrust', Wpn_Chop: 'axeChop', Wpn_Club: 'pinClub',
+	Wpn_Throw: 'bombThrow', Wpn_Throw_Harpoon: 'harpoonThrow', // (Wpn_Thrust keeps its pose: the Harpoon_Thrust take flings the left arm off the shaft)
+};
+// the clips beyond 18D's eight and the pose recipe each falls back to
+export const EXTRA_CLIPS = { Wpn_Slash_L: 'Wpn_Slash', Wpn_Lunge: 'Wpn_Slash', Wpn_Throw_Harpoon: 'Wpn_Throw' };
+// the cutlass's chain: the right cut, the backhand, the lunge (MELEE.cutlass.combo: the third bites deeper)
+export const ALT_ATTACK = { cutlass: [ 'Wpn_Slash', 'Wpn_Slash_L', 'Wpn_Lunge' ] };
+export const attackClip = ( id, n = 0 ) => { const a = ALT_ATTACK[ id ]; return a ? a[ ( ( n % a.length ) + a.length ) % a.length ] : ATTACK_OF[ id ]; };
 
 const DEG = Math.PI / 180;
 // the weapon's turn in model space at each hold pose: rotations about the model's X tip its +Z (the point) up for negative angles
@@ -108,10 +128,21 @@ function build( m ) {
 	const rig = makeRig( m.gltf );
 	const I = rig.index;
 	for ( const b of [ 'upperarm_r', 'lowerarm_r', 'hand_r', 'upperarm_l', 'lowerarm_l', 'hand_l', 'spine_01', 'spine_02', 'weapon_r' ] ) if ( I[ b ] === undefined ) return null;
-	for ( const name in WEAPON_RECIPES ) {
+	const motion = [];
+	for ( const name of [ ...Object.keys( WEAPON_RECIPES ), ...Object.keys( EXTRA_CLIPS ) ] ) {
 
 		if ( m.clips.has( name ) ) continue;
-		const clip = poseClip( rig, base, name, WEAPON_RECIPES[ name ].keys, { loopBase: true } );
+		const md = MOTION_OF[ name ] && ANIM.montages[ MOTION_OF[ name ] ];
+		const src = md && m.clips.get( md.clip );
+		if ( src ) {
+
+			m.clips.set( name, sliceClip( src, name, md ) );
+			motion.push( name );
+			continue;
+
+		}
+
+		const clip = poseClip( rig, base, name, ( WEAPON_RECIPES[ name ] || WEAPON_RECIPES[ EXTRA_CLIPS[ name ] ] ).keys, { loopBase: true } );
 		if ( ! clip ) return null;
 		m.clips.set( name, clip );
 
@@ -126,7 +157,43 @@ function build( m ) {
 
 	}
 
-	return { hold, clips: WEAPON_CLIPS };
+	return { hold, clips: WEAPON_CLIPS, motion };
+
+}
+
+// the stretch from..to of a clip played at `rate`, resampled at the clip rate into a clip of its own (time 0 = `from`), so a
+// plain clip-name montage plays it with the montage's timing
+export function sliceClip( src, name, { from = 0, to = src.duration, rate = 1 } ) {
+
+	to = Math.min( to, src.duration );
+	const duration = ( to - from ) / rate, n = Math.max( 1, Math.round( duration * FPS ) );
+	const times = new Float32Array( n + 1 );
+	for ( let k = 0; k <= n; k ++ ) times[ k ] = k / n * duration;
+	const channels = src.channels.map( ( ch ) => {
+
+		const w = ch.values.length / ch.times.length, values = new Float32Array( ( n + 1 ) * w );
+		for ( let k = 0; k <= n; k ++ ) sample( ch, w, from + times[ k ] * rate, values, k * w );
+		return { node: ch.node, path: ch.path, times, values, step: false };
+
+	} );
+	return { name, duration, channels, procedural: true };
+
+}
+
+// one channel at time t: lerp (translation / scale) or nlerp along the shorter arc (rotation)
+function sample( ch, w, t, out, o ) {
+
+	const T = ch.times, V = ch.values, last = T.length - 1;
+	let i = 0;
+	if ( t >= T[ last ] ) i = last;
+	else if ( t > T[ 0 ] ) { let lo = 0, hi = last; while ( hi - lo > 1 ) { const mid = ( lo + hi ) >> 1; if ( T[ mid ] <= t ) lo = mid; else hi = mid; } i = lo; }
+	const j = Math.min( last, i + 1 );
+	const u = j > i && ! ch.step ? Math.max( 0, Math.min( 1, ( t - T[ i ] ) / ( T[ j ] - T[ i ] ) ) ) : 0;
+	let s = 1;
+	if ( w === 4 ) { let d = 0; for ( let c = 0; c < 4; c ++ ) d += V[ i * 4 + c ] * V[ j * 4 + c ]; if ( d < 0 ) s = - 1; }
+	let len = 0;
+	for ( let c = 0; c < w; c ++ ) { out[ o + c ] = V[ i * w + c ] * ( 1 - u ) + s * V[ j * w + c ] * u; len += out[ o + c ] * out[ o + c ]; }
+	if ( w === 4 && len > 0 ) { len = Math.sqrt( len ); for ( let c = 0; c < 4; c ++ ) out[ o + c ] /= len; }
 
 }
 

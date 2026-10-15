@@ -66,6 +66,18 @@ const CARRY = { spine_01: [ [ 'x', - 6 ] ], spine_02: [ [ 'x', - 3 ] ], head: [ 
 	reach: { l: [ 0.19, 0.9, 0.2, 1, - 0.8, - 0.1 ], r: [ - 0.19, 0.9, 0.2, - 1, - 0.8, - 0.1 ] } };
 const THUMB = { spine_01: [ [ 'x', - 3 ] ], head: [ [ 'y', - 6 ] ], ...FIST( 'r' ), reach: { r: [ - 0.14, 1.02, 0.3, - 1, - 0.8, 0 ] } };
 
+// wave 19D: the Kimodo combat takes (tools/roster/kimodo-combat, in all eight roster GLBs). A blow plays its take from `from` (the
+// wind-up) at the rate that puts the take's contact frame `c` (clip time, measured: tools/roster/kimodo-combat/contact.mjs) `at`
+// seconds after the press, the weapon's MELEE[ id ].contact (or THROW_RELEASE), and `after` seconds more past it; the notify
+// marks it. src/features/weapons/WeaponPose.js slices the same stretch into the weapon's attack clip (Wpn_Slash ...), so
+// PlayerCombat's hit timing holds with either.
+const BLOW = ( clip, from, c, at, after, notify = 'contact', o = {} ) => {
+
+	const rate = ( c - from ) / at;
+	return { clip, slot: 'upper', from, to: c + after * rate, rate, blendIn: 0.06, blendOut: 0.18, notifies: [ [ c, notify ] ], ...o };
+
+};
+
 export default {
 
 	version: 1,
@@ -330,6 +342,20 @@ export default {
 		guard: { clip: 'Block_Guard', slot: 'upper', loop: true, blendIn: 0.1, blendOut: 0.18 },
 		evade: { clip: 'Dodge_Back', slot: 'full', blendIn: 0.04, blendOut: 0.15, rootMotion: true },
 		stagger: { clip: 'Hit_Reaction', slot: 'full', to: 0.6, blendIn: 0.04, blendOut: 0.22 },
+		// wave 19D, the Kimodo combat takes (see BLOW): per weapon the blow's contact lands on WeaponsData MELEE[ id ].contact
+		// (cutlass 0.2, axe 0.48, pin 0.22, harpoon 0.3) and a throw's release on WeaponPose THROW_RELEASE (0.25)
+		cutlassSlashR: BLOW( 'Sword_Slash_R', 0.36, 0.57, 0.2, 0.36 ), // high right to low left
+		cutlassSlashL: BLOW( 'Sword_Slash_L', 0.62, 0.88, 0.2, 0.36 ), // the backhand, left to right
+		cutlassThrust: BLOW( 'Sword_Thrust', 0.2, 0.45, 0.2, 0.36 ), // the lunge (the chain's third blow)
+		axeChop: BLOW( 'Axe_Chop', 1.0, 1.6, 0.48, 0.29 ), // both hands up over the head, down hard (the take's slow raise is skipped)
+		pinClub: BLOW( 'Club_Swing', 0.25, 0.55, 0.22, 0.3 ),
+		harpoonThrust: BLOW( 'Harpoon_Thrust', 0.1, 0.4, 0.3, 0.4 ), // (the weapon keeps Wpn_Thrust: the left arm flings out wide, off the shaft)
+		harpoonThrow: BLOW( 'Harpoon_Throw', 0.75, 1.22, 0.25, 0.4, 'release' ),
+		bombThrow: BLOW( 'Throw_Overhand', 0.6, 1.0, 0.25, 0.28, 'release' ),
+		// no take of the guns, the parry or the knocked-back guard passed review (the hands go into the big heads, nothing rams or recoils): 'parry' (Parry), 'blockImpact'
+		// and Firearms' GunPose clips (Gun_Aim_* / Gun_Fire_* / Gun_Reload) stay. A forward roll (the game moves the player: root motion) and the raiders' taunt
+		dodgeRoll: { clip: 'Dodge_Roll', slot: 'full', blendIn: 0.05, blendOut: 0.2, rootMotion: true },
+		taunt: { clip: 'Taunt', slot: 'full', blendIn: 0.2, blendOut: 0.3 },
 	},
 
 	footsteps: [ 0.12, 0.62 ],

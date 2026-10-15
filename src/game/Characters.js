@@ -27,7 +27,15 @@ export const CLIPS = {
 	carryBox: 'Carry_Box', kneelWork: 'Kneel_Work', crouch: 'Crouch', talkGroup: 'Talk_Group', clap: 'Clap', pointOut: 'Point_Out', hammer: 'Hammer',
 	fishNet: 'Fish_Net', drunkWalk: 'Drunk_Walk', lampLight: 'Lamp_Light', crouchWalk: 'Crouch_Walk', walkTired: 'Walk_Tired',
 	turnLeft: 'Turn_Left', turnRight: 'Turn_Right', dance2: 'Dance_2', sitGround: 'Sit_Ground',
+	// wave 19D, the combat takes (NVIDIA Kimodo through tools/roster/kimodo-combat; AnimDef montages cutlassSlashR ... taunt; the weapon
+	// attacks reach them through src/features/weapons/WeaponPose.js)
+	swordSlashR: 'Sword_Slash_R', swordSlashL: 'Sword_Slash_L', swordThrust: 'Sword_Thrust', axeChop: 'Axe_Chop',
+	harpoonThrust: 'Harpoon_Thrust', harpoonThrow: 'Harpoon_Throw', throwOverhand: 'Throw_Overhand',
+	clubSwing: 'Club_Swing', dodgeRoll: 'Dodge_Roll', taunt: 'Taunt',
 };
+// the wave 19D combat takes (each in all eight GLBs; test/feature-anim-combat.mjs)
+export const COMBAT_CLIPS = [ 'Sword_Slash_R', 'Sword_Slash_L', 'Sword_Thrust', 'Axe_Chop', 'Harpoon_Thrust', 'Harpoon_Throw', 'Throw_Overhand',
+	'Club_Swing', 'Dodge_Roll', 'Taunt' ];
 // the clips every roster GLB had in phase 1 (tests check these; the phase 2 ones are optional per build)
 export const CORE_CLIPS = [ 'Idle_Breathe', 'Walk_InPlace', 'Run_InPlace', 'Jump', 'Wave', 'Fishing_Cast', 'Fishing_Hold', 'Fishing_Reel', 'Fishing_Strike', 'Swim_Idle', 'Swim_Forward', 'Swim_Fast', 'Helm_Idle', 'Seated_Idle', 'Catch_Celebrate', 'Catch_Disappointed', 'Talk', 'Dance', 'Look_Around', 'Cheer_Clap' ];
 

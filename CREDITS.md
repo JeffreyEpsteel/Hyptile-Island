@@ -34,6 +34,7 @@ the end of this file. Every entry was checked against the files in this reposito
 | Action sounds of wave 20 (weapons, navy, storms, interiors, crew, towns; `src/features/sfx/Voices.js`) | synthesised at runtime with Web Audio, no recordings | this repository's MIT license |
 | Navy frigate and revenue cutter (`public/models/navy`) | procedural, `tools/navy/build_navy_ships.py` (reusing the brigantine's textures) | this repository's MIT license |
 | Meridian: the city kit, the twin towers and the facades (`public/models/meridian`) | procedural, `tools/meridian` | this repository's MIT license |
+| Combat motions in the roster GLBs (sword slashes and thrust, axe chop, club swing, harpoon throw, bomb throw, dodge roll, taunt) | generated with NVIDIA Kimodo (Kimodo-SOMA-RP) through the local ComfyUI pipeline, `tools/roster/kimodo-combat` | the project's own generations |
 | Cars (`public/models/cars`) | procedural, `tools/cars/build_cars.py` | this repository's MIT license |
 | Interiors kit (`public/models/interiors`) | procedural, `tools/interiors/kit.py` (Poly Haven CC0 plank scans already credited below) | this repository's MIT license |
 | Character names Ethena Prosper (chandlery) and PoorGoat (fish stand) | the project owner | - |

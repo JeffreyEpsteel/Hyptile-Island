@@ -260,3 +260,37 @@ node test/roster-clips.mjs; node test/feature-anim-library.mjs; node test/featur
 ```
 
 Review: `CLIP=Sit_Chair CLIP_T=2.9 node test/clip-frame.mjs hyptile clown`. Each GLB grew by about 2.3 MB of clips (hyptile 7.6 -> 9.9 MB).
+
+## Combat takes (wave 19D)
+
+Ten NVIDIA Kimodo takes for the fight, in all eight GLBs (spliced; everything else byte-for-byte): Sword_Slash_R / _L, Sword_Thrust, Axe_Chop,
+Harpoon_Thrust, Harpoon_Throw, Throw_Overhand, Club_Swing, Dodge_Roll, Taunt. `kimodo-combat/combat_clips.json` holds each prompt (and the
+rejected ones), the seconds, the seeds and the accepted take (`take`: null = rejected, with the reason). Rejected: Rifle_Reload and
+Blunderbuss_Fire (no seed of two prompt rounds rams a ramrod or rocks back from a shot), Sword_Parry, Pistol_Fire and Rifle_Aim_Idle (after the
+pipeline: the hands sink into the big heads), Block_Hit (guard at the face on every seed); the 18D / 17B pose clips stay for those.
+
+The 17 GB Llama text encoder and ComfyUI do not fit this machine's RAM together while other work runs, so the prompts are encoded once and
+served from a cache:
+
+```sh
+PY=D:/Comfy-Desktop/ComfyUI-Installs/ComfyUI/ComfyUI/.venv/Scripts/python.exe; K=tools/roster/kimodo-combat
+# 1. the real encoder alone (set CUDA_VISIBLE_DEVICES=-1: start_text_encoder.cmd's empty `set` unsets it and the encoder then tries the GPU)
+$PY $K/encode_prompts.py %TEMP%/kimodo-emb        # every prompt and alt prompt -> <sha1>.npy + index.json; then stop the encoder
+# 2. the cache on the encoder's port and API, then ComfyUI (TEXT_ENCODER_MODE=api: the user env says auto, which probes and falls back
+#    to loading Llama on the GPU)
+$PY $K/cached_encoder_server.py %TEMP%/kimodo-emb
+comfy --workspace D:/Comfy-Desktop/ComfyUI-Installs/ComfyUI/ComfyUI launch --background -- --listen 127.0.0.1 --port 8188 --output-directory <dir>
+$PY $K/generate.py <dir> [--alt] [Name ...]        # ~7 s a take -> kimodo_roster/<Name>/takes/<Name>_s<seed>[a].bvh
+# 3. pick a seed: every take on Hyptile (no arm fix) as one sheet, and the wrists' path in numbers
+$PY $K/preview_takes.py <Name> <work_dir> [s191]
+blender -b --python $K/hand_path.py -- <SK_Hyptile_Eyes.fbx> <work_dir>/<Name>/rt/*.fbx
+# 4. the approved pipeline on the accepted takes (about 33 min a clip: the arm fix per character), then the splice
+sh $K/run_pipeline.sh [Name ...]                  # kimodo_clip_pipeline.py --tag w19 -> review.png per clip
+powershell -ExecutionPolicy Bypass -File tools/roster/kimodo-splice.ps1 -Tag w19 -Clips Sword_Slash_R,...
+node $K/contact.mjs public/models/roster/hyptile.glb Sword_Slash_R ...   # the contact frames for AnimDef
+```
+
+Wiring: AnimDef montages per take (`BLOW( clip, from, contact, at, after )`: the take from its wind-up at the rate that lands the contact on
+WeaponsData `MELEE[ id ].contact` or `THROW_RELEASE`, with a 'contact' / 'release' notify); `src/features/weapons/WeaponPose.js` slices the same
+stretch into the attack clips Weapons and PlayerCombat already play (Wpn_Slash, Wpn_Chop, Wpn_Club, Wpn_Thrust, Wpn_Throw, and the new Wpn_Slash_L,
+Wpn_Lunge, Wpn_Throw_Harpoon), keeping 18D's pose clips for a GLB without the takes. `node test/feature-anim-combat.mjs` checks all of it.

@@ -12,7 +12,7 @@ import {
 	GRAVITY, throwVelocity, arcPoints, blastFactor, clamp,
 } from './WeaponsData.js';
 import { ModelBank, RADIUS } from './WeaponModels.js';
-import { weaponPoses, WEAPON_CLIPS, ATTACK_OF, HOLD_OF, THROW_RELEASE } from './WeaponPose.js';
+import { weaponPoses, WEAPON_CLIPS, ATTACK_OF, HOLD_OF, THROW_RELEASE, ALT_ATTACK } from './WeaponPose.js';
 import { WeaponAudio } from './WeaponAudio.js';
 import { Props, ArcPreview } from './WeaponVisuals.js';
 
@@ -237,7 +237,7 @@ export class Weapons {
 		if ( id === 'paddle' ) return null;
 		const w = MELEE[ id ];
 		const posed = !! this._poses();
-		return { ...w, montage: posed ? ATTACK_OF[ id ] : 'swing', slot: 'upper', rate: 1 };
+		return { ...w, montage: posed ? ATTACK_OF[ id ] : 'swing', chain: posed ? ALT_ATTACK[ id ] || null : null, slot: 'upper', rate: 1 };
 
 	}
 
@@ -453,7 +453,7 @@ export class Weapons {
 		const wp = this._poses(), av = this.app.avatar;
 		if ( wp && av && av.playMontage ) {
 
-			try { av.playMontage( WEAPON_CLIPS.throw, { slot: 'upper', blendIn: 0.06, blendOut: 0.2 } ); } catch ( e ) { /* optional */ }
+			try { av.playMontage( kind === 'harpoon' ? WEAPON_CLIPS.throwHarpoon : WEAPON_CLIPS.throw, { slot: 'upper', blendIn: 0.06, blendOut: 0.2 } ); } catch ( e ) { /* optional */ }
 
 		}
 

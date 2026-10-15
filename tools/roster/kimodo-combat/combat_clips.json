@@ -1,0 +1,185 @@
+{
+ "_doc": "Wave 19D combat takes for NVIDIA Kimodo (tools/roster/kimodo-combat/README in tools/roster/README.md). name -> prompt, seconds (multiple of 0.5), seeds tried, in_place (kimodo_clip_pipeline --in-place), loop (seconds, --loop). Prompts keep the arms clear of the big roster heads where they can. take: the accepted seed (kimodo_roster/<Name>/takes/<Name>_<take>.bvh, run through kimodo_clip_pipeline.py --tag w19); null = rejected.",
+ "clips": [
+  {
+   "name": "Sword_Slash_R",
+   "seconds": 1.5,
+   "in_place": true,
+   "prompt": "A person holding a sword in the right hand raises it beside the right shoulder and slashes it diagonally down and across to the left in one fast stroke, then returns to a ready stance.",
+   "alt": "A person swings a sword with the right hand in a big diagonal slash from upper right to lower left.",
+   "take": "s1902"
+  },
+  {
+   "name": "Sword_Slash_L",
+   "seconds": 1.5,
+   "in_place": true,
+   "prompt": "A person holding a sword in the right hand brings it back by the left hip and swings a fast backhand slash across the body to the right, then returns to a ready stance.",
+   "alt": "A person swings a sword with the right hand in a backhand slash from left to right across the body.",
+   "take": "s1903"
+  },
+  {
+   "name": "Sword_Thrust",
+   "seconds": 1.5,
+   "in_place": true,
+   "prompt": "A person lunges forward and thrusts a sword straight ahead with the right arm fully extended, then pulls back into a ready stance.",
+   "alt": "A person steps forward with the right foot and stabs straight ahead with the right hand, then steps back.",
+   "take": "s1902a"
+  },
+  {
+   "name": "Sword_Parry",
+   "seconds": 1.0,
+   "in_place": true,
+   "prompt": "A person quickly raises the right forearm out in front and to the right side to deflect a strike, then lowers it.",
+   "alt": "A person swings the right arm outward from the center to the right side to brush aside an attack, then returns to a ready stance.",
+   "rejected": [
+    "A person holding a sword in the right hand quickly sweeps it up and across in front of the chest to knock aside a blow, then lowers it back to a ready stance.",
+    "A person raises the right hand quickly to block an attack in front of them, then lowers it."
+   ],
+   "seeds": [
+    1911,
+    1912,
+    1913
+   ],
+   "take": null,
+   "reviewed_take": "s1912a",
+   "note": "rejected after the pipeline (review.png): both forearms come up in front of the face and the hands sink into Hyptile's head; reads as a cover-up, not a blade sweep (AnimDef Parry stays)"
+  },
+  {
+   "name": "Axe_Chop",
+   "seconds": 2.0,
+   "in_place": true,
+   "prompt": "A person lifts a heavy axe with both hands up above the right shoulder and chops it down hard in front of them, bending forward, then straightens up.",
+   "alt": "A person swings an axe with both hands from above the shoulder down to the ground in front of them, like chopping wood.",
+   "take": "s1902"
+  },
+  {
+   "name": "Harpoon_Thrust",
+   "seconds": 1.5,
+   "in_place": true,
+   "prompt": "A person holding a long spear with both hands at the waist lunges forward and stabs it straight ahead, then pulls it back to the waist.",
+   "alt": "A person stabs forward with a long pole held in both hands, then pulls it back.",
+   "take": "s1902"
+  },
+  {
+   "name": "Harpoon_Throw",
+   "seconds": 2.0,
+   "in_place": true,
+   "prompt": "A person draws a spear back beside the right shoulder with the right hand and hurls it forward hard, stepping into the throw.",
+   "alt": "A person throws a javelin forward with the right arm.",
+   "take": "s1901a"
+  },
+  {
+   "name": "Throw_Overhand",
+   "seconds": 1.5,
+   "in_place": true,
+   "prompt": "A person throws a ball overhand with the right arm, stepping forward with the left foot and following through.",
+   "alt": "A person throws a heavy object forward overhand with the right hand.",
+   "take": "s1901"
+  },
+  {
+   "name": "Pistol_Fire",
+   "seconds": 1.5,
+   "in_place": true,
+   "prompt": "A person stands with the right arm stretched straight out in front at shoulder height, then the forearm snaps up sharply as if a pistol fired, and the arm lowers back to point ahead.",
+   "alt": "A person points the right arm forward, the hand jerks upward suddenly, then points forward again.",
+   "rejected": [
+    "A person aims a pistol straight ahead with the right arm extended and fires, the arm kicking up from the recoil, then aims again.",
+    "A person points the right arm straight ahead like shooting a gun and jerks the hand up from the recoil."
+   ],
+   "seeds": [
+    1911,
+    1912,
+    1913
+   ],
+   "take": null,
+   "reviewed_take": "s1911",
+   "note": "rejected after the pipeline (review.png): the aim arm rises into the Clown's cap and face; no recoil in any seed (GunPose Gun_Fire_Pistol stays)"
+  },
+  {
+   "name": "Rifle_Aim_Idle",
+   "seconds": 2.5,
+   "in_place": true,
+   "loop": 2.0,
+   "prompt": "A person stands still aiming a rifle held against the right shoulder with both hands, the left hand under the barrel, looking along it.",
+   "alt": "A person holds a rifle up to the shoulder with both hands and aims it forward, standing still.",
+   "take": null,
+   "reviewed_take": "s1902",
+   "note": "rejected after the pipeline (review.png): the hands sit inside the face on Hyptile and the Clown (a human cheek weld on a big head; GunPose Gun_Aim_Musket stays)"
+  },
+  {
+   "name": "Rifle_Reload",
+   "seconds": 2.5,
+   "in_place": true,
+   "prompt": "A person holds the left hand in front of the chest and with the right hand repeatedly pushes down from above the left hand toward the waist, two times.",
+   "alt": "A person pumps the right hand up and down in front of the body twice while the left hand stays still in front of the chest.",
+   "rejected": [
+    "A person holds a long musket upright in front of them with the left hand and pushes a ramrod down the barrel with the right hand twice.",
+    "A person holds a long gun upright in front of them and pushes something down into the barrel with the right hand."
+   ],
+   "seeds": [
+    1911,
+    1912,
+    1913
+   ],
+   "take": null,
+   "note": "rejected: no take rams; every seed of both prompt rounds holds an aim or stands still (GunPose Gun_Reload stays)"
+  },
+  {
+   "name": "Blunderbuss_Fire",
+   "seconds": 1.5,
+   "in_place": true,
+   "prompt": "A person holds both hands in front of the belly as if gripping a heavy gun, then is jolted backward by a blast, taking a step back, and recovers.",
+   "alt": "A person standing with both hands held at the waist is suddenly pushed backward by a strong force, staggers one step back and steadies.",
+   "rejected": [
+    "A person braces with feet wide apart, holds a heavy gun at the waist with both hands and fires, rocking back from the strong recoil.",
+    "A person holds a gun with both hands at the hip, fires it and is pushed back by the recoil."
+   ],
+   "seeds": [
+    1911,
+    1912,
+    1913
+   ],
+   "take": null,
+   "note": "rejected: round 1 holds a static aim, round 2 doubles over forward instead of rocking back (GunPose Gun_Fire_Musket stays)"
+  },
+  {
+   "name": "Club_Swing",
+   "seconds": 1.5,
+   "in_place": true,
+   "prompt": "A person raises a short club in the right hand and strikes down hard in front of them, then returns to a ready stance.",
+   "alt": "A person swings a club with the right hand down and across in front of them.",
+   "take": "s1902a"
+  },
+  {
+   "name": "Dodge_Roll",
+   "seconds": 1.5,
+   "in_place": true,
+   "prompt": "A person crouches, dives forward into a quick roll over the shoulder and comes back up onto their feet.",
+   "alt": "A person does a forward roll on the ground and stands back up.",
+   "take": "s1902a"
+  },
+  {
+   "name": "Block_Hit",
+   "seconds": 1.0,
+   "in_place": true,
+   "prompt": "A person holding both forearms up in front of the chest is struck hard, knocked back half a step, and raises the guard again.",
+   "alt": "A person guards their face with both arms, gets hit and staggers back a step, then guards again.",
+   "take": null,
+   "reviewed_take": "s1902",
+   "note": "rejected on the seed sheet (preview_takes): every seed of both prompts guards with the hands at the face, which sank into the big heads in Rifle_Aim_Idle / Sword_Parry; not run through the pipeline (AnimDef Block_Impact stays)"
+  },
+  {
+   "name": "Taunt",
+   "seconds": 2.5,
+   "in_place": true,
+   "prompt": "A person beckons an enemy forward with one hand, then thumps their chest with a fist, taunting.",
+   "alt": "A person waves an opponent over with the hand, then beats their chest, taunting.",
+   "take": "s1902a"
+  }
+ ],
+ "seeds": [
+  1901,
+  1902,
+  1903
+ ]
+}
