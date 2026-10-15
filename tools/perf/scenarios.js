@@ -90,10 +90,38 @@ export const SCENARIOS = {
 		place: { kind: 'walk', interior: 'tidemark.tavern', x: 1844.8, z: - 43.7, heading: 1.134 },
 		ships: [], fire: null, peers: 0, frames: 180, warm: 240,
 	},
+	// wave 22A: Meridian on phones: downtown at the Twins Plaza (the towers, the blocks, the traffic), the harbour (the port
+	// stand on the quay), the skyline seen from home (the far impostor), and a car on the avenue (car: driven for the run)
+	meridianDowntown: {
+		id: 'meridianDowntown', name: 'Meridian downtown', about: 'on foot at the west edge of the Twins Plaza at noon, facing the towers: the blocks, the streets, the traffic',
+		time: 12, weather: 'clear', intensity: 0,
+		place: { kind: 'walk', x: - 2662, z: - 296, heading: - 1.45 },
+		ships: [], fire: null, peers: 0, frames: 180, warm: 240,
+	},
+	meridianHarbour: {
+		id: 'meridianHarbour', name: 'Meridian harbour', about: 'on foot at the Meridian port stand on the quay at noon: the harbour, the waterfront blocks, the skyline behind',
+		time: 12, weather: 'clear', intensity: 0,
+		place: { kind: 'walk', port: 'meridian' },
+		ships: [], fire: null, peers: 0, frames: 180, warm: 240,
+	},
+	homeSkyline: {
+		id: 'homeSkyline', name: 'Skyline from home', about: 'on foot at the home harbour stand at noon looking west: Meridian on the horizon (its far impostor)',
+		time: 12, weather: 'clear', intensity: 0,
+		place: { kind: 'walk', port: 'home', heading: 1.57 }, // (heading: facing west, over the stand's own)
+		ships: [], fire: null, peers: 0, frames: 180,
+	},
+	meridianDrive: {
+		id: 'meridianDrive', name: 'Meridian drive', about: 'driving a sedan along the avenue south of the Twins Plaza at 17:30: the traffic, the parked cars, the city',
+		time: 17.5, weather: 'clear', intensity: 0,
+		place: { kind: 'walk', x: - 2700, z: - 181.5, heading: - 1.5708 }, car: 'sedan', // (a westbound lane: RoadGraph.at)
+		ships: [], fire: null, peers: 0, frames: 180, warm: 240,
+	},
 };
 
+// wave 22A: Meridian's views (`--perf=meridian`; also in `views`)
+export const MERIDIAN_SET = [ 'meridianDowntown', 'meridianHarbour', 'homeSkyline', 'meridianDrive' ];
 // the views of the wave 16C pass (not in 'every' runs of the old guard: listed explicitly)
-export const VIEW_SET = [ 'homeBay', 'tidemarkQuay', 'tidemarkSquare', 'blackwaterCove', 'tidemarkTavern' ];
+export const VIEW_SET = [ 'homeBay', 'tidemarkQuay', 'tidemarkSquare', 'blackwaterCove', 'tidemarkTavern', ...MERIDIAN_SET ];
 
 export const SCENARIO_IDS = Object.keys( SCENARIOS );
 export const DEFAULT_SET = [ 'navalFight', 'storm', 'night', 'crowd' ];
@@ -126,6 +154,7 @@ export function parsePerfQuery( q ) {
 	if ( ! s || s === '1' || s === 'true' || s === 'default' ) return DEFAULT_SET.slice();
 	if ( s === 'every' ) return SCENARIO_IDS.filter( ( id ) => ! VIEW_SET.includes( id ) );
 	if ( s === 'views' ) return VIEW_SET.slice();
+	if ( s === 'meridian' ) return MERIDIAN_SET.slice();
 	const ids = s.split( ',' ).map( ( x ) => x.trim() ).filter( ( x ) => SCENARIOS[ x ] );
 	return ids.length ? [ ...new Set( ids ) ] : DEFAULT_SET.slice();
 

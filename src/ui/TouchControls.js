@@ -25,6 +25,12 @@ import { detectDevice, stickVector, stickKeys, lookDelta, boatThrottleKeys, snap
 //   contextual (wave 20D)     a navy hail at the helm brings Heave to (the lever to stop) and Run (full ahead) for HAIL_MS,
 //                             gone once answered, fired on or boarded; at the helm with chain / grape shot aboard a Shot
 //                             button names the loaded kind and loads the next (the 1 / 2 / 3 keys). Never on screen otherwise.
+//   driving (wave 22A)        only while you drive a car (cars.driving): a steering slider bottom left (drag, it springs back
+//                             to centre; Tilt beside it steers with the phone instead, calibrated where you hold it), the
+//                             pedals bottom right (Gas, Brake / reverse), Handbrake and Horn above them, Exit at the top of
+//                             the cluster (away from the gas), Siren in a police car. They write cars.touch = { active, steer,
+//                             throttle, brake, handbrake, horn }; the stick, the lever and the action buttons stand down;
+//                             the right of the screen still turns the camera. carLayout( W, H, { k } ) is the geometry.
 // Discrete buttons send a real key event (keydown on press, keyup on release, through the player's bindings) so the
 // panels' own key listeners (the map's M, the menu's Escape) answer too; held state goes through input.setTouchKeys.
 //
@@ -36,7 +42,7 @@ import { detectDevice, stickVector, stickKeys, lookDelta, boatThrottleKeys, snap
 //   tc.active   tc.settings { mode, sensitivity, invert, size, haptics }   tc.dispose()
 
 export const TOUCH_KEY = 'hyptile-island.touch';
-export const TOUCH_DEFAULTS = { mode: 'auto', sensitivity: 1, invert: false, size: 1, haptics: true };
+export const TOUCH_DEFAULTS = { mode: 'auto', sensitivity: 1, invert: false, size: 1, haptics: true, tilt: false };
 
 const STICK_ZONE = 0.42; // the left share of the screen that starts the stick
 const BUTTONS = {
@@ -92,6 +98,66 @@ export function nextShot( sel, kinds ) {
 	return kinds[ ( i + 1 ) % kinds.length ] || 'round';
 
 }
+// the driving cluster (wave 22A): the boxes in px for a W x H screen at touch size k (Settings > Touch > size, 0.75..1.4),
+// measured from the safe area's edges: anchor 'br' (ox from the right, oy from the bottom) or 'bl' (ox from the left).
+// rect: the box on a screen without insets. Every target is >= 44 px (48 at the smallest size).
+export const CAR_IDS = [ 'wheel', 'tilt', 'gas', 'brake', 'hand', 'horn', 'exit', 'siren' ];
+export const CAR_LABELS = { tilt: 'Tilt', gas: 'Gas', brake: 'Brake', hand: 'Handbrake', horn: 'Horn', exit: 'Exit', siren: 'Siren' };
+export function carLayout( W, H, { k = 1 } = {} ) {
+
+	k = clamp( Number( k ) || 1, 0.75, 1.4 );
+	const m = 16 * k, gap = 12 * k, top = 72; // (top: clear of the top-right row, 44 px at 12 px, and the safe area)
+	const q = ( v ) => Math.max( 48, v ); // (never under 48 px, whatever the size setting)
+	// the pedals narrow on a narrow screen (the slider keeps 120 px); the stack shortens on a short one (under the top row)
+	const pw = q( Math.min( 76 * k, ( W - 2 * m - gap - 24 * k - 120 ) / 2 ) );
+	const hs = Math.max( 0.4, Math.min( k, ( H - top - m - 2 * gap ) / ( 120 + 56 + 48 ) ) );
+	const gh = q( 120 * hs ), bh = q( 96 * hs ), sm = q( 56 * hs ), ex = q( 48 * hs );
+	const out = {};
+	const br = ( id, ox, oy, w, h ) => { out[ id ] = { id, anchor: 'br', ox, oy, w, h, rect: { x: W - ox - w, y: H - oy - h, w, h } }; };
+	const bl = ( id, ox, oy, w, h ) => { out[ id ] = { id, anchor: 'bl', ox, oy, w, h, rect: { x: ox, y: H - oy - h, w, h } }; };
+	// right thumb: the pedals in the corner, the hand brake and the horn above them, Exit (and Siren) on top
+	br( 'gas', m, m, pw, gh );
+	br( 'brake', m + pw + gap, m, pw, bh );
+	br( 'horn', m, m + gh + gap, pw, sm );
+	br( 'hand', m + pw + gap, m + bh + gap, pw, sm );
+	br( 'exit', m, m + gh + gap + sm + gap, pw, ex );
+	br( 'siren', m + pw + gap, m + bh + gap + sm + gap, pw, ex );
+	// left thumb: the steering slider, as wide as the screen allows beside the pedals (Tilt above its left end)
+	const right = m + 2 * pw + gap + 24 * k;
+	const ww = clamp( Math.min( W * 0.44, 300 * k, W - right - 2 * m ), 120, 300 * k );
+	const wh = q( 88 * Math.min( k, Math.max( hs, 0.9 ) ) );
+	bl( 'wheel', m, m, ww, wh );
+	bl( 'tilt', m, m + wh + gap, q( 72 * k ), ex );
+	return out;
+
+}
+
+// the slider's steer for a thumb dx px off its centre (half: half the slider's travel): + is left (the A key), a small dead zone
+export function wheelSteer( dx, half ) {
+
+	const v = clamp( - dx / Math.max( 1, half ), - 1, 1 );
+	return Math.abs( v ) < 0.06 ? 0 : v;
+
+}
+
+// the tilt's steer from a deviceorientation event: landscape uses beta (the long axis), portrait gamma; zero: the calibration
+export function tiltSteer( e, angle = 90, zero = 0, range = 24 ) {
+
+	if ( ! e ) return 0;
+	const a = ( ( Number( angle ) || 0 ) % 360 + 360 ) % 360;
+	const raw = a === 90 ? - ( e.beta || 0 ) : a === 270 ? ( e.beta || 0 ) : - ( e.gamma || 0 );
+	const v = clamp( ( raw - zero ) / range, - 1, 1 );
+	return Math.abs( v ) < 0.08 ? 0 : v;
+
+}
+
+export function tiltRaw( e, angle = 90 ) {
+
+	const a = ( ( Number( angle ) || 0 ) % 360 + 360 ) % 360;
+	return ! e ? 0 : a === 90 ? - ( e.beta || 0 ) : a === 270 ? ( e.beta || 0 ) : - ( e.gamma || 0 );
+
+}
+
 const FOLD_IDLE = 5000, RAIL_IDLE = 6000; // ms without a press before the tray / the top row folds back
 const ROW_B = new Set( [ 'cast', 'fire' ] ); // the big buttons sit in the lower row, the other primaries above them
 const now = () => ( typeof performance !== 'undefined' ? performance.now() : Date.now() );
@@ -258,7 +324,26 @@ export class TouchControls {
 		this.photoEl = el( 'button', 'tc-tbtn tc-photo', icon( 'close' ) );
 		this.photoEl.type = 'button';
 		this.rotateEl = el( 'div', 'tc-rotate', `<div class="tc-rotate-card"><svg viewBox="0 0 48 48" aria-hidden="true"><rect x="15" y="6" width="18" height="30" rx="3" fill="none" stroke="currentColor" stroke-width="2.4"/><path d="M8 30a16 16 0 0 0 16 12M40 18A16 16 0 0 0 24 6" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/><path d="M24 42l-4-3M24 42l-3 4" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg><span>${ t( 'touch.rotate', 'Turn your device sideways to play' ) }</span></div>` );
-		root.append( this.lookEl, this.stickEl, this.leverEl, this.actions, this.tray, this.foldEl, this.top, this.photoEl, this.rotateEl );
+		// the driving cluster (wave 22A): hidden until you drive
+		this.carEl = el( 'div', 'tc-car' );
+		this.carEl.hidden = true;
+		this.carBtns = {};
+		for ( const id of CAR_IDS ) {
+
+			const b = id === 'wheel'
+				? el( 'div', 'tc-cbtn tc-wheel', '<span class="tc-wheel-track"></span><span class="tc-wheel-knob"></span>' )
+				: el( 'button', 'tc-cbtn tc-c-' + id, `<span>${ t( 'touch.car.' + id, CAR_LABELS[ id ] ) }</span>` );
+			if ( id !== 'wheel' ) b.type = 'button';
+			b.dataset.car = id;
+			b.setAttribute( 'aria-label', t( 'touch.car.' + id, CAR_LABELS[ id ] || 'Steer' ) );
+			this.carEl.append( b );
+			this.carBtns[ id ] = b;
+
+		}
+
+		this.wheelKnob = this.carBtns.wheel.querySelector( '.tc-wheel-knob' );
+		this._car = { held: new Map(), wheel: null, steer: 0, tilt: null, tiltZero: null, layout: '' };
+		root.append( this.lookEl, this.stickEl, this.leverEl, this.actions, this.tray, this.foldEl, this.top, this.photoEl, this.carEl, this.rotateEl );
 		document.body.append( root );
 
 	}
@@ -299,6 +384,7 @@ export class TouchControls {
 		};
 
 		for ( const c of [ this.actions, this.tray, this.top, this.photoEl ] ) c.addEventListener( 'pointerdown', press, sig );
+		this.carEl.addEventListener( 'pointerdown', ( e ) => this._carDown( e ), sig );
 		// the handle: a tap toggles, an upward drag opens, a downward drag closes (pointer capture, like the lever)
 		const foldDown = ( e ) => {
 
@@ -385,7 +471,7 @@ export class TouchControls {
 		this._fingerUsed = true;
 		const w = window.innerWidth || 1;
 		try { this.lookEl.setPointerCapture( e.pointerId ); } catch ( err ) { /* ignore */ }
-		if ( e.clientX < w * STICK_ZONE && ! this._stick && this._canMove() ) {
+		if ( e.clientX < w * STICK_ZONE && ! this._stick && this._canMove() && this._mode() !== 'car' ) {
 
 			this._stick = { id: e.pointerId, cx: e.clientX, cy: e.clientY, v: null };
 			this.stickEl.classList.add( 'is-on' );
@@ -403,7 +489,12 @@ export class TouchControls {
 
 	_move( e ) {
 
-		if ( this._stick && e.pointerId === this._stick.id ) {
+		if ( this._car.wheel && e.pointerId === this._car.wheel.id ) {
+
+			e.preventDefault();
+			this._wheelAt( e.clientX );
+
+		} else if ( this._stick && e.pointerId === this._stick.id ) {
 
 			e.preventDefault();
 			this._stickAt( e.clientX, e.clientY );
@@ -475,6 +566,8 @@ export class TouchControls {
 			this._release( h );
 
 		}
+
+		this._carUp( id );
 
 	}
 
@@ -651,6 +744,7 @@ export class TouchControls {
 		this.stickEl.style.removeProperty( '--x' );
 		this.stickEl.style.removeProperty( '--y' );
 		this.knobEl.style.transform = '';
+		this._carRelease();
 		if ( this.input ) this.input.releaseTouch();
 
 	}
@@ -717,6 +811,8 @@ export class TouchControls {
 		const app = this.app;
 		if ( ! app || ! app.player ) return 'walk';
 		if ( app.freeCam ) return 'free';
+		// (a car is a vehicle of Player mode 'plane': the cars feature says whether it is one)
+		if ( app.player.mode === 'plane' && this._feature( 'cars' )?.driving ) return 'car';
 		return app.player.mode || 'walk';
 
 	}
@@ -983,6 +1079,7 @@ export class TouchControls {
 
 		this.leverEl.hidden = ! lever || busy;
 		this.root.dataset.mode = mode;
+		this._carUpdate( mode === 'car' && ! busy );
 		// the plane's throttle follows the slider every frame (Shift / C held until it is there)
 		if ( mode === 'plane' || busy !== this._lastBusy ) this._sync();
 		this._lastBusy = busy;
@@ -1018,9 +1115,179 @@ export class TouchControls {
 
 	}
 
+	// ---- the driving cluster (wave 22A)
+
+	_carDown( e ) {
+
+		const b = e.target.closest && e.target.closest( '.tc-cbtn' );
+		if ( ! b ) return;
+		e.preventDefault();
+		e.stopPropagation();
+		this._fingerUsed = true;
+		try { b.setPointerCapture( e.pointerId ); } catch ( err ) { /* ignore */ }
+		const id = b.dataset.car, C = this._car;
+		if ( this.settings.haptics && typeof navigator !== 'undefined' && navigator.vibrate ) try { navigator.vibrate( id === 'horn' ? 14 : 8 ); } catch ( err ) { /* no vibration */ }
+		if ( id === 'wheel' ) {
+
+			const r = b.getBoundingClientRect();
+			C.wheel = { id: e.pointerId, cx: r.left + r.width / 2, half: Math.max( 1, r.width / 2 - 26 ) };
+			b.classList.add( 'is-down' );
+			this._wheelAt( e.clientX );
+			return;
+
+		}
+
+		b.classList.add( 'is-down' );
+		C.held.set( e.pointerId, id );
+		const cars = this._feature( 'cars' );
+		if ( id === 'exit' ) this._key( 'KeyE', 'keydown' );
+		else if ( id === 'siren' && cars && cars.toggleSiren ) cars.toggleSiren();
+		else if ( id === 'tilt' ) this._tiltToggle();
+
+	}
+
+	_carUp( pointerId ) {
+
+		const C = this._car;
+		if ( C.wheel && C.wheel.id === pointerId ) {
+
+			C.wheel = null;
+			C.steer = 0;
+			this.carBtns.wheel.classList.remove( 'is-down' );
+			this.wheelKnob.style.transform = '';
+
+		}
+
+		const id = C.held.get( pointerId );
+		if ( id === undefined ) return;
+		C.held.delete( pointerId );
+		if ( ! [ ...C.held.values() ].includes( id ) ) this.carBtns[ id ].classList.remove( 'is-down' );
+		if ( id === 'exit' ) this._key( 'KeyE', 'keyup' );
+
+	}
+
+	_carRelease() {
+
+		const C = this._car;
+		if ( ! C ) return;
+		for ( const p of [ ...C.held.keys() ] ) this._carUp( p );
+		if ( C.wheel ) this._carUp( C.wheel.id );
+
+	}
+
+	_wheelAt( x ) {
+
+		const W = this._car.wheel;
+		const dx = clamp( x - W.cx, - W.half, W.half );
+		this._car.steer = wheelSteer( dx, W.half );
+		this.wheelKnob.style.transform = `translateX(${ dx.toFixed( 1 ) }px)`;
+
+	}
+
+	// Tilt: on (iOS asks once, inside this tap) / off; the first reading after it is switched on is straight ahead
+	_tiltToggle() {
+
+		const on = ! this.settings.tilt;
+		const go = () => { this.set( 'tilt', on ); this._car.tiltZero = null; };
+		const D = typeof window !== 'undefined' ? window.DeviceOrientationEvent : null;
+		if ( on && D && typeof D.requestPermission === 'function' ) {
+
+			D.requestPermission().then( ( r ) => {
+
+				if ( r === 'granted' ) go();
+				else if ( this.ui && this.ui.toast ) this.ui.toast( t( 'touch.car.tiltDenied', 'Tilt steering needs the motion sensors: allow them in Settings' ), 3200 );
+
+			} ).catch( () => {} );
+			return;
+
+		}
+
+		go();
+
+	}
+
+	_tiltListen( on ) {
+
+		const C = this._car;
+		if ( on && ! C.tiltOff && typeof window !== 'undefined' ) {
+
+			const f = ( e ) => { C.tilt = e; };
+			window.addEventListener( 'deviceorientation', f );
+			C.tiltOff = () => window.removeEventListener( 'deviceorientation', f );
+
+		} else if ( ! on && C.tiltOff ) {
+
+			C.tiltOff();
+			C.tiltOff = null;
+			C.tilt = null;
+
+		}
+
+	}
+
+	_carSteer() {
+
+		const C = this._car;
+		if ( C.wheel ) return C.steer;
+		if ( ! this.settings.tilt || ! C.tilt ) return 0;
+		const angle = typeof screen !== 'undefined' && screen.orientation ? screen.orientation.angle : ( typeof window !== 'undefined' ? window.orientation : 90 );
+		if ( C.tiltZero === null ) C.tiltZero = tiltRaw( C.tilt, angle );
+		return tiltSteer( C.tilt, angle, C.tiltZero );
+
+	}
+
+	// per frame: shown only while driving; the boxes follow the screen and the touch size; cars.touch written
+	_carUpdate( on ) {
+
+		const C = this._car, cars = this._feature( 'cars' );
+		if ( this.carEl.hidden === on ) this.carEl.hidden = ! on;
+		this._tiltListen( on && !! this.settings.tilt );
+		if ( ! on ) {
+
+			if ( C.held.size || C.wheel ) this._carRelease();
+			const tt = cars && cars.touch;
+			if ( tt && tt.active ) { tt.active = false; tt.steer = tt.throttle = tt.brake = 0; tt.handbrake = tt.horn = false; }
+			return;
+
+		}
+
+		const W = window.innerWidth || 1, H = window.innerHeight || 1, k = Number( this.settings.size ) || 1;
+		const key = W + 'x' + H + '@' + k;
+		if ( key !== C.layout ) {
+
+			C.layout = key;
+			const L = carLayout( W, H, { k } );
+			for ( const id of CAR_IDS ) {
+
+				const b = this.carBtns[ id ], box = L[ id ], st = b.style;
+				st.width = box.w.toFixed( 1 ) + 'px';
+				st.height = box.h.toFixed( 1 ) + 'px';
+				st.bottom = `calc(var(--tw-safe-b) + ${ box.oy.toFixed( 1 ) }px)`;
+				if ( box.anchor === 'br' ) { st.right = `calc(var(--tw-safe-r) + ${ box.ox.toFixed( 1 ) }px)`; st.left = ''; } else { st.left = `calc(var(--tw-safe-l) + ${ box.ox.toFixed( 1 ) }px)`; st.right = ''; }
+
+			}
+
+		}
+
+		const police = !! ( cars && cars.drive && cars.drive.kind === 'police' );
+		if ( this.carBtns.siren.hidden === police ) this.carBtns.siren.hidden = ! police;
+		this.carBtns.siren.classList.toggle( 'is-on', police && !! cars.siren );
+		this.carBtns.tilt.classList.toggle( 'is-on', !! this.settings.tilt );
+		if ( ! cars || ! cars.touch ) return;
+		const held = new Set( C.held.values() ), tt = cars.touch;
+		tt.active = true;
+		tt.steer = this._carSteer();
+		tt.throttle = held.has( 'gas' ) ? 1 : 0;
+		tt.brake = held.has( 'brake' ) ? 1 : 0;
+		tt.handbrake = held.has( 'hand' );
+		tt.horn = held.has( 'horn' );
+
+	}
+
 	dispose() {
 
 		this._releaseAll();
+		this._tiltListen( false );
 		this._ac.abort();
 		if ( this._offPad ) this._offPad();
 		if ( typeof this._hailSub === 'function' ) this._hailSub();

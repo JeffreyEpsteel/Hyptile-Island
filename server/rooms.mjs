@@ -25,6 +25,9 @@
 // 'ask' carries a guest's request to the host alone (a raid only the host may spawn). Prop events (propDestroyed,
 // propRespawned, propsRespawned) have their own budget, so a powder blast breaking a dozen props loses none; the universe stores
 // a host's batched respawns like single ones.
+//
+// Wave 22A (cars): 'cars' from the host only (CARS_RATE, the frame cap, sanitizeCars) goes to everybody else with the server's
+// `at`: Meridian's traffic as lane codes and the loose cars as poses (src/features/cars/CarNet.js); never stored.
 
 import { Room, ServerError, CloseCode, matchMaker } from '@colyseus/core';
 import {
@@ -41,6 +44,49 @@ import { HyptileState, Player, writePlayerState, writeShips, writeMoored, writeW
 
 const SHIP_GATE = { ...CANNON_GATE, reload: CANNON_GATE.shipReload };
 const PROP_EVENTS = new Set( [ 'propDestroyed', 'propRespawned', 'propsRespawned' ] );
+// wave 22A: the host's cars snapshot (src/features/cars/CarNet.js): 2 Hz, 4 Hz in a chase; a little room over that
+export const CARS_RATE = { n: 8, ms: 1000 };
+const CARS_MAX = { traffic: 64, free: 16 };
+const CAR_KEY = /^[A-Za-z0-9:_-]{1,12}$/;
+const int = ( v, lo, hi ) => Number.isInteger( v ) && v >= lo && v <= hi;
+
+// { tm, tr: [ [ id, kc, L, N, s, v ] ], fr: [ [ id, kc, x, z, yaw, v, flags ] ], d?, gone?: [ id ] } with every number in
+// range, or null
+export function sanitizeCars( m ) {
+
+	if ( ! m || typeof m !== 'object' ) return null;
+	const tr = Array.isArray( m.tr ) ? m.tr : [], fr = Array.isArray( m.fr ) ? m.fr : [];
+	if ( tr.length > CARS_MAX.traffic || fr.length > CARS_MAX.free ) return null;
+	const out = { tm: Number.isFinite( m.tm ) ? Math.round( m.tm * 100 ) / 100 : 0, tr: [], fr: [] };
+	if ( m.d ) {
+
+		// a delta: the traffic cars that changed, and the ids that left
+		const gone = Array.isArray( m.gone ) ? m.gone : [];
+		if ( gone.length > CARS_MAX.traffic || ! gone.every( ( n ) => int( n, 0, 1e7 ) ) ) return null;
+		out.d = 1;
+		out.gone = gone.slice();
+
+	}
+
+	for ( const e of tr ) {
+
+		if ( ! Array.isArray( e ) || e.length !== 6 ) return null;
+		if ( ! int( e[ 0 ], 0, 1e7 ) || ! int( e[ 1 ], 0, 511 ) || ! int( e[ 2 ], 0, 1e6 ) || ! int( e[ 3 ], - 1, 1e6 ) || ! int( e[ 4 ], - 100, 1e5 ) || ! int( e[ 5 ], - 100, 1000 ) ) return null;
+		out.tr.push( e.slice() );
+
+	}
+
+	for ( const e of fr ) {
+
+		if ( ! Array.isArray( e ) || e.length !== 7 || typeof e[ 0 ] !== 'string' || ! CAR_KEY.test( e[ 0 ] ) ) return null;
+		if ( ! int( e[ 1 ], 0, 511 ) || ! int( e[ 2 ], - 1e6, 1e6 ) || ! int( e[ 3 ], - 1e6, 1e6 ) || ! int( e[ 4 ], - 1000, 1000 ) || ! int( e[ 5 ], - 1000, 1000 ) || ! int( e[ 6 ], 0, 15 ) ) return null;
+		out.fr.push( e.slice() );
+
+	}
+
+	return out;
+
+}
 
 const ID_CHARS = 'abcdefghjkmnpqrstuvwxyz23456789';
 const makeId = ( taken ) => {
@@ -77,7 +123,7 @@ export function makeRooms( ctx ) {
 	const { opts } = ctx;
 	const log = ( ...a ) => opts.log( ...a );
 
-	const MESSAGES = [ 'hello', 'state', 'chat', 'ping', 'createCrew', 'ridePolicy', 'ride', 'unride', 'world', 'fx', 'hit', 'event', 'save', 'market', 'bump', 'wreck', 'plane', 'fort', 'ask' ];
+	const MESSAGES = [ 'hello', 'state', 'chat', 'ping', 'createCrew', 'ridePolicy', 'ride', 'unride', 'world', 'fx', 'hit', 'event', 'save', 'market', 'bump', 'wreck', 'plane', 'fort', 'ask', 'cars' ];
 
 	class HyptileRoom extends Room {
 
@@ -966,6 +1012,17 @@ export function makeRooms( ctx ) {
 			log( `fort  ${ this.label } claimed by ${ c.id } "${ c.name }"` );
 			if ( this.uni ) this.uni.setFort( readFort( fort ) );
 			this.tell( c, 'fortClaim', { ok: true, by: c.id, claims: fort.claims } );
+
+		}
+
+		// wave 22A: the host's traffic, police and loose cars for the guests in Meridian (netsync/CarLink.js): to everybody
+		// else, with the server's time; never stored (the next host runs its own)
+		on_cars( c, m ) {
+
+			if ( this.state.host !== c.id || ! this.allow( c, 'cars', CARS_RATE.n, CARS_RATE.ms ) ) return;
+			const s = sanitizeCars( m );
+			if ( ! s ) return;
+			this.broadcastExcept( 'cars', { from: c.id, at: Date.now(), ...s }, c );
 
 		}
 

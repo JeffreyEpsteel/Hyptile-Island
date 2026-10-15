@@ -66,6 +66,8 @@
 //   weather     the weather's clock is put on the server's time (weather.now minus net.serverOffset): a skewed computer clock
 //               no longer moves the storm fronts and their lightning (Fronts.js is a function of the island hour)
 //   sync.id     the local player's id in the room (null offline): the hijack feature names the taker with it
+// Wave 22A: sync.cars (CarLink.js) the players' cars (state car / oc / cw), the host's traffic and police for every player in
+//                               Meridian (the server's 'cars' message), a car taken from the host's traffic is the taker's.
 
 import { BOATS } from '../../game/Boats.js';
 import { CrewPanel } from './CrewPanel.js';
@@ -79,6 +81,7 @@ import { TownLink } from './TownLink.js';
 import { RescueLink } from './RescueLink.js';
 import { NavyLink } from './NavyLink.js';
 import { InteriorLink } from './InteriorLink.js';
+import { CarLink } from './CarLink.js';
 import { crewCodeFromLocation } from '../../net/NetClient.js';
 import { crewUrl } from '../../net/Protocol.js';
 
@@ -119,6 +122,7 @@ export class NetSync {
 		this.rescue = new RescueLink( this ); // (wave 16A: a guest's rescue launch, the boats left moored)
 		this.law = new NavyLink( this ); // (wave 20E: wanted marks, hails)
 		this.rooms = new InteriorLink( this ); // (wave 20E: interiors, tavern hands)
+		this.cars = new CarLink( this ); // (wave 22A: the players' cars, the host's traffic and police)
 		this._clock = null; // { weather, now }: the weather's own clock while it runs on the server's time
 		this.panel = null;
 		this._offs = [];
@@ -846,6 +850,7 @@ export class NetSync {
 		this.fort.bind( net );
 		this.town.bind( net );
 		this.rescue.bind( net );
+		this.cars.bind( net );
 		this.crew.clear();
 		this.law.clear();
 		if ( ! net ) {
@@ -922,6 +927,7 @@ export class NetSync {
 		this.rescue.update( dt );
 		this.law.update( dt );
 		this.rooms.update( dt );
+		this.cars.update( dt );
 		this._serverClock();
 		this._updateMarket( dt );
 		if ( net && net.universe ) {
@@ -981,6 +987,7 @@ export class NetSync {
 		this.rescue.dispose();
 		this.rooms.clear();
 		this.rooms.dispose();
+		this.cars.dispose();
 		if ( this.panel ) this.panel.dispose();
 		this.panel = null;
 		this.net = null;

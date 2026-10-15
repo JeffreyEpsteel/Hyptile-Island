@@ -151,3 +151,9 @@ One TCP port (8765 by default) for matchmaking, the WebSocket and `/health`. Ope
 for players outside the LAN, forward it or run the server on a small VPS. An https page needs `wss://`: put the server
 behind a TLS proxy (docs/HOSTING.md section 6). One PC needs no Colyseus presence / Redis driver; those only matter for
 several server processes, which the universe's JSON storage does not support anyway. Chat is plain text.
+
+## Cars (wave 22A)
+
+`cars` (host only, 8 a second at most, the frame cap, `sanitizeCars` in rooms.mjs): Meridian's traffic as lane codes and the
+loose cars as poses (src/features/cars/CarNet.js), relayed to everybody else with the server's `at`; never stored. A guest's
+`cars` is dropped. Players' cars ride their state (`car`, `oc`, `cw` extras); carTaken is a world event.

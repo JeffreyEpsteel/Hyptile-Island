@@ -12,7 +12,11 @@
 //   c.graph (RoadGraph.js)   c.records (parked, idle, own, wrecks, pursuers)   c.heat 0..100 / c.level 0..5 (the city's
 //       wanted level: the police chase; bust() fines you)   c.damage( rec, hp )   c.blast( x, y, z, r, energy )
 //   c.buy( kind ) / repair( id ) / sell( id ) / ship( id, to ) / dealerView() (Meridian Motors, DealerPanel.js)
-//   c.decorateState( out ) / c.updateRemote( states )   (netsync: the other players' cars)   c.toggleLights()
+//   c.decorateState( out ) / c.updateRemote( states )   (netsync: the other players' cars)   c.toggleLights()   c.toggleSiren()
+//   multiplayer (wave 22A, netsync/CarLink.js): c.setNetRole( 'solo' | 'host' | 'puppet' ); the host runs the traffic and the
+//       police for every player in the city (c.netViewers, c.netTargets: the wanted guests) and c.netSnapshot() feeds the
+//       guests; a guest draws c.mirror (CarNet.js) from c.applySnapshot( snap, age ); another player's car is locked (enter
+//       refuses it: carRefused { id, owner })
 //   c.lights (the driven car's two headlamps: LocalLights sources)   update( dt ) / toJSON() / fromJSON() / reset() / dispose()
 // Damage by stages: 0 whole, 1 dented, 2 smoking, 3 burning (it burns down), 4 a wreck that explodes like a powder keg.
 // Events emitted: carEntered { id, kind, own, how }, carExited, carJacked { id, kind, x, z }, carDamaged { id, kind, stage,

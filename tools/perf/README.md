@@ -134,3 +134,11 @@ scenarios), `report.mjs`, `table.mjs`, `pngdiff.mjs`, `shot.mjs`, `heap-buffers.
   `--shots=<dir>` (each scenario's last frame), `--budget-off=a,b` (phone budget keys left out: a phone change's before on the
   same tree), `--patch=farcull,eyes` (the wave's proposed root patches, to measure them). View **tidemarkTavern**
   (`place.interior`: inside a room through interiors.enter). docs/PERF.md "Wave 20A"; `test/perf-w20.mjs` the checks.
+
+## Wave 22A additions (2026-10-15)
+
+- `scenarios.js`: Meridian's views, `--perf=meridian` (not in `every` or `views`): **meridianDowntown** (on foot at the west
+  edge of the Twins Plaza at noon, facing the towers), **meridianHarbour** (the Meridian port stand), **homeSkyline** (the home
+  stand looking west: the city on the horizon), **meridianDrive** (a sedan driven on the avenue south of the plaza at 17:30:
+  `car: 'sedan'`, new in `runner.js`: the cars feature seats the player for the run and lets him out after).
+- docs/PERF.md "Wave 22A" has the phone table; `test/feature-netsync-w22.mjs` measures the cars' bandwidth in a room.

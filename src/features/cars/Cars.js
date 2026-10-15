@@ -11,6 +11,7 @@ import { RoadGraph } from './RoadGraph.js';
 import { Traffic } from './Traffic.js';
 import { CarAudio } from './CarAudio.js';
 import { DealerPanel } from './DealerPanel.js';
+import { Mirror, encodeSnapshot } from './CarNet.js';
 
 const SAVE_VERSION = 1;
 const FAR = { x: 1e9, y: - 1e4, z: 1e9 };
@@ -55,8 +56,18 @@ export class Cars {
 		this._seeded = false;
 		this._trafT = 0;
 		this._sinceExit = Infinity; // s since the player got out (the door prompt waits half a second)
-		this.remote = new Map();
+		this.remote = new Map(); // peer id -> the car a remote player drives (state 'remote')
+		this.remoteOwned = new Map(); // peer id -> [ records ]: the cars a remote player owns, parked (state 'remote', locked)
 		this.active = false;
+		// multiplayer (wave 22A, netsync/CarLink.js): 'solo' | 'host' (runs the traffic and the police for everybody) | 'puppet'
+		// (draws the host's cars from its snapshots: this.mirror); netViewers / netTargets: the guests near the city and the
+		// wanted ones ( { id, x, z, vx, vz, level } ), set by CarLink on the host
+		this.netRole = 'solo';
+		this.mirror = new Mirror( this );
+		this.netViewers = [];
+		this.netTargets = [];
+		this.siren = false; // a police car you drive: H twice quickly (the touch cluster's Siren)
+		this._localNear = false;
 
 		this.world = new CarWorld( opts.colliders !== undefined ? opts.colliders : this.app.colliders || null, {
 			terrain: opts.terrain !== undefined ? opts.terrain : this.app.terrainData || null,
@@ -305,6 +316,7 @@ export class Cars {
 
 			this.parked.live.delete( rec.spot );
 			this.parked.taken.set( rec.spot, this.time + 3600 );
+			this._parkedGone( rec.spot );
 
 		}
 
@@ -335,9 +347,11 @@ export class Cars {
 		let best = null, bd = 2.6;
 		const test = ( rec ) => {
 
-			if ( rec.stage >= 3 || rec.state === 'wreck' || rec.state === 'remote' || rec.state === 'player' ) return;
+			if ( rec.stage >= 3 || rec.state === 'wreck' || rec.state === 'player' ) return;
 			if ( Math.abs( rec.x - p.position.x ) > 9 || Math.abs( rec.z - p.position.z ) > 9 ) return;
 			if ( rec.state === 'traffic' && rec.ai && rec.ai.v > 2 ) return;
+			// another player's car (driven and stopped, or parked): its door answers, locked; the host's cars when stopped
+			if ( ( rec.state === 'remote' || rec.state === 'mirror' ) && Math.abs( rec.speed || 0 ) > 2 ) return;
 			if ( rec.state === 'pursuit' && rec.body && Math.abs( rec.body.speed ) > 2 ) return;
 			const S = rec.spec;
 			const c = Math.cos( rec.yaw ), s = Math.sin( rec.yaw );
@@ -349,6 +363,9 @@ export class Cars {
 		};
 		for ( const r of this.records ) test( r );
 		for ( const r of this.traffic.cars ) test( r );
+		for ( const r of this.mirror.records.values() ) test( r );
+		for ( const r of this.remote.values() ) test( r );
+		for ( const list of this.remoteOwned.values() ) for ( const r of list ) test( r );
 		this._door = best;
 		return best;
 
@@ -357,6 +374,7 @@ export class Cars {
 	_doorPrompt( rec ) {
 
 		const name = rec.spec.name.toLowerCase();
+		if ( rec.state === 'remote' ) return `${ rec.ownerName || 'Another player' }'s ${ name } · locked`;
 		if ( rec.own ) return `Drive your ${ name }`;
 		if ( rec.driver ) return rec.kind === 'police' ? 'Take the police car' : `Take the ${ name } (the driver gets out)`;
 		return `Take the ${ name }`;
@@ -369,6 +387,17 @@ export class Cars {
 		const p = this.app.player;
 		if ( ! rec || this.drive || ! p || ! p.enterVehicle ) return { ok: false, reason: 'cannot' };
 		if ( rec.stage >= 3 || rec.state === 'wreck' ) return { ok: false, reason: 'wreck' };
+		// another player's car is his: refused (wave 22A)
+		if ( rec.state === 'remote' ) {
+
+			this._toast( `That is ${ rec.ownerName || 'another player' }'s car · it is locked`, 2400 );
+			this._emit( 'carRefused', { id: rec.id, owner: rec.owner || null } );
+			return { ok: false, reason: 'owned' };
+
+		}
+
+		// one of the host's cars (a guest): it becomes this client's own record, and the host's goes
+		if ( rec.state === 'mirror' ) rec = this._fromMirror( rec );
 		const was = rec.state, how = rec.own ? 'own' : rec.driver ? 'jack' : was === 'parked' ? 'parked' : 'idle';
 		if ( was === 'traffic' ) this.traffic.remove( rec );
 		if ( was === 'parked' ) this._unpark( rec );
@@ -408,7 +437,6 @@ export class Cars {
 		this._syncQuat( rec );
 		p.enterVehicle( v );
 		this._emit( 'carEntered', { id: rec.id, kind: rec.kind, own: rec.own, how } );
-		if ( was === 'parked' && rec.id.startsWith( 'p:' ) ) this._share( 'carTaken', { id: rec.id } );
 		if ( ! this._tip ) {
 
 			this._tip = true;
@@ -417,6 +445,18 @@ export class Cars {
 		}
 
 		return { ok: true, how };
+
+	}
+
+	_fromMirror( m ) {
+
+		const key = this.mirror.take( m );
+		const rec = this._record( m.kind, { x: m.x, y: m.y, z: m.z, yaw: m.yaw, color: m.color, state: 'idle', driver: !! m.driver } );
+		rec.stage = Math.min( 2, m.stage | 0 );
+		rec.hp = rec.maxHp * [ 1, 0.6, 0.35 ][ rec.stage ];
+		this.records.push( rec );
+		if ( key ) this._share( 'carTaken', { id: key } );
+		return rec;
 
 	}
 
@@ -434,6 +474,7 @@ export class Cars {
 
 		this.drive = null;
 		this._sinceExit = 0;
+		this.siren = false;
 		rec.state = rec.stage >= 4 ? 'wreck' : 'idle';
 		rec.lights = false;
 		for ( const l of this.lights ) l.enabled = false;
@@ -500,6 +541,15 @@ export class Cars {
 		const b = this._bodyFor( rec );
 		const inp = this.opts.input ? this.opts.input() : this._input();
 		this._horn = !! inp.horn;
+		// a police car's siren: the horn twice within 0.4 s
+		if ( inp.horn && ! this._hornWas ) {
+
+			if ( rec.kind === 'police' && this.time - ( this._hornAt ?? - 9 ) < 0.4 ) this.toggleSiren();
+			this._hornAt = this.time;
+
+		}
+
+		this._hornWas = !! inp.horn;
 		this._stepBody( rec, dt, inp );
 		this._syncQuat( rec );
 		// in the sea: the car is lost, you swim
@@ -564,9 +614,13 @@ export class Cars {
 	_near( rec, r ) {
 
 		const out = [];
-		const scan = ( o ) => { if ( o !== rec && o.state !== 'remote' && Math.abs( o.x - rec.x ) < r && Math.abs( o.z - rec.z ) < r ) out.push( o ); };
+		const scan = ( o ) => { if ( o !== rec && Math.abs( o.x - rec.x ) < r && Math.abs( o.z - rec.z ) < r ) out.push( o ); };
 		for ( const o of this.traffic.cars ) scan( o );
 		for ( const o of this.records ) scan( o );
+		// the other players' cars and the host's puppets are solid too (immovable here: their own machines move them)
+		for ( const o of this.mirror.records.values() ) scan( o );
+		for ( const o of this.remote.values() ) scan( o );
+		for ( const list of this.remoteOwned.values() ) for ( const o of list ) scan( o );
 		return out;
 
 	}
@@ -587,10 +641,12 @@ export class Cars {
 		}
 
 		if ( ! best ) return;
-		const m1 = S.mass, m2 = O.mass * ( o.body ? 1 : 1.5 );
-		const ov = o.body ? { x: o.body.vx, z: o.body.vz } : { x: fb.x * ( o.ai ? o.ai.v : 0 ), z: fb.z * ( o.ai ? o.ai.v : 0 ) };
+		const fixed = o.state === 'remote' || o.state === 'mirror';
+		const m1 = S.mass, m2 = O.mass * ( o.body ? 1 : fixed ? 6 : 1.5 );
+		const ov0 = o.ai ? o.ai.v : fixed ? o.speed || 0 : 0;
+		const ov = o.body ? { x: o.body.vx, z: o.body.vz } : { x: fb.x * ov0, z: fb.z * ov0 };
 		const vrel = ( b.vx - ov.x ) * best.nx + ( b.vz - ov.z ) * best.nz;
-		const share = o.body || vrel < - 1.5 ? m2 / ( m1 + m2 ) : 1;
+		const share = fixed ? 1 : o.body || vrel < - 1.5 ? m2 / ( m1 + m2 ) : 1;
 		b.x += best.nx * best.pen * share;
 		b.z += best.nz * best.pen * share;
 		if ( vrel >= 0 ) return;
@@ -711,7 +767,7 @@ export class Cars {
 
 	damage( rec, hp, cause = 'hit' ) {
 
-		if ( ! rec || ! ( hp > 0 ) || rec.stage >= 4 || rec.state === 'remote' ) return rec ? rec.stage : 0;
+		if ( ! rec || ! ( hp > 0 ) || rec.stage >= 4 || rec.state === 'remote' || rec.state === 'mirror' ) return rec ? rec.stage : 0;
 		rec.hp = Math.max( 0, rec.hp - hp );
 		const before = rec.stage;
 		rec.stage = stageOf( rec.hp / rec.maxHp );
@@ -916,6 +972,7 @@ export class Cars {
 
 		for ( const c of this.traffic.cars ) if ( c.kind === 'police' && Math.abs( c.x - x ) < r && Math.abs( c.z - z ) < r && Math.hypot( c.x - x, c.z - z ) < r ) return c;
 		for ( const c of this.records ) if ( c.kind === 'police' && c.state === 'pursuit' && Math.hypot( c.x - x, c.z - z ) < r ) return c;
+		for ( const c of this.mirror.records.values() ) if ( c.kind === 'police' && c.driver && Math.abs( c.x - x ) < r && Math.abs( c.z - z ) < r && Math.hypot( c.x - x, c.z - z ) < r ) return c;
 		return null;
 
 	}
@@ -933,13 +990,16 @@ export class Cars {
 
 		}
 
-		const pursuers = this.records.filter( ( r ) => r.state === 'pursuit' );
+		const puppet = this.netRole === 'puppet';
+		// the police cars after somebody: the host's own pursuers, or (a guest) the host's ones as puppets
+		const pursuers = puppet ? [] : this.records.filter( ( r ) => r.state === 'pursuit' );
+		const chasers = puppet ? [ ...this.mirror.records.values() ].filter( ( r ) => r.pursuit && r.kind === 'police' ) : pursuers;
 		this.graceT = Math.max( 0, this.graceT - dt );
-		// the city's police keep to the city: away from Meridian (at sea, on another island) the chase is over and the heat
-		// cools as if out of sight; nothing is spawned, nobody is busted
-		if ( ! this.active ) {
+		const near = this._localNear;
+		// the city's police keep to the city: away from Meridian (at sea, on another island) the chase is over for you and the
+		// heat cools as if out of sight; nothing is spawned, nobody is busted
+		if ( ! near ) {
 
-			for ( const r of pursuers ) { r.state = 'idle'; r.driver = true; r.resumeT = 2; r.pursue = null; }
 			this.bustT = 0;
 			if ( this.heat > 0 ) {
 
@@ -949,14 +1009,9 @@ export class Cars {
 
 			}
 
-			return;
+		} else if ( this.heat > 0 ) {
 
-		}
-
-		const level = this.policeLevel();
-		const seen = pursuers.some( ( r ) => Math.hypot( r.x - pos.x, r.z - pos.z ) < WANTED.sight );
-		if ( this.heat > 0 ) {
-
+			const seen = chasers.some( ( r ) => Math.hypot( r.x - pos.x, r.z - pos.z ) < WANTED.sight );
 			if ( seen ) this.coolT = 0;
 			else this.coolT += dt;
 			if ( this.coolT > WANTED.cool ) this.heat = Math.max( 0, this.heat - WANTED.decay * dt );
@@ -964,45 +1019,99 @@ export class Cars {
 
 		}
 
-		// the chase: police cars sent after you (traffic police turned, more brought in from out of sight)
-		const want = Math.max( 0, Math.round( ( WANTED.pursuers[ level ] || 0 ) * ( this.scale < 1 ? 0.5 : 1 ) + ( level && this.scale < 1 ? 0.5 : 0 ) ) );
-		if ( pursuers.length < want && this.active ) {
+		// the chase runs on the host (or alone): police cars sent after the wanted players, each after the nearest one
+		if ( ! puppet ) {
 
-			let best = null, bd = 450;
-			for ( const c of this.traffic.cars ) {
+			const targets = this._targets( pos );
+			if ( ! targets.length || ! this.active ) {
 
-				if ( c.kind !== 'police' ) continue;
-				const d = Math.hypot( c.x - pos.x, c.z - pos.z );
-				if ( d < bd ) { bd = d; best = c; }
+				for ( const r of pursuers ) {
+
+					r.pursue.calm = ( r.pursue.calm || 0 ) + dt;
+					if ( r.pursue.calm > 6 || ! this.active ) { r.state = 'idle'; r.driver = true; r.resumeT = 2; r.pursue = null; }
+
+				}
+
+			} else {
+
+				let level = 0, top = targets[ 0 ];
+				for ( const t of targets ) if ( t.level > level ) { level = t.level; top = t; }
+				const want = Math.max( 0, Math.round( ( WANTED.pursuers[ level ] || 0 ) * ( this.scale < 1 ? 0.5 : 1 ) + ( level && this.scale < 1 ? 0.5 : 0 ) ) );
+				if ( pursuers.length < want ) {
+
+					let best = null, bd = 450;
+					for ( const c of this.traffic.cars ) {
+
+						if ( c.kind !== 'police' ) continue;
+						const d = Math.hypot( c.x - top.x, c.z - top.z );
+						if ( d < bd ) { bd = d; best = c; }
+
+					}
+
+					if ( ! best ) best = this._spawnTraffic( 'police', top, 140, 320 );
+					if ( best ) this._toPursuit( best );
+
+				}
+
+				for ( const r of pursuers ) {
+
+					// the target: the nearest wanted player (looked at again every 2 s)
+					const P = r.pursue;
+					P.calm = 0;
+					P.pick = ( P.pick || 0 ) - dt;
+					let t = P.pick > 0 ? targets.find( ( q ) => q.id === P.target ) : null;
+					if ( ! t ) {
+
+						P.pick = 2;
+						let bd = Infinity;
+						for ( const q of targets ) { const d = Math.hypot( q.x - r.x, q.z - r.z ); if ( d < bd ) { bd = d; t = q; } }
+						P.target = t.id;
+
+					}
+
+					this._pursue( r, dt, t );
+
+				}
 
 			}
 
-			if ( ! best ) best = this._spawnTraffic( 'police', pos, 140, 320 );
-			if ( best ) this._toPursuit( best );
-
 		}
 
-		for ( const r of pursuers ) {
-
-			if ( level === 0 ) {
-
-				r.pursue.calm = ( r.pursue.calm || 0 ) + dt;
-				if ( r.pursue.calm > 6 ) { r.state = 'idle'; r.driver = true; r.resumeT = 2; r.pursue = null; }
-
-			} else this._pursue( r, dt, pos );
-
-		}
-
-		// busted: stopped with a police car alongside
-		if ( level > 0 ) {
+		// busted: stopped with a police car alongside (each player judges his own, from the police cars he sees)
+		if ( near && this.policeLevel() > 0 ) {
 
 			const B = WANTED.bust, me = this.drive;
 			const slow = me ? Math.abs( me.body.speed ) < B.slow : true;
-			const near = pursuers.some( ( r ) => Math.hypot( r.x - pos.x, r.z - pos.z ) < ( me ? B.range : B.onFoot ) + ( me ? 0 : 1 ) );
-			this.bustT = slow && near ? this.bustT + dt : Math.max( 0, this.bustT - dt * 2 );
+			const close = chasers.some( ( r ) => Math.hypot( r.x - pos.x, r.z - pos.z ) < ( me ? B.range : B.onFoot ) + ( me ? 0 : 1 ) );
+			this.bustT = slow && close ? this.bustT + dt : Math.max( 0, this.bustT - dt * 2 );
 			if ( this.bustT > B.time ) this.bust();
 
 		} else this.bustT = 0;
+
+	}
+
+	// the wanted players the police may chase: the local one in the city, and (on the host) the guests CarLink reports
+	_targets( pos ) {
+
+		const out = this._targetList || ( this._targetList = [] );
+		out.length = 0;
+		const lv = this.policeLevel();
+		if ( lv > 0 && this._localNear && pos ) {
+
+			const b = this.drive && this.drive.body;
+			out.push( { id: 'local', x: pos.x, z: pos.z, vx: b ? b.vx : 0, vz: b ? b.vz : 0, level: lv } );
+
+		}
+
+		if ( this.netRole === 'host' ) for ( const t of this.netTargets ) if ( t && t.level > 0 && this._nearCity( t ) ) out.push( t );
+		return out;
+
+	}
+
+	_nearCity( p ) {
+
+		const c = MERIDIAN.center;
+		return !! p && Math.hypot( p.x - c.x, p.z - c.z ) < MERIDIAN.radius + this.T.active;
 
 	}
 
@@ -1024,7 +1133,7 @@ export class Cars {
 	_pursue( rec, dt, pos ) {
 
 		const P = rec.pursue, b = this._bodyFor( rec );
-		const tx0 = pos.x + ( this.drive && this.drive.body ? this.drive.body.vx * 0.6 : 0 ), tz0 = pos.z + ( this.drive && this.drive.body ? this.drive.body.vz * 0.6 : 0 );
+		const tx0 = pos.x + ( pos.vx || 0 ) * 0.6, tz0 = pos.z + ( pos.vz || 0 ) * 0.6;
 		const d = Math.hypot( tx0 - b.x, tz0 - b.z );
 		let tx = tx0, tz = tz0;
 		P.t -= dt;
@@ -1113,7 +1222,7 @@ export class Cars {
 
 	// ------------------------------------------------------------------ traffic upkeep
 
-	_spawnTraffic( kind, pos, rMin, rMax, bus = null ) {
+	_spawnTraffic( kind, pos, rMin, rMax, bus = null, viewers = null ) {
 
 		for ( let t = 0; t < 10; t ++ ) {
 
@@ -1123,6 +1232,7 @@ export class Cars {
 			const p = this.graph.pointOn( L, at.s, {} );
 			const d = pos ? Math.hypot( p.x - pos.x, p.z - pos.z ) : rMin;
 			if ( ! bus && ( d < rMin || d > rMax ) ) continue;
+			if ( ! bus && viewers && viewers.length > 1 && viewers.some( ( v ) => Math.hypot( p.x - v.x, p.z - v.z ) < rMin ) ) continue;
 			if ( this.traffic.occupied( p.x, p.z, 12 ) ) continue;
 			const rec = this._record( kind, { x: p.x, z: p.z, state: 'traffic', driver: true } );
 			rec.lights = this.night;
@@ -1160,12 +1270,17 @@ export class Cars {
 
 	}
 
-	_trafficUpkeep( pos ) {
+	// viewers: [ { x, z } ] the players in the city (the local one first; on the host the guests too): cars are spawned out of
+	// sight of all of them, round each in turn, and go when they are far from every one
+	_trafficUpkeep( viewers ) {
 
-		const T = this.T, sc = this.scale;
+		if ( ! Array.isArray( viewers ) ) viewers = [ viewers ];
+		if ( ! viewers.length ) return;
+		const T = this.T, sc = this.scale * ( viewers.length > 1 ? Math.min( 2, 1 + 0.5 * ( viewers.length - 1 ) ) : 1 );
 		const want = { cars: Math.round( T.cars * sc ), buses: Math.max( 1, Math.round( T.buses * sc ) ), police: Math.max( 1, Math.round( T.police * sc ) ) };
+		const far = ( c ) => viewers.every( ( v ) => Math.abs( c.x - v.x ) > T.drop || Math.abs( c.z - v.z ) > T.drop || Math.hypot( c.x - v.x, c.z - v.z ) > T.drop );
 		// the far ones go
-		for ( const c of [ ...this.traffic.cars ] ) if ( Math.hypot( c.x - pos.x, c.z - pos.z ) > T.drop ) this.traffic.remove( c );
+		for ( const c of [ ...this.traffic.cars ] ) if ( far( c ) ) this.traffic.remove( c );
 		let cars = 0, buses = 0, police = 0;
 		for ( const c of this.traffic.cars ) { if ( c.kind === 'bus' ) buses ++; else if ( c.kind === 'police' ) police ++; else cars ++; }
 		const first = ! this._seeded;
@@ -1177,7 +1292,8 @@ export class Cars {
 			made ++;
 			let kind, bus = null;
 			if ( buses < want.buses ) { kind = 'bus'; bus = this.busLoop(); buses ++; } else if ( police < want.police ) { kind = 'police'; police ++; } else { kind = pickWeighted( TRAFFIC_MIX, this.rng() ); if ( kind === 'police' ) kind = 'sedan'; cars ++; }
-			this._spawnTraffic( kind, pos, rMin, T.spawnMax, bus );
+			this._upk = ( ( this._upk || 0 ) + 1 ) % viewers.length;
+			this._spawnTraffic( kind, viewers[ this._upk ], rMin, T.spawnMax, bus, viewers );
 
 		}
 
@@ -1289,8 +1405,9 @@ export class Cars {
 
 			}
 
-			// abandoned cars far away are towed (yours never)
-			if ( ! rec.own && rec.state === 'idle' && pos && Math.hypot( rec.x - pos.x, rec.z - pos.z ) > this.T.drop ) this._drop( rec );
+			// abandoned cars far away (from every player in the city) are towed (yours never)
+			const vs = this._viewers && this._viewers.length ? this._viewers : pos ? [ pos ] : [];
+			if ( ! rec.own && rec.state === 'idle' && vs.length && vs.every( ( v ) => Math.hypot( rec.x - v.x, rec.z - v.z ) > this.T.drop ) ) this._drop( rec );
 
 		}
 
@@ -1326,15 +1443,22 @@ export class Cars {
 		this._driven = false;
 		globalThis.__hyptileDriving = !! this.drive; // (UI patch: H is the horn in a car, not the settings panel)
 		const pos = this.playerPos();
-		const c = MERIDIAN.center;
-		this.active = !! pos && ( Math.hypot( pos.x - c.x, pos.z - c.z ) < MERIDIAN.radius + this.T.active || this.opts.alwaysActive );
+		this._localNear = !! pos && ( this._nearCity( pos ) || !! this.opts.alwaysActive );
+		// the host runs the traffic while anybody is in the city (itself or a guest); a guest runs none (the host's puppets)
+		const puppet = this.netRole === 'puppet';
+		const guests = this.netRole === 'host' ? this.netViewers.filter( ( v ) => this._nearCity( v ) ) : [];
+		this.active = this._localNear || guests.length > 0;
+		const viewers = this._viewers || ( this._viewers = [] );
+		viewers.length = 0;
+		if ( this._localNear ) viewers.push( pos );
+		for ( const g of guests ) viewers.push( g );
 		const night = this.night;
-		if ( this.active ) {
+		if ( this.active && ! puppet ) {
 
 			this._trafT -= dt;
-			if ( this._trafT <= 0 ) { this._trafT = 0.5; this._trafficUpkeep( pos ); }
-			const obstacles = this._obstacles( pos );
-			this.traffic.update( dt, { time: this.time, viewer: pos, obstacles } );
+			if ( this._trafT <= 0 ) { this._trafT = 0.5; this._trafficUpkeep( viewers ); }
+			const obstacles = this._obstacles( viewers[ 0 ] );
+			this.traffic.update( dt, { time: this.time, viewer: viewers[ 0 ], obstacles } );
 			for ( const t of this.traffic.cars ) {
 
 				t.lights = night;
@@ -1343,14 +1467,16 @@ export class Cars {
 
 			}
 
-			this._parkedUpdate( pos, dt );
-
 		} else if ( this.traffic.cars.length ) {
 
 			for ( const t of [ ...this.traffic.cars ] ) this.traffic.remove( t );
 			this._seeded = false;
 
 		}
+
+		if ( puppet ) this.mirror.update( dt );
+		else if ( this._shadow && this._shadow.records.size ) this._shadow.update( dt );
+		if ( this._localNear ) this._parkedUpdate( pos, dt );
 
 		this._idleUpdate( dt, pos );
 		this._lawUpdate( dt, pos );
@@ -1360,6 +1486,7 @@ export class Cars {
 		this._audioUpdate( dt );
 		this._draw( pos, night );
 		this._remoteAge( dt );
+		this._flushGone();
 
 	}
 
@@ -1382,6 +1509,10 @@ export class Cars {
 
 		}
 
+		// the other players' cars (the host's traffic waits behind a guest's car as behind its own player's)
+		const other = ( r ) => out.push( { id: r.id, x: r.x, z: r.z, len: r.spec.len, wid: r.spec.wid, speed: Math.abs( r.speed || 0 ), kind: 'player', static: Math.abs( r.speed || 0 ) < 0.3 } );
+		for ( const r of this.remote.values() ) other( r );
+		for ( const list of this.remoteOwned.values() ) for ( const r of list ) other( r );
 		return out;
 
 	}
@@ -1412,15 +1543,33 @@ export class Cars {
 
 	}
 
+	// the siren and beacons of a police car you drive (everybody sees and hears them)
+	toggleSiren() {
+
+		if ( ! this.drive || this.drive.kind !== 'police' ) return false;
+		this.siren = ! this.siren;
+		this._toast( this.siren ? 'Siren on' : 'Siren off', 1200 );
+		return this.siren;
+
+	}
+
 	_audioUpdate( dt ) {
 
 		const r = this.drive;
 		let siren = null, sd = 400;
 		const v = this.playerPos();
-		if ( v ) for ( const c of this.records ) if ( c.state === 'pursuit' ) {
+		const wail = ( c ) => {
 
 			const d = Math.hypot( c.x - v.x, c.z - v.z );
 			if ( d < sd ) { sd = d; siren = { x: c.x, y: c.y + 1.5, z: c.z }; }
+
+		};
+		if ( v ) {
+
+			for ( const c of this.records ) if ( c.state === 'pursuit' ) wail( c );
+			for ( const c of this.mirror.records.values() ) if ( c.pursuit ) wail( c );
+			for ( const c of this.remote.values() ) if ( c.siren ) wail( c );
+			if ( this.drive && this.siren ) wail( this.drive );
 
 		}
 
@@ -1455,8 +1604,21 @@ export class Cars {
 
 		}
 
+		for ( const r of this.mirror.records.values() ) add( r );
 		for ( const r of this.remote.values() ) add( r );
-		this.render.draw( list, { night, beacon: this.policeLevel() > 0 || this.records.some( ( r ) => r.state === 'pursuit' ), time: this.time } );
+		for ( const l of this.remoteOwned.values() ) for ( const r of l ) add( r );
+		this.render.draw( list, { night, beacon: this.beacons(), time: this.time } );
+
+	}
+
+	// the police beacons flash: a chase on, a wanted player, a player's siren
+	beacons() {
+
+		if ( this.policeLevel() > 0 || this.siren ) return true;
+		for ( const r of this.records ) if ( r.state === 'pursuit' ) return true;
+		for ( const r of this.mirror.records.values() ) if ( r.pursuit ) return true;
+		for ( const r of this.remote.values() ) if ( r.siren ) return true;
+		return false;
 
 	}
 
@@ -1502,7 +1664,7 @@ export class Cars {
 
 			if ( this.records.some( ( r ) => r.state !== 'parked' && Math.hypot( r.x - p.x, r.z - p.z ) < 4 ) ) continue;
 			// a parked car there gives way
-			for ( const [ i, rec ] of this.parked.live ) if ( Math.hypot( rec.x - p.x, rec.z - p.z ) < 4 ) { this.parked.live.delete( i ); this.parked.taken.set( i, this.time + 7200 ); this._drop( rec ); }
+			for ( const [ i, rec ] of this.parked.live ) if ( Math.hypot( rec.x - p.x, rec.z - p.z ) < 4 ) { this.parked.live.delete( i ); this.parked.taken.set( i, this.time + 7200 ); this._drop( rec ); this._parkedGone( i ); }
 			return p;
 
 		}
@@ -1606,34 +1768,106 @@ export class Cars {
 
 	}
 
-	// ------------------------------------------------------------------ multiplayer (netsync: 20E's patch calls these)
+	// ------------------------------------------------------------------ multiplayer (netsync/CarLink.js calls these)
 
-	// adds out.car = { id, k, c, p: [ x, y, z ], q: [ yaw, pitch, roll ], s, st, d, l, h } while the local player drives
+	// the state's extras while you play (the server passes them to the others; Protocol MAX_EXTRA):
+	//   car { k, c, p: [ x, y, z ], q: [ yaw, pitch, roll ], s, st, d, l, h, sr }   the car you drive (sr: its siren)
+	//   cw  the police level you answer to, while wanted in the city (the host's police chase you)
+	//   oc  [ [ kind, colour, x, z, yaw, stage ] ]   your cars parked in the city (the others see them, locked)
 	decorateState( out ) {
 
+		if ( ! out ) return out;
 		const r = this.drive;
-		if ( ! out || ! r ) return out;
-		out.car = { id: r.id, k: r.kind, c: r.color, p: [ r2( r.x ), r2( r.y ), r2( r.z ) ], q: [ r2( r.yaw ), r2( r.pitch ), r2( r.roll ) ], s: r2( r.speed ), st: r2( r.steer ), d: r.stage, l: !! r.lights, h: !! this._horn };
+		if ( r ) {
+
+			// (lean: 15 times a second to everybody; flat roads send the yaw alone, the flags only while on)
+			const yaw = r2( Math.atan2( Math.sin( r.yaw ), Math.cos( r.yaw ) ) ), pitch = r2( r.pitch ), roll = r2( r.roll );
+			const c = out.car = { k: r.kind, c: r.color, p: [ r2( r.x ), r2( r.y ), r2( r.z ) ], q: pitch || roll ? [ yaw, pitch, roll ] : [ yaw ], s: r2( r.speed ), st: r2( r.steer ) };
+			if ( r.stage ) c.d = r.stage;
+			if ( r.lights ) c.l = 1;
+			if ( this._horn ) c.h = 1;
+			if ( this.siren ) c.sr = 1;
+
+		}
+
+		const lv = this.policeLevel();
+		if ( lv > 0 && this._localNear ) out.cw = lv;
+		const r1 = ( v ) => Math.round( v * 10 ) / 10;
+		const oc = [];
+		for ( const o of this.records ) if ( o.own && o !== r && o.stage < 4 && oc.length < DEALER.maxOwned && this._nearCity( o ) ) oc.push( [ o.kind, o.color, r1( o.x ), r1( o.z ), r2( o.yaw ), o.stage ] );
+		if ( oc.length ) out.oc = oc;
 		return out;
 
 	}
 
-	// the other players' cars: an array of { id, car } (or a Map id -> state); drawn as instances, aged out after 2 s
+	// the other players' cars: an array of { id, car, name?, oc? } (or a Map id -> state); drawn as instances, locked
 	updateRemote( states ) {
 
 		const list = states instanceof Map ? [ ...states ].map( ( [ id, s ] ) => ( { id, ...s } ) ) : Array.isArray( states ) ? states : [];
 		for ( const s of list ) {
 
-			const c = s && s.car;
-			if ( ! c || ! KINDS[ c.k ] || ! Array.isArray( c.p ) ) continue;
-			let r = this.remote.get( s.id );
-			if ( ! r || r.kind !== c.k ) this.remote.set( s.id, r = this._record( c.k, { state: 'remote', id: 'remote:' + s.id, color: c.c } ) );
-			r.x = c.p[ 0 ]; r.y = c.p[ 1 ]; r.z = c.p[ 2 ];
-			if ( Array.isArray( c.q ) ) { r.yaw = c.q[ 0 ]; r.pitch = c.q[ 1 ]; r.roll = c.q[ 2 ]; }
-			r.speed = c.s || 0; r.steer = c.st || 0; r.stage = c.d || 0; r.lights = !! c.l; r.seen = 0;
-			quatYPR( r.yaw, r.pitch, r.roll, r.quat );
+			if ( ! s || s.id == null ) continue;
+			const c = s.car;
+			if ( c && KINDS[ c.k ] && Array.isArray( c.p ) ) {
+
+				let r = this.remote.get( s.id );
+				if ( ! r || r.kind !== c.k ) this.remote.set( s.id, r = this._record( c.k, { state: 'remote', id: 'remote:' + s.id, color: c.c } ) );
+				r.owner = s.id;
+				if ( s.name ) r.ownerName = String( s.name ).slice( 0, 24 );
+				r.color = Number.isFinite( c.c ) ? c.c : r.color;
+				r.x = c.p[ 0 ]; r.y = c.p[ 1 ]; r.z = c.p[ 2 ];
+				if ( Array.isArray( c.q ) ) { r.yaw = c.q[ 0 ] || 0; r.pitch = c.q[ 1 ] || 0; r.roll = c.q[ 2 ] || 0; }
+				r.speed = c.s || 0; r.steer = c.st || 0; r.stage = c.d || 0; r.lights = !! c.l; r.seen = 0; r.siren = !! c.sr && c.k === 'police';
+				// the horn: one honk as it starts
+				if ( c.h && ! r.hornWas ) this.audio.honk( r.x, r.y + 1, r.z, r.kind );
+				r.hornWas = !! c.h;
+				quatYPR( r.yaw, r.pitch, r.roll, r.quat );
+
+			}
+
+			if ( 'oc' in s ) {
+
+				const want = Array.isArray( s.oc ) ? s.oc.slice( 0, DEALER.maxOwned ) : [];
+				const have = this.remoteOwned.get( s.id ) || [];
+				const next = [];
+				want.forEach( ( o, i ) => {
+
+					if ( ! Array.isArray( o ) || ! KINDS[ o[ 0 ] ] || ! [ o[ 2 ], o[ 3 ], o[ 4 ] ].every( Number.isFinite ) ) return;
+					let r = have[ i ];
+					if ( ! r || r.kind !== o[ 0 ] ) r = this._record( o[ 0 ], { state: 'remote', id: `remoteOwn:${ s.id }:${ i }`, color: o[ 1 ] } );
+					r.owner = s.id;
+					if ( s.name ) r.ownerName = String( s.name ).slice( 0, 24 );
+					if ( Number.isFinite( o[ 1 ] ) ) r.color = o[ 1 ];
+					if ( r.x !== o[ 2 ] || r.z !== o[ 3 ] || ! r.placed ) {
+
+						r.x = o[ 2 ]; r.z = o[ 3 ]; r.yaw = o[ 4 ];
+						r.y = this.world.ground( r.x, r.z, 300 );
+						if ( ! Number.isFinite( r.y ) ) r.y = 0;
+						r.placed = true;
+						quatYPR( r.yaw, 0, 0, r.quat );
+
+					}
+
+					r.stage = clamp( o[ 5 ] | 0, 0, 3 );
+					r.speed = 0;
+					r.seen = 0;
+					next.push( r );
+
+				} );
+				if ( next.length ) this.remoteOwned.set( s.id, next );
+				else this.remoteOwned.delete( s.id );
+
+			}
 
 		}
+
+	}
+
+	// a player stopped driving (or left): his car goes at once
+	dropRemote( id, { owned = false } = {} ) {
+
+		this.remote.delete( id );
+		if ( owned ) this.remoteOwned.delete( id );
 
 	}
 
@@ -1647,17 +1881,107 @@ export class Cars {
 
 		}
 
+		for ( const [ id, l ] of this.remoteOwned ) {
+
+			let stale = true;
+			for ( const r of l ) { r.seen = ( r.seen || 0 ) + dt; if ( r.seen <= 4 ) stale = false; }
+			if ( stale ) this.remoteOwned.delete( id );
+
+		}
+
+	}
+
+	// 'solo' | 'host' | 'puppet' (CarLink): a guest drops its own traffic and police (the host's are drawn instead)
+	setNetRole( role ) {
+
+		if ( role === this.netRole ) return;
+		this.netRole = role;
+		if ( this._shadow ) this._shadow.clear();
+		if ( role === 'puppet' ) {
+
+			for ( const t of [ ...this.traffic.cars ] ) this.traffic.remove( t );
+			for ( const r of [ ...this.records ] ) if ( r.state === 'pursuit' ) this._drop( r );
+			this._seeded = false;
+
+		} else this.mirror.clear();
+		if ( role !== 'host' ) { this.netViewers = []; this.netTargets = []; }
+
+	}
+
+	// the host: what the guests near the city get (CarNet.js); null when nobody needs it
+	netSnapshot( viewers = this.netViewers, { key = true } = {} ) {
+
+		const vs = ( viewers || [] ).filter( ( v ) => this._nearCity( v ) );
+		if ( this.netRole === 'puppet' || ! vs.length ) return null;
+		// (the guests' view, kept here: deltas against it)
+		if ( ! this._shadow ) this._shadow = new Mirror( this );
+		return encodeSnapshot( this, vs, { key, shadow: this._shadow } );
+
+	}
+
+	// a guest: the host's snapshot, age s after it was sent
+	applySnapshot( snap, age = 0 ) {
+
+		if ( this.netRole !== 'puppet' ) return 0;
+		return this.mirror.apply( snap, age );
+
+	}
+
+	// are the host's police after somebody? (CarLink sends faster then)
+	chasing() {
+
+		return this.records.some( ( r ) => r.state === 'pursuit' );
+
+	}
+
+	// a parked car leaves its spot on this client (taken, knocked loose, blown away, a bought car's kerb): the others' copy goes
+	_parkedGone( i ) {
+
+		const q = this._goneOut || ( this._goneOut = [] );
+		if ( q.length < 40 ) q.push( 'p:' + i );
+
+	}
+
+	_flushGone() {
+
+		const q = this._goneOut;
+		if ( ! q || ! q.length ) return;
+		// (one world event for a whole blast: the server's event budget is 10 a second)
+		this._share( 'carTaken', q.length === 1 ? { id: q[ 0 ] } : { ids: q.slice( 0, 40 ) } );
+		q.length = 0;
+
 	}
 
 	_onRemote( e ) {
 
 		const d = e.data || {};
-		if ( e.kind === 'carTaken' && typeof d.id === 'string' && d.id.startsWith( 'p:' ) ) {
+		if ( e.kind === 'carTaken' ) {
 
-			const i = Number( d.id.slice( 2 ) );
-			const rec = this.parked.live.get( i );
-			if ( rec ) { this.parked.live.delete( i ); this._drop( rec ); }
-			this.parked.taken.set( i, this.time + 3600 );
+			const ids = Array.isArray( d.ids ) ? d.ids : [ d.id ];
+			for ( const id of ids ) {
+
+				if ( typeof id !== 'string' ) continue;
+				if ( id.startsWith( 'p:' ) ) {
+
+					const i = Number( id.slice( 2 ) );
+					if ( ! Number.isInteger( i ) ) continue;
+					const rec = this.parked.live.get( i );
+					if ( rec && rec !== this.drive && rec.state === 'parked' ) { this.parked.live.delete( i ); this._drop( rec ); }
+					this.parked.taken.set( i, this.time + 3600 );
+
+				} else if ( id.startsWith( 't:' ) || id.startsWith( 'f:' ) ) {
+
+					// a guest took one of the host's cars: it is his now
+					if ( this.netRole === 'puppet' ) { this.mirror.records.delete( id ); continue; }
+					const rid = id.startsWith( 't:' ) ? 'c' + id.slice( 2 ) : id.slice( 2 );
+					const t = this.traffic.cars.find( ( c ) => c.id === rid );
+					if ( t ) this.traffic.remove( t );
+					const r = this.records.find( ( c ) => c.id === rid && ! c.own && c !== this.drive );
+					if ( r ) this._drop( r );
+
+				}
+
+			}
 
 		} else if ( e.kind === 'carExploded' && ! e.replay ) {
 

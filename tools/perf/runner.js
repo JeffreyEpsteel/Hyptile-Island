@@ -113,7 +113,7 @@ function placeOf( place ) {
 
 		const port = ( WORLD.ports || [] ).find( ( p ) => p.id === place.port );
 		const s = port ? ( port.stand || port.center ) : WORLD.start.position;
-		return { x: s.x, z: s.z, heading: Number.isFinite( s.yaw ) ? s.yaw : 0 };
+		return { x: s.x, z: s.z, heading: Number.isFinite( place.heading ) ? place.heading : Number.isFinite( s.yaw ) ? s.yaw : 0 }; // (wave 22A: a view may face its own way)
 
 	}
 
@@ -192,6 +192,32 @@ export async function setupScenario( app, s ) {
 	} catch ( e ) {
 
 		info.notes.push( 'place failed: ' + ( e && e.message ) );
+
+	}
+
+	// wave 22A: a car driven for the run (the cars feature: a sedan at the spot, the player at its wheel, coasting)
+	if ( s.car ) {
+
+		const cars = app.features && app.features.get ? app.features.get( 'cars' ) : null;
+		try {
+
+			if ( cars && cars._record && cars.enter ) {
+
+				const y = groundAt( app, pl.x, pl.z );
+				const rec = cars._record( s.car, { x: pl.x, y, z: pl.z, yaw: pl.heading, state: 'idle' } );
+				rec.mine = true;
+				cars.records.push( rec );
+				const r = cars.enter( rec );
+				if ( r && r.ok ) {
+
+					info.notes.push( 'driving ' + s.car );
+					undo.push( () => { try { cars.exit( { force: true } ); cars._drop( rec ); } catch ( e ) { /* gone */ } } );
+
+				} else info.notes.push( 'car refused: ' + ( r && r.reason ) );
+
+			} else info.notes.push( 'no cars feature' );
+
+		} catch ( e ) { info.notes.push( 'car failed: ' + ( e && e.message ) ); }
 
 	}
 

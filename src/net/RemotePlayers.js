@@ -21,6 +21,8 @@
 // peer.riding = { host, seat } while one is aboard (RemotePlayers.anchor( hostId ) gives the boat transform).
 //
 // peer.extra: the newest state's fields this file does not know (another feature's, e.g. { plane }), as sent.
+// peer.inCar: the newest state has a `car` (the cars feature): the avatar is hidden (CarLink draws the car); remote.renderTime()
+// the server time the avatars are drawn at (for other buffers interpolated alongside them).
 // remote.setMoored( [ { captain, name, boat, p, q } ] ): the boats offline captains left in a universe, drawn where they
 // were left with a "<name> · moored" tag (NetSync keeps the list).
 
@@ -107,6 +109,14 @@ export class RemotePlayers {
 			hud.append( this.chatEl );
 
 		}
+
+	}
+
+	// the server time ( ms, the snapshots' `at` ) the avatars are drawn at now (null before the first snapshot): other
+	// interpolated views (netsync CarLink's cars) sample their own buffers at the same time
+	renderTime() {
+
+		return this._offset === null ? null : ( this._now || performance.now() ) - this._offset - INTERP_DELAY;
 
 	}
 
@@ -207,6 +217,7 @@ export class RemotePlayers {
 			let extra = null;
 			for ( const k of Object.keys( s ) ) if ( ! KNOWN.has( k ) ) ( extra || ( extra = {} ) )[ k ] = s[ k ];
 			p.extra = extra || EMPTY;
+			p.inCar = !! ( extra && extra.car ); // (wave 22A: driving a car; the driver is not drawn, CarLink draws the car)
 			p.snaps.push( snap );
 			if ( p.snaps.length > SNAP_KEEP ) p.snaps.splice( 0, p.snaps.length - SNAP_KEEP );
 
@@ -245,7 +256,7 @@ export class RemotePlayers {
 
 			if ( p.avatar ) {
 
-				p.avatar.visible = p.hasPose && ! p.hiddenIndoor; // (wave 20E: inside a room you are not in)
+				p.avatar.visible = p.hasPose && ! p.hiddenIndoor && ! p.inCar; // (wave 20E: inside a room you are not in; 22A: in a car)
 				if ( p.hasPose ) p.avatar.update( dt, p.pose );
 
 			}

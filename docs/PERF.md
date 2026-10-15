@@ -349,3 +349,47 @@ patches). What is left is the renderer's cost per draw (the engine, root's): see
 
 - No browser or phone: Chrome's per-draw cost, a real phone's re-upload time (2 MB a frame) and its memory.
 - An unlabelled 1.3 MB GPU buffer appears with each place visited (before and after this wave's changes; not this wave's).
+
+# Wave 22A (2026-10-15): Meridian on phones; cars in multiplayer
+
+## How it was measured
+
+- `node tools/perf/headless.mjs --perf=homeBay,meridianDowntown,meridianHarbour,meridianDrive,homeSkyline --mobile --real-sizes
+  --quality=low --size=852x393` (phone) and `--perf=meridian --quality=medium --size=1920x1080` (Medium), RTX 5070 Ti, Vulkan.
+  New views (tools/perf/scenarios.js, `--perf=meridian`, also in `views`): downtown at the Twins Plaza, the Meridian port stand,
+  a sedan driven on the avenue south of the plaza at 17:30 (`car`: runner.js seats the player), the home stand (Meridian's far
+  meshes in the frame). Reports `tools/perf/out/perf-phone-w22.json`, `perf-medium-w22.json`; pictures `tools/perf/out/w22/`.
+- Bandwidth: `node test/feature-netsync-w22.mjs` (a real server, three clients in Meridian, two driving, the host's traffic;
+  bytes on each client's socket, 6 s).
+
+## Results (GPU MB / GPU ms / CPU ms in Node + Dawn / draws)
+
+| view | phone | Medium |
+|---|---|---|
+| Meridian downtown | **366.2** / 1.44 / 12.6 / 155 | 765.7 / 2.79 / 15.6 / 185 |
+| Meridian harbour | **367.9** / 1.47 / 14.1 / 187 | 780.5 / 2.96 / 14.4 / 232 |
+| Meridian drive (traffic, a third on phones) | **369.3** / 1.39 / 8.3 / 104 | 788.4 / 3.05 / 11.9 / 118 |
+| home stand (the skyline) | **356.7** / 1.90 / 14.4 / 282 | 798.6 / 4.39 / 20.1 / 392 |
+| home bay (same run) | 344.0 / 1.97 / 15.7 / 276 | |
+
+Every place is under the 387 MB phone budget, so nothing was cut (Meridian.js keeps its constants; Medium looks as it did).
+At home Meridian costs 18 draws and ~1 MB (its 16 far block meshes and the far land: `--mem-match=Meridian --draw-list`);
+its near meshes, streets and kit (~14 MB on a phone) upload on arrival and NearRelease frees them past 1.5 km. Medium downtown
+is 15.6 ms / 185 draws against Tidemark's quay at 22.8 ms / 408 (wave 20A, same harness). The run's peak (406.6 MB) is
+reached at home before any Meridian view (`--perf=homeBay` alone: the same 406.6, from the first frames after init, 396.3 MB
+after the phone tier): not the city's.
+
+| cars in a room (bytes / s, in + out) | busiest client | budget (wave 20E) |
+|---|---|---|
+| three players in Meridian, two driving, the host's traffic (~73 puppets per guest) | 5,856 (a guest) | 7,243 |
+| the same with a police chase | 5,813 | 7,243 |
+
+The host's traffic goes as lane codes at 2 Hz (4 Hz in a chase): a key snapshot every 2 s, deltas between (only the cars the
+guests' own prediction would draw wrong: the host keeps their view on a shadow); a driven car rides the state lean (yaw alone
+on flat roads, flags only while on). The puppets sit a median 0.34 m (p90 0.96 m) from the host's cars.
+
+## Not verified
+
+- No browser or phone: the touch cluster's look is checked from its geometry (carLayout drawn over a phone capture,
+  `tools/perf/out/w22/car-hud-*.png`), tilt steering is untested on a device (the sign of beta in landscape is assumed).
+- The home stand view keeps the stand's own camera framing (Meridian is in its draws, not in the middle of the picture).
