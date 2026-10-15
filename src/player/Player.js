@@ -6,7 +6,10 @@ import { BOATS } from '../game/Boats.js';
 // helm seat (boat frame) of the current boat: fleet hulls carry their own, the lobster boat's is the wheelhouse
 const helmOf = ( b ) => ( b && b.model.helmPoint ) || { x: HOUSE.helmX, z: HOUSE.seatZ };
 // third-person spring arm: the camera hangs off a pivot above the feet that lags behind the body
-const ARM = { dist: 4.2, min: 1.6, max: 9, height: 1.45, side: 0.35, lag: 9 };
+// (wave 24F) lagY: the pivot follows a jump / a stair step more slowly than the run, so the view does not bounce;
+// sprint: the arm eases out this much farther at full sprint (with CameraFeel's wider fov: a sense of speed);
+// probe: the arm stops this far short of a wall or a hull between the pivot and the camera (Colliders.raycast)
+const ARM = { dist: 4.2, min: 1.6, max: 9, height: 1.45, side: 0.35, lag: 9, lagY: 4.5, sprint: 0.7, probe: 0.25 };
 
 const EYE = 1.62;
 const SWIM_EYE = EYE * 0.1; // eyes above the body's float point while swimming
@@ -102,6 +105,8 @@ export class Player {
 		this.armPivot = new THREE.Vector3();
 		this.armDist = ARM.dist;
 		this.armInit = false;
+		this._armLen = ARM.dist; // the arm length eased towards armDist (+ the sprint reach)
+		this.sprinting = false; // on foot, Shift held with stamina (CameraFeel widens the fov on it)
 		const start = WORLD.start || WORLD.spawn;
 		this.position = new THREE.Vector3().copy( start.position );
 		// standing on whatever is there (the boardwalk planks), not in it
@@ -384,19 +389,44 @@ export class Player {
 		if ( ! this.armInit ) {
 
 			this.armPivot.copy( target );
+			this._armLen = this.armDist;
 			this.armInit = true;
 
-		} else this.armPivot.lerp( target, 1 - Math.exp( - dt * ARM.lag ) );
+		} else {
+
+			// the run is followed closely; the height more slowly in the air (a jump, a ledge) so the view rides level
+			const k = 1 - Math.exp( - dt * ARM.lag );
+			const airborne = this.mode === 'walk' && ! this.grounded;
+			const ky = airborne ? 1 - Math.exp( - dt * ARM.lagY ) : k;
+			this.armPivot.x += ( target.x - this.armPivot.x ) * k;
+			this.armPivot.z += ( target.z - this.armPivot.z ) * k;
+			this.armPivot.y += ( target.y - this.armPivot.y ) * ky;
+
+		}
+
+		// the arm eases out a little at a sprint and back when it ends
+		const wantLen = this.armDist + ( this.sprinting ? ARM.sprint : 0 );
+		this._armLen += ( wantLen - this._armLen ) * ( 1 - Math.exp( - dt * 3 ) );
+		if ( Math.abs( wantLen - this._armLen ) < 1e-3 ) this._armLen = wantLen;
 
 		if ( base ) this.camera.quaternion.copy( base ).multiply( _qa.setFromEuler( _e.set( this.pitch, this.yaw, 0 ) ) );
 		else this.camera.quaternion.setFromEuler( _e.set( this.pitch, this.yaw, 0 ) );
 		const back = _fwd.set( 0, 0, 1 ).applyQuaternion( this.camera.quaternion );
 		const side = _right.set( 1, 0, 0 ).applyQuaternion( this.camera.quaternion );
 		// the arm: shorten before it enters the ground (a few probes along it)
-		let dist = this.armDist;
+		let dist = this._armLen;
+		// ... or a wall, a hull, a hut: the solid boxes between the pivot and the camera (the ground probes miss a wall
+		// beside the player; the camera used to sit inside it)
+		if ( this.colliders && typeof this.colliders.raycast === 'function' ) {
+
+			const hit = this.colliders.raycast( this.armPivot, back, dist + ARM.probe );
+			if ( hit < dist + ARM.probe ) dist = Math.max( ARM.min * 0.5, hit - ARM.probe );
+
+		}
+
 		for ( let i = 1; i <= 6; i ++ ) {
 
-			const d = this.armDist * i / 6;
+			const d = dist * i / 6;
 			const px = this.armPivot.x + back.x * d + side.x * ARM.side, pz = this.armPivot.z + back.z * d + side.z * ARM.side;
 			const py = this.armPivot.y + back.y * d + side.y * ARM.side;
 			const g = this.terrain.heightAt( px, pz );
@@ -546,13 +576,16 @@ export class Player {
 		if ( inp.hit( 'KeyC' ) && this.grounded && wade < 0.5 ) this.crouching = ! this.crouching;
 		if ( sprintHeld && moving ) this.crouching = false;
 		const sprint = sprintHeld && this.stamina > 0.02 && moving;
+		this.sprinting = sprint;
 		const walk = this.runToggle && ! sprint;
 		// (user tuning 2026-10-13: a sprint lasts ~80 s and runs 3.5x the mocap stride; the refill stays)
 		this.stamina = THREE.MathUtils.clamp( this.stamina + ( sprint ? - dt / 80 : dt / 6 ), 0, 1 );
 		let speed = ( sprint ? 8.5 : walk ? 1.25 : 2.7 ) * THREE.MathUtils.lerp( 1, 0.42, wade ); // (16 was uncontrollable: user 2026-10-13)
 		if ( this.crouching ) speed = Math.min( speed, 1.1 ); // the crouch walk's stride
 		else if ( ! sprint && this.stamina < 0.2 ) speed = Math.min( speed, 1.4 ); // winded after a long sprint: the tired walk
-		const accel = this.grounded ? 14 : 2.5;
+		// (wave 24F) weight: a start takes ~0.3 s to reach the jog, a stop is crisper, a turn in between (the old 14 both
+		// ways started on a dime, which read as a capsule sliding, not a body)
+		const accel = ! this.grounded ? 2.5 : ! moving ? 18 : this.velocity.lengthSq() < 0.05 ? 9 : 12;
 		const k = 1 - Math.exp( - accel * dt );
 		if ( this.launched > 0 ) this.launched -= dt;
 		else {

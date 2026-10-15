@@ -20,7 +20,8 @@ import * as THREE from '../engine/index.js';
 //   meleeHurt  a blow taken on foot: a hard short shake and a small FOV punch outward
 //   dodge      the evade: a quick FOV push (no shake)
 // opts.scale (0..2) scales any kick. Each kick also rumbles the gamepad (app.gamepad.rumble, core/Gamepad.js).
-// Sailing: the FOV opens a few degrees with boat speed (0 at rest, +5° flat out) for a sense of speed.
+// Sailing: the FOV opens a few degrees with boat speed (0 at rest, +5° flat out) for a sense of speed; a sprint on
+// foot opens it +6° the same way (wave 24F; player.sprinting, the Player's spring arm reaches out with it).
 // The base FOV is the settings slider (app.ui.s.fov, else the camera's own); the camera's fov is only
 // written while something is active and put back to the base after, so the slider stays in charge.
 // app.settings.reduceMotion turns the shakes, the recoil tilt and the sailing FOV off (the FOV kicks and hitstops
@@ -33,6 +34,7 @@ const STRIKE_T = 0.25, STRIKE_AMP = 0.011; // rad
 const CATCH_HOLD = 0.08, CATCH_FOV = - 3, CATCH_T = 0.22;
 const SNAP_T = 0.18, SNAP_AMP = 0.016;
 const SAIL_FOV = 5;
+const SPRINT_FOV = 6; // (wave 24F) on foot the fov opens this much at a full sprint (player.sprinting), eased in and out
 const RECOIL_ANG = 0.0105, RECOIL_T = 0.32, RECOIL_FOV = 1.5; // rad, s, degrees
 const HIT_T = 0.22, HIT_AMP = 0.018;
 const BROAD_T = 0.45, BROAD_AMP = 0.026, BROAD_FOV = - 2.5;
@@ -281,7 +283,15 @@ export class CameraFeel {
 		// sailing: the fov opens with boat speed
 		const p = app.player, b = app.boatCtl;
 		const sailing = ! this.reduceMotion && p && p.mode === 'boat' && b && Number.isFinite( b.speed );
-		const sailTarget = sailing ? SAIL_FOV * smooth( 3, 12, Math.abs( b.speed ) ) : 0;
+		let sailTarget = sailing ? SAIL_FOV * smooth( 3, 12, Math.abs( b.speed ) ) : 0;
+		// ... and with a sprint on foot (the spring arm reaches out with it: a sense of speed)
+		if ( ! this.reduceMotion && p && p.mode === 'walk' && p.sprinting ) {
+
+			const v = p.velocity ? Math.hypot( p.velocity.x || 0, p.velocity.z || 0 ) : 8;
+			sailTarget = Math.max( sailTarget, SPRINT_FOV * smooth( 3, 7.5, v ) );
+
+		}
+
 		this._sail += ( sailTarget - this._sail ) * ( 1 - Math.exp( - dt * 2.5 ) );
 		if ( Math.abs( this._sail ) < 0.01 ) this._sail = 0;
 		this.fovKick = kick + this._sail;
