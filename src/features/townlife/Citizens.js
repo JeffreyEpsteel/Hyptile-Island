@@ -617,7 +617,8 @@ export class TownSim {
 		E.waitT += dt;
 		// the next leg once the couple and most of the rest are there (or after a while: nobody is left behind for long)
 		const there = E.members.filter( ( c ) => c.arrived ).length;
-		if ( ( E.members[ 0 ].arrived && there >= E.members.length - 1 ) || E.waitT > 40 ) {
+		// (at the start: once most have come, or after 25 s; the stragglers catch up)
+		if ( ( E.members[ 0 ].arrived && there >= Math.ceil( E.members.length * ( E.k ? 0.85 : 0.7 ) ) ) || E.waitT > ( E.k ? 40 : 25 ) ) {
 
 			if ( E.k >= E.route.length - 1 ) {
 
@@ -913,6 +914,9 @@ export class TownSim {
 		c.umbrella = this.wet && OUTDOOR.has( act );
 		c.oilskin = this.wet && act === 'work';
 		if ( this.festival && ( act === 'tavern' || act === 'promenade' || act === 'stroll' || ( act === 'play' && this.hour >= 18 ) ) ) act = 'festival';
+		// (a festival night keeps the town up: the grown-ups till half past eleven, the children till ten)
+		const late = ( ( this.hour % 24 ) + 24 ) % 24;
+		if ( this.festival && act === 'sleep' && late >= 18 && late < ( c.role === 'child' ? 22 : 23.5 ) && ! c.role.startsWith( 'pirate' ) && c.role !== 'watchman' ) act = 'festival';
 		switch ( act ) {
 
 			case 'school': {

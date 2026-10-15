@@ -93,6 +93,8 @@ if ( tl ) {
 }
 
 const evalCode = arg( 'eval' ) ? new Function( 'app', 'tl', arg( 'eval' ) ) : null;
+// --print=<js expression>: printed (JSON) after each view settles, with app and tl in scope
+const printCode = arg( 'print' ) ? new Function( 'app', 'tl', 'return ( ' + arg( 'print' ) + ' );' ) : null;
 
 // the camera: a few metres up, back from the market (stall) toward the town centre side, looking at it
 const POSES = {
@@ -139,6 +141,7 @@ for ( const town of towns ) for ( const time of times ) {
 
 	}
 
+	if ( printCode ) try { console.log( '  ' + id + ': ' + JSON.stringify( printCode( app, tl ) ) ); } catch ( e ) { console.log( '  print failed', e.message ); }
 	await GPU.queue.onSubmittedWorkDone();
 	await canvasPNG( GPU, join( out, `${ tag }-${ id }.png` ) );
 	ms.sort( ( a, b ) => a - b );

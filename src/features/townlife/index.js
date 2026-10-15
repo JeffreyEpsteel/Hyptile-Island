@@ -83,6 +83,16 @@ const umbrellaIndex = ( c ) => ( c._umb ?? ( c._umb = [ ...c.id ].reduce( ( h, c
 const umbrellaTint = ( c ) => UMBRELLAS[ umbrellaIndex( c ) ];
 const umbrellaLinear = ( c ) => UMBRELLAS_L[ umbrellaIndex( c ) ];
 
+// the weather's precipitation 0..1 (weather.rainIntensity; weather.rain is its RainFX, or a number on a stand-in)
+export function rainOf( w ) {
+
+	if ( ! w ) return 0;
+	if ( Number.isFinite( w.rainIntensity ) ) return w.rainIntensity;
+	if ( w.current && Number.isFinite( w.current.rain ) ) return w.current.rain;
+	return Number.isFinite( w.rain ) ? w.rain : 0;
+
+}
+
 export function resolveClip( model, name ) {
 
 	const has = ( n ) => model && model.clips && model.clips.has( n );
@@ -493,7 +503,7 @@ export class TownLife {
 		active.clear();
 		// (wave 24E) the weather and the island day: rain, the calendar's occasions
 		const w = this.features && this.features.get ? this.features.get( 'weather' ) : null;
-		const rain = w && Number.isFinite( w.rain ) ? w.rain : 0;
+		const rain = rainOf( w );
 		const day = w && Number.isFinite( w.day ) ? w.day : 0;
 		this.calendar.tick( dt );
 		for ( const t of this.towns ) {

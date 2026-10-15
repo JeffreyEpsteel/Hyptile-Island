@@ -286,7 +286,7 @@ section( 'occasions: the procession, the festival, the market day, the regatta' 
 	ok( ended && ! w.sim.list.some( ( c ) => c.eventRole === 'procession' ), 'ends with a cheer and everyone goes on' );
 	ok( ! w.sim.event, 'once a day' );
 
-	const f = world( { hour: 21, day: 3 } );
+	const f = world( { hour: 22.5, day: 3 } ); // (past the folk's bedtime: a festival keeps them up)
 	await ready( f );
 	ok( f.tl.startEvent( 'festival', 'tidemark', 600 ), 'a festival night (forced)' );
 	run( f, 120 );
