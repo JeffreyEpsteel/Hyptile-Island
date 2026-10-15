@@ -59,6 +59,7 @@ const FLASH_GAIN = 2.2; // exposure x(1 + 2.2) at the peak of a flash
 // a front's strikes (_frontStrikes): glow in the cloud bank within `glow` m, the screen flashes within `near` m under the band,
 // never two screen flashes closer than `gap` s
 const FLASH = { glow: 6000, near: 2500, gap: 8 };
+const RADIO_GAP_MS = 90000; // the forecast on the plane's radio at most every 90 s
 const MANUAL_SECONDS = 25; // an owner's pick takes effect faster than the scheduled weather
 const MANUAL_INTENSITY = { clear: 0.8, breezy: 0.5, overcast: 0.7, rain: 0.6, storm: 0.9, fog: 0.8 };
 const UP = { x: 0, y: 1, z: 0 };
@@ -648,6 +649,10 @@ export class Weather {
 	// the plane's radio on takeoff: the forecast where she flies
 	_radio() {
 
+		// once a take-off: a plane hopping off the chop fires planeTookOff every bounce (six readings in one run)
+		const now = this.now();
+		if ( now - ( this._radioAt || - 1e12 ) < RADIO_GAP_MS ) return;
+		this._radioAt = now;
 		const g = this.app && this.app.game;
 		if ( g && typeof g.toast === 'function' ) g.toast( `Radio: ${ this.forecastText() }`, 4600 );
 
