@@ -5,6 +5,9 @@ import { WORLD } from '../world/WorldLayout.js';
 const RHO = 1025; // sea water density
 const GRAV = 9.81;
 const DEG = Math.PI / 180;
+// the righting ballast past a heel (rad): gm the lever in metres of mass x g per radian of excess heel, damp the roll
+// damping (s) on the same lever
+const BALLAST = { from: 35 * DEG, gm: 2.0, damp: 0.25 };
 
 const sstep = THREE.MathUtils.smoothstep;
 const clamp = THREE.MathUtils.clamp;
@@ -422,6 +425,19 @@ export class BoatController {
 		const ik = this.inertia.y / 15700; // the lobster boat's damping constants, scaled with the hull's inertia
 		_v.set( - aLoc.x * 25000 * ik, - aLoc.y * 2000 * ik, - aLoc.z * ( 4500 + 900 * au ) * ik ).multiplyScalar( wd ).applyQuaternion( this.quaternion );
 		T.add( _v );
+
+		// ---- ballast: she rights herself. The hydrostatics alone turn the launch over past ~60 deg of heel and the
+		// lobster boat past ~40, and a 1 m beam sea (the storm chop in a harbour) leaves her upside down for good with
+		// the player "on deck". Past BALLAST.from the keel pulls her back with a torque that grows with the heel, and the
+		// roll is damped while she is far over (nothing changes under BALLAST.from: the ordinary heel is the hull's)
+		const roll = Math.atan2( side.y, up.y ); // about the forward axis: 0 upright, +-PI inverted
+		const over = Math.abs( roll ) - BALLAST.from;
+		if ( over > 0 ) {
+
+			const k = m * GRAV * BALLAST.gm;
+			T.addScaledVector( fwd, - Math.sign( roll ) * k * over * ( 1 + over ) - aLoc.z * k * BALLAST.damp );
+
+		}
 
 		// ---- mooring lines when docked and not driven
 		if ( this.moored && ! this.driven ) {

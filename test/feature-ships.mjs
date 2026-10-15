@@ -739,6 +739,34 @@ if ( ! NO_RENDER ) {
 
 }
 
+section( '9. ballast: a heeled or capsized boat rights herself' );
+{
+
+	// the hydrostatics alone turned the launch over past ~60 deg of heel and the lobster boat past ~40, and a 1 m beam sea
+	// (storm chop in a harbour) left her upside down for good with the player on deck (the Meridian play-test)
+	const _s = new E.Vector3(), _u = new E.Vector3();
+	const rollOf = ( b ) => Math.atan2( _s.set( 1, 0, 0 ).applyQuaternion( b.quaternion ).y, _u.set( 0, 1, 0 ).applyQuaternion( b.quaternion ).y ) * 180 / Math.PI;
+	for ( const id of [ 'launch', 'lobster' ] ) {
+
+		for ( const heel of [ 70, 150 ] ) {
+
+			const r = rig( id );
+			r.boat.quaternion.setFromAxisAngle( new E.Vector3( 0, 0, 1 ), heel * Math.PI / 180 );
+			r.run( 20 );
+			ok( Math.abs( rollOf( r.boat ) ) < 5 && Math.abs( r.boat.position.y ) < 0.2, `the ${ id } heeled ${ heel } deg is upright again within 20 s (roll ${ rollOf( r.boat ).toFixed( 0 ) }, y ${ r.boat.position.y.toFixed( 2 ) })` );
+
+		}
+
+		const k = 2 * Math.PI / 18, w = Math.sqrt( 9.81 * k );
+		const r = rig( id, ( x, z, t ) => 1.0 * Math.sin( k * x - w * t ) );
+		let max = 0;
+		r.run( 30, () => { max = Math.max( max, Math.abs( rollOf( r.boat ) ) ); } );
+		ok( max < 60 && Math.abs( rollOf( r.boat ) ) < 60, `a 1 m beam sea rolls the ${ id } at most ${ max.toFixed( 0 ) } deg and never leaves her over` );
+
+	}
+
+}
+
 console.log( `\n${ passes } checks passed, ${ fails } failed${ NO_RENDER ? ' (render skipped)' : '' }` );
 if ( fails ) process.exit( 1 );
 await done();
