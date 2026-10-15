@@ -59,6 +59,15 @@ fn cabBump( N: vec3f, P: vec3f, h: f32, k: f32 ) -> vec3f {
 	return normalize( abs( det ) * N - g * k );
 }
 fn cabFade( uv: vec2f, freq: f32 ) -> f32 { let w = fwidth( uv * freq ); return 1.0 - smoothstep( 0.35, 0.9, max( w.x, w.y ) ); }
+fn rotorCover( P: vec3f, hub: vec4f, axis: vec4f, blade: vec4f ) -> f32 {
+	let up = axis.xyz; let sun = frame.sunDir; let su = dot( sun, up );
+	let along = dot( hub.xyz - P, up ) / max( su, 0.05 );
+	let q = P + sun * along - hub.xyz;
+	let r = length( q );
+	let ang = atan2( dot( cross( blade.xyz, q ), up ), dot( blade.xyz, q ) );
+	let d = abs( fract( ang / 1.5707963 + 0.5 ) - 0.5 ) * 1.5707963 * r;
+	return ( 1.0 - smoothstep( 0.1, 0.16, d ) ) * step( 0.35, r ) * step( r, axis.w ) * step( 0.0, along ) * step( 0.05, su ) * clamp( 1.0 - frame.night * 2.0, 0.0, 1.0 );
+}
 `,
 } );
 
@@ -75,17 +84,12 @@ export const familyOf = ( name ) => ( FAMILIES.find( ( [ re ] ) => re.test( name
 const COMMON = /* wgsl */`
 	s.emissive += s.albedo * mat.cabin.rgb;
 `;
-const ROTOR = /* wgsl */`
+// a rotorcraft's blades between the sun and the cabin: a stripe of shade per blade, swept round with the rotor (the
+// output stage dims the lit colour where the blade covers the sun; surfaces facing away are already in shade)
+export const ROTOR_SHADOW = /* wgsl */`
 	{
-		let up = mat.rotorAxis.xyz; let sun = frame.sunDir;
-		let along = dot( mat.rotorHub.xyz - in.P, up ) / max( dot( sun, up ), 0.05 );
-		let q = in.P + sun * along - mat.rotorHub.xyz;
-		let r = length( q );
-		let ref = mat.rotorBlade.xyz;
-		let ang = atan2( dot( cross( ref, q ), up ), dot( ref, q ) );
-		let blade = abs( fract( ang / 1.5707963 + 0.5 ) - 0.5 ) * 1.5707963 * r;
-		let cover = ( 1.0 - smoothstep( 0.1, 0.16, blade ) ) * step( 0.35, r ) * step( r, mat.rotorAxis.w ) * step( 0.0, along ) * step( 0.05, dot( sun, up ) );
-		s.albedo *= 1.0 - cover * 0.55 * clamp( 1.0 - frame.night * 2.0, 0.0, 1.0 );
+		let rc = rotorCover( in.P, mat.rotorHub, mat.rotorAxis, mat.rotorBlade ) * step( 0.0, dot( s.normal, frame.sunDir ) );
+		( *r ).color = vec4f( ( *r ).color.rgb * ( 1.0 - rc * 0.62 ), ( *r ).color.a );
 	}
 `;
 
@@ -97,11 +101,11 @@ const SURF = {
 	s.normal = cabBump( s.normal, in.P, g * 0.00028 * f, 1.0 );
 	s.clearcoat = 0.12; s.clearcoatRoughness = 0.4; s.sheenColor = s.albedo * 0.25; s.sheenRoughness = 0.6;`,
 	vinyl: `
-	let g = cabCell( in.uv * 180.0 ); let f = cabFade( in.uv, 180.0 );
-	s.albedo *= 0.97 + 0.05 * g * f;
-	s.roughness = mix( 0.34, 0.46, g * f );
-	s.normal = cabBump( s.normal, in.P, g * 0.00018 * f, 1.0 );
-	s.clearcoat = 0.3; s.clearcoatRoughness = 0.25;`,
+	let g = cabCell( in.uv * 90.0 ); let f = cabFade( in.uv, 90.0 );
+	s.albedo *= ( 0.97 + 0.05 * g * f ) * ( 0.95 + 0.1 * cabFbm( in.uv * 7.0 ) );
+	s.roughness = mix( 0.42, 0.52, g * f );
+	s.normal = cabBump( s.normal, in.P, g * 0.0001 * f, 1.0 );
+	s.clearcoat = 0.1; s.clearcoatRoughness = 0.35;`,
 	cloth: `
 	let w = in.uv * 900.0; let f = cabFade( in.uv, 900.0 );
 	let weave = mix( 0.5, 0.5 + 0.5 * sin( w.x * 6.2832 ) * sin( w.y * 6.2832 + 1.57 * step( 0.5, fract( w.x * 0.5 ) ) ), f );
@@ -199,7 +203,7 @@ const RAIN = /* wgsl */`
 	s.alpha = drop * ( 0.35 + 0.35 * rim ) + spark * 0.3 + rain * 0.04;
 `;
 
-export function cabinMaterial( name, { color = null, roughness = 0.6, metalness = 0, rotor = false, screenTexture = null, rect = null } = {} ) {
+export function cabinMaterial( name, { color = null, roughness = 0.6, metalness = 0, rotor = false, screenTexture = null, rect = null, atlas = ATLAS } = {} ) {
 
 	const fam = familyOf( name );
 	const uniforms = { cabin: [ 'vec3f', new Color( 0, 0, 0 ) ] };
@@ -222,13 +226,14 @@ export function cabinMaterial( name, { color = null, roughness = 0.6, metalness 
 	} else {
 
 		if ( fam === 'lamp' ) uniforms.glow = [ 'f32', 0 ];
-		o.surface = SURF[ fam ] + COMMON + ( rotor ? ROTOR : '' );
+		o.surface = SURF[ fam ] + COMMON;
 		o.side = 'double';
 
 	}
+	if ( rotor && fam !== 'rain' && fam !== 'glass' ) o.output = ROTOR_SHADOW;
 	const m = new Material( o );
 	m.family = fam;
-	if ( m.uniforms.rect && rect ) m.uniforms.rect.value.set( rect.x / ATLAS.w, rect.y / ATLAS.h, rect.w / ATLAS.w, rect.h / ATLAS.h );
+	if ( m.uniforms.rect && rect ) m.uniforms.rect.value.set( rect.x / atlas.w, rect.y / atlas.h, rect.w / atlas.w, rect.h / atlas.h );
 	return m;
 
 }
@@ -242,9 +247,9 @@ function toFloat( a ) {
 
 }
 
-const SCREEN_KEYS = { Screen_Cluster: 'cluster', Screen_Stack: 'stack', Screen_Aux: 'aux' };
+const SCREEN_KEYS = { Screen_Cluster: 'cluster', Screen_Stack: 'stack', Screen_Aux: 'aux', Screen_Overhead: 'overhead' };
 
-export function buildInterior( gltf, { screenTexture = null, rotor = false, regions = REGIONS, layers = null } = {} ) {
+export function buildInterior( gltf, { screenTexture = null, rotor = false, regions = REGIONS, layers = null, atlas = ATLAS } = {} ) {
 
 	const group = new Group();
 	group.name = 'vehicle-interior';
@@ -257,7 +262,7 @@ export function buildInterior( gltf, { screenTexture = null, rotor = false, regi
 		const pbr = gm.pbrMetallicRoughness || {};
 		const f = pbr.baseColorFactor || [ 0.5, 0.5, 0.5, 1 ];
 		const key = SCREEN_KEYS[ name ];
-		const m = cabinMaterial( name, { color: new Color( f[ 0 ], f[ 1 ], f[ 2 ] ), roughness: pbr.roughnessFactor ?? 0.6, metalness: pbr.metallicFactor ?? 0, rotor, screenTexture, rect: key ? regions[ key ] : null } );
+		const m = cabinMaterial( name, { color: new Color( f[ 0 ], f[ 1 ], f[ 2 ] ), roughness: pbr.roughnessFactor ?? 0.6, metalness: pbr.metallicFactor ?? 0, rotor, screenTexture, rect: key ? regions[ key ] : null, atlas } );
 		materials.set( name, m );
 		return m;
 
@@ -465,6 +470,25 @@ function limbGeometry( r0, r1, seg = 10 ) {
 
 }
 
+function jointGeometry( r, seg = 10, rings = 6 ) {
+
+	const pos = [], nrm = [], uv = [], idx = [];
+	for ( let j = 0; j <= rings; j ++ ) for ( let i = 0; i <= seg; i ++ ) {
+
+		const t = j / rings * Math.PI, a = i / seg * Math.PI * 2, n = [ Math.sin( t ) * Math.cos( a ), Math.cos( t ), Math.sin( t ) * Math.sin( a ) ];
+		pos.push( n[ 0 ] * r, n[ 1 ] * r, n[ 2 ] * r ); nrm.push( ...n ); uv.push( i / seg * 0.3, j / rings * 0.1 );
+		if ( j && i < seg ) { const b = ( j - 1 ) * ( seg + 1 ) + i, c = j * ( seg + 1 ) + i; idx.push( b, b + 1, c, b + 1, c + 1, c ); }
+
+	}
+	const g = new BufferGeometry();
+	g.setAttribute( 'position', new BufferAttribute( new Float32Array( pos ), 3 ) );
+	g.setAttribute( 'normal', new BufferAttribute( new Float32Array( nrm ), 3 ) );
+	g.setAttribute( 'uv', new BufferAttribute( new Float32Array( uv ), 2 ) );
+	g.setIndex( idx ); g.computeBoundingBox(); g.computeBoundingSphere();
+	return g;
+
+}
+
 const _y = new Vector3( 0, 1, 0 ), _seg = new Vector3(), _dir = new Vector3(), _perp = new Vector3(), _mid = new Vector3();
 
 export class Limb {
@@ -473,7 +497,9 @@ export class Limb {
 
 		this.upper = new Mesh( limbGeometry( r0, r1 ), material );
 		this.lower = new Mesh( limbGeometry( r1, r2 ), material );
-		for ( const m of [ this.upper, this.lower ] ) { m.castShadow = false; m.receiveShadow = true; m.frustumCulled = false; m.name = 'limb'; parent.add( m ); }
+		// the knee / elbow: a ball that rounds the joint between the two tubes
+		this.knee = new Mesh( jointGeometry( r1 * 1.08 ), material );
+		for ( const m of [ this.upper, this.lower, this.knee ] ) { m.castShadow = false; m.receiveShadow = true; m.frustumCulled = false; m.name = 'limb'; parent.add( m ); }
 		this.joint = new Vector3();
 
 	}
@@ -503,11 +529,13 @@ export class Limb {
 		Limb.place( this.upper, a, this.joint );
 		// the lower bone ends at c even when c is out of reach (the hand stays on the rim)
 		Limb.place( this.lower, this.joint, _mid.copy( c ) );
+		this.knee.position.copy( this.joint );
 		return this.joint;
 
 	}
 
-	dispose() { for ( const m of [ this.upper, this.lower ] ) { m.removeFromParent(); m.geometry.dispose(); } }
+	set visible( v ) { this.upper.visible = this.lower.visible = this.knee.visible = v; }
+	dispose() { for ( const m of [ this.upper, this.lower, this.knee ] ) { m.removeFromParent(); m.geometry.dispose(); } }
 
 }
 

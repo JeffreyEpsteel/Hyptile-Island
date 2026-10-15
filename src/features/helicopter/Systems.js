@@ -3,6 +3,9 @@ import { Vector3, Color } from '../../engine/index.js';
 
 const clamp = ( n, a, b ) => Math.max( a, Math.min( b, n ) );
 export const START_TIME = 1.2;
+// fuel (wave 24A): tank fractions per second running (idle .. full collective); a landed aircraft on a helipad refuels
+// at REFUEL per second; the reserve it never burns below (the rescue service keeps you flying); the low-fuel caution
+export const FUEL = Object.freeze( { idle: 1 / 3600, full: 1 / 1500, refuel: 0.04, reserve: 0.04, low: 0.15 } );
 export class RotorSystems {
 
 	constructor( flight ) {
@@ -23,10 +26,11 @@ export class RotorSystems {
 		} );
 		this.syncLights();
 	}
-	reset() { this.master = true; this.nav = true; this.landing = this.search = this.cabin = false; this.starting = 0; this.running = false; this.session = false; this.hold = null; this.time = 0; this.warnings = []; this.acknowledged = ''; this.flight.engineOn = false; this.flight.starter = false; this.syncLights(); }
+	reset() { this.master = true; this.fuelPump = true; this.fuel = this.fuel ?? 0.85; this.nav = true; this.landing = this.search = this.cabin = false; this.starting = 0; this.running = false; this.session = false; this.hold = null; this.time = 0; this.warnings = []; this.acknowledged = ''; this.flight.engineOn = false; this.flight.starter = false; this.syncLights(); }
 	begin() { this.session = true; if ( this.flight.rpm > .8 ) this.running = true; else this.start(); }
 	start( hp = 100 ) {
 		if ( ! this.master ) return { ok: false, why: 'Switch on AVIONICS / battery before starting.' };
+		if ( ! this.fuelPump ) return { ok: false, why: 'Switch on the FUEL PUMP (overhead) before starting.' };
 		if ( hp <= 0 || this.flight.onWater ) return { ok: false, why: 'Recover and repair the helicopter at its helipad.' };
 		if ( ! this.running && ! this.starting ) this.starting = START_TIME;
 		return { ok: true, why: 'Starter engaged · wait for green ROTOR before lifting.' };
@@ -55,15 +59,19 @@ export class RotorSystems {
 		const yaw = clamp( Math.atan2( local.x, local.z ), - 1.2, 1.2 ), down = clamp( Math.atan2( - local.y, Math.hypot( local.x, local.z ) ), .05, 1.3 );
 		l.dirL.set( Math.sin( yaw ) * Math.cos( down ), - Math.sin( down ), Math.cos( yaw ) * Math.cos( down ) );
 	}
-	update( dt, { piloted, hp } ) {
+	update( dt, { piloted, hp, onPad = false } ) {
 		dt = Number.isFinite( dt ) ? clamp( dt, 0, .1 ) : 0; this.time += dt;
 		if ( piloted && ! this.session ) this.begin();
-		if ( ! piloted || hp <= 0 || this.flight.onWater || ! this.master ) { this.stop( true ); if ( ! piloted ) this.session = false; }
+		if ( ! piloted || hp <= 0 || this.flight.onWater || ! this.master || ! this.fuelPump ) { this.stop( true ); if ( ! piloted ) this.session = false; }
 		else if ( this.starting > 0 ) { this.starting = Math.max( 0, this.starting - dt ); if ( this.starting === 0 ) this.running = true; }
 		this.flight.engineOn = piloted && this.running && hp > 0 && ! this.flight.onWater;
 		this.flight.starter = this.starting > 0;
 		const f = this.flight; this.warnings = [];
+		// fuel burns with the turbine and the collective; a helipad's bowser tops the tank up while you sit on it
+		if ( this.running ) this.fuel = Math.max( FUEL.reserve, this.fuel - ( FUEL.idle + ( FUEL.full - FUEL.idle ) * clamp( Math.abs( f.controls.lift || 0 ) * 0.6 + Math.hypot( f.velocity.x, f.velocity.z ) / 34 * 0.4, 0, 1 ) ) * dt );
+		if ( onPad && f.grounded && ! this.running && f.rpm < 0.3 ) this.fuel = Math.min( 1, this.fuel + FUEL.refuel * dt );
 		if ( hp < 50 ) this.warnings.push( 'HULL DAMAGE' );
+		if ( this.fuel <= FUEL.low ) this.warnings.push( 'LOW FUEL' );
 		if ( piloted && ! f.grounded && ( ! f.engineOn || f.rpm < .8 ) ) this.warnings.push( 'LOW ROTOR' );
 		if ( ! f.grounded && f.agl < 25 && f.velocity.y < - 3.5 ) this.warnings.push( 'SINK RATE' );
 		if ( f.onWater ) this.warnings.push( 'DITCHED' );
@@ -74,6 +82,6 @@ export class RotorSystems {
 	get flashing() { return this.warnings.join( '|' ) !== this.acknowledged && Math.floor( this.time * 3 ) % 2 === 0; }
 	ack() { this.acknowledged = this.warnings.join( '|' ); }
 	syncLights() { for ( const l of this.lights || [] ) l.update(); }
-	toJSON() { return { master: this.master, nav: this.nav, landing: this.landing, search: this.search, cabin: this.cabin }; }
-	fromJSON( data ) { this.reset(); for ( const key of [ 'master', 'nav', 'landing', 'search', 'cabin' ] ) if ( typeof data?.[ key ] === 'boolean' ) this[ key ] = data[ key ]; this.syncLights(); }
+	toJSON() { return { master: this.master, fuelPump: this.fuelPump, fuel: Math.round( this.fuel * 1000 ) / 1000, nav: this.nav, landing: this.landing, search: this.search, cabin: this.cabin }; }
+	fromJSON( data ) { this.reset(); for ( const key of [ 'master', 'fuelPump', 'nav', 'landing', 'search', 'cabin' ] ) if ( typeof data?.[ key ] === 'boolean' ) this[ key ] = data[ key ]; if ( Number.isFinite( data?.fuel ) ) this.fuel = clamp( data.fuel, FUEL.reserve, 1 ); this.syncLights(); }
 }

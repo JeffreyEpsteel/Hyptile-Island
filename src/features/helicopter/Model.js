@@ -1,18 +1,59 @@
 // Authored light utility helicopter: bubble cockpit, panel, cabin, tail boom,
 // four main blades, tail rotor, skid gear and rescue paint. Uses native engine materials.
-import { Group, Mesh, Vector3 } from '../../engine/index.js';
+import { Group, Mesh, Vector3, BufferGeometry, BufferAttribute } from '../../engine/index.js';
 import { standard } from '../../materials/Materials.js';
 import { prepare, mergePrepared, box, roundedBox, cylinder, sphere, rod, torus, mat4 } from '../../world/boat/GeoKit.js';
 import { createPropMaterial } from '../../game/GameMaterials.js';
 
 const V = ( x, y, z ) => new Vector3( x, y, z );
+export const PEDAL_Z = 0.85;
+// drops on the glass: cells in the uv beaded by the rain, drawn back into streaks with the airspeed; a fresnel rim of
+// reflection so the bubble reads as glass from inside and out
+const CANOPY = /* wgsl */`
+	let vdn = abs( dot( normalize( in.V ), s.normal ) );
+	let fres = pow( 1.0 - vdn, 4.0 );
+	s.alpha = clamp( s.alpha + fres * 0.45, 0.0, 0.85 );
+	let g = vec2f( in.uv.x * 140.0, in.uv.y * 70.0 + mat.streak * frame.time * 1.5 );
+	let c = floor( g );
+	let h = fract( sin( dot( c, vec2f( 12.9898, 78.233 ) ) ) * 43758.5453 );
+	let o = vec2f( fract( h * 7.13 ), fract( h * 3.71 ) ) * 0.6 + 0.2;
+	let d = length( ( fract( g ) - o ) * vec2f( 1.0, 1.0 / ( 1.0 + mat.streak * 2.5 ) ) );
+	let drop = ( 1.0 - smoothstep( 0.16, 0.28, d ) ) * step( 1.0 - mat.rain * 0.8, h ) * step( 0.01, mat.rain );
+	let rim = smoothstep( 0.1, 0.26, d ) * drop;
+	let spark = ( 1.0 - smoothstep( 0.0, 0.07, length( fract( g ) - o - vec2f( - 0.06, - 0.07 ) ) ) ) * drop;
+	s.alpha = max( s.alpha, drop * ( 0.45 + rim * 0.4 ) );
+	s.albedo = mix( s.albedo, vec3f( 0.3, 0.34, 0.38 ) * ( 1.0 - rim * 0.6 ), drop );
+	s.emissive += vec3f( spark * 0.5 * ( 1.0 - frame.night * 0.7 ) );
+`;
+
+// the glazing below the bubble: an elliptic band up to the bubble's rim (y 1.12 .. 1.7) round the nose and back past
+// the doors (their windows), and the chin windows under the panel down to the floor
+function canopySkirt() {
+	const pos = [], nrm = [], uv = [], idx = [];
+	const band = ( a0, a1, N, rows ) => {
+		const base = pos.length / 3;
+		for ( let i = 0; i <= N; i ++ ) {
+			const t = a0 + ( a1 - a0 ) * i / N, x = Math.cos( t ) * 1.13, z = Math.sin( t ) * 1.62;
+			for ( const [ y, k ] of rows ) { pos.push( x * k, y, 0.72 + z * k ); nrm.push( Math.cos( t ), 0, Math.sin( t ) * 0.7 ); uv.push( i / N, y ); }
+			if ( i ) { const b = base + ( i - 1 ) * 2; idx.push( b, b + 2, b + 1, b + 1, b + 2, b + 3 ); }
+		}
+	};
+	band( - 0.72, Math.PI + 0.72, 36, [ [ 1.12, 0.93 ], [ 1.7, 1 ] ] );
+	band( Math.PI / 2 - 0.62, Math.PI / 2 + 0.62, 14, [ [ 0.66, 0.86 ], [ 1.12, 0.93 ] ] );
+	const g = new BufferGeometry();
+	g.setAttribute( 'position', new BufferAttribute( new Float32Array( pos ), 3 ) );
+	g.setAttribute( 'normal', new BufferAttribute( new Float32Array( nrm ), 3 ) );
+	g.setAttribute( 'uv', new BufferAttribute( new Float32Array( uv ), 2 ) );
+	g.setIndex( idx ); g.computeBoundingBox(); g.computeBoundingSphere();
+	return g;
+}
 export class HelicopterVisual {
 
 	constructor( scene ) {
 		this.scene = scene; this.root = new Group(); this.root.name = 'coastal-rescue-helicopter';
 		this.geometries = []; this.materials = []; this.meshes = [];
 		const solid = createPropMaterial( 'helicopter-rescue-paint' ); this.materials.push( solid );
-		const parts = [];
+		const parts = [], simple = [];
 		const add = ( g, color, matrix = null, metal = 0, rough = 0.45 ) => parts.push( prepare( g, { color, matrix, metal, rough } ) );
 		const jade = 0x157d79, cream = 0xf6e8bd, black = 0x18272c, metal = 0x667980, rescue = 0xe67232;
 		// A low belly and an aft engine pod leave a real open cabin volume. A full
@@ -34,8 +75,10 @@ export class HelicopterVisual {
 			add( box( 0.06, 0.08, 0.35 ), black, mat4( s * 1.13, 1.4, 0.15 ) );
 			add( sphere( 0.08, 8, 6 ), s > 0 ? 0xe93333 : 0x37e67d, mat4( s * 1.14, 1.24, - 0.8 ) );
 			const seatX = s > 0 ? .2 : -.55;
-			add( roundedBox( 0.58, 0.16, 0.64, 0.06 ), black, mat4( seatX, 0.96, - .2 ) );
-			add( roundedBox( 0.58, 0.8, 0.15, 0.05 ), black, mat4( seatX, 1.34, - .55, - 0.08 ) );
+			simple.push( prepare( roundedBox( 0.58, 0.16, 0.64, 0.06 ), { color: black, matrix: mat4( seatX, 0.96, - .2 ) } ) );
+			simple.push( prepare( roundedBox( 0.58, 0.8, 0.15, 0.05 ), { color: black, matrix: mat4( seatX, 1.34, - .55, - 0.08 ) } ) );
+			// door skins (wave 24A): the lower doors close the cabin under their windows
+			add( roundedBox( 0.05, 0.36, 1.75, 0.02 ), jade, mat4( s * 1.08, 0.94, 0.45 ) );
 		}
 		add( rod( V( 0, 1.63, - 1.45 ), V( 0, 2.08, - 7.05 ), 0.38, 16, 0.11 ), jade );
 		add( box( 2.5, 0.09, 0.7 ), cream, mat4( 0, 1.94, - 5.6, 0.04 ) );
@@ -50,10 +93,15 @@ export class HelicopterVisual {
 		this._mesh( mergePrepared( parts ), solid, this.root, 'airframe' );
 		// Upper glazed dome ends above the glare shield. The old complete sphere
 		// curved through the footwell and overlaid the lower panel from inside.
-		const glass = standard( { color: 0x9dd5dd, roughness: 0.12, metalness: 0.05, transparent: true, opacity: 0.19, depthWrite: false, side: 2 } );
-		this.materials.push( glass );
+		// the glazing: the bubble, its skirt down to the belly and the door windows; reflections at grazing angles, rain on
+		// it (setRain) beaded and streaming back with the airspeed
+		const glass = standard( { color: 0x9dd5dd, roughness: 0.08, metalness: 0.05, transparent: true, opacity: 0.16, depthWrite: false, side: 2, uniforms: { rain: [ 'f32', 0 ], streak: [ 'f32', 0 ] }, surface: CANOPY } );
+		this.materials.push( glass ); this.glass = glass;
 		this._mesh( sphere( 1, 28, 14, 0, Math.PI * 2, 0, Math.PI / 2 ), glass, this.root, 'bubble-canopy' ).scale.set( 1.13, 0.85, 1.62 );
 		this.meshes[ this.meshes.length - 1 ].position.set( 0, 1.7, 0.72 );
+		this._mesh( canopySkirt(), glass, this.root, 'canopy-skirt' );
+		const cabin = createPropMaterial( 'helicopter-cabin-simple' ); this.materials.push( cabin );
+		this.simple = this._mesh( mergePrepared( simple ), cabin, this.root, 'cabin-simple' );
 		this.mainRotor = new Group(); this.mainRotor.position.set( 0, 3.19, - 0.4 ); this.root.add( this.mainRotor );
 		const blades = [];
 		for ( let n = 0; n < 4; n ++ ) {
@@ -67,13 +115,14 @@ export class HelicopterVisual {
 		for ( let n = 0; n < 2; n ++ ) tail.push( prepare( box( 0.05, 1.5, 0.12 ), { color: n ? cream : black, matrix: mat4( 0, 0, 0, n * Math.PI / 2 ) } ) );
 		this._mesh( mergePrepared( tail ), solid, this.tailRotor, 'tail-rotor' );
 		// Working flight controls stay below the eye and move with actual command inputs.
-		this.cyclic = new Group(); this.cyclic.position.set( .2, 1.02, .65 ); this.root.add( this.cyclic );
+		this.cyclic = new Group(); this.cyclic.position.set( .2, 1.02, .35 ); this.root.add( this.cyclic );
 		this._mesh( prepare( rod( V( 0, 0, 0 ), V( 0, .42, -.08 ), .027 ), { color: metal, metal: .7 } ), solid, this.cyclic, 'cyclic-column' );
 		this._mesh( prepare( roundedBox( .13, .14, .12, .035 ), { color: black, matrix: mat4( 0, .43, -.08 ) } ), solid, this.cyclic, 'cyclic-grip' );
-		this.collective = new Group(); this.collective.position.set( -.15, .98, -.2 ); this.root.add( this.collective );
-		this._mesh( prepare( rod( V( 0, 0, 0 ), V( 0, .08, .53 ), .026 ), { color: metal, metal: .7 } ), solid, this.collective, 'collective-lever' );
-		this._mesh( prepare( cylinder( .045, .045, .2, 8 ), { color: black, matrix: mat4( 0, .08, .5, Math.PI / 2 ) } ), solid, this.collective, 'collective-grip' );
-		this.pedals = [ - 1, 1 ].map( side => { const pedal = new Group(); pedal.position.set( .2 + side * .16, .82, 1.28 ); this.root.add( pedal ); this._mesh( prepare( box( .22, .09, .12 ), { color: metal, metal: .7 } ), solid, pedal, 'anti-torque-pedal' ); return pedal; } );
+		// (wave 24A: the collective at the pilot's left hand, the cyclic and pedals within the seated pilot's reach)
+		this.collective = new Group(); this.collective.position.set( .55, 1.08, -.25 ); this.root.add( this.collective );
+		this._mesh( prepare( rod( V( 0, 0, 0 ), V( 0, .1, .36 ), .026 ), { color: metal, metal: .7 } ), solid, this.collective, 'collective-lever' );
+		this._mesh( prepare( cylinder( .045, .045, .2, 8 ), { color: black, matrix: mat4( 0, .115, .42, Math.PI / 2 ) } ), solid, this.collective, 'collective-grip' );
+		this.pedals = [ - 1, 1 ].map( side => { const pedal = new Group(); pedal.position.set( .2 + side * .16, .82, PEDAL_Z ); this.root.add( pedal ); this._mesh( prepare( box( .22, .09, .12 ), { color: metal, metal: .7 } ), solid, pedal, 'anti-torque-pedal' ); return pedal; } );
 		this.lamps = [];
 		for ( const [ bit, x, y, z, color, radius ] of [ [ 1, 1.15, 1.24, -.8, 0xff3524, .09 ], [ 1, - 1.15, 1.24, -.8, 0x32ff70, .09 ], [ 2, 0, .89, 2.1, 0xffecbe, .13 ], [ 4, .42, .8, 2.02, 0xd8f5ff, .11 ], [ 8, .15, 2.1, .2, 0xff6b45, .045 ] ] ) {
 			const lampMat = standard( { color, emissive: color, emissiveIntensity: 3, roughness: .2 } ); this.materials.push( lampMat ); const mesh = this._mesh( sphere( radius, 10, 7 ), lampMat, this.root, 'powered-lamp-' + bit ); mesh.position.set( x, y, z ); mesh.visible = false; this.lamps.push( { bit, mesh } );
@@ -87,11 +136,14 @@ export class HelicopterVisual {
 	}
 	setPose( p, q ) { this.root.position.copy( p ); this.root.quaternion.copy( q ); }
 	setLights( mask = 0 ) { this.lamps.forEach( l => { l.mesh.visible = !! ( mask & l.bit ); } ); }
+	setRain( rain = 0, airspeed = 0 ) { if ( this.glass?.uniforms.rain ) { this.glass.uniforms.rain.value = rain; this.glass.uniforms.streak.value = Math.min( 1, airspeed / 30 ); } }
+	// the detailed cockpit (Cockpit.js) replaces the simple seats and control meshes; their groups keep moving
+	setDetailed( on ) { if ( this.simple ) this.simple.visible = ! on; for ( const g of [ this.cyclic, this.collective, ...this.pedals ] ) for ( const m of g.children ) m.visible = ! on; }
 	spin( dt, rpm = 0, flight = null ) {
 		rpm = this.remoteRPM ?? rpm;
 		this.mainRotor.rotation.y = ( this.mainRotor.rotation.y + dt * rpm * 38 ) % ( Math.PI * 2 );
 		this.tailRotor.rotation.x = ( this.tailRotor.rotation.x + dt * rpm * 64 ) % ( Math.PI * 2 );
-		if ( flight ) { const c = flight.controls; this.cyclic.rotation.x = ( c.forward || 0 ) * .18; this.cyclic.rotation.z = - ( c.strafe || 0 ) * .2; this.collective.rotation.x = - .15 - ( c.lift || 0 ) * .23; this.pedals.forEach( ( p, i ) => { p.position.z = 1.28 + ( i ? 1 : - 1 ) * ( c.yaw || 0 ) * .07; } ); }
+		if ( flight ) { const c = flight.controls; this.cyclic.rotation.x = ( c.forward || 0 ) * .18; this.cyclic.rotation.z = - ( c.strafe || 0 ) * .2; this.collective.rotation.x = - .15 - ( c.lift || 0 ) * .23; this.pedals.forEach( ( p, i ) => { p.position.z = PEDAL_Z + ( i ? 1 : - 1 ) * ( c.yaw || 0 ) * .07; } ); }
 	}
 	dispose() { this.scene?.remove?.( this.root ); this.geometries.forEach( g => g.dispose() ); this.materials.forEach( m => m.dispose() ); }
 }

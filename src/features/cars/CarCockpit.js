@@ -63,7 +63,7 @@ export class CarCockpit {
 		this.tex = null; this.hover = null; this.isOpen = false; this.el = null; this.tip = null; this._acc = 1; this.redraws = 0;
 		this.rain = 0; this.rainOverride = null; this.ready = Promise.resolve( null );
 		// the cabin's own lamp (a LocalLights point source near the roof): the dome light, a faint dash glow at night
-		this.lights = [ { id: 'car-cabin', kind: 'car', position: new Vector3(), color: new Color( 1, 0.86, 0.66 ), intensity: 0, range: 3.2, enabled: false, update() {} } ];
+		this.lights = [ { id: 'car-cabin', kind: 'car', position: new Vector3(), color: new Color( 1, 0.86, 0.66 ), intensity: 0, range: 3.4, enabled: false, indoor: 0, update() {} } ];
 		this._onMove = e => { this.mouse = { x: e.clientX, y: e.clientY }; };
 		this._onKey = e => {
 
@@ -186,7 +186,7 @@ export class CarCockpit {
 		this.limbs = [ new Limb( sleeve, [ 0.05, 0.042, 0.033 ], this.group ), new Limb( sleeve, [ 0.05, 0.042, 0.033 ], this.group ), new Limb( trousers, [ 0.075, 0.06, 0.045 ], this.group ), new Limb( trousers, [ 0.075, 0.06, 0.045 ], this.group ) ];
 		this.body = [];
 		this.group.traverse( ( m ) => { if ( m.isMesh && /Glove|Shoe|limb/.test( m.name ) ) this.body.push( m ); } );
-		for ( const l of this.limbs ) this.body.push( l.upper, l.lower );
+		for ( const l of this.limbs ) this.body.push( l.upper, l.lower, l.knee );
 		r.cockpitDetailed = true; this._acc = 1;
 		if ( this.app.localLights && ! this._lightsAdded ) { for ( const l of this.lights ) this.app.localLights.add?.( l ); this._lightsAdded = true; }
 
@@ -324,7 +324,8 @@ export class CarCockpit {
 		const night = this.cars.night, dome = !! ( s.dome || s.domeT > 0 ), glowOn = night && r.engineOn !== false && driven;
 		const L = this.lights[ 0 ];
 		L.enabled = dome || glowOn;
-		L.intensity = dome ? 2.4 : glowOn ? 0.12 : 0;
+		L.intensity = dome ? 14 : glowOn ? 0.8 : 0;
+		L.indoor = dome ? 1 : 0; // (the dome lamp also burns by day)
 		L.color.setRGB( dome ? 1 : 0.5, dome ? 0.86 : 0.85, dome ? 0.66 : 1 );
 		const dp = it.dome || _v.set( 0, r.spec.hgt * 0.85, 0 );
 		_w.copy( dp ).applyQuaternion( this.group.quaternion ).add( this.group.position );

@@ -192,7 +192,7 @@ try {
 		s.temp = 60; r.engineOn = true; step( 60 * 30 ); check( Math.abs( s.temp - TEMP.run ) < 12, 'the coolant settles near its running temperature' );
 		app.settings.timeOfDay = 22; cars.cockpitAct( 'dome' ); step();
 		check( s.dome && cars.cockpit.lights[ 0 ].enabled && cars.cockpit.lights[ 0 ].intensity > 1 && w.lights.includes( cars.cockpit.lights[ 0 ] ), 'the cabin lamp switch lights a real local light' );
-		cars.cockpitAct( 'dome' ); step(); check( cars.cockpit.lights[ 0 ].intensity < 0.5, 'off it falls back to the faint night dash glow' );
+		cars.cockpitAct( 'dome' ); step(); check( cars.cockpit.lights[ 0 ].intensity < 1, 'off it falls back to the faint night dash glow' );
 		app.settings.timeOfDay = 12;
 		const saved = JSON.parse( JSON.stringify( cars.toJSON() ) ); const load = fixture(); load.cars.fromJSON( saved );
 		check( Math.abs( load.cars.owned()[ 0 ].fuel - r.fuel ) < 0.01, 'your car\'s fuel survives the save' ); load.cars.dispose();

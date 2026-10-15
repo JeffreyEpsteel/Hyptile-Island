@@ -7,7 +7,12 @@ import { Colliders } from '../src/world/Colliders.js';
 import { Player } from '../src/player/Player.js';
 import { LocalLights } from '../src/materials/LocalLights.js';
 import { Helicopter } from '../src/features/helicopter/Helicopter.js';
-import { FACE, TEX, SWITCHES, panelSnapshot, drawPanel, rayPanel, hitControl } from '../src/features/helicopter/Cockpit.js';
+import { FACE, TEX, SWITCHES, OVERHEAD, panelSnapshot, drawPanel, drawOverhead, rayPanel, hitControl, hitOverhead } from '../src/features/helicopter/Cockpit.js';
+import { interiorTriangles } from '../src/features/cars/CarInterior.js';
+import { FUEL } from '../src/features/helicopter/Systems.js';
+import { parseGLB } from '../src/engine/loaders/GLTF.js';
+import { readFileSync } from 'node:fs';
+const cockpitLoader = () => { const f = readFileSync( new URL( '../public/models/helicopter/cockpit.glb', import.meta.url ) ); return parseGLB( f.buffer.slice( f.byteOffset, f.byteOffset + f.byteLength ) ); };
 import { sanitizeState } from '../src/net/Protocol.js';
 import { Input } from '../src/core/Input.js';
 
@@ -32,13 +37,13 @@ globalThis.document = { createElement: tag => new El( tag ), body: new El( 'body
 	removeEventListener( key, fn ) { documentListeners.get( key )?.delete( fn ); },
 	exitPointerLock() { this.pointerLockElement = null; pointerReleases ++; for ( const fn of documentListeners.get( 'pointerlockchange' ) || [] ) fn(); },
 };
-function world() {
+function world( opts = {} ) {
 	const terrain = { heightAt: () => 1, normalAt: ( x, z, out ) => out.set( 0, 1, 0 ) }, colliders = new Colliders();
 	const input = new Input( new El( 'canvas' ) ); input.locked = true;
 	const query = { allocate: () => 0, setPoint() {}, cpuValid: false, cpu: new Float32Array( 16 ), resultInputs: new Float32Array( 16 ), version: 0 };
 	const camera = new PerspectiveCamera( 60, 1.6, .1, 5000 ), player = new Player( { terrain, colliders, input, query, camera, boat: null } );
 	let writes = 0; const messages = [], app = { scene: new Scene(), terrainData: terrain, colliders, input, query, camera, player, localLights: new LocalLights(), game: { toast: s => messages.push( s ), state: { save() { writes ++; } } } };
-	const features = new Features( app ), h = new Helicopter( app, features ); features.list.set( 'helicopter', { instance: h } ); for ( const l of h.lights ) app.localLights.add( l );
+	const features = new Features( app ), h = new Helicopter( app, features, opts ); features.list.set( 'helicopter', { instance: h } ); for ( const l of h.lights ) app.localLights.add( l );
 	const tick = () => { player.update( 1 / 60 ); features.update( 1 / 60 ); input.pressed.clear(); };
 	const run = ( seconds, keys = [] ) => { input.keys = new Set( keys ); for ( let i = 0; i < seconds * 60; i ++ ) tick(); input.keys.clear(); };
 	player.position.copy( h.flight.toWorld( [ 1.35, 0, .65 ] ) );
@@ -94,7 +99,8 @@ check( SWITCHES.every( b => hitControl( b.x + b.w / 2, b.y + b.h / 2 ) === b ), 
 const snap = panelSnapshot( h );
 check( [ 'speed', 'altitude', 'agl', 'vs', 'heading', 'pitch', 'bank', 'rpm', 'hp' ].every( k => Number.isFinite( snap[ k ] ) ) && snap.speed === Math.hypot( f.velocity.x, f.velocity.z ) * 3.6 && snap.vs === f.velocity.y && snap.hp === h.hp, 'panel instruments read true ground speed, altitude, AGL, VSI, heading, attitude, RPM and hull' );
 words.length = 0; drawPanel( ctx, snap );
-check( [ 'GROUND SPEED', 'ROTOR', 'ALTITUDE / m ASL', 'AGL / m', 'AIRFRAME', 'SYSTEMS NORMAL' ].every( word => words.includes( word ) ) && canvasCalls.flat().every( Number.isFinite ), 'live canvas emits complete legible instrument labels with no invalid draw coordinates' );
+check( [ 'AIRSPEED', 'ALT  m', 'TURN COORDINATOR', 'VERT SPEED', 'ROTOR  Nr', 'TRQ %', 'TOT °C', 'FUEL', 'CAUTION', 'SYSTEMS NORMAL', 'AIRFRAME 100%' ].every( word => words.includes( word ) ) && canvasCalls.flat().every( Number.isFinite ), 'live canvas: the six-pack, engine gauges, caution panel and map draw with no invalid coordinates' );
+words.length = 0; drawOverhead( ctx, snap ); check( OVERHEAD.every( b => words.includes( b.label ) ) && OVERHEAD.every( b => hitOverhead( ( b.x + b.w / 2 ) / 768, ( b.y + b.h / 2 ) / 320 ) === b ), 'overhead console draws every switch and maps its regions to their actions' );
 check( h.cockpit.mesh.parent === h.visual.root && h.cockpit.material.surface.includes( 'textureSample(heliPanel' ) && h.cockpit.tex.width === 1536 && h.cockpit.tex.usageList.includes( 'render' ), 'native model panel uses actual sampled texture surface and WebGPU-compatible upload usage' );
 check( FACE.C.y + FACE.U.y * FACE.h / 2 < h.vehicle.eye[ 1 ] - .2, 'panel upper edge stays below the pilot eye with clear forward visibility' );
 // Visibility must account for the REAL opaque airframe/control triangles. A bare
@@ -141,6 +147,57 @@ check( app.localLights.sources.length === 5, 'remote appearance adds no per-peer
 h.act( 'panel' ); app.menuOpen = true; const landing = sys.landing; h.cockpit.update( .12 );
 check( ! h.cockpit.open && ! h.act( 'landing' ) && sys.landing === landing && h.cockpit.tip.hidden, 'opening a menu suppresses cockpit tray/tooltips and refuses panel side effects' );
 app.menuOpen = false;
+// ---- wave 24A: the modelled cabin, its controls, the pilot, the overhead console, fuel, rotor shadow, rain
+{
+	const m = world( { cockpitLoader } ), H = m.h, P = m.player;
+	check( H.board() && H.cockpit._wanted(), 'boarding asks for the modelled cabin' );
+	m.run( .2 ); await H.cockpit.ready; m.run( .1 );
+	const it = H.cockpit.interior;
+	check( it && it.group.parent === H.visual.root && ! H.visual.simple.visible && [ 'Cyclic', 'Collective', 'Pedal_L', 'Pedal_R', 'Screen_Overhead' ].every( n => it.nodes.get( n ) ), 'the cabin GLB loads into the aircraft with its controls and overhead console; the simple seats give way' );
+	const tris = interiorTriangles( it ), eyeL = new Vector3( ...H.vehicle.eye ), blockedBy = [];
+	for ( let row = 0; row <= 8; row ++ ) for ( let col = 0; col <= 16; col ++ ) {
+		const u = .01 + col / 16 * .98, v = .01 + row / 8 * .98, target = FACE.C.clone().addScaledVector( FACE.R, ( u - .5 ) * FACE.w ).addScaledVector( FACE.U, ( .5 - v ) * FACE.h );
+		const ray = new Ray( eyeL, target.clone().sub( eyeL ).normalize() ), d = target.distanceTo( eyeL );
+		for ( const t of tris ) { const hit = ray.intersectTriangle( ...t.v, false, new Vector3() ); if ( hit && hit.distanceTo( eyeL ) < d - .005 ) { blockedBy.push( [ u, v, t.name ] ); break; } }
+	}
+	check( blockedBy.length === 0, 'the modelled cabin (glareshield, cheeks, controls, the gloves) hides none of the 153 panel samples: ' + JSON.stringify( blockedBy.slice( 0, 4 ) ) );
+	const fwd = new Ray( eyeL, new Vector3( 0, 0, 1 ) );
+	check( ! tris.some( t => { const hit = fwd.intersectTriangle( ...t.v, false, new Vector3() ); return hit && hit.distanceTo( eyeL ) < 3; } ), 'the cabin keeps the straight-ahead view clear' );
+	m.run( 4 );
+	Object.assign( H.flight.controls, { forward: .7, strafe: - .5, lift: .6, yaw: .8 } ); H.visual.spin( .05, H.flight.rpm, H.flight ); P.setView( 'first' ); H.cockpit.update( .016 );
+	check( it.nodes.get( 'Cyclic' ).quaternion.angleTo( H.visual.cyclic.quaternion ) < 1e-6 && it.nodes.get( 'Collective' ).quaternion.angleTo( H.visual.collective.quaternion ) < 1e-6 && Math.abs( it.nodes.get( 'Pedal_L' ).position.z - H.visual.pedals[ 1 ].position.z ) < 1e-6, 'the modelled cyclic, collective and pedals take the commanded poses' );
+	const wrist = it.point( 'Wrist_R' ), lower = H.cockpit.limbs[ 1 ].lower; lower.updateWorldMatrix( true, false );
+	const tipR = new Vector3( 0, 1, 0 ).applyMatrix4( lower.matrixWorld ); it.group.worldToLocal( tipR );
+	check( tipR.distanceTo( wrist ) < .002 && lower.visible, 'the pilot\'s right forearm reaches the glove on the cyclic in the first person' );
+	P.setView( 'third' ); H.cockpit.update( .016 ); check( H.cockpit.body.every( b => ! b.visible ), 'the pilot\'s limbs hide in the chase view (the avatar is hidden aboard)' ); P.setView( 'first' );
+	// the overhead console by eye: the fuel pump toggle
+	const fuelBtn = OVERHEAD.find( b => b.id === 'fuel' ), om = it.screens.overhead, pts = om.geometry.attributes.position, uvs = om.geometry.attributes.uv;
+	const corner = ( u, v ) => { let best = 0; for ( let i = 1; i < pts.count; i ++ ) if ( Math.hypot( uvs.getX( i ) - u, uvs.getY( i ) - v ) < Math.hypot( uvs.getX( best ) - u, uvs.getY( best ) - v ) ) best = i; return new Vector3().fromBufferAttribute( pts, best ); };
+	const fu = ( fuelBtn.x + fuelBtn.w / 2 ) / 768, fv = ( fuelBtn.y + fuelBtn.h / 2 ) / 320;
+	const local = corner( 0, 0 ).lerp( corner( 1, 0 ), fu ).lerp( corner( 0, 1 ).lerp( corner( 1, 1 ), fu ), fv );
+	om.updateWorldMatrix( true, false ); const target = local.clone().applyMatrix4( om.matrixWorld );
+	m.camera.position.copy( H.flight.toWorld( H.vehicle.eye ) ); m.camera.lookAt( target ); m.camera.updateMatrixWorld();
+	const aimed = H.cockpit.aim();
+	check( aimed?.id === 'fuel' && aimed.overhead, 'looking up at the overhead console aims at its fuel pump switch' );
+	H.flight.velocity.set( 0, 0, 0 ); H.flight.place( H.home.x, H.homeY, H.home.z, 0 ); H.systems.stop( true ); m.run( .1 );
+	check( H.act( 'fuel' ) && ! H.systems.fuelPump && ! H.systems.start( H.hp ).ok, 'on the ground the overhead fuel pump switch starves the turbine and blocks a start' );
+	H.act( 'fuel' ); check( H.systems.fuelPump && H.systems.start( H.hp ).ok, 'pump back on: the starter engages' ); m.run( 4 );
+	const f0 = H.systems.fuel; m.run( 6, [ 'ShiftLeft', 'KeyW' ] );
+	check( ! H.flight.grounded && H.systems.fuel < f0 && H.systems.fuel >= FUEL.reserve && panelSnapshot( H ).fuel === H.systems.fuel, 'the turbine burns fuel in flight; the gauge reads it' );
+	check( ! H.act( 'fuel' ) && H.systems.fuelPump, 'the fuel pump cannot be cut in the air' );
+	H.systems.fuel = 0.1; H.systems.update( .01, { piloted: true, hp: H.hp } ); check( H.systems.warnings.includes( 'LOW FUEL' ), 'low fuel is a caution' );
+	H.flight.place( H.home.x, H.homeY, H.home.z, 0 ); H.systems.stop( true ); H.flight.rpm = 0; const low = H.systems.fuel; m.run( 3 );
+	check( H.systems.fuel > low + 0.05, 'landed on the helipad with the turbine stopped, the tank refuels' );
+	const fuelSave = H.toJSON(); const w3 = world(); w3.h.fromJSON( fuelSave ); check( Math.abs( w3.h.systems.fuel - H.systems.fuel ) < 0.002 && w3.h.systems.fuelPump === H.systems.fuelPump, 'fuel and the pump switch survive the save' ); w3.h.dispose();
+	// the rotor's shadow: the hub, mast and a blade reach the cabin materials
+	H.systems.start( H.hp ); m.run( 3 ); H.cockpit.update( .016 );
+	const mat = [ ...it.materials.values() ].find( x => x.uniforms.rotorHub );
+	check( mat && mat.uniforms.rotorAxis.value.w > 5 && Math.abs( mat.uniforms.rotorAxis.value.y ) > .9 && Math.abs( new Vector3( mat.uniforms.rotorBlade.value.x, mat.uniforms.rotorBlade.value.y, mat.uniforms.rotorBlade.value.z ).length() - 1 ) < 1e-5 && mat.output.includes( 'rotorCover' ) && H.cockpit.material.uniforms.rotorHub.value.y > 3, 'the spinning rotor\'s blade shadows feed the cabin and panel shaders' );
+	H.cockpit.rainOverride = .8; H.cockpit.update( .016 ); check( H.visual.glass.uniforms.rain.value === .8, 'rain reaches the canopy glass shader' );
+	H.flight.velocity.set( 0, 0, 0 ); H.systems.stop( true ); m.run( 4 ); H.exit(); P.position.set( H.flight.position.x + 40, H.flight.position.y, H.flight.position.z ); m.run( 6 );
+	check( ! H.cockpit.interior && H.visual.simple.visible, 'walking away from the aircraft releases the modelled cabin' );
+	H.dispose();
+}
 const tray = h.cockpit.tray, tip = h.cockpit.tip;
 h.dispose(); restored.dispose();
 check( tray.removed && tip.removed && app.scene.children.length === 0 && app.localLights.sources.length === 0, 'dispose removes instrument geometry, owned light sources, DOM panels and aircraft' );

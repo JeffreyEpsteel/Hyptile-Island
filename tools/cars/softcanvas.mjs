@@ -94,6 +94,7 @@ class Soft2D {
 	}
 	ellipse( x, y, rx, ry, rot, a0, a1, ccw ) { this.save(); this.translate( x, y ); this.rotate( rot || 0 ); this.scale( rx, ry ); const s = this.sub; this.arc( 0, 0, 1, a0, a1, ccw ); this.restore(); void s; }
 	quadraticCurveTo( cx, cy, x, y ) { this.lineTo( cx, cy ); this.lineTo( x, y ); }
+	arcTo( x1, y1, x2, y2 ) { this.lineTo( x1, y1 ); this.lineTo( x2, y2 ); }
 	bezierCurveTo( a, b, c, d, x, y ) { this.lineTo( x, y ); }
 
 	_polys( path = this.path ) { return path.filter( ( p ) => p.length > 1 ); }

@@ -36,7 +36,7 @@ export class Helicopter {
 		this.remote = new RemotePlanes( { models: this.visual ? { create: () => new HelicopterVisual( this.app.scene ) } : null } );
 		this.audio = new RotorAudio( this.app );
 		this.hud = opts.hud === false ? null : new HelicopterHUD();
-		this.cockpit = new HelicopterCockpit( this, { canvas: opts.canvas } );
+		this.cockpit = new HelicopterCockpit( this, { canvas: opts.canvas, loader: opts.cockpitLoader } );
 		const f = this.flight;
 		this.vehicle = {
 			kind: 'helicopter', quaternion: f.quaternion, seat: [ .2, .96, - .2 ], eye: [ .2, 1.96, - .05 ], focus: [ 0, 1.5, - 0.6 ], chase: 16,
@@ -180,6 +180,9 @@ export class Helicopter {
 		else if ( id === 'master' ) {
 			if ( s.master && ! this.flight.grounded ) result = { ok: false, why: 'Land before switching off the battery and avionics.' };
 			else { s.master = ! s.master; if ( ! s.master ) s.stop( true ); result.why = 'Battery / avionics ' + ( s.master ? 'on.' : 'off.' ); }
+		} else if ( id === 'fuel' ) {
+			if ( s.fuelPump && ! this.flight.grounded ) result = { ok: false, why: 'Land before switching off the fuel pump.' };
+			else { s.fuelPump = ! s.fuelPump; if ( ! s.fuelPump ) s.stop( true ); result.why = 'Fuel pump ' + ( s.fuelPump ? 'on.' : 'off · the turbine is starved.' ); }
 		} else if ( id === 'hold' ) result = s.toggleHold();
 		else if ( [ 'nav', 'landing', 'search', 'cabin' ].includes( id ) ) { s[ id ] = ! s[ id ]; result.why = id + ' light ' + ( s[ id ] ? 'selected' : 'off' ) + ( ! s.master ? ' · switch on avionics for power.' : '.' ); }
 		else if ( id === 'ack' ) { s.ack(); result.why = 'Warning acknowledged · active caution remains displayed.'; }
@@ -211,7 +214,7 @@ export class Helicopter {
 	}
 	_step( dt ) {
 		this._validateRestoredSupport();
-		const f = this.flight; this.systems.update( dt, { piloted: this.piloted, hp: this.hp } ); f.update( dt );
+		const f = this.flight; this.systems.update( dt, { piloted: this.piloted, hp: this.hp, onPad: f.grounded && [ ...this._pads.values() ].some( p => Math.abs( f.position.x - p.x ) < 6.7 && Math.abs( f.position.z - p.z ) < 6.7 && Math.abs( f.position.y - p.y ) < 0.4 ) } ); f.update( dt );
 		for ( const e of f.drainEvents() ) {
 			const at = { x: f.position.x, y: f.position.y, z: f.position.z };
 			if ( e.type === 'takeoff' ) { this.stats.flights ++; this._emit( 'helicopterTookOff', at ); }
@@ -253,7 +256,7 @@ export class Helicopter {
 	}
 	recall() {
 		if ( this.piloted ) return false;
-		this._parkHome(); this._emit( 'helicopterRecovered' ); this._toast( 'Rescue helicopter serviced and returned to the helipad. E at the cabin to fly.' ); this._save(); return true;
+		this._parkHome(); this.systems.fuel = 1; this._emit( 'helicopterRecovered' ); this._toast( 'Rescue helicopter serviced and returned to the helipad. E at the cabin to fly.' ); this._save(); return true;
 	}
 	marker() { return { x: this.flight.position.x, z: this.flight.position.z, heading: this.flight.yaw, label: 'Rescue helicopter' }; }
 	view() { return { name: 'Coastal rescue helicopter', piloted: this.piloted, hp: Math.round( this.hp ), altitude: Math.round( this.flight.position.y ), agl: Math.round( this.flight.agl ), speed: Math.round( Math.hypot( this.flight.velocity.x, this.flight.velocity.z ) * 3.6 ), verticalSpeed: this.flight.velocity.y, rpm: this.flight.rpm, grounded: this.flight.grounded, systems: this.systems.toJSON(), running: this.systems.running, starting: this.systems.starting > 0, hold: !! this.systems.hold, warnings: this.systems.warnings.slice(), home: { x: this.home.x, y: this.home.y, z: this.home.z }, controls: CONTROLS }; }
