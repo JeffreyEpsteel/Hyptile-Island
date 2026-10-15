@@ -635,6 +635,7 @@ export class Game {
 			case 'floating':
 				if ( b && b.phase === 'take' ) return { key: 'LMB', text: 'Strike now!' };
 				if ( b && b.phase === 'nibble' ) return { key: '…', text: 'Something\'s nibbling · wait until the bobber is pulled under' };
+				if ( b && ! Number.isFinite( b.t ) ) return { key: 'RMB', text: 'Nothing bites this close in · reel in and cast farther out' };
 				return { key: 'RMB', text: 'Waiting for a bite · right-click to reel the line in' };
 			case 'retrieving': return { key: 'RMB', text: 'Reeling in' };
 			case 'fighting':
