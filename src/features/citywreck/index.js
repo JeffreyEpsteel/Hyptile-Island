@@ -17,7 +17,7 @@
 //   const cw = features.get( 'citywreck' );
 //   cw.attach( meridian )      (found by itself: app.meridian / app.ports.meridian; sets meridian.onStage, the looks hook)
 //   cw.raycastSegment( ax, ay, az, bx, by, bz ) -> { t, id, x, y, z, building: true } | null   (cannonballs: naval patch)
-//   cw.stage( id ) 0..3   cw.isOpen( id )   cw.seatOpen( seat )   cw.blockedEdges() -> Set   cw.mood   cw.wanted() 0..5
+//   cw.stage( id ) 0..3   cw.shopOpen( id )   cw.seatOpen( seat )   cw.blockedEdges() -> Set   cw.mood   cw.wanted() 0..5
 //   cw.bulletin( port ) -> [ text ]   cw.payDamages() -> $   cw.info()   cw.model (Model.js)   update / toJSON / fromJSON / reset / dispose
 //
 // Listens: cannonballImpact (hit 'prop' with a building id from the raycast: a direct hit; else a ball landing within 2 m of

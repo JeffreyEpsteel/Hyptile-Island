@@ -668,7 +668,9 @@ export class CityWreck {
 
 	}
 
-	isOpen( id ) {
+	// a building's shop is open (not gutted, no panic). Not `isOpen`: Features.panelOpen() reads every feature's isOpen() as
+	// "a panel of mine is up" and would block the cars' and the plane's controls, the rod and the chat for good
+	shopOpen( id ) {
 
 		return this.model ? this.model.isOpen( id ) : true;
 

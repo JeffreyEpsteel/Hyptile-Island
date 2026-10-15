@@ -368,15 +368,17 @@ section( 'the city: mood, shops, interiors, wanted, the board' );
 
 	const { cw, m, of, step, features } = rig();
 	const shop = m.byId.get( 'stub.shop.0' );
-	ok( cw.isOpen( shop.id ), 'the shop is open' );
+	ok( cw.shopOpen( shop.id ), 'the shop is open' );
+	// (the registry reads every feature's isOpen() as "my panel is up": citywreck has no panel, so it must not answer)
+	ok( typeof cw.isOpen !== 'function' && ! ( features && features.panelOpen && features.panelOpen() ), 'citywreck never counts as an open panel (the cars, the plane and the rod stay in control)' );
 	ball( cw, shop.id, 5 );
-	ok( shop.stage === 2 && ! cw.isOpen( shop.id ), 'gutted: shut' );
+	ok( shop.stage === 2 && ! cw.shopOpen( shop.id ), 'gutted: shut' );
 	const d = of( 'buildingDestroyed' ).find( ( e ) => e.id === shop.id );
 	ok( d && d.building === 'meridian.stubshop', 'buildingDestroyed names its interior (the interiors feature bars the door)' );
 	ok( ! cw.seatOpen( { building: shop.id } ) && cw.seatOpen( { building: 'stub.shop.1' } ), 'seatOpen: its townlife seats are gone, the other shop\'s stay' );
 	ok( ! cw.seatOpen( { id: 'seat.4', interior: 'meridian.stubshop' } ), 'and the seats of its room (by the interior id)' );
 	for ( const id of [ 'stub.low.0', 'stub.low.1', 'stub.mid.1' ] ) ball( cw, id, 100 );
-	ok( cw.mood === 'panic' && ! cw.isOpen( 'stub.shop.1' ), `panic: every shop shuts (mood ${ cw.mood })` );
+	ok( cw.mood === 'panic' && ! cw.shopOpen( 'stub.shop.1' ), `panic: every shop shuts (mood ${ cw.mood })` );
 	ok( cw.wanted() >= 3, `the player's wanted level (${ cw.wanted() })` );
 	const lines = cw.bulletin( 'meridian' );
 	ok( lines.length === 2 && /under repair/.test( lines[ 0 ] ) && /claims \$/.test( lines[ 1 ] ), `the notice board: ${ lines.join( ' | ' ) }` );
