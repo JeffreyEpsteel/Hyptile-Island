@@ -12,6 +12,7 @@ const EYE = 1.62;
 const SWIM_EYE = EYE * 0.1; // eyes above the body's float point while swimming
 const RADIUS = 0.3;
 const HEIGHT = 1.75;
+const STEP_PAD = 0.12; // the feet reach this far past a ledge's edge (stairs with treads narrower than the body)
 // water depth (mean level over the feet) where you start swimming / find your feet again
 const SWIM_DEPTH = 1.35;
 const STAND_DEPTH = 1.1;
@@ -183,10 +184,12 @@ export class Player {
 
 	}
 
-	groundAt( x, z, maxY ) {
+	// pad: how far outside a walkable box's footprint the feet still stand on it (the walk uses the capsule's reach:
+	// a porch stair's 0.28 m treads are narrower than the body, so without it the next riser was a wall)
+	groundAt( x, z, maxY, pad = 0 ) {
 
 		let g = this.terrain.heightAt( x, z );
-		const c = this.colliders.groundHeightAt( x, z, maxY );
+		const c = this.colliders.groundHeightAt( x, z, maxY, pad );
 		if ( c > g ) g = c;
 		if ( this.reef && this.reef.floorHeightAt ) g = Math.max( g, this.reef.floorHeightAt( x, z ) );
 		return g;
@@ -576,7 +579,7 @@ export class Player {
 		const old = p.clone();
 		p.addScaledVector( this.velocity, dt );
 		this.colliders.resolveCapsule( p, RADIUS, HEIGHT, 0.4 );
-		const g = this.groundAt( p.x, p.z, p.y + 0.45 );
+		const g = this.groundAt( p.x, p.z, p.y + 0.45, STEP_PAD );
 		if ( p.y <= g ) {
 
 			p.y = g;
