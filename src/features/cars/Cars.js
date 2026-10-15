@@ -54,6 +54,7 @@ export class Cars {
 		this._removers = [];
 		this._seeded = false;
 		this._trafT = 0;
+		this._sinceExit = Infinity; // s since the player got out (the door prompt waits half a second)
 		this.remote = new Map();
 		this.active = false;
 
@@ -110,8 +111,9 @@ export class Cars {
 
 			this._offs.push( f.on( 'roadBlocked', ( e ) => this.traffic.block( edgesOf( e ) ) ) );
 			this._offs.push( f.on( 'roadCleared', ( e ) => this.traffic.unblock( edgesOf( e ) ) ) );
-			this._offs.push( f.on( 'explosion', ( e ) => { if ( ! this._selfBlast ) this.blast( e.x, e.y, e.z, e.radius || 6, e.energy || 100000, 'explosion' ); } ) );
-			this._offs.push( f.on( 'cannonballImpact', ( e ) => { if ( e && e.hit !== 'water' ) this.blast( e.x, e.y, e.z, 3, e.energy || 40000, 'cannon' ); } ) );
+			// (whose blast it was decides whether the wrecks count against the player: the law, _staged)
+			this._offs.push( f.on( 'explosion', ( e ) => { if ( ! this._selfBlast ) this.blast( e.x, e.y, e.z, e.radius || 6, e.energy || 100000, 'explosion', e.by === 'player' ); } ) );
+			this._offs.push( f.on( 'cannonballImpact', ( e ) => { if ( e && e.hit !== 'water' ) this.blast( e.x, e.y, e.z, 3, e.energy || 40000, 'cannon', e.owner === 'player' ); } ) );
 			this._offs.push( f.on( 'remoteWorldEvent', ( e ) => this._onRemote( e || {} ) ) );
 			// 21C: the damage you do to the city's buildings has its own wanted level; the police answer the higher of the two
 			this._offs.push( f.on( 'cityWanted', ( e ) => { this.cityLevel = clamp( ( e && e.level ) | 0, 0, 5 ); } ) );
@@ -125,7 +127,7 @@ export class Cars {
 			this._removers.push( f.interactable( {
 				id: 'car-door', radius: 2.6,
 				position: () => { const d = this._doorCandidate(); return d ? d.door : FAR; },
-				when: () => ! this.drive && this._onFoot() && !! this._doorCandidate(),
+				when: () => ! this.drive && this._onFoot() && this._sinceExit > 0.5 && !! this._doorCandidate(), // (not the E that got you out)
 				prompt: () => { const d = this._doorCandidate(); return d ? this._doorPrompt( d.rec ) : null; },
 				onInteract: () => { const d = this._doorCandidate(); if ( d ) this.enter( d.rec ); },
 			} ) );
@@ -431,6 +433,7 @@ export class Cars {
 		}
 
 		this.drive = null;
+		this._sinceExit = 0;
 		rec.state = rec.stage >= 4 ? 'wreck' : 'idle';
 		rec.lights = false;
 		for ( const l of this.lights ) l.enabled = false;
@@ -610,6 +613,7 @@ export class Cars {
 
 			hits.push( { speed: sp, x: best.x, z: best.z, nx: best.nx, nz: best.nz, what: 'car', id: o.id } );
 			const dmg = impactDamage( sp, O.tough );
+			if ( dmg > 0 && rec === this.drive ) o.byPlayer = true; // (a wreck the player's car made counts against him; a pursuer's ramming does not)
 			if ( dmg > 0 ) this.damage( o, dmg, 'car' );
 			if ( rec === this.drive && sp > 3 ) {
 
@@ -735,7 +739,9 @@ export class Cars {
 			if ( rec.state === 'traffic' ) this._loosen( rec );
 			if ( rec !== this.drive ) rec.state = 'wreck';
 			rec.driver = false;
-			if ( this.drive === rec || cause !== 'explosion' ) this._addHeat( rec.kind === 'police' ? WANTED.gain.police : WANTED.gain.wreck, 'wreck', rec );
+			// the law minds the wrecks the player made (his car, his blasts, the fires they lit), not the traffic's own pile-ups,
+			// a pursuer's ramming, falling rubble or a pirate's ball
+			if ( this.drive === rec || rec.byPlayer ) this._addHeat( rec.kind === 'police' ? WANTED.gain.police : WANTED.gain.wreck, 'wreck', rec );
 			this._emit( 'carWrecked', { id: rec.id, kind: rec.kind, x: r2( rec.x ), z: r2( rec.z ), cause } );
 
 		}
@@ -745,7 +751,8 @@ export class Cars {
 	}
 
 	// an area hit (explosions, cannon): cars within radius take damage by distance, the near ones are thrown
-	blast( x, y, z, radius, energy, cause = 'explosion' ) {
+	// byPlayer: the player's own blast (a bomb, his gun, his car's wreck going up): the wrecks it makes are his doing
+	blast( x, y, z, radius, energy, cause = 'explosion', byPlayer = false ) {
 
 		if ( ! Number.isFinite( x ) || ! ( radius > 0 ) ) return 0;
 		let n = 0;
@@ -758,6 +765,7 @@ export class Cars {
 			const dmg = energy / 1400 * k;
 			if ( dmg < 0.5 ) continue;
 			n ++;
+			if ( byPlayer ) rec.byPlayer = true;
 			this.damage( rec, dmg, cause );
 			if ( k > 0.25 && rec.state !== 'player' ) {
 
@@ -804,8 +812,8 @@ export class Cars {
 		this._share( 'carExploded', { x: r2( x ), y: r2( y ), z: r2( z ) } );
 		const dest = this._get( 'destruction' );
 		if ( dest && dest.impulse ) try { dest.impulse( x, y, z, D.radius, D.energy ); } catch ( e ) { /* optional */ }
-		// the cars round it (a chain of powder kegs)
-		this.blast( x, y, z, D.radius, D.energy * 0.6, 'explosion' );
+		// the cars round it (a chain of powder kegs; the player's doing when the keg was his)
+		this.blast( x, y, z, D.radius, D.energy * 0.6, 'explosion', !! ( rec.byPlayer || rec.mine ) );
 
 	}
 
@@ -927,6 +935,24 @@ export class Cars {
 
 		const pursuers = this.records.filter( ( r ) => r.state === 'pursuit' );
 		this.graceT = Math.max( 0, this.graceT - dt );
+		// the city's police keep to the city: away from Meridian (at sea, on another island) the chase is over and the heat
+		// cools as if out of sight; nothing is spawned, nobody is busted
+		if ( ! this.active ) {
+
+			for ( const r of pursuers ) { r.state = 'idle'; r.driver = true; r.resumeT = 2; r.pursue = null; }
+			this.bustT = 0;
+			if ( this.heat > 0 ) {
+
+				this.coolT = Math.max( this.coolT + dt, WANTED.cool );
+				this.heat = Math.max( 0, this.heat - WANTED.decay * dt );
+				this._levelCheck( 'away' );
+
+			}
+
+			return;
+
+		}
+
 		const level = this.policeLevel();
 		const seen = pursuers.some( ( r ) => Math.hypot( r.x - pos.x, r.z - pos.z ) < WANTED.sight );
 		if ( this.heat > 0 ) {
@@ -1283,6 +1309,7 @@ export class Cars {
 
 		dt = Math.min( Math.max( Number.isFinite( dt ) ? dt : 0, 0 ), 0.1 );
 		this.time += dt;
+		this._sinceExit += dt;
 		this._frame = ( this._frame || 0 ) + 1;
 		const p = this.app.player;
 		// something else took the player out of the car (a respawn, a rescue)

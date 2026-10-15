@@ -526,6 +526,7 @@ export class AppUI {
 		const mode = p.mode === 'boat' ? t( p.camMode === 'first' ? 'hud.boat1' : 'hud.boat3', p.camMode === 'first' ? 'Boat · 1st person' : 'Boat · 3rd person' )
 			: p.mode === 'deck' ? t( 'hud.deck', 'On deck' )
 			: p.mode === 'plane' && p.vehicle && p.vehicle.kind === 'chute' ? t( 'hud.chute', 'Parachute' )
+			: p.mode === 'plane' && p.vehicle && p.vehicle.kind === 'car' ? ( p.view === 'first' ? 'Driving · driver\'s eye' : 'Driving · chase view' ) // (wave 21B: a car is a vehicle too)
 			: p.mode === 'plane' ? t( p.view === 'first' ? 'hud.plane1' : 'hud.plane3', p.view === 'first' ? 'Seaplane · cockpit' : 'Seaplane · chase view' )
 				+ ( ( h ) => ( h ? ' · ' + h : '' ) )( app.features?.get?.( 'seaplane' )?.bailHint?.() ) // wave 14B: how to bail out, while high enough
 			: p.mode === 'swim' ? ( app.camera.position.y < ( app.cameraWaterHeight ?? 0 ) - 0.3 ? t( 'hud.dive', 'Diving' ) : t( 'hud.swim', 'Swimming' ) ) : t( 'hud.walk', 'Walking' );
