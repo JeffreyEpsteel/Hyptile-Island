@@ -193,7 +193,7 @@ export class Harbour {
 
 			if ( d.port !== port.id ) continue;
 			// a named resident with its own spot in a town (Tidemark) stands there; the rest by rings round the stand
-			const s = d.at ? { x: d.at.x, z: d.at.z } : spot( d.near[ 0 ], d.near[ 1 ] );
+			const s = d.at ? { x: d.at.x, z: d.at.z, ...( d.at.deck ? { deck: true } : {} ) } : spot( d.near[ 0 ], d.near[ 1 ] ); // (deck: on a jetty's planks)
 			if ( d.at ) taken.push( s );
 			if ( s ) folk.push( { ...d, spot: { ...s, yaw: yawToward( s.x, s.z, c.x, c.z ) } } );
 

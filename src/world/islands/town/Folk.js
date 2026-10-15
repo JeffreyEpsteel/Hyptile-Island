@@ -1,4 +1,5 @@
 import { SPOTS, FACE, at } from './Layout.js';
+import { NAVY_JETTY } from '../../../features/naval/Routes.js';
 
 // Tidemark's named residents (the harbour feature's PORT_FOLK format, world/residents/ResidentData.js): the tavern keeper
 // of the Tide & Tankard (service 'tavern', the dice), the harbourmaster, a net-mender and the boatwright. The harbour
@@ -63,6 +64,21 @@ export const TIDEMARK_FOLK = [
 			'Boatwright. That hull in the shed will float by spring.',
 			'Who broke my shed doors? Again?',
 			'Oak for the keel, palm for nothing.',
+		],
+	},
+	{
+		// Lieutenant Hale (the story's navy lieutenant, StoryW20 HALE_SPOT: a few steps along the naval jetty from the
+		// office door); the watch's schedule keeps a resident with a spot of his own on it through the working hours.
+		// His quest talk comes through the story (Game.updateResidents: story.talkTo first); these lines are for when
+		// the Crown has no work
+		id: 'hale', name: 'Lieutenant Hale', port: 'tidemark', character: 'pengu', scale: 1.0, role: 'guard',
+		near: [ 40, 48 ], at: { x: Math.round( ( NAVY_JETTY.office.x + 6 ) * 100 ) / 100, z: Math.round( ( NAVY_JETTY.z + 1.2 ) * 100 ) / 100, deck: true },
+		base: 'Idle_Breathe', gestures: [ 'Point', 'Look_Around', 'Shrug' ],
+		lines: [
+			'Two cutters and a frigate for a whole sea. We manage.',
+			'Convoys run the lanes at dawn. The raiders know it too.',
+			'Bounties are paid at the office. Bring proof, not stories.',
+			'Keep your lamps lit past the roads. The frigate will find you faster.',
 		],
 	},
 ];

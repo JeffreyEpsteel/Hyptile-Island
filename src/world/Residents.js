@@ -536,6 +536,15 @@ export class Resident {
 
 	update( dt, p, d2 ) {
 
+		// a resident standing on a deck built after him (the navy's jetty comes after the harbour's folk) stood on
+		// the sand under it: the ground under an idle stander is re-read now and then
+		if ( this.state === 'idle' && ! this.task && ( this._groundT = ( this._groundT || 0 ) + dt ) > 2 ) {
+
+			this._groundT = 0;
+			this.y = this.owner.groundAt( this.x, this.z, this.deck );
+
+		}
+
 		if ( this.prankT > 0 ) this.prankT -= dt;
 		if ( this.greetT > 0 ) this.greetT -= dt;
 		if ( this.arrived ) this.taskT += dt;
