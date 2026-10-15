@@ -90,10 +90,10 @@ export const SCENARIOS = {
 		place: { kind: 'walk', interior: 'tidemark.tavern', x: 1844.8, z: - 43.7, heading: 1.134 },
 		ships: [], fire: null, peers: 0, frames: 180, warm: 240,
 	},
-	// wave 22A: Meridian on phones: downtown at the Twins Plaza (the towers, the blocks, the traffic), the harbour (the port
+	// wave 22A: Meridian on phones: downtown at the Skyline Plaza (the skyscrapers, the blocks, the traffic), the harbour (the port
 	// stand on the quay), the skyline seen from home (the far impostor), and a car on the avenue (car: driven for the run)
 	meridianDowntown: {
-		id: 'meridianDowntown', name: 'Meridian downtown', about: 'on foot at the west edge of the Twins Plaza at noon, facing the towers: the blocks, the streets, the traffic',
+		id: 'meridianDowntown', name: 'Meridian downtown', about: 'on foot at the west edge of the Skyline Plaza at noon, facing the skyscrapers: the blocks, the streets, the traffic',
 		time: 12, weather: 'clear', intensity: 0,
 		place: { kind: 'walk', x: - 2662, z: - 296, heading: - 1.45 },
 		ships: [], fire: null, peers: 0, frames: 180, warm: 240,
@@ -111,7 +111,7 @@ export const SCENARIOS = {
 		ships: [], fire: null, peers: 0, frames: 180,
 	},
 	meridianDrive: {
-		id: 'meridianDrive', name: 'Meridian drive', about: 'driving a sedan along the avenue south of the Twins Plaza at 17:30: the traffic, the parked cars, the city',
+		id: 'meridianDrive', name: 'Meridian drive', about: 'driving a sedan along the avenue south of the Skyline Plaza at 17:30: the traffic, the parked cars, the city',
 		time: 17.5, weather: 'clear', intensity: 0,
 		place: { kind: 'walk', x: - 2700, z: - 181.5, heading: - 1.5708 }, car: 'sedan', // (a westbound lane: RoadGraph.at)
 		ships: [], fire: null, peers: 0, frames: 180, warm: 240,

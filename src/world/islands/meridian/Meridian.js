@@ -14,6 +14,8 @@ import { MERIDIAN, cityPlan, footprint, signalState, signalOffset, SIGNAL_CYCLE,
 import { Acc, buildingInto, createFacadeMaterial, tiersOf, STYLE } from './Facades.js';
 import { buildStreets } from './Streets.js';
 import { registerMeridian } from './World.js';
+import { towerForm, resolveTower } from './Skyline.js';
+import { STUMP } from './SkylineMesh.js';
 
 // Meridian, the city island (wave 21A): builds the plan (meridian/CityPlan.js) on its terrain tile and publishes the
 // runtime handle the cars (21B) and the city's destruction (21C) use.
@@ -22,7 +24,12 @@ import { registerMeridian } from './World.js';
 //   city.plan                       the plan;  city.tile  the terrain tile (attached to `terrain`'s queries)
 //   city.building( id ) -> handle   { id, kind, plan, group (a Group at the building's foot, made on first use), bounds
 //                                   { min, max }, colliders [ Colliders boxes ], setStage( 0..3 ) -> stage, stage, fireAnchors
-//                                   [ { x, y, z } ] , landmark, collapsible, protected }
+//                                   [ { x, y, z } ] , landmark, collapsible, protected }; the old Twins' ids answer for the
+//                                   towers that stand where they stood (Skyline.js TOWER_ALIASES: old saves)
+//                                   towers (wave 23A): cut (m above the ground where an upper section broke off, null whole),
+//                                   setCut( m | null ) (the broken top drawn, the colliders above it gone), setCutCollision( m )
+//   city.landingSurfaceAt( x, z, maxY, pad ) -> { id, y, pad, ... } | null   the highest live roof (helicopter, seaplane)
+//   city.helipads() -> [ { id, name, x, y, z, r, live } ]   the towers' rooftop pads
 //   city.buildings()                every handle;  city.onStage = ( id, stage ) => { ... }  (21C: called after each change)
 //   city.roadHeight( x, z )         the road surface (the terrain, the hill road's graded profile)
 //   city.signalState( node, axis )  'green' | 'yellow' | 'red' now (the heads the city draws show the same)
@@ -31,7 +38,8 @@ import { registerMeridian } from './World.js';
 //   city.update( dt ), city.stats, city.distance, city.dispose()
 //
 // Stage looks: 1 scarred (broken panes, soot), 2 gutted (fire glow behind the windows), 3 collapsed (a stump of the ground
-// floor; 21C's onStage adds the rubble). The Twins share all destruction stages.
+// floor; 21C's onStage adds the rubble). The skyscrapers (Skyline.js, SkylineMesh.js: one chunk, near / far LOD) share every
+// stage, and may lose an upper section first (setCut).
 // Distance: per chunk (~400 m) a near mesh (cornices, roof plant, water tanks, awnings, signs) or a far one (the tiers
 // alone); the kit (lamps, signals, benches, trees, cranes) and the streets only near the city; the land at 4 m (hills) /
 // 8 m (the city plain) near and 24 m far. Phones: shorter distances, coarser land, NearRelease when far.
@@ -130,7 +138,7 @@ export class Meridian {
 		this.chunks = new Map();
 		for ( const b of this.plan.buildings ) {
 
-			const key = b.kind === 'tower' ? 'twins' : `${ Math.floor( ( b.x - MERIDIAN.center.x + 800 ) / CHUNK.w ) }_${ Math.floor( ( b.z - MERIDIAN.center.z + 700 ) / CHUNK.d ) }`;
+			const key = b.kind === 'tower' ? 'skyline' : `${ Math.floor( ( b.x - MERIDIAN.center.x + 800 ) / CHUNK.w ) }_${ Math.floor( ( b.z - MERIDIAN.center.z + 700 ) / CHUNK.d ) }`;
 			let c = this.chunks.get( key );
 			if ( ! c ) this.chunks.set( key, c = { key, list: [], near: null, far: null, dirty: true, x: 0, z: 0 } );
 			c.list.push( b );
@@ -286,51 +294,29 @@ export class Meridian {
 	_handle( b, chunk ) {
 
 		const self = this;
-		const tiers = tiersOf( b );
+		const tower = b.kind === 'tower';
+		const tiers = tower ? [] : tiersOf( b );
 		const colliders = [];
-		if ( this.colliders ) {
+		if ( this.colliders && tower ) {
 
-			const ts = b.kind === 'tower' ? [ { x0: b.x - b.w / 2, x1: b.x + b.w / 2, z0: b.z - b.d / 2, z1: b.z + b.d / 2, y0: b.y - 2, y1: b.y + b.h } ] : tiers;
-			for ( const t of ts ) colliders.push( this.colliders.addBox( new Vector3( ( t.x0 + t.x1 ) / 2, ( t.y0 + t.y1 ) / 2, ( t.z0 + t.z1 ) / 2 ), new Vector3( ( t.x1 - t.x0 ) / 2, ( t.y1 - t.y0 ) / 2, ( t.z1 - t.z0 ) / 2 ), 0, { tag: 'meridianBuilding' } ) );
-			if ( b.kind === 'tower' ) {
+			// a skyscraper's solid parts (some turned: the helix), its live roofs and pads, the crown / mast / plant obstacles
+			const F = towerForm( b );
+			const add = ( s, opts, flag ) => {
 
-				// Roof support is separate from the solid walls: aircraft still strike the facade.
-				// Two crossing rectangles stay inside the roof's chamfered corners.
-				const roof = ( x0, x1, z0, z1, y ) => {
+				const c = this.colliders.addBox( new Vector3( s.x, ( s.y0 + s.y1 ) / 2, s.z ), new Vector3( s.hx, ( s.y1 - s.y0 ) / 2, s.hz ), s.yaw || 0, opts );
+				if ( flag ) c[ flag ] = true;
+				c._top0 = c.top; c._bottom0 = c.bottom;
+				colliders.push( c );
+				return c;
 
-					const c = this.colliders.addBox( new Vector3( ( x0 + x1 ) / 2, y - 0.1, ( z0 + z1 ) / 2 ), new Vector3( ( x1 - x0 ) / 2, 0.1, ( z1 - z0 ) / 2 ), 0, { walkable: true, solid: false, tag: 'meridianRoof' } );
-					c._roof = true;
-					colliders.push( c );
+			};
+			for ( const s of F.solids ) add( s, { tag: 'meridianBuilding' } );
+			for ( const r of F.roofs ) add( { x: ( r.x0 + r.x1 ) / 2, z: ( r.z0 + r.z1 ) / 2, hx: ( r.x1 - r.x0 ) / 2, hz: ( r.z1 - r.z0 ) / 2, y0: r.y - 0.2, y1: r.y }, { walkable: true, solid: false, tag: 'meridianRoof' }, '_roof' )._pad = !! r.pad;
+			for ( const o of F.obstacles ) add( o, { tag: 'meridianRoofPlant' }, '_roofObstacle' );
 
-				};
-				const top = b.y + b.h, h = b.w / 2;
-				roof( b.x - h + 2.2, b.x + h - 2.2, b.z - h, b.z + h, top );
-				roof( b.x - h, b.x + h, b.z - h + 2.2, b.z + h - 2.2, top );
-				const ph = h - 7.5;
-				const plant = this.colliders.addBox( new Vector3( b.x, top + 3, b.z ), new Vector3( ph, 3, ph ), 0, { tag: 'meridianRoofPlant' } );
-				plant._roofObstacle = true;
-				colliders.push( plant );
-				roof( b.x - ph, b.x + ph, b.z - ph, b.z + ph, top + 6 );
-				if ( b.id === 'twin-north' ) {
+		} else if ( this.colliders ) {
 
-					for ( const [ y0, y1, radius ] of [ [ top + 6, top + 20, 2.2 ], [ top + 20, top + 63, 1.4 ] ] ) {
-
-						const mast = this.colliders.addBox( new Vector3( b.x, ( y0 + y1 ) / 2, b.z ), new Vector3( radius, ( y1 - y0 ) / 2, radius ), 0, { tag: 'meridianRoofMast' } );
-						mast._roofObstacle = true;
-						colliders.push( mast );
-
-					}
-
-				} else if ( b.id === 'twin-south' ) {
-
-					const pavilion = this.colliders.addBox( new Vector3( b.x, top + 8, b.z ), new Vector3( 9, 2, 6 ), 0, { tag: 'meridianRoofPlant' } );
-					pavilion._roofObstacle = true;
-					colliders.push( pavilion );
-					roof( b.x - 9, b.x + 9, b.z - 6, b.z + 6, top + 10 );
-
-				}
-
-			}
+			for ( const t of tiers ) colliders.push( this.colliders.addBox( new Vector3( ( t.x0 + t.x1 ) / 2, ( t.y0 + t.y1 ) / 2, ( t.z0 + t.z1 ) / 2 ), new Vector3( ( t.x1 - t.x0 ) / 2, ( t.y1 - t.y0 ) / 2, ( t.z1 - t.z0 ) / 2 ), 0, { tag: 'meridianBuilding' } ) );
 
 		}
 
@@ -341,9 +327,11 @@ export class Meridian {
 			landmark: !! b.landmark, collapsible: b.collapsible !== false, protected: !! b.protected, name: b.name || null,
 			bounds: { min: { x: f.x0, y: b.y, z: f.z0 }, max: { x: f.x1, y: b.y + b.h, z: f.z1 } },
 			colliders,
-			fireAnchors: b.protected ? [] : fireAnchors( b, f ),
+			fireAnchors: b.protected ? [] : tower ? towerAnchors( b ) : fireAnchors( b, f ),
+			cut: null,
 			setCollisionStage( s ) {
 
+				if ( tower ) { colStage = s; towerCollision(); return; }
 				for ( const c of colliders ) {
 
 					if ( c._roof ) { c.walkable = s < 3; continue; }
@@ -354,6 +342,24 @@ export class Meridian {
 					c.center.y = c.bottom + c.half.y;
 
 				}
+
+			},
+			// (towers) an upper section broke off at cut m above the ground: the broken top drawn, the colliders above it gone
+			setCut( cut ) {
+
+				const v = Number.isFinite( cut ) && cut > 0 ? cut : null;
+				h.setCutCollision( v );
+				if ( v === h.cut ) return h.cut;
+				h.cut = v;
+				chunk.dirty = true;
+				self._dirty = true;
+				return v;
+
+			},
+			setCutCollision( cut ) {
+
+				colCut = Number.isFinite( cut ) && cut > 0 ? cut : null;
+				if ( tower ) towerCollision();
 
 			},
 			get group() {
@@ -390,13 +396,43 @@ export class Meridian {
 
 			},
 		};
+		// a tower's colliders from its stage and its break: solid parts end at the break (the stump when fallen), roofs above
+		// it stop carrying anyone, obstacles above it go
+		let colStage = 0, colCut = null;
+		const towerCollision = () => {
+
+			const lim = colStage >= 3 ? b.y + STUMP : colCut !== null ? b.y + colCut : Infinity;
+			for ( const c of colliders ) {
+
+				if ( c._roof ) { c.walkable = c._top0 <= lim + 0.01; continue; }
+				if ( c._roofObstacle ) { c.solid = c._bottom0 < lim - 0.01; continue; }
+				c.solid = c._bottom0 < lim - 0.01;
+				c.top = Math.max( c.bottom + 0.5, Math.min( c._top0, lim ) );
+				c.half.y = ( c.top - c.bottom ) / 2;
+				c.center.y = c.bottom + c.half.y;
+
+			}
+
+		};
 		return h;
 
 	}
 
+	// (the old Twins' ids answer for the towers on their spots: saves and streams from release 3ba863b)
 	building( id ) {
 
-		return this.handles.get( id ) || null;
+		return this.handles.get( id ) || this.handles.get( resolveTower( id ) ) || null;
+
+	}
+
+	helipads() {
+
+		return this.plan.buildings.filter( ( b ) => b.helipad ).map( ( b ) => {
+
+			const p = b.helipad;
+			return { id: b.id, name: b.name, x: p.x, y: p.y, z: p.z, r: p.r, live: !! this.landingSurfaceAt( p.x, p.z, p.y + 0.5 ) };
+
+		} );
 
 	}
 
@@ -410,7 +446,7 @@ export class Meridian {
 			if ( ! c._roof || ! c.walkable || c.top > maxY ) continue;
 			const x0 = c.center.x - c.half.x, x1 = c.center.x + c.half.x, z0 = c.center.z - c.half.z, z1 = c.center.z + c.half.z;
 			if ( x < x0 + pad || x > x1 - pad || z < z0 + pad || z > z1 - pad ) continue;
-			if ( ! best || c.top > best.y ) best = { id: h.id, x0, x1, z0, z1, y: c.top, top: c.top, tag: c.tag };
+			if ( ! best || c.top > best.y ) best = { id: h.id, x0, x1, z0, z1, y: c.top, top: c.top, tag: c.tag, pad: !! c._pad };
 
 		}
 		if ( best ) for ( const c of this.handles.get( best.id ).colliders ) {
@@ -457,9 +493,9 @@ export class Meridian {
 		const near = new Acc(), far = new Acc();
 		for ( const b of c.list ) {
 
-			const stage = this.handles.get( b.id ).stage;
-			buildingInto( near, b, { detail: true, stage } );
-			buildingInto( far, b, { detail: false, stage } );
+			const h = this.handles.get( b.id );
+			buildingInto( near, b, { detail: true, stage: h.stage, cut: h.cut } );
+			buildingInto( far, b, { detail: false, stage: h.stage, cut: h.cut } );
 
 		}
 
@@ -586,6 +622,38 @@ export class Meridian {
 		this.group.traverse( ( o ) => { if ( o.geometry && o.geometry.dispose ) o.geometry.dispose(); } );
 
 	}
+
+}
+
+// a skyscraper's fire anchors: four points round its section every 24 m up, and the roof (citywreck shows the burning
+// floors' own; these are the fallback)
+function towerAnchors( b ) {
+
+	const out = [];
+	const F = towerForm( b );
+	for ( let y = b.y + 4; y < b.y + b.h - 4; y += 24 ) {
+
+		for ( const p of F.parts ) {
+
+			const r = p.rings ? p.rings.find( ( q, i ) => i > 0 && q.y >= y ) : null;
+			if ( ! r ) continue;
+			const n = r.pts.length;
+			for ( let k = 0; k < 4; k ++ ) {
+
+				const [ ax, az ] = r.pts[ Math.floor( k * n / 4 ) ], [ bx, bz ] = r.pts[ ( Math.floor( k * n / 4 ) + 1 ) % n ];
+				const L = Math.hypot( bx - ax, bz - az ) || 1;
+				out.push( { x: ( ax + bx ) / 2 - ( bz - az ) / L * 0.4, y, z: ( az + bz ) / 2 + ( bx - ax ) / L * 0.4 } );
+
+			}
+
+			break;
+
+		}
+
+	}
+
+	out.push( { x: b.x, y: b.y + b.h + 0.5, z: b.z } );
+	return out;
 
 }
 

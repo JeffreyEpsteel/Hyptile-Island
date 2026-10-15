@@ -1,15 +1,20 @@
 // Plain-node test of Meridian (wave 21A): the shared city plan (meridian/CityPlan.js: deterministic, roads connected, no
-// building on a road, the Twins landmark / destructible), the terrain tile (MeridianTerrain: heights, shore, roads on
+// building on a road, the skyline's towers: wave 23A), the terrain tile (MeridianTerrain: heights, shore, roads on
 // the ground, the hill road's grade), the world entries (WORLD.meridian / ports / islands), the builder's handles (setStage,
-// onStage, the Twins' rule, colliders), the signals, the port's vendors' premium, the townlife plan and the budgets.
+// onStage, the towers' breaks, roofs and helipads, colliders), the signals, the port's vendors' premium, the townlife plan
+// and the budgets.
 //   node test/feature-meridian.mjs
 import { WORLD } from '../src/world/WorldLayout.js';
+import { Vector3 } from '../src/engine/index.js';
 import * as CP from '../src/world/islands/meridian/CityPlan.js';
 import { MeridianTerrain, ensureMeridian } from '../src/world/islands/MeridianTerrain.js';
 import { registerMeridian } from '../src/world/islands/meridian/World.js';
 import { Meridian } from '../src/world/islands/meridian/Meridian.js';
 import { meridianTownPlan } from '../src/world/islands/meridian/TownLife.js';
 import { Colliders } from '../src/world/Colliders.js';
+import { SKYLINE, TOWER_ALIASES, sectionsAt, cutRange, insideAny } from '../src/world/islands/meridian/Skyline.js';
+import { Acc, buildingInto } from '../src/world/islands/meridian/Facades.js';
+import { STUMP } from '../src/world/islands/meridian/SkylineMesh.js';
 import { terrainTiles, heightAtlasLayout, buildHeightStrip, stripHeightAt, tileBeaches, mapExtent } from '../src/world/terrain/TerrainTiles.js';
 import { ISLETS } from '../src/world/terrain/IslandShape.js';
 
@@ -37,12 +42,28 @@ ok( plan.buildings.length > 250, 'a city of buildings', plan.buildings.length );
 ok( plan.buildings.every( ( b ) => kinds.has( b.kind ) && CP.STYLES.includes( b.style ) && b.w > 0 && b.d > 0 && b.h > 0 && b.floors >= 1 && Number.isFinite( b.y ) && b.block ), 'every building well formed (kind, style, size, floors, ground, block)' );
 ok( new Set( plan.buildings.map( ( b ) => b.id ) ).size === plan.buildings.length, 'building ids unique' );
 ok( plan.buildings.every( ( b ) => Math.abs( Math.round( b.yaw / ( Math.PI / 2 ) ) * ( Math.PI / 2 ) - b.yaw ) < 1e-9 ), 'yaws are quarter turns (axis-aligned footprints)' );
+section( 'the skyline (wave 23A)' );
 const towers = plan.buildings.filter( ( b ) => b.kind === 'tower' );
-ok( towers.length === 2 && towers.every( ( t ) => t.landmark && t.collapsible && ! t.protected && t.h >= 280 && t.h <= 320 && t.w === t.d ), 'two square towers ~300 m: destructible landmarks' );
-ok( towers[ 0 ].w === towers[ 1 ].w && towers[ 0 ].h === towers[ 1 ].h, 'the Twins are identical' );
+ok( towers.length >= 6 && towers.length <= 9 && towers.length === SKYLINE.length, 'six to nine skyscrapers', towers.map( ( t ) => t.id ).join( ', ' ) );
+ok( towers.every( ( t ) => t.landmark && t.collapsible && ! t.protected && t.name && t.shape ), 'every one a named, destructible landmark with a shape' );
+ok( new Set( towers.map( ( t ) => t.shape ) ).size === towers.length && new Set( towers.map( ( t ) => t.style ) ).size === towers.length, 'no two alike: a shape and a facade each', towers.map( ( t ) => t.shape + '/' + t.style ).join( ' ' ) );
+const tops = towers.map( ( t ) => t.top - t.y ).sort( ( a, b ) => a - b );
+ok( towers.every( ( t ) => t.h >= 140 && t.top - t.y <= 330 && t.top >= t.y + t.h ), 'roofs from 140 m, the highest points to ~320 m', tops.map( Math.round ).join( ' ' ) );
+ok( tops.every( ( h, i ) => i === 0 || h - tops[ i - 1 ] > 5 ), 'different heights (no two within 5 m)' );
+ok( towers.filter( ( t ) => t.w === t.d && t.shape === 'box' ).length < 2, 'none of them a pair of identical square boxes' );
+ok( towers.filter( ( t ) => t.helipad ).length >= 3 && towers.filter( ( t ) => t.helipad ).every( ( t ) => Math.abs( t.helipad.y - ( t.y + t.h ) ) < 0.01 ), 'at least three helipads, on the roofs', towers.filter( ( t ) => t.helipad ).map( ( t ) => t.id ).join( ', ' ) );
+ok( Object.entries( TOWER_ALIASES ).every( ( [ old, now ] ) => old.startsWith( 'twin-' ) && towers.some( ( t ) => t.id === now ) ) && ! plan.buildings.some( ( b ) => b.id.startsWith( 'twin-' ) ), 'the old Twins\' ids map to towers on their spots' );
 const others = plan.buildings.filter( ( b ) => b.kind !== 'tower' );
 ok( others.every( ( b ) => b.collapsible && ! b.protected ), 'every other building is destructible' );
-ok( others.every( ( b ) => b.h < towers[ 0 ].h - 60 ), 'the Twins are the tallest by far', Math.max( ...others.map( ( b ) => b.h ) ) );
+ok( others.every( ( b ) => b.h < Math.min( ...towers.map( ( t ) => t.h ) ) ), 'the skyscrapers stand clear of the rest', Math.max( ...others.map( ( b ) => b.h ) ).toFixed( 1 ) );
+// the plan's footprint holds every part of each tower at every height
+let outside = 0;
+for ( const t of towers ) for ( let y = t.y + 1; y < t.top; y += 6 ) for ( const o of sectionsAt( t, y ) ) for ( const [ x, z ] of o ) if ( x < t.x - t.w / 2 - 0.01 || x > t.x + t.w / 2 + 0.01 || z < t.z - t.d / 2 - 0.01 || z > t.z + t.d / 2 + 0.01 ) outside ++;
+ok( outside === 0, 'each tower inside its plan footprint at every height', outside );
+ok( towers.every( ( t ) => insideAny( sectionsAt( t, t.y + 10 ), t.x, t.z + ( t.shape === 'tri' ? 9 : 0 ) ) ), 'sectionsAt: the ground floor round the tower\'s middle' );
+ok( towers.every( ( t ) => { const [ lo, hi ] = cutRange( t ); return lo > 40 && hi > lo + 10 && hi < t.h; } ), 'a break only between ~40 % of the height and below the crown' );
+const courts = plan.plazas.filter( ( p ) => p.id.startsWith( 'court-' ) );
+ok( courts.length === towers.filter( ( t ) => t.block !== 'skyline' ).length && plan.buildings.filter( ( b ) => courts.some( ( c ) => 'court-' + b.id === c.id ) ).every( ( t ) => plan.buildings.filter( ( q ) => q.block === t.block ).length === 1 ), 'a block tower stands alone on its block, a forecourt round it' );
 for ( const id of [ 'city-hall', 'station', 'lighthouse', 'fish-market', 'chandlery', 'roid-office', 'terminal', 'ferry-terminal', 'market-hall' ] ) ok( plan.buildings.some( ( b ) => b.id === id ), 'has ' + id );
 // buildings do not overlap each other
 let overlap = 0;
@@ -93,7 +114,7 @@ ok( onRoad === 0, 'no building stands on a road or its sidewalk', onRoad );
 ok( plan.buildings.every( ( b ) => CP.coastDistance( b.x, b.z ) < 0 ), 'every building on land' );
 ok( plan.parking.length > 200 && plan.parking.every( ( p ) => Number.isFinite( p.x ) && Number.isFinite( p.yaw ) && [ 'street', 'lot', 'garage' ].includes( p.kind ) ), 'parking (street bays, lots, garages)', plan.parking.length );
 ok( plan.parking.some( ( p ) => p.kind === 'garage' ) && plan.parking.some( ( p ) => p.kind === 'lot' ), 'lots and garages for the cars' );
-ok( plan.sidewalks.length > 100 && plan.plazas.some( ( p ) => p.id === 'twins' ) && plan.plazas.some( ( p ) => p.kind === 'park' ), 'sidewalks, the Twins plaza, the park' );
+ok( plan.sidewalks.length > 100 && plan.plazas.some( ( p ) => p.id === 'skyline' ) && plan.plazas.some( ( p ) => p.kind === 'park' ), 'sidewalks, the Skyline Plaza, the park' );
 ok( plan.docks.some( ( d ) => d.kind === 'pier' && d.berth ) && plan.docks.some( ( d ) => d.kind === 'ferry' ), 'the pier (with its berth) and the ferry slip' );
 ok( plan.airstrip && plan.airstrip.length >= 400, 'an airstrip on the reclaimed land', plan.airstrip.length );
 // the signal cycle: never green both ways, both ways get green
@@ -186,12 +207,53 @@ const city = new Meridian( { scene: null, terrain: fakeTerrain, colliders, kit: 
 ok( Date.now() - t0 < 5000, 'builds', ( Date.now() - t0 ) + ' ms' );
 ok( city.plan === plan && city.buildings().length === plan.buildings.length, 'a handle per building' );
 const hT = city.building( 'twin-north' );
-ok( hT.landmark && hT.collapsible && ! hT.protected && hT.fireAnchors.length > 0, 'the Twins: destructible landmarks with fire anchors' );
+ok( hT && hT.id === TOWER_ALIASES[ 'twin-north' ] && city.building( 'twin-south' ).id === TOWER_ALIASES[ 'twin-south' ], 'the old Twins\' ids answer for the towers on their spots (old saves)' );
+ok( hT.landmark && hT.collapsible && ! hT.protected && hT.fireAnchors.length > 4, 'a skyscraper: a destructible landmark with fire anchors up its height', hT.fireAnchors.length );
 const calls = [];
 city.onStage = ( id, s ) => calls.push( [ id, s ] );
-ok( hT.setStage( 3 ) === 3 && hT.stage === 3, 'the Twins can collapse (stage 3)', hT.stage );
-ok( hT.colliders.length && hT.colliders[ 0 ].top <= hT.plan.y + 4, 'the collapsed Twins lose their high collider' );
+// roofs and helipads: every pad carries a helicopter (its skids inside the roof), the spire's needle carries nothing
+for ( const t of towers.filter( ( q ) => q.helipad ) ) {
+
+	const p = t.helipad, L = city.landingSurfaceAt( p.x, p.z, p.y + 1 );
+	ok( L && Math.abs( L.y - p.y ) < 0.01 && L.pad && city.landingSurfaceAt( p.x, p.z, p.y + 1, 1.8 ) && city.landingSurfaceAt( p.x, p.z, p.y - 0.5 ) === null, t.id + ': the helipad is a live roof (not from below)' );
+	ok( colliders.groundHeightAt( p.x, p.z, p.y + 0.3 ) === p.y, t.id + ': a player can stand on it' );
+
+}
+const spire = towers.find( ( t ) => t.shape === 'deco' );
+ok( city.landingSurfaceAt( spire.x, spire.z ) === null, 'the spire\'s crown is no landing' );
+ok( city.helipads().length >= 3 && city.helipads().every( ( p ) => p.live ), 'helipads() lists them, all live', city.helipads().map( ( p ) => p.id ).join( ', ' ) );
+ok( towers.every( ( t ) => colliders.raycast( new Vector3( t.x + t.w / 2 + 40, t.y + 30, t.z ), new Vector3( - 1, 0, 0 ), 80 ) < 60 ), 'each tower\'s walls stop a side approach' );
+// an upper section breaks off: the pad gone, nothing solid above the break; restored when rebuilt
+const hx = city.building( 'helix-tower' ), hp = hx.plan.helipad;
+const cut = Math.round( ( cutRange( hx.plan )[ 0 ] + cutRange( hx.plan )[ 1 ] ) / 2 );
+city.flush();
+hx.setCut( cut );
+ok( hx.cut === cut && city.landingSurfaceAt( hp.x, hp.z ) === null, 'a broken top: its helipad carries nothing' );
+ok( hx.colliders.filter( ( c ) => c.solid && ! c._roof ).every( ( c ) => c.top <= hx.plan.y + cut + 0.01 ) && colliders.raycast( new Vector3( hx.plan.x + 40, hx.plan.y + cut + 20, hx.plan.z ), new Vector3( - 1, 0, 0 ), 80 ) === 80, 'nothing solid above the break' );
+ok( city.flush() === 1, 'the break rebuilds the skyline chunk' );
+{
+
+	const a = new Acc();
+	buildingInto( a, hx.plan, { stage: 2, cut } );
+	const g = a.geometry();
+	ok( g.boundingBox.max.y < hx.plan.y + cut + 5.2 && g.boundingBox.max.y > hx.plan.y + cut, 'the broken top drawn at the break (a jagged edge)', ( g.boundingBox.max.y - hx.plan.y ).toFixed( 1 ) );
+
+}
+hx.setCut( null );
+ok( hx.cut === null && city.landingSurfaceAt( hp.x, hp.z )?.y === hp.y, 'rebuilt: the pad carries again' );
+ok( hT.setStage( 3 ) === 3 && hT.stage === 3, 'a skyscraper can collapse (stage 3)', hT.stage );
+ok( hT.colliders.every( ( c ) => ! c.solid || c.top <= hT.plan.y + STUMP + 0.01 ), 'the fallen tower keeps only its stump\'s colliders' );
+let tall = 0;
+for ( const t of towers ) {
+
+	const a = new Acc();
+	buildingInto( a, t, { stage: 3 } );
+	if ( a.geometry().boundingBox.max.y > t.y + STUMP + 5.2 ) tall ++;
+
+}
+ok( tall === 0, 'every fallen tower draws only its stump', tall );
 hT.setStage( 0 );
+ok( hT.colliders.some( ( c ) => c.solid && c.top > hT.plan.y + hT.plan.h - 1 ), 'stood up again' );
 city.flush();
 const lr = city.buildings().find( ( h ) => h.kind === 'lowrise' );
 const top0 = lr.colliders[ 0 ].top;
@@ -211,6 +273,13 @@ section( 'budgets' );
 const S = city.stats;
 console.log( '   ', JSON.stringify( S ) );
 ok( S.blocksFar < 8000 && S.chunks <= 20, 'the far skyline: tiers only, a draw per chunk', `${ S.blocksFar } triangles, ${ S.chunks } chunks` );
+{
+
+	const sky = city.chunks.get( 'skyline' );
+	const tri = ( m ) => m.geometry.index.count / 3;
+	ok( sky && sky.list.length === towers.length && tri( sky.far ) < 2500 && tri( sky.near ) < 9000, 'the skyline: one chunk, its far impostor light', sky && `${ tri( sky.near ) } near / ${ tri( sky.far ) } far triangles` );
+
+}
 ok( S.blocksNear < 40000, 'the near blocks', S.blocksNear );
 ok( S.streets < 60000, 'the streets', S.streets );
 ok( S.landNear < 120000 && S.landFar < 20000, 'the land', `${ S.landNear } near, ${ S.landFar } far` );

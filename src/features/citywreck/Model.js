@@ -10,12 +10,17 @@
 //   m.isOpen( id )  m.blockedEdges()  m.bulletin()  m.snapshot( full ) / m.apply( list, { remote, silent } )
 //   m.toJSON() / m.fromJSON( d ) / m.reset()
 //
-// The twin towers share damage, fire, replication and repair paths, with heavier structure.
+// The skyscrapers (wave 23A) share damage, fire, replication and repair, with far heavier structure, and more: a hit high on
+// a badly damaged one breaks the section above it off (b.cut: m above the ground; b.sec: where it landed, sectionOf; its
+// rubble blocks roads and smashes what it falls on; onCut( b, info ) tells the feature), fire climbs it floor by floor
+// (b.fireLo / b.fireHi: the floors alight, towerAnchors( b ) where the flames show), and a fall leaves a wide rubble field.
+// The ids of release 3ba863b's Twins answer for the towers on their spots (byId aliases: old saves and streams).
 
 import {
 	classOf, hpOf, stageFor, repairCost, STAGE_AT, MAX_STAGE, ARMOR, BLAST_REACH, NEAR_BALL, CRASH, TOWER_MARKS, FIRE, CREW,
-	REPAIR, COST, MOOD, COLLAPSE,
+	REPAIR, COST, MOOD, COLLAPSE, TOWER,
 } from './CityWreckData.js';
+import { TOWER_ALIASES, sectionsAt, floorHeight, cutRange } from '../../world/islands/meridian/Skyline.js';
 
 export function rng32( seed ) {
 
@@ -68,7 +73,7 @@ export function footDist( b, x, z ) {
 export function boxDist( b, x, y, z ) {
 
 	const [ lx, lz ] = local( b, x, z );
-	const top = b.y0 + b.top;
+	const top = b.y0 + ( b.cut ?? b.top );
 	const ey = y < b.y0 ? b.y0 - y : y > top ? y - top : 0;
 	return Math.hypot( Math.max( 0, Math.abs( lx ) - b.hw ), ey, Math.max( 0, Math.abs( lz ) - b.hd ) );
 
@@ -101,13 +106,14 @@ export function footGap( a, b ) {
 
 export class CityModel {
 
-	constructor( plan, { ground = null, baseOf = null, emit = null, onStage = null, seed = 21, puppet = false } = {} ) {
+	constructor( plan, { ground = null, baseOf = null, emit = null, onStage = null, onCut = null, seed = 21, puppet = false } = {} ) {
 
 		this.plan = plan || { buildings: [], roads: { nodes: [], edges: [] } };
 		this.ground = ground || ( () => 0 );
 		this.baseOf = baseOf; // ( plan entry ) -> the building's base height (its handle's bounds), else the ground
 		this.emit = emit || ( () => {} );
 		this.onStage = onStage || ( () => {} );
+		this.onCut = onCut || ( () => {} );
 		this.puppet = !! puppet; // a multiplayer guest: the host's stream sets every stage, nothing changes here on its own
 		this.seed = seed >>> 0;
 		this.rand = rng32( this.seed ^ 0x9e3779b9 );
@@ -138,7 +144,10 @@ export class CityModel {
 				y0: 0, radius: 0,
 				dmg: 0, stage: 0, fire: 0, crewAt: null, dousing: false, lastHit: - 1e9, by: null,
 				repair: null, cleared: true, blocked: [], marks: 0, markMend: null, neighbours: [],
+				// (towers) the break, its fallen section, the floors alight, the height of the last hit
+				cut: null, sec: null, fireLo: - 1, fireHi: - 1, fireT: 0, hitY: null, fh: 3.8,
 			};
+			if ( b.cls === 'tower' ) b.fh = floorHeight( p );
 			b.radius = Math.hypot( b.hw, b.hd );
 			let y0 = null;
 			try { y0 = this.baseOf ? this.baseOf( p ) : null; } catch ( e ) { y0 = null; }
@@ -150,6 +159,8 @@ export class CityModel {
 
 		}
 
+		// release 3ba863b's Twins: their ids answer for the towers that stand on their spots
+		for ( const [ old, now ] of Object.entries( TOWER_ALIASES ) ) if ( ! this.byId.has( old ) && this.byId.has( now ) ) this.byId.set( old, this.byId.get( now ) );
 		this.bounds = this.list.length ? { x: ( minX + maxX ) / 2, z: ( minZ + maxZ ) / 2, r: Math.hypot( maxX - minX, maxZ - minZ ) / 2 + 20, maxTop: Math.max( ...this.list.map( ( b ) => b.y0 + b.top ) ) } : { x: 0, z: 0, r: 0, maxTop: 0 };
 		// neighbours for the fire: footprints within FIRE.spreadGap (a coarse grid keeps it near linear)
 		const cell = 40, grid = new Map();
@@ -206,9 +217,12 @@ export class CityModel {
 		b.dmg = Math.min( Math.max( b.dmg, Math.min( cap, b.dmg + frac ) ), 1.5 );
 		b.lastHit = this.hours;
 		b.by = by;
+		if ( at && Number.isFinite( at.y ) ) b.hitY = Math.max( 0, Math.min( b.top, at.y - b.y0 ) );
 		b.repair = null; // shooting stops the scaffolding
 		this._unrest( MOOD.perHit );
 		this._restage( b, { by, cause } );
+		// a skyscraper hit high up when it is already badly damaged: the section above the hit breaks off
+		if ( b.cls === 'tower' && b.cut === null && b.stage < 3 && b.dmg >= TOWER.breakAt && b.hitY !== null && b.hitY >= b.top * TOWER.breakHigh ) this._breakTop( b, { by, cause } );
 		return frac;
 
 	}
@@ -248,7 +262,7 @@ export class CityModel {
 
 			}
 
-			if ( stage >= 2 && b.fire < FIRE.ignite && ! info.remote && ! info.silent && FIRE.classes.includes( b.cls ) && info.cause !== 'fire' ) this._ignite( b, FIRE.ignite, info.by, true );
+			if ( stage >= 2 && b.fire < FIRE.ignite && ! info.remote && ! info.silent && FIRE.classes.includes( b.cls ) && info.cause !== 'fire' ) this._ignite( b, FIRE.ignite, info.by, true, b.hitY );
 
 		}
 
@@ -272,7 +286,8 @@ export class CityModel {
 		b.fire = 0;
 		b.cleared = false;
 		const spill = this.spillOf( b );
-		b.blocked = this.edges.filter( ( e ) => edgeGap( b, e ) < spill + e.width / 2 ).map( ( e ) => e.id );
+		b.fireLo = b.fireHi = - 1;
+		b.blocked = [ ...new Set( [ ...b.blocked, ...this.edges.filter( ( e ) => edgeGap( b, e ) < spill + e.width / 2 ).map( ( e ) => e.id ) ] ) ];
 		this.emit( 'buildingCollapsed', { id: b.id, x: b.x, y: b.y0, z: b.z, w: b.hw * 2, d: b.hd * 2, h: b.top, by: info.by || null, remote: !! info.remote, replay: !! info.silent } );
 		this.emit( 'cityFire', { id: b.id, x: b.x, z: b.z, on: false } );
 		if ( b.blocked.length ) this.emit( 'roadBlocked', { id: b.id, edges: b.blocked.slice(), x: b.x, z: b.z, radius: spill, replay: !! info.silent } );
@@ -296,7 +311,101 @@ export class CityModel {
 
 	spillOf( b ) {
 
+		if ( b.cls === 'tower' ) return Math.min( TOWER.spillMax, Math.max( COLLAPSE.spillMin, b.top * TOWER.spill ) );
 		return Math.min( COLLAPSE.spillMax, Math.max( COLLAPSE.spillMin, b.top * COLLAPSE.spill ) );
+
+	}
+
+	// ------------------------------------------------------------------ the skyscrapers' breaks
+
+	// the section above the last high hit breaks off (snapped to a floor, inside the tower's cutRange)
+	_breakTop( b, info ) {
+
+		const [ lo, hi ] = cutRange( b.p );
+		const want = Math.min( hi, Math.max( lo, b.hitY - 3 ) );
+		const cut = Math.max( lo, Math.min( hi, Math.round( want / b.fh ) * b.fh ) );
+		this._setCut( b, cut, info );
+
+	}
+
+	// the break set (a hit, a stream, a save): the section's rubble where it landed, the roads it blocks, what it smashed
+	_setCut( b, cut, info = {}, { cleared = false } = {} ) {
+
+		b.cut = cut;
+		b.sec = sectionOf( b );
+		b.sec.cleared = !! cleared;
+		const topFloor = Math.floor( cut / b.fh ) - 1;
+		if ( b.fireHi > topFloor ) { b.fireHi = topFloor; b.fireLo = Math.min( b.fireLo, topFloor ); this.emit( 'cityFireFloors', { id: b.id, lo: b.fireLo, hi: b.fireHi } ); }
+		const S = b.sec;
+		const edges = cleared ? [] : this.edges.filter( ( e ) => segDist( S.x, S.z, e.ax, e.az, e.bx, e.bz ) < S.R + e.width / 2 ).map( ( e ) => e.id );
+		const fresh = edges.filter( ( id ) => ! b.blocked.includes( id ) );
+		b.blocked = b.blocked.concat( fresh );
+		this.emit( 'buildingSectionFell', { id: b.id, x: S.x, z: S.z, y: b.y0 + cut, cut, radius: S.R, by: info.by || null, remote: !! info.remote, replay: !! info.silent } );
+		if ( fresh.length ) this.emit( 'roadBlocked', { id: b.id, edges: fresh, x: S.x, z: S.z, radius: S.R, replay: !! info.silent } );
+		if ( ! info.remote && ! info.silent && ! this.puppet ) {
+
+			this.stats.sections = ( this.stats.sections || 0 ) + 1;
+			this._unrest( MOOD.perCollapse );
+			// what it lands on: smashed in the middle of the heap (a skyscraper only scarred, never brought down: no dominoes)
+			const E = b.hw * b.hd * 4 * S.L / 1000 * COLLAPSE.debrisEnergy * 100;
+			for ( const o of this.list ) {
+
+				if ( o === b || o.stage === 3 ) continue;
+				const d = footDist( o, S.x, S.z );
+				if ( d > S.R ) continue;
+				const k = 1 - d / S.R;
+				this.hit( o, E * k, { by: info.by || null, cause: 'debris', cap: o.cls === 'tower' || d > S.R * 0.5 ? STAGE_AT[ 3 ] - 0.02 : 1.5 } );
+
+			}
+
+			this.emit( 'cityDebris', { id: b.id, x: S.x, y: b.y0, z: S.z, radius: S.R, energy: Math.round( E * 1000 ), by: info.by || null } );
+
+		}
+
+		this.onCut( b, info );
+
+	}
+
+	_clearCut( b, info = {} ) {
+
+		if ( b.cut === null ) return;
+		b.cut = null;
+		b.sec = null;
+		this.onCut( b, info );
+
+	}
+
+	// a tower's floor at h m above its ground; the highest that stands
+	floorOf( b, h ) {
+
+		return Math.max( 0, Math.min( this.topFloor( b ), Math.floor( ( Number.isFinite( h ) ? h : 2 ) / b.fh ) ) );
+
+	}
+
+	topFloor( b ) {
+
+		return Math.max( 0, Math.floor( ( b.cut ?? b.top ) / b.fh ) - 1 );
+
+	}
+
+	// where a tower's flames show: round its section on the lowest, the middle and the highest floor alight
+	towerAnchors( b ) {
+
+		if ( b.fireLo < 0 ) return [];
+		const out = [];
+		const floors = [ ...new Set( [ b.fireHi, Math.round( ( b.fireLo + b.fireHi ) / 2 ), b.fireLo ] ) ];
+		floors.forEach( ( f, i ) => {
+
+			const y = b.y0 + ( f + 0.45 ) * b.fh;
+			const sec = sectionsAt( b.p, y )[ 0 ];
+			if ( ! sec ) return;
+			const n = sec.length, k = ( i * 3 + ( hashStr( b.id ) % n ) ) % n;
+			const [ ax, az ] = sec[ k ], [ bx, bz ] = sec[ ( k + 1 ) % n ];
+			const L = Math.hypot( bx - ax, bz - az ) || 1;
+			out.push( { x: ( ax + bx ) / 2 - ( bz - az ) / L * 0.6, y, z: ( az + bz ) / 2 + ( bx - ax ) / L * 0.6 } );
+
+		} );
+		return out;
 
 	}
 
@@ -365,7 +474,13 @@ export class CityModel {
 			const d = boxDist( b, x, y, z );
 			if ( d >= CRASH.radius ) continue;
 			const k = 1 - d / CRASH.radius;
-			if ( this.hit( b, kJ * k, { by, cause: 'crash' } ) > 0 ) n ++;
+			if ( this.hit( b, kJ * k, { by, cause: 'crash', at: { x, y, z } } ) > 0 ) {
+
+				n ++;
+				// a skyscraper: the fuel burns on the floor it hit
+				if ( b.cls === 'tower' && b.stage < 3 ) this._ignite( b, TOWER.crashFuel * Math.min( 1, 0.4 + k ), by, false, y - b.y0 );
+
+			}
 
 		}
 
@@ -387,21 +502,31 @@ export class CityModel {
 		}
 
 		if ( ! best ) return null;
-		return this.ignite( best, FIRE.ignite, by ) ? best.id : null;
+		if ( this.puppet ) return null;
+		return this._ignite( best, FIRE.ignite, by, false, y - best.y0 ) ? best.id : null;
 
 	}
 
-	ignite( id, amount = FIRE.ignite, by = 'unknown' ) {
+	ignite( id, amount = FIRE.ignite, by = 'unknown', atY = null ) {
 
 		const b = typeof id === 'string' ? this.byId.get( id ) : id;
 		if ( ! b || this.puppet ) return false;
-		return this._ignite( b, amount, by, false );
+		return this._ignite( b, amount, by, false, atY );
 
 	}
 
-	_ignite( b, amount, by, quietCall ) {
+	// atY (towers): m above the ground where it caught (the floor the fire starts on; the last hit's height when not given)
+	_ignite( b, amount, by, quietCall, atY = null ) {
 
 		if ( ! FIRE.classes.includes( b.cls ) || b.stage === 3 ) return false;
+		if ( b.cls === 'tower' ) {
+
+			const f = this.floorOf( b, Number.isFinite( atY ) ? atY : b.hitY ?? 2 );
+			if ( b.fireLo < 0 ) { b.fireLo = b.fireHi = f; b.fireT = 0; } else { b.fireLo = Math.min( b.fireLo, f ); b.fireHi = Math.max( b.fireHi, f ); }
+			this.emit( 'cityFireFloors', { id: b.id, lo: b.fireLo, hi: b.fireHi } );
+
+		}
+
 		const was = b.fire;
 		b.fire = Math.max( b.fire, Math.min( 1, amount ) );
 		b.lastHit = this.hours;
@@ -474,7 +599,8 @@ export class CityModel {
 			if ( crew ) teams --;
 			if ( crew !== b.dousing ) { b.dousing = crew; this.emit( 'cityCrew', { id: b.id, x: b.x, z: b.z, on: crew } ); }
 			const grow = FIRE.grow * Math.max( 0, 1 - wet * 3 ) * ( b.fire < 0.999 ? 1 : 0 );
-			b.fire += ( grow - FIRE.rainDamp * wet - ( crew ? CREW.douse : 0 ) ) * dt;
+			const tower = b.cls === 'tower';
+			b.fire += ( grow - FIRE.rainDamp * wet - ( crew ? CREW.douse * ( tower ? TOWER.douse : 1 ) : 0 ) ) * dt;
 			if ( b.fire >= 1 ) b.fire = 1;
 			if ( b.fire <= FIRE.out ) {
 
@@ -482,10 +608,15 @@ export class CityModel {
 				b.crewAt = null;
 				b.dousing = false;
 				b.lastHit = this.hours;
+				if ( tower && b.fireLo >= 0 ) { b.fireLo = b.fireHi = - 1; this.emit( 'cityFireFloors', { id: b.id, lo: - 1, hi: - 1 } ); }
 				this.emit( 'cityFire', { id: b.id, x: b.x, z: b.z, on: false } );
 				continue;
 
 			}
+
+			// a skyscraper's fire climbs a floor at a time (faster the fiercer it burns), creeps down slower; the floors under
+			// a wide band burn out
+			if ( tower ) this._climb( b, dt );
 
 			// the fire eats the floors: up to gutted, never a collapse on its own
 			const cap = Math.min( FIRE.burnCap, STAGE_AT[ 3 ] - 0.02 );
@@ -493,6 +624,26 @@ export class CityModel {
 			this._restage( b, { by: b.by, cause: 'fire' } );
 
 		}
+
+	}
+
+	_climb( b, dt ) {
+
+		if ( b.fireLo < 0 ) { b.fireLo = b.fireHi = this.floorOf( b, b.hitY ?? 2 ); b.fireT = 0; }
+		const lo = b.fireLo, hi = b.fireHi;
+		b.fireT += dt * ( 0.4 + b.fire );
+		const top = this.topFloor( b );
+		if ( b.fireT >= TOWER.floorUp ) {
+
+			b.fireT -= TOWER.floorUp;
+			if ( b.fireHi < top ) b.fireHi ++;
+			// (every few climbs, a floor down too)
+			if ( b.fireLo > 0 && this.rand() < TOWER.floorUp / TOWER.floorDown ) b.fireLo --;
+
+		}
+
+		if ( b.fireHi - b.fireLo + 1 > TOWER.band ) b.fireLo = b.fireHi - TOWER.band + 1;
+		if ( lo !== b.fireLo || hi !== b.fireHi ) this.emit( 'cityFireFloors', { id: b.id, lo: b.fireLo, hi: b.fireHi } );
 
 	}
 
@@ -530,7 +681,7 @@ export class CityModel {
 			if ( ! b.repair ) {
 
 				if ( H - b.lastHit < REPAIR.quiet ) continue;
-				b.repair = b.stage === 3 && ! b.cleared
+				b.repair = ( b.stage === 3 && ! b.cleared ) || ( b.sec && ! b.sec.cleared )
 					? { phase: 'clear', start: H, due: H + REPAIR.clearRubble }
 					: { phase: 'build', start: H, due: H + REPAIR.hours[ b.stage ] };
 				this.emit( 'cityRepair', { id: b.id, phase: b.repair.phase, due: b.repair.due } );
@@ -542,8 +693,9 @@ export class CityModel {
 			if ( b.repair.phase === 'clear' ) {
 
 				b.cleared = true;
+				if ( b.sec ) b.sec.cleared = true;
 				if ( b.blocked.length ) this._unblock( b );
-				b.repair = { phase: 'build', start: H, due: H + REPAIR.hours[ 3 ] };
+				b.repair = { phase: 'build', start: H, due: H + REPAIR.hours[ b.stage ] };
 				this.emit( 'cityRepair', { id: b.id, phase: 'build', due: b.repair.due } );
 				continue;
 
@@ -556,6 +708,7 @@ export class CityModel {
 			this.ledger.repaired += cost;
 			this.ledger.open = Math.max( 0, this.ledger.open - cost );
 			this.stats.repaired ++;
+			this._clearCut( b, { cause: 'repair' } );
 			this._setStage( b, 0, { cause: 'repair' } );
 			this.emit( 'buildingRepaired', { id: b.id, cost } );
 
@@ -655,7 +808,7 @@ export class CityModel {
 		for ( const b of this.list ) {
 
 			if ( segDist( b.x, b.z, ax, az, bx, bz ) > b.radius + 0.5 ) continue;
-			const top = b.stage === 3 ? Math.min( COLLAPSE.heapMax, b.top * COLLAPSE.heapHeight ) : b.top;
+			const top = b.stage === 3 ? Math.min( b.cls === 'tower' ? TOWER.heapMax : COLLAPSE.heapMax, b.top * COLLAPSE.heapHeight ) : b.cut ?? b.top;
 			const t = slab( b, top, ax, ay, az, dx, dy, dz );
 			if ( t !== null && ( ! best || t < best.t ) ) best = { t, id: b.id };
 
@@ -685,6 +838,8 @@ export class CityModel {
 		const ph = b.repair ? ( b.repair.phase === 'clear' ? 1 : 2 ) : 0;
 		const e = [ b.id, b.stage, Math.round( b.fire * 100 ), ph ];
 		if ( full ) e.push( Math.round( b.dmg * 1000 ), b.repair ? Math.round( b.repair.start * 100 ) : null, b.repair ? Math.round( b.repair.due * 100 ) : null, b.cleared ? 1 : 0, b.marks | 0 );
+		// (towers) the break (m) and the floors alight
+		if ( b.cls === 'tower' && ( b.cut !== null || b.fireLo >= 0 ) ) e.push( b.cut === null ? 0 : Math.round( b.cut * 10 ) / 10, b.fireLo, b.fireHi );
 		return e;
 
 	}
@@ -723,12 +878,29 @@ export class CityModel {
 
 			}
 
+			// (towers) the break and the floors alight
+			if ( b.cls === 'tower' ) {
+
+				const X = full ? 9 : 4;
+				const cut = e.length > X && Number( e[ X ] ) > 0 ? Number( e[ X ] ) : null;
+				if ( cut !== b.cut ) {
+
+					if ( cut === null ) this._clearCut( b, { remote, silent } );
+					else { if ( b.cut !== null ) this._clearCut( b, { remote, silent: true } ); this._setCut( b, Math.min( b.top - 1, cut ), { remote, silent }, { cleared: ph === 2 } ); }
+
+				} else if ( b.sec && ph === 2 && ! b.sec.cleared ) { b.sec.cleared = true; if ( stage < 3 && b.blocked.length ) this._unblock( b ); }
+				const lo = e.length > X + 2 ? Number( e[ X + 1 ] ) | 0 : - 1, hi = e.length > X + 2 ? Number( e[ X + 2 ] ) | 0 : - 1;
+				const nlo = fire > 0 && lo >= 0 ? lo : - 1, nhi = fire > 0 && hi >= 0 ? Math.max( lo, hi ) : - 1;
+				if ( nlo !== b.fireLo || nhi !== b.fireHi ) { b.fireLo = nlo; b.fireHi = nhi; this.emit( 'cityFireFloors', { id: b.id, lo: nlo, hi: nhi } ); }
+
+			}
+
 			if ( b.dmg < STAGE_AT[ stage ] ) b.dmg = STAGE_AT[ stage ];
 			const wasFire = b.fire > 0;
 			b.fire = stage === 3 ? 0 : fire;
 			if ( wasFire !== b.fire > 0 ) this.emit( 'cityFire', { id: b.id, x: b.x, z: b.z, on: b.fire > 0 } );
 			if ( stage !== b.stage ) { this._setStage( b, stage, { remote, silent } ); n ++; }
-			if ( stage === 3 && b.cleared && b.blocked.length ) this._unblock( b );
+			if ( stage === 3 && b.cleared && b.blocked.length && ! ( b.sec && ! b.sec.cleared ) ) this._unblock( b );
 			if ( stage === 0 ) { b.dmg = full ? b.dmg : 0; }
 
 		}
@@ -762,6 +934,9 @@ export class CityModel {
 
 			if ( b.fire > 0 && ! quiet ) this.emit( 'cityFire', { id: b.id, x: b.x, z: b.z, on: false } );
 			b.fire = 0; b.crewAt = null; b.dousing = false; b.repair = null; b.dmg = 0; b.marks = 0; b.markMend = null; b.lastHit = - 1e9;
+			b.hitY = null; b.fireT = 0;
+			if ( b.fireLo >= 0 ) { b.fireLo = b.fireHi = - 1; if ( ! quiet ) this.emit( 'cityFireFloors', { id: b.id, lo: - 1, hi: - 1 } ); }
+			if ( b.cut !== null ) this._clearCut( b, { cause: 'reset', silent: true } );
 			if ( b.stage !== 0 ) { b.cleared = true; this._setStage( b, 0, { cause: 'reset', silent: true } ); }
 			if ( b.blocked.length ) this._unblock( b );
 			b.cleared = true;
@@ -806,5 +981,19 @@ function slab( b, top, ax, ay, az, dx, dy, dz ) {
 	}
 
 	return t0;
+
+}
+
+// where a tower's broken-off section came down (deterministic from its id and the break: hosts, guests and saves agree):
+// it toppled one way, its rubble a long heap len along that way, wid across, centred reach from the tower
+//   -> { x, z, yaw, len, wid, h (the heap's height), L (the fallen height), R (the heap's radius) }
+export function sectionOf( b ) {
+
+	if ( ! b || b.cut === null || b.cut === undefined ) return null;
+	const L = Math.max( 4, b.top - b.cut );
+	const a = ( hashStr( b.id + ':topple' ) % 3600 ) / 3600 * Math.PI * 2;
+	const reach = b.radius * 0.6 + L * 0.42;
+	const len = Math.max( 14, L * 0.62 ), wid = Math.max( 12, Math.min( b.hw, b.hd ) * 1.7 );
+	return { x: b.x + Math.sin( a ) * reach, z: b.z + Math.cos( a ) * reach, yaw: a, len, wid, h: Math.min( TOWER.heapMax, 4 + L * 0.07 ), L, R: Math.hypot( len, wid ) / 2 };
 
 }

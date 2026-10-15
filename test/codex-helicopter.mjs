@@ -81,19 +81,19 @@ function world( render = false ) {
 // Build ONLY the real tower handles/colliders, skipping renderer/terrain generation.
 {
 	const w = world(), city = Object.create( Meridian.prototype ); city.colliders = w.colliders; city.group = new Group(); city.handles = new Map();
-	const towers = cityPlan().buildings.filter( b => b.kind === 'tower' );
-	for ( const b of towers ) city.handles.set( b.id, city._handle( b, { key: 'twins', dirty: false } ) );
+	const towers = cityPlan().buildings.filter( b => b.kind === 'tower' && b.helipad );
+	for ( const b of towers ) city.handles.set( b.id, city._handle( b, { key: 'skyline', dirty: false } ) );
 	w.app.meridian = city;
 	for ( const b of towers ) {
-		const roof = b.y + b.h, f = w.h.flight, x = b.x + 18;
-		f.place( x, roof + 12, b.z ); f.rpm = 1; w.h.piloted = true; w.player.enterVehicle( w.h.vehicle ); w.input.keys.add( 'KeyC' );
+		const roof = b.helipad.y, f = w.h.flight, x = b.helipad.x, pz = b.helipad.z;
+		f.place( x, roof + 12, pz ); f.rpm = 1; w.h.piloted = true; w.player.enterVehicle( w.h.vehicle ); w.input.keys.add( 'KeyC' );
 		for ( let i = 0; i < 480 && ! f.grounded; i ++ ) w.tick(); w.input.keys.clear();
 		check( f.grounded && Math.abs( f.position.y - roof ) < 0.03, `${ b.id }: downward approach lands on the actual roof slab` );
 		check( w.h.exit() && Math.abs( w.player.position.y - roof ) < 0.1, `${ b.id }: safe door exit leaves player on the tower roof` );
 		check( w.h.board(), `${ b.id }: parked helicopter remains boardable on rooftop` );
 		w.input.keys.add( 'ShiftLeft' ); for ( let i = 0; i < 180; i ++ ) w.tick(); w.input.keys.clear();
 		check( ! f.grounded && f.position.y > roof + 5, `${ b.id }: helicopter can take off again from rooftop` );
-		w.h.piloted = false; w.player.exitVehicle( x, roof, b.z );
+		w.h.piloted = false; w.player.exitVehicle( x, roof, pz );
 	}
 	const b = towers[ 0 ], top = b.y + b.h, f = w.h.flight;
 	f.place( b.x + 18, top, b.z ); check( f.grounded, 'landed helicopter has real tower support before collapse' );
@@ -105,12 +105,12 @@ function world( render = false ) {
 	check( w.h.flight.position.x === w.h.home.x, 'saved aircraft on a now-destroyed roof recovers to a supported home pad' );
 	city.building( b.id ).setStage( 0 );
 	const sp = new Seaplane( w.app, w.features, { models: false, site: false } );
-	sp.flight.position.set( b.x + 8, top + 10, b.z );
-	check( sp.flight.groundAt( b.x + 8, b.z ) === top + 6, 'existing seaplane queries the live Meridian plant roof above terrain' );
-	sp.flight.position.y = top - 30; check( sp.flight.groundAt( b.x + 8, b.z ) < 10, 'existing seaplane below roof sees terrain, avoiding upward spring teleport' );
-	sp.flight.place( b.x + 8, b.z, 0, top + 7 ); sp.flight.engineOn = false; sp.flight.airborne = true; sp.flight._wasAir = true; sp.flight.airTime = 2;
+	sp.flight.position.set( b.x + 17, top + 10, b.z );
+	check( sp.flight.groundAt( b.x + 17, b.z ) === top, 'existing seaplane queries the live Meridian roof above terrain' );
+	sp.flight.position.y = top - 30; check( sp.flight.groundAt( b.x + 17, b.z ) < 10, 'existing seaplane below roof sees terrain, avoiding upward spring teleport' );
+	sp.flight.place( b.x + 17, b.z, 0, top + 1 ); sp.flight.engineOn = false; sp.flight.airborne = true; sp.flight._wasAir = true; sp.flight.airTime = 2;
 	const events = []; for ( let i = 0; i < 180; i ++ ) { sp.flight.update( 1 / 60 ); events.push( ...sp.flight.drainEvents() ); }
-	check( events.some( e => e.type === 'touch' && e.surface === 'ground' ) && sp.flight.position.y > top + 5, 'real seaplane rigid-body model touches down and rests on elevated roof support' );
+	check( events.some( e => e.type === 'touch' && e.surface === 'ground' ) && sp.flight.position.y > top - 1, 'real seaplane rigid-body model touches down and rests on elevated roof support' );
 	sp.dispose(); w.h.dispose();
 }
 
@@ -159,9 +159,9 @@ function world( render = false ) {
 	// Actual ordered feature restoration: helicopter runs BEFORE citywreck.
 	const w = world(), city = Object.create( Meridian.prototype ); city.colliders = w.colliders; city.group = new Group(); city.handles = new Map();
 	const towers = cityPlan().buildings.filter( b => b.kind === 'tower' ); city.plan = { ...cityPlan(), buildings: towers }; city.roadHeight = () => 1;
-	for ( const b of towers ) city.handles.set( b.id, city._handle( b, { key: 'twins', dirty: false } ) ); w.app.meridian = city;
+	for ( const b of towers ) city.handles.set( b.id, city._handle( b, { key: 'skyline', dirty: false } ) ); w.app.meridian = city;
 	const cw = new CityWreck( w.app, w.features, { city, plan: city.plan, render: false } ); w.features.list.set( 'citywreck', { instance: cw } );
-	const south = towers.find( b => b.id === 'twin-south' ), roofY = south.y + south.h;
+	const south = towers.find( b => b.id === 'tidegate' ), roofY = south.y + south.h;
 	const savedHelicopter = { v: 1, hp: 41, pose: [ south.x + 18, roofY, south.z, 0 ], stats: { flights: 4, landings: 7, hardLandings: 0 } };
 	w.features.reset(); w.features.fromJSON( { helicopter: savedHelicopter, citywreck: { v: 1, b: [ [ south.id, 3, 0, 0 ] ] } } );
 	check( city.building( south.id ).stage === 3 && ! city.landingSurfaceAt( south.x + 18, south.z ), 'actual later CityWreck.fromJSON restores a collapsed tower after helicopter parking was read' );

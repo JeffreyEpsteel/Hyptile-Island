@@ -393,3 +393,14 @@ on flat roads, flags only while on). The puppets sit a median 0.34 m (p90 0.96 m
 - No browser or phone: the touch cluster's look is checked from its geometry (carLayout drawn over a phone capture,
   `tools/perf/out/w22/car-hud-*.png`), tilt steering is untested on a device (the sign of beta in landscape is assumed).
 - The home stand view keeps the stand's own camera framing (Meridian is in its draws, not in the middle of the picture).
+
+## Wave 23A: Meridian's skyline (eight destructible skyscrapers)
+
+| view | GPU MB | draws |
+|---|---|---|
+| phone, downtown | 363.4 (was 362.0) | 172 (was 172) |
+| phone, skyline from home | 355.2 | 290 |
+| phone, harbour | 371.0 | - |
+| Medium, downtown | - | 201 (was 202); CPU 12.40 ms (was 12.34) |
+
+At most two falls animate at once; phones get fewer chunks and simpler dust. Headless Dawn, same harness as wave 22A.

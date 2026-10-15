@@ -1,10 +1,11 @@
 // The destructible city (wave 21C): Meridian's buildings take hits, scar, gut, burn and (the low and midrises) fall; fires
 // spread in dry weather and the crews put them out; the city mends over in-game days under scaffolding. See index.js for
-// the contract; the state is Model.js, the looks Looks.js, the drawing Render.js.
+// the contract; the state is Model.js, the looks Looks.js, the drawing Render.js. Wave 23A: the skyscrapers burn floor by
+// floor, lose upper sections (a SectionFall in the same two animation slots as the collapses) and fall into wide fields.
 
 import { CityModel } from './Model.js';
 import { looks, Collapse } from './Looks.js';
-import { COLLAPSE, RENDER, NET, FIRE, WANTED, wantedLevel } from './CityWreckData.js';
+import { COLLAPSE, RENDER, NET, FIRE, WANTED, TOWER, wantedLevel } from './CityWreckData.js';
 import { t } from '../../i18n/index.js';
 
 const CLOCK_FALLBACK = 24 / 2400; // h per real second when the island clock is stopped (as destruction)
@@ -98,6 +99,7 @@ export class CityWreck {
 			ground, baseOf, seed: this.opts.seed ?? 21, puppet: ! this._host(),
 			emit: ( n, p ) => this._modelEvent( n, p ),
 			onStage: ( b, s, prev, info ) => this._onStage( b, s, prev, info ),
+			onCut: ( b, info ) => this._onCut( b, info ),
 		} );
 		// 21A's setStage calls this: what stages 1-3 look like is ours (the scarring, the breach, the rubble)
 		this._prevHook = city.onStage;
@@ -239,7 +241,7 @@ export class CityWreck {
 	_modelEvent( name, p ) {
 
 		this._emit( name, p );
-		if ( p && typeof p.id === 'string' && ( name === 'buildingDamaged' || name === 'cityFire' || name === 'cityRepair' || name === 'buildingRepaired' || name === 'towerMarked' ) ) {
+		if ( p && typeof p.id === 'string' && ( name === 'buildingDamaged' || name === 'cityFire' || name === 'cityRepair' || name === 'buildingRepaired' || name === 'towerMarked' || name === 'cityFireFloors' || name === 'buildingSectionFell' ) ) {
 
 			this._netDirty.add( p.id );
 			this._looks.delete( p.id );
@@ -277,6 +279,19 @@ export class CityWreck {
 		this.queue = this.queue.filter( ( q ) => q !== b );
 		this.anims = this.anims.filter( ( a ) => a.b !== b || stage === 3 );
 		this._setHandle( b, stage );
+
+	}
+
+	// a skyscraper's upper section broke off (or its top was rebuilt: cut null). Physics at once; the fall waits for a slot
+	_onCut( b, info ) {
+
+		const h = this.city && this.city.building ? this.city.building( b.id ) : null;
+		if ( h && h.setCutCollision ) h.setCutCollision( b.cut );
+		this.queue = this.queue.filter( ( q ) => ! ( q.section && q.b === b ) );
+		if ( b.cut !== null && ! info.silent && this.render ) { this.queue.push( { b, section: true } ); return; }
+		this.anims = this.anims.filter( ( a ) => ! ( a.section && a.b === b ) );
+		if ( h && h.setCut ) try { h.setCut( b.cut ); } catch ( e ) { console.warn( 'citywreck: setCut failed', b.id, e ); }
+		this._dress( b.id );
 
 	}
 
@@ -451,19 +466,42 @@ export class CityWreck {
 
 		if ( ! this.render ) {
 
-			// (no drawing: the stage goes to the handle at once)
-			while ( this.queue.length ) this._setHandle( this.queue.shift(), 3 );
+			// (no drawing: the stage / the break goes to the handle at once)
+			while ( this.queue.length ) {
+
+				const q = this.queue.shift();
+				if ( q.section ) { const h = this.city && this.city.building ? this.city.building( q.b.id ) : null; if ( h && h.setCut ) h.setCut( q.b.cut ); } else this._setHandle( q, 3 );
+
+			}
+
 			return;
 
 		}
 
+		const ph = this.phone ? 'phone' : 'desktop';
 		while ( this.anims.length < COLLAPSE.animating && this.queue.length ) {
 
-			const b = this.queue.shift();
+			const q = this.queue.shift();
+			if ( q.section ) {
+
+				// the section above the break: the tower drawn broken now, its chunks toppling onto the city
+				const b = q.b;
+				if ( b.cut === null || b.stage === 3 ) continue;
+				const h = this.city && this.city.building ? this.city.building( b.id ) : null;
+				if ( h && h.setCut ) h.setCut( b.cut );
+				this.anims.push( { b, section: true, c: new Collapse( b, TOWER.sectionChunks[ ph ], { heapN: TOWER.section[ ph ], section: true } ), t: 0, landed: false } );
+				this.stats.sectionsShown = ( this.stats.sectionsShown || 0 ) + 1;
+				this._dust( b, 0, true );
+				continue;
+
+			}
+
+			const b = q;
 			if ( b.stage !== 3 ) continue;
 			this._setHandle( b, 3 );
-			const heapN = this.phone ? COLLAPSE.heap.phone : COLLAPSE.heap.desktop;
-			this.anims.push( { b, c: new Collapse( b, this.phone ? COLLAPSE.chunks.phone : COLLAPSE.chunks.desktop, { heapN } ), t: 0, landed: false } );
+			const tower = b.cls === 'tower';
+			const heapN = tower ? TOWER.heap[ ph ] : COLLAPSE.heap[ ph ];
+			this.anims.push( { b, c: new Collapse( b, tower ? TOWER.chunks[ ph ] : COLLAPSE.chunks[ ph ], { heapN } ), t: 0, landed: false } );
 			this.stats.collapsesShown ++;
 			this._dust( b, 0 );
 
@@ -472,7 +510,12 @@ export class CityWreck {
 		for ( const a of this.anims ) {
 
 			a.t += dt;
-			if ( ! a.landed && a.t >= a.c.landedAt ) { a.landed = true; this._dust( a.b, 1 ); this._debrisImpulse( { x: a.b.x, y: a.b.y0, z: a.b.z, radius: a.b.radius + this.model.spillOf( a.b ), energy: a.b.hw * a.b.hd * a.b.top * 40 } ); }
+			if ( a.landed || a.t < a.c.landedAt ) continue;
+			a.landed = true;
+			this._dust( a.b, 1, a.section );
+			const S = a.section ? a.b.sec : null;
+			if ( S ) this._debrisImpulse( { x: S.x, y: a.b.y0, z: S.z, radius: S.R, energy: a.b.hw * a.b.hd * S.L * 40 } );
+			else this._debrisImpulse( { x: a.b.x, y: a.b.y0, z: a.b.z, radius: a.b.radius + this.model.spillOf( a.b ), energy: a.b.hw * a.b.hd * a.b.top * 40 } );
 
 		}
 
@@ -489,33 +532,39 @@ export class CityWreck {
 
 	}
 
-	// dust: 0 as it starts to go, 1 as it lands, 2 settling (phones: a puff or two)
-	_dust( b, phase ) {
+	// dust: 0 as it starts to go, 1 as it lands, 2 settling (phones: a puff or two); section: a skyscraper's top (the dust
+	// at the break, then where it landed)
+	_dust( b, phase, section = false ) {
 
 		const vfx = this._get( 'vfx' );
 		if ( ! vfx ) return;
-		const n = this.phone ? 2 : phase === 1 ? 8 : 4;
-		const r = b.radius + ( phase ? this.model.spillOf( b ) * 0.6 : 0 );
+		const tower = b.cls === 'tower';
+		const S = section ? b.sec : null;
+		const n = this.phone ? 2 : phase === 1 ? ( tower ? 12 : 8 ) : 4;
+		const cx = S && phase ? S.x : b.x, cz = S && phase ? S.z : b.z;
+		const r = S ? ( phase ? S.R * 0.7 : b.radius ) : b.radius + ( phase ? this.model.spillOf( b ) * 0.6 : 0 );
+		const y = b.y0 + 1 + ( phase === 0 ? ( S ? b.cut : b.top * 0.3 ) : 0 );
+		const size = ( phase === 1 ? 1.6 : 1 ) * ( tower ? 2.2 : 1 );
 		try {
 
 			for ( let i = 0; i < n; i ++ ) {
 
 				const a = i / n * Math.PI * 2 + phase;
-				vfx.dust && vfx.dust( b.x + Math.cos( a ) * r, b.y0 + 1 + ( phase === 0 ? b.top * 0.3 : 0 ), b.z + Math.sin( a ) * r, phase === 1 ? 1.6 : 1 );
+				vfx.dust && vfx.dust( cx + Math.cos( a ) * r, y, cz + Math.sin( a ) * r, size );
 
 			}
 
 			if ( phase === 1 && ! this.phone ) {
 
-				vfx.debris && vfx.debris( b.x, b.y0 + 2, b.z, 1.4, 'stone' );
-				vfx.smoke && vfx.smoke( b.x, b.y0 + 3, b.z, 1.6, 0, 1, 0 );
+				vfx.debris && vfx.debris( cx, b.y0 + 2, cz, tower ? 2.4 : 1.4, 'stone' );
+				vfx.smoke && vfx.smoke( cx, b.y0 + 3, cz, tower ? 4 : 1.6, 0, 1, 0 );
 
 			}
 
 		} catch ( e ) { /* cosmetic */ }
 
 		const cf = this.app.cameraFeel, p = this.app.player && this.app.player.position;
-		if ( phase === 1 && cf && cf.kick && p && Math.hypot( p.x - b.x, p.z - b.z ) < 120 ) try { cf.kick( 'meleeHeavy', { scale: 0.6 } ); } catch ( e ) { /* optional */ }
+		if ( phase === 1 && cf && cf.kick && p && Math.hypot( p.x - cx, p.z - cz ) < ( tower ? 400 : 120 ) ) try { cf.kick( 'meleeHeavy', { scale: tower ? 1 : 0.6 } ); } catch ( e ) { /* optional */ }
 
 	}
 
@@ -553,7 +602,8 @@ export class CityWreck {
 			for ( const [ b, d ] of hot ) {
 
 				const h = this.city && this.city.building ? this.city.building( b.id ) : null;
-				const anchors = h && Array.isArray( h.fireAnchors ) && h.fireAnchors.length ? h.fireAnchors : this._anchors( b );
+				const ta = b.cls === 'tower' ? this.model.towerAnchors( b ) : null;
+				const anchors = ta && ta.length ? ta : h && Array.isArray( h.fireAnchors ) && h.fireAnchors.length ? h.fireAnchors : this._anchors( b );
 				const size = Math.min( 1.8, Math.max( 0.8, Math.sqrt( b.hw * b.hd ) / 6 ) );
 				if ( b.fire > 0 && shown.size < max * 3 && vfx.fire ) {
 
@@ -571,7 +621,8 @@ export class CityWreck {
 				if ( smokes > 0 && vfx.smoke && d < 1600 ) {
 
 					smokes --;
-					vfx.smoke( b.x, b.y0 + b.top + 1, b.z, Math.min( 6, ( b.fire > 0 ? 0.8 + b.fire * 2.2 : 0.45 ) * size * ( b.top > 40 ? 1.4 : 1 ) ), 0, 1, 0 );
+					const sy = b.cls === 'tower' && b.fireLo >= 0 ? b.y0 + ( b.fireHi + 1.5 ) * b.fh : b.y0 + ( b.cut ?? b.top ) + 1;
+					vfx.smoke( b.x, sy, b.z, Math.min( 6, ( b.fire > 0 ? 0.8 + b.fire * 2.2 : 0.45 ) * size * ( b.top > 40 ? 1.4 : 1 ) ), 0, 1, 0 );
 
 				}
 
@@ -625,9 +676,9 @@ export class CityWreck {
 		const list = [];
 		for ( const b of this.model.list ) {
 
-			if ( ! ( b.stage || b.marks || b.repair ) || animating.has( b ) || this.queue.includes( b ) && b.stage === 3 ) continue;
+			if ( ! ( b.stage || b.marks || b.repair || ( b.cls === 'tower' && ( b.fireLo >= 0 || b.sec ) ) ) || animating.has( b ) || this.queue.includes( b ) && b.stage === 3 ) continue;
 			const d = cam ? Math.hypot( b.x - cam.x, b.z - cam.z ) : 0;
-			if ( d - b.radius > far ) continue;
+			if ( d - b.radius > ( b.cls === 'tower' ? TOWER.drawWithin : far ) ) continue;
 			list.push( [ b, d ] );
 
 		}
@@ -734,7 +785,7 @@ export class CityWreck {
 		if ( ! m ) return { attached: false };
 		const by = [ 0, 0, 0, 0 ];
 		for ( const b of m.list ) by[ b.stage ] ++;
-		return { attached: true, buildings: m.list.length, stages: by, burning: m.list.filter( ( b ) => b.fire > 0 ).length, blocked: m.blockedEdges().size, mood: m.mood, wanted: this.level, heat: Math.round( this.heat * 10 ) / 10, animating: this.anims.length, queued: this.queue.length, instances: this.render ? this.render.n : 0, ...this.stats, model: m.stats };
+		return { attached: true, buildings: m.list.length, stages: by, burning: m.list.filter( ( b ) => b.fire > 0 ).length, broken: m.list.filter( ( b ) => b.cut !== null ).length, blocked: m.blockedEdges().size, mood: m.mood, wanted: this.level, heat: Math.round( this.heat * 10 ) / 10, animating: this.anims.length, queued: this.queue.length, instances: this.render ? this.render.n : 0, ...this.stats, model: m.stats };
 
 	}
 

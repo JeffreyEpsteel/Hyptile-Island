@@ -1,6 +1,7 @@
 import { BufferGeometry, Float32BufferAttribute, Color } from '../../../engine/index.js';
 import { standard } from '../../../materials/Materials.js';
 import { ShaderModule } from '../../../engine/gpu/Shader.js';
+import { towerInto } from './SkylineMesh.js';
 
 // Meridian's buildings (wave 21A): one material for every facade in the city and the geometry that feeds it. No textures:
 // the windows are drawn by the material from the facade coordinates (uv = metres along the wall, metres above the
@@ -17,11 +18,14 @@ import { ShaderModule } from '../../../engine/gpu/Shader.js';
 //
 // Style codes (aux.x): the facade families of CityPlan.STYLES, then plain parts: 90 plain wall, 91 flat roof, 92 metal,
 // 93 dark glass panel, 94 awning cloth, 95 lit sign, 96 terracotta roof, 97 granite paving, 98 asphalt, 99 pavement slabs,
-// 89 road paint.
+// 89 road paint; (wave 23A) the skyscrapers' facades 18-25 (deco, helix, zigg, ring, prism, garden, bronze, gate: Skyline.js) and
+// 100 LED lines (dim by day, bright at night), 101 planting, 102 aircraft warning lights (a slow red blink).
 
 export const STYLE = {
 	pinstripe: 0, glass: 1, glassBlue: 2, stone: 3, concrete: 4, brick: 5, brickRed: 6, stucco: 7, shopfront: 8, warehouse: 9,
 	villa: 10, civic: 11, station: 12, terminal: 13, hangar: 14, garage: 15, lighthouse: 16, market: 17,
+	deco: 18, helix: 19, zigg: 20, ring: 21, prism: 22, garden: 23, bronze: 24, gate: 25,
+	led: 100, foliage: 101, beacon: 102,
 	paint: 89, plain: 90, roof: 91, metal: 92, panel: 93, cloth: 94, sign: 95, tiles: 96, granite: 97, asphalt: 98, pavement: 99,
 };
 
@@ -30,6 +34,7 @@ const GRID = {
 	pinstripe: [ 3.66, 1.02 ], glass: [ 3.8, 1.5 ], glassBlue: [ 3.8, 1.5 ], stone: [ 3.6, 3.0 ], concrete: [ 3.4, 3.2 ], brick: [ 3.2, 2.9 ],
 	brickRed: [ 3.2, 2.9 ], stucco: [ 3.2, 3.3 ], shopfront: [ 3.4, 3.0 ], warehouse: [ 5.5, 6.0 ], villa: [ 3.2, 3.8 ], civic: [ 6.0, 4.4 ],
 	station: [ 11, 5.0 ], terminal: [ 7, 3.2 ], hangar: [ 8, 6 ], garage: [ 3.5, 6 ], lighthouse: [ 5, 3.0 ], market: [ 5, 4.0 ],
+	deco: [ 3.9, 1.7 ], helix: [ 3.8, 1.6 ], zigg: [ 3.6, 2.6 ], ring: [ 3.7, 2.4 ], prism: [ 3.8, 1.3 ], garden: [ 3.6, 3.2 ], bronze: [ 3.7, 1.9 ], gate: [ 3.8, 2.4 ],
 };
 
 const C = ( hex ) => new Color( hex ); // linear from sRGB hex
@@ -39,6 +44,7 @@ const PALETTE = {
 	stucco: [ 0xd9cdb6, 0xe3d6c0, 0xcfbfa5, 0xd8c2a0, 0xc9b8a8 ], shopfront: [ 0x8a5a44, 0xd9cdb6, 0x9e8a70, 0x6f6a62 ],
 	warehouse: [ 0x7d8580, 0x8a6f5a, 0x5f7380, 0x96805e, 0x6d7a6a ], villa: [ 0xece6da, 0xe9dcc4, 0xf1ece2 ], civic: [ 0xd8d2c4 ],
 	station: [ 0xb59b7a ], terminal: [ 0xdfe3e6 ], hangar: [ 0x8d959b ], garage: [ 0xa3a19b ], lighthouse: [ 0xf2f0ea ], market: [ 0x9a5b45 ],
+	deco: [ 0xd9ccb0 ], helix: [ 0xd8dddb ], zigg: [ 0xc49a72 ], ring: [ 0xe8e6e1 ], prism: [ 0x34383d ], garden: [ 0xd5d1c7 ], bronze: [ 0x6b4c34 ], gate: [ 0xc2b89f ],
 };
 const ROOF = [ 0x5c5d5f, 0x6e6c68, 0x7d7b76, 0x55575a ];
 
@@ -322,8 +328,9 @@ export function towerOutline( b, c = 2.2 ) {
 }
 
 // one plan building into acc. detail: the near extras (cornices, rooftop plant, water tanks, awnings, signs, the masts);
-// stage: 0..3 (3 collapsed: only a stump of the ground floor walls; 21C's onStage adds the rubble)
-export function buildingInto( acc, b, { detail = true, stage = 0 } = {} ) {
+// stage: 0..3 (3 collapsed: only a stump of the ground floor walls; 21C's onStage adds the rubble); cut (towers): metres
+// above the ground where an upper section broke off (SkylineMesh draws the broken top)
+export function buildingInto( acc, b, { detail = true, stage = 0, cut = null } = {} ) {
 
 	const style = b.style, code = STYLE[ style ] ?? STYLE.concrete;
 	const [ fh, bay ] = GRID[ style ] || GRID.concrete;
@@ -339,6 +346,13 @@ export function buildingInto( acc, b, { detail = true, stage = 0 } = {} ) {
 	const roofAux = plainAux( STYLE.roof, seed );
 	const out = { top: b.y + b.h, tiers: [] };
 
+	if ( b.kind === 'tower' ) {
+
+		const auxOf = ( sd ) => [ code, fh, bay, st + ( sd ?? seed ) * 0.9 ];
+		return towerInto( acc, b, { detail, stage: st, cut }, { STYLE, col, roofCol, roofAux, aux: auxOf, auxSeed: st + seed * 0.9, plainAux: ( c ) => plainAux( c, seed ) } );
+
+	}
+
 	if ( st >= 3 ) {
 
 		// collapsed: the ground floor's broken walls (the rubble heap is 21C's, or the builder's default)
@@ -347,36 +361,6 @@ export function buildingInto( acc, b, { detail = true, stage = 0 } = {} ) {
 		acc.box( t.x0, t.x1, t.z0, t.z1, t.y0, b.y + h, b.y, col.clone().multiplyScalar( 0.45 ), aux, { topCol: C( 0x3a3632 ), topAux: plainAux( STYLE.plain, seed ) } );
 		out.top = b.y + h;
 		out.tiers.push( { ...t, y1: b.y + h } );
-		return out;
-
-	}
-
-	if ( b.kind === 'tower' ) {
-
-		const ol = towerOutline( b );
-		acc.prism( ol, b.y - SINK, b.y + b.h, b.y, col, aux, { topCol: C( 0x8d9094 ), topAux: plainAux( STYLE.metal, seed ) } );
-		out.tiers.push( { x0: b.x - b.w / 2, x1: b.x + b.w / 2, z0: b.z - b.d / 2, z1: b.z + b.d / 2, y0: b.y - SINK, y1: b.y + b.h } );
-		// the roof: a parapet band, the plant room; the north tower's mast, the south tower's observation deck
-		const top = b.y + b.h, h = b.w / 2 - 1.5;
-		const metal = plainAux( STYLE.metal, seed ), mc = C( 0x9aa0a6 );
-		acc.box( b.x - h + 6, b.x + h - 6, b.z - h + 6, b.z + h - 6, top, top + 6, top, C( 0x8e9398 ), plainAux( STYLE.plain, seed ) );
-		if ( b.id === 'twin-north' ) {
-
-			acc.cylinder( b.x, b.z, 2.2, 1.6, top + 6, top + 20, 10, mc, metal );
-			acc.cylinder( b.x, b.z, 1.4, 0.35, top + 20, top + 62, 8, C( 0xd0d3d6 ), metal );
-			for ( const y of [ top + 30, top + 42, top + 52 ] ) acc.cylinder( b.x, b.z, 2.0, 2.0, y, y + 0.6, 10, mc, metal ); // the antenna rings
-			acc.cylinder( b.x, b.z, 0.5, 0.5, top + 62, top + 63, 6, C( 0xff2010 ), plainAux( STYLE.sign, seed ) ); // the aircraft warning light
-			out.mastTop = top + 63;
-
-		} else if ( detail ) {
-
-			// the observation deck: a glazed pavilion and its railing round the roof
-			acc.box( b.x - 9, b.x + 9, b.z - 6, b.z + 6, top + 6, top + 10, top + 6, C( 0x30404c ), plainAux( STYLE.panel, seed ) );
-			const r = h - 1;
-			for ( const [ px, pz, qx, qz ] of [ [ - r, r, r, r ], [ r, r, r, - r ], [ r, - r, - r, - r ], [ - r, - r, - r, r ] ] ) acc.wall( b.x + px, b.z + pz, b.x + qx, b.z + qz, top, top + 1.2, top, mc, metal );
-
-		}
-
 		return out;
 
 	}
@@ -489,6 +473,7 @@ const FACADE_WGSL = /* wgsl */`
 		var gRough = 0.12; var gMetal = 0.15;
 		var frameK = 0.8; // the window reveal / frame darkening round the glass
 		var lit = 0.24; // share of windows lit at night
+		var litTint = vec3f( - 1.0 ); // (< 0: warm or cool by window)
 		var bayW = bay; var floorH = fh;
 		var v = uv.y;
 		if ( style < 0.5 ) {
@@ -533,9 +518,42 @@ const FACADE_WGSL = /* wgsl */`
 			if ( fract( v / 18.0 ) > 0.62 && v < 26.0 ) { col = vec3f( 0.55, 0.06, 0.04 ); }
 			wx0 = 0.42; wx1 = 0.58; wy0 = 0.4; wy1 = 0.7; lit = 0.3;
 		}
-		else { wx0 = 0.12; wx1 = 0.88; wy0 = 0.55; wy1 = 0.92; frameK = 0.8; lit = 0.4; }
+		else if ( style < 17.5 ) { wx0 = 0.12; wx1 = 0.88; wy0 = 0.55; wy1 = 0.92; frameK = 0.8; lit = 0.4; }
+		// ---- the skyscrapers (wave 23A)
+		else if ( style < 18.5 ) {
+			// deco: limestone piers, tall narrow windows, dark spandrels between them
+			wx0 = 0.3; wx1 = 0.7; wy0 = 0.06; wy1 = 0.94; frameK = 0.62; lit = 0.3; glass = vec3f( 0.035, 0.04, 0.045 );
+			litTint = vec3f( 1.0, 0.82, 0.55 );
+		} else if ( style < 19.5 ) {
+			// helix: teal glass, a white band at each floor slab
+			wx0 = 0.02; wx1 = 0.98; wy0 = 0.34; wy1 = 0.97; frameK = 1.0; lit = 0.18; glass = vec3f( 0.03, 0.08, 0.085 );
+			gMetal = 0.45; gRough = 0.05; rough = 0.3; metal = 0.2; litTint = vec3f( 0.75, 0.92, 1.0 );
+		} else if ( style < 20.5 ) {
+			// zigg: sandstone, square windows deep in the wall
+			wx0 = 0.32; wx1 = 0.68; wy0 = 0.3; wy1 = 0.72; frameK = 0.58; lit = 0.38; litTint = vec3f( 1.0, 0.75, 0.45 );
+		} else if ( style < 21.5 ) {
+			// ring: white concrete, unbroken ribbon windows
+			wx0 = - 0.2; wx1 = 1.2; wy0 = 0.38; wy1 = 0.8; frameK = 0.9; lit = 0.26; glass = vec3f( 0.04, 0.06, 0.075 ); gMetal = 0.3;
+			litTint = vec3f( 0.85, 0.93, 1.0 );
+		} else if ( style < 22.5 ) {
+			// prism: near-black glass, thin fins
+			wx0 = 0.08; wx1 = 0.92; wy0 = 0.06; wy1 = 0.96; frameK = 1.0; lit = 0.1; glass = vec3f( 0.012, 0.014, 0.018 );
+			gMetal = 0.55; gRough = 0.04; rough = 0.3; metal = 0.5; litTint = vec3f( 0.7, 0.85, 1.0 );
+		} else if ( style < 23.5 ) {
+			// garden: pale concrete, deep balconies
+			wx0 = 0.06; wx1 = 0.94; wy0 = 0.28; wy1 = 0.9; frameK = 0.5; lit = 0.42; litTint = vec3f( 1.0, 0.82, 0.55 );
+		} else if ( style < 24.5 ) {
+			// bronze: dark bronze panels, narrow horizontal windows
+			wx0 = 0.05; wx1 = 0.95; wy0 = 0.42; wy1 = 0.78; frameK = 0.9; lit = 0.22; rough = 0.38; metal = 0.75; gMetal = 0.3;
+			litTint = vec3f( 1.0, 0.7, 0.4 );
+		} else if ( style < 25.5 ) {
+			// gate: a champagne metal grid, deep square windows
+			wx0 = 0.16; wx1 = 0.84; wy0 = 0.18; wy1 = 0.86; frameK = 0.7; lit = 0.26; rough = 0.4; metal = 0.55; litTint = vec3f( 0.9, 0.9, 1.0 );
+		}
+		else { wx0 = 0.12; wx1 = 0.88; wy0 = 0.55; wy1 = 0.92; frameK = 0.8; lit = 0.4; } // (road paint: as before)
+		let towerStyle = style > 17.5 && style < 25.5;
 		// the shop front: the ground floor of the front face is display glass between pilasters, a door in the middle
-		let shopGround = isFront && v < 3.6 && v > 0.0 && ( ( style > 7.5 && style < 8.5 ) || style > 16.5 );
+		let shopGround = isFront && v < 3.6 && v > 0.0 && ( ( style > 7.5 && style < 8.5 ) || ( style > 16.5 && style < 17.5 ) );
 		let fx = uv.x / bayW;
 		let fy = v / floorH;
 		var lx = fract( fx ); var ly = fract( fy );
@@ -551,7 +569,7 @@ const FACADE_WGSL = /* wgsl */`
 		// where a window is under a pixel the pattern becomes its average (the skyline does not shimmer)
 		let fw = max( fwidth( fx ), fwidth( fy ) );
 		let blur = smoothstep( 0.3, 0.85, fw );
-		let area = ( wx1 - wx0 ) * ( wy1 - wy0 ) * select( 1.0, 0.0, v < 0.6 );
+		let area = ( min( wx1, 1.0 ) - max( wx0, 0.0 ) ) * ( wy1 - wy0 ) * select( 1.0, 0.0, v < 0.6 );
 		let win = mix( inWin, area, blur );
 		// the frame round each window darker (the reveal)
 		let nearWin = smoothstep( wx0 - 0.08, wx0, lx ) * ( 1.0 - smoothstep( wx1, wx1 + 0.08, lx ) ) * smoothstep( wy0 - 0.08, wy0, ly ) * ( 1.0 - smoothstep( wy1, wy1 + 0.08, ly ) );
@@ -559,8 +577,9 @@ const FACADE_WGSL = /* wgsl */`
 		// weathering: streaks down from the sills, a grime band at the street
 		let streak = gpNoise( vec3f( uv.x * 2.1, v * 0.08, seed * 9.0 ) );
 		col *= mix( 0.9, 1.04, streak ) * mix( 0.8, 1.0, smoothstep( 0.0, 3.0, v ) );
-		// Damage extends over the full facade, including the twin towers.
-		let marks = stage;
+		// damage marks the whole facade (a skyscraper's spread over far more windows: lighter per pane; its fires burn floor by
+		// floor in citywreck's glowing bands, not in every window)
+		let marks = stage * select( 1.0, 0.5, towerStyle );
 		let hw = gpHash( cell + vec3f( 3.1, 7.7, 1.3 ) );
 		var gl = glass;
 		var g2 = gRough;
@@ -576,12 +595,13 @@ const FACADE_WGSL = /* wgsl */`
 		let hl = gpHash( cell );
 		let share = lit * mix( 0.55, 1.25, seed );
 		let on = step( hl, share ) * ( 1.0 - broken );
-		let warm = select( vec3f( 1.0, 0.8, 0.52 ), vec3f( 0.78, 0.88, 1.0 ), gpHash( cell + vec3f( 9.0 ) ) > 0.62 );
+		var warm = select( vec3f( 1.0, 0.8, 0.52 ), vec3f( 0.78, 0.88, 1.0 ), gpHash( cell + vec3f( 9.0 ) ) > 0.62 );
+		if ( litTint.x >= 0.0 ) { warm = litTint * mix( 0.85, 1.1, gpHash( cell + vec3f( 2.0 ) ) ); }
 		let litAvg = share * area * ( 1.0 - min( marks * 0.28, 0.84 ) );
 		let glow = mix( on * inWin, litAvg, blur );
 		// (the far average dimmer than the sum of its windows: a lit pane is a point of light, not a glowing wall)
 		emis = warm * glow * nightK * mix( 1.6, 0.3, blur );
-		if ( marks > 1.5 ) {
+		if ( marks > 1.5 && ! towerStyle ) {
 			let fire = step( gpHash( cell + vec3f( 5.0 ) ), 0.3 ) * ( 0.7 + 0.3 * sin( frame.time * 9.0 + hw * 40.0 ) );
 			emis = vec3f( 1.0, 0.42, 0.1 ) * mix( fire * inWin, 0.3 * area, blur ) * 2.2;
 			gl = vec3f( 0.02 );
@@ -630,6 +650,20 @@ const FACADE_WGSL = /* wgsl */`
 		let aa = 1.0 - smoothstep( 0.2, 0.6, fwidth( P.x / 1.5 ) + fwidth( P.z / 1.5 ) );
 		col *= mix( 1.0, 0.8, max( jx, jz ) * aa ) * mix( 0.92, 1.05, gpHash( floor( P / 1.5 ) ) );
 		rough = 0.75;
+	} else if ( style > 99.5 && style < 100.5 ) {
+		// LED lines (the skyline's night outline): a dark trim by day, bright after dusk
+		emis = col * ( 0.12 + 2.8 * nightK );
+		col *= 0.35;
+		rough = 0.35;
+	} else if ( style > 100.5 && style < 101.5 ) {
+		// planting: terraces, hanging greenery
+		col *= mix( 0.65, 1.15, gpNoise( P * 1.4 ) );
+		rough = 0.95;
+	} else if ( style > 101.5 && style < 102.5 ) {
+		// an aircraft warning light: a slow red blink, brighter at night
+		let blink = step( 0.55, fract( frame.time * 0.7 + seed * 3.0 ) );
+		emis = vec3f( 1.0, 0.04, 0.02 ) * blink * ( 0.6 + 4.0 * nightK );
+		rough = 0.3;
 	} else if ( style > 88.5 && style < 89.5 ) {
 		// road paint: worn
 		col *= mix( 0.75, 1.0, gpNoise( P * 1.3 ) );

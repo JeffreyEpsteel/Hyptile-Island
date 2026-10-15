@@ -32,7 +32,30 @@ export const VIEWS = {
 	tidemarkCompare: { time: 12, weather: 'clear', place: { kind: 'fly', pose: { x: 1430, y: 30, z: - 20, yaw: - 1.75, pitch: - 0.08 } } },
 	meridianCompare: { time: 12, weather: 'clear', place: { kind: 'fly', pose: { x: C.x + 700, y: 30, z: C.z + 40, yaw: 1.55, pitch: - 0.02 } } },
 	meridianFromHome: { time: 16.5, weather: 'clear', place: { kind: 'fly', pose: { x: - 150, y: 4.5, z: 300, yaw: 1.36, pitch: 0.05 } } }, // (from the home bay's mouth: the west headland hides the city from the pier)
+	// wave 23A: the skyline at night with a tower burning floor by floor; a skyscraper's fall (mid-collapse) and its rubble;
+	// an upper section toppling (setup( app ): citywreck's model driven directly, as a barrage would)
+	meridianSkylineNight: { time: 22.5, weather: 'clear', place: { kind: 'fly', pose: { x: C.x + 1150, y: 14, z: C.z + 120, yaw: 1.62, pitch: 0.06 } },
+		setup: ( app ) => { const m = wreck( app ); const R = m.byId.get( 'halo-tower' ); m.ignite( R, 1, 'player', 110 ); for ( let i = 0; i < 120; i ++ ) m.update( 0.5, { rain: 0 } ); } },
+	meridianTowerFall: { time: 15.5, weather: 'clear', frames: 200, place: { kind: 'fly', pose: { x: C.x - 130, y: 300, z: C.z - 200, yaw: - 2.193, pitch: - 0.3 } },
+		setup: ( app ) => { const m = wreck( app ), S = m.byId.get( 'meridian-spire' ); m.hit( S, S.hp * 2, { by: 'player', cause: 'blast', at: { x: S.x, y: S.y0 + 10, z: S.z } } ); } },
+	meridianTowerRubble: { time: 15.5, weather: 'clear', frames: 40, place: { kind: 'fly', pose: { x: C.x - 130, y: 300, z: C.z - 200, yaw: - 2.193, pitch: - 0.55 } },
+		setup: ( app ) => { const m = wreck( app ); m.apply( [ [ 'meridian-spire', 3, 0, 0 ] ], { silent: true } ); } },
+	meridianSectionFall: { time: 16, weather: 'clear', frames: 150, place: { kind: 'fly', pose: { x: - 2590 + 250, y: 260, z: - 131 + 250, yaw: 0.785, pitch: - 0.32 } },
+		setup: ( app ) => { const m = wreck( app ), H = m.byId.get( 'helix-tower' ); m.hit( H, H.hp, { by: 'player', cause: 'blast', at: { x: H.x, y: H.y0 + 20, z: H.z } } ); m.hit( H, H.hp * 0.15, { by: 'player', cause: 'cannon', at: { x: H.x, y: H.y0 + 170, z: H.z } } ); } },
+	meridianSectionAfter: { time: 16, weather: 'clear', frames: 40, place: { kind: 'fly', pose: { x: - 2590 + 250, y: 260, z: - 131 + 250, yaw: 0.785, pitch: - 0.4 } },
+		setup: ( app ) => { const m = wreck( app ), H = m.byId.get( 'helix-tower' ); m.apply( [ [ H.id, 2, 60, 0, Math.round( ( H.top * 0.72 ) / H.fh ) * H.fh, 30, 38 ] ], { silent: true } ); } },
 };
+
+// citywreck's model, the city as new (each damage view starts from a whole city)
+function wreck( app ) {
+
+	const cw = app.features && app.features.get ? app.features.get( 'citywreck' ) : null;
+	if ( ! cw ) throw new Error( 'no citywreck feature' );
+	if ( ! cw.model ) cw.update( 1.2 );
+	cw.reset();
+	return cw.model;
+
+}
 
 const [ W, H ] = arg( 'size', '1280x720' ).split( 'x' ).map( Number );
 const profile = arg( 'profile', 'medium' );
@@ -126,6 +149,7 @@ for ( const id of only ) {
 	const v = VIEWS[ id ];
 	if ( ! v ) { console.log( 'unknown view ' + id ); continue; }
 	const set = await setupScenario( app, { id, name: id, ships: [], fire: null, peers: 0, intensity: 0, ...v } );
+	if ( v.setup ) v.setup( app, city );
 	if ( evalCode ) evalCode( app, city );
 	const n = v.frames || settle;
 	for ( let i = 0; i < n; i ++ ) {

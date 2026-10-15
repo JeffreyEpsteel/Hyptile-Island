@@ -5,7 +5,8 @@ import { cityPlan, MERIDIAN, LAYOUT, DOCKS_DECK, SIDEWALK, coastDistanceRel, coa
 // Meridian's streets (wave 21A), drawn with the facade material's ground codes into one accumulator: the carriageways on
 // the terrain (asphalt, 3 cm up), junction boxes, kerbed sidewalks (0.15 m) round every city block with corner squares,
 // zebra crossings and stop lines at the junctions, lane paint (double yellow on the avenues, white dashes), the hill road
-// as a ribbon on its graded profile, the plazas (granite: the Twins' plaza, the market, city hall square), the park's
+// as a ribbon on its graded profile, the plazas (granite: the Skyline Plaza, the skyscrapers' forecourts, the market, city
+// hall square), the park's
 // paths, the stone seawalls of the docks, the basin, the moles and the airport, the pier, the ferry slip and the runway.
 //
 //   buildStreets( { tile, plan } ) -> { acc, stats, crossings: [ { x, z } ], lamps: [ { x, z, yaw } ], signals: [ { node,
@@ -288,7 +289,21 @@ export function buildStreets( { tile, plan = cityPlan(), acc = new Acc() } = {} 
 	// ---- plazas
 	const P = Object.fromEntries( plan.plazas.map( ( p ) => [ p.id, p ] ) );
 	const slab = ( p, col, code, up = KERB_H ) => pad( p.x - p.w / 2, p.x + p.w / 2, p.z - p.d / 2, p.z + p.d / 2, up, col, code, true );
-	slab( P.twins, GRANITE, STYLE.granite );
+	slab( P.skyline, GRANITE, STYLE.granite );
+	// the forecourts of the skyscrapers that take a whole block (wave 23A): granite, a row of trees and benches round the tower
+	for ( const p of plan.plazas ) {
+
+		if ( p.kind !== 'square' || ! p.id.startsWith( 'court-' ) ) continue;
+		slab( p, GRANITE, STYLE.granite );
+		const t = plan.buildings.find( ( b ) => 'court-' + b.id === p.id );
+		const clear = ( x, z ) => ! t || Math.abs( x - t.x ) > t.w / 2 + 5 || Math.abs( z - t.z ) > t.d / 2 + 5;
+		const x0 = p.x - p.w / 2 + 4, x1 = p.x + p.w / 2 - 4, z0 = p.z - p.d / 2 + 4, z1 = p.z + p.d / 2 - 4;
+		let k = 0;
+		for ( let x = x0; x <= x1 + 0.1; x += ( x1 - x0 ) / 6 ) for ( const z of [ z0, z1 ] ) if ( clear( x, z ) ) out.trees.push( { x, z, yaw: k ++ } );
+		for ( let z = z0 + ( z1 - z0 ) / 4; z < z1; z += ( z1 - z0 ) / 4 ) for ( const x of [ x0, x1 ] ) if ( clear( x, z ) ) out.trees.push( { x, z, yaw: k ++ } );
+		for ( const [ x, z, yaw ] of [ [ p.x, z0 + 3, 0 ], [ p.x, z1 - 3, Math.PI ] ] ) if ( clear( x, z ) ) out.benches.push( { x, z, yaw, plaza: true } );
+
+	}
 	slab( P.market, COBBLE, STYLE.granite );
 	slab( P.hall, GRANITE, STYLE.granite );
 	// the park: gravel paths across it (diagonals and a ring) and its trees
@@ -329,8 +344,8 @@ export function buildStreets( { tile, plan = cityPlan(), acc = new Acc() } = {} 
 
 	}
 
-	// the Twins' plaza: the fountain's basin round the bronze globe, benches round it
-	const globe = { x: ( plan.buildings[ 0 ].x + plan.buildings[ 1 ].x ) / 2 - 18, z: ( plan.buildings[ 0 ].z + plan.buildings[ 1 ].z ) / 2 + 22 };
+	// the Skyline Plaza: the fountain's basin round the bronze globe (where it stood between the old Twins), benches round it
+	const globe = { x: CX + 150.5, z: CZ + 39 };
 	{
 
 		const y = H( globe.x, globe.z ) + KERB_H;

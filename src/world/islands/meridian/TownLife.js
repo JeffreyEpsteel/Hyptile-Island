@@ -91,7 +91,7 @@ export function meridianTownPlan() {
 		} );
 		return { id: 'mstall' + i, x: r2( v.x ), z: r2( v.z ), vendor: P( vx, vz, v.yaw + Math.PI ), front, calls: [
 			[ 'Hot pretzels! Coffee!', 'Fresh oysters, a dollar a dozen!', 'Lemonade, ice cold!' ],
-			[ 'Flowers for the lady!', 'Postcards of the Twins!', 'Maps of the islands!' ],
+			[ 'Flowers for the lady!', 'Postcards of the skyline!', 'Maps of the islands!' ],
 			[ 'Shrimp on ice!', 'Crab, fresh off the boat!', 'Smoked fish, best in the city!' ],
 		][ i % 3 ] };
 

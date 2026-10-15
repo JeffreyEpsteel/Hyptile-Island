@@ -109,7 +109,7 @@ export class Ports {
 		// Tidemark's other landing spots: the airstrip's apron (a pilot who lands there has landed on Tidemark)
 		const ap = this.tidemark.airstrip.pad;
 		this._spots.tidemark.push( new Vector3( ap.x, 0, ap.z ), new Vector3( this.tidemark.airstrip.x, 0, this.tidemark.airstrip.z ) );
-		// Meridian: the airport's apron and runway, the Twins' plaza, the ferry slip
+		// Meridian: the airport's apron and runway, the Skyline Plaza, the ferry slip
 		const M = WORLD.meridian;
 		this._spots.meridian.push( new Vector3( M.airstrip.pad.x, 0, M.airstrip.pad.z ), new Vector3( M.airstrip.x, 0, M.airstrip.z ), new Vector3( M.town.x, 0, M.town.z ) );
 

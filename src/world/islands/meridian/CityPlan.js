@@ -12,6 +12,8 @@
 //                h: roof height above y (masts and spires not included); y: the ground (pad) height under it;
 //                floors: storeys; style: the facade family (STYLES); block: the block id it stands in;
 //                landmark: a named sight (map, discovery); collapsible: may reach stage 3; protected: legacy metadata.
+//                (wave 23A, additive) towers: shape (Skyline.js: 'deco' | 'split' | 'ring' | 'tri' | 'zigg' | 'twist' |
+//                'cantilever' | 'wedge'), top (the highest point: spire, mast), helipad: { x, z, y, r } | null
 //     roads      { nodes: [ { id, x, z, y, signal } ], edges: [ { id, a, b, lanes, width, speed, oneWay, kind, name } ] }
 //                lanes: both directions together; width: the carriageway (kerb to kerb, m); speed: the limit (m/s);
 //                kind: 'avenue' | 'street' | 'quay' | 'hill' | 'access'; edges are straight between their nodes;
@@ -36,10 +38,13 @@
 //   coastKind( x, z )         'seawall' | 'beach' | 'rock' (the nearest stretch of coast)
 //
 // Layout (from home, Meridian lies due west; its harbour faces east toward home): a street grid of 8 columns x 8 rows
-// (avenues every other line), downtown round the Meridian Twins' plaza east of centre, the park west of it, city hall and
+// (avenues every other line), downtown round the Skyline Plaza east of centre (wave 23A: eight skyscrapers, Skyline.js, on
+// the plaza and on five whole downtown blocks round it), the park west of it, city hall and
 // the market square between them, the docks and the harbour basin on the east shore (two moles, the lighthouse on the
 // north one, the ferry slip on the south wall), the airport on reclaimed land along the north shore, beaches and a
 // promenade on the south (open ocean) side, the hills with villas and a river at the west end.
+
+import { SKYLINE, towerExtent, localForm } from './Skyline.js';
 
 export const MERIDIAN = {
 	id: 'meridian',
@@ -68,9 +73,10 @@ export const AVENUE = { lanes: 4, width: 14, speed: 14 };
 export const STREET = { lanes: 2, width: 9, speed: 11 };
 export const SIDEWALK = 4;
 
-// the Twins' plaza (two blocks by two, the streets inside it closed) and the towers on it
+// the Skyline Plaza (two blocks by two, the streets inside it closed; release 3ba863b's Twins plaza) and three of the
+// skyscrapers on it (Skyline.js; the other five take whole downtown blocks round it)
 const TWINS = { x0: 50, x1: 290, z0: - 80, z1: 120 };
-const TOWER = { size: 46, h: 300, floors: 82, north: [ 125, - 18 ], south: [ 212, 52 ] };
+const TOWER = { size: 46, h: 300, floors: 82, north: [ 125, - 18 ], south: [ 212, 52 ] }; // (the Twins' numbers: legacy, unused)
 const PARK = { x0: - 310, x1: - 190, z0: - 80, z1: 120 };
 const HARBOUR_X = 410; // Harbour Avenue; the docks strip lies east of it
 
@@ -218,6 +224,8 @@ export function edgeRect( plan, e, pad = 0 ) {
 const cache = new Map();
 const r1 = ( v ) => Math.round( v * 10 ) / 10;
 
+export { TOWER_ALIASES, resolveTower, SKYLINE } from './Skyline.js';
+
 export function cityPlan( seed = 2110 ) {
 
 	if ( cache.has( seed ) ) return cache.get( seed );
@@ -243,7 +251,9 @@ function mulberry( seed ) {
 }
 
 // facade families the builder knows (MeridianKit): everything in the plan uses one of these
-export const STYLES = [ 'pinstripe', 'glass', 'glassBlue', 'stone', 'concrete', 'brick', 'brickRed', 'stucco', 'shopfront', 'warehouse', 'villa', 'civic', 'station', 'terminal', 'hangar', 'garage', 'lighthouse', 'market' ];
+export const STYLES = [ 'pinstripe', 'glass', 'glassBlue', 'stone', 'concrete', 'brick', 'brickRed', 'stucco', 'shopfront', 'warehouse', 'villa', 'civic', 'station', 'terminal', 'hangar', 'garage', 'lighthouse', 'market',
+	// the skyscrapers' own (wave 23A)
+	'deco', 'helix', 'zigg', 'ring', 'prism', 'garden', 'bronze', 'gate' ];
 
 const SIGNS = [ 'Bakery', 'Pharmacy', 'Café', 'Books', 'Diner', 'Hardware', 'Tailor', 'Grocer', 'Bar', 'Barber', 'Florist', 'Radio', 'Shoes', 'Deli', 'Bank', 'Hotel', 'Cinema', 'Pawn', 'Tackle', 'Noodles' ];
 
@@ -361,7 +371,7 @@ function build( seed ) {
 
 	}
 
-	// signals: where avenues cross (and the boulevards meet Harbour Avenue), and the Twins' plaza corners
+	// signals: where avenues cross (and the boulevards meet Harbour Avenue), and the Skyline Plaza's corners
 	const degree = {}, avDeg = {};
 	for ( const e of edges ) for ( const k of [ e.a, e.b ] ) {
 
@@ -426,7 +436,7 @@ function build( seed ) {
 			v0: R.z0 + halfAt( ROWS, AVENUE_ROWS, ROWS.indexOf( R.z0 ) ), v1: R.z1 - halfAt( ROWS, AVENUE_ROWS, ROWS.indexOf( R.z1 ) ), zone } );
 
 	};
-	merge( 'plaza', TWINS, 'twins' );
+	merge( 'plaza', TWINS, 'skyline' );
 	merge( 'park', PARK, 'park' );
 	// the docks (east of Harbour Avenue, north and south of the basin) and the hills
 	const dockU0 = HARBOUR_X + AVENUE.width / 2 + SIDEWALK;
@@ -453,15 +463,26 @@ function build( seed ) {
 		if ( b.protected ) out.protected = true;
 		if ( b.sign ) out.sign = b.sign;
 		if ( b.shop ) out.shop = b.shop;
+		if ( b.shape ) { out.shape = b.shape; out.top = r1( b.top ); out.helipad = b.helipad || null; }
 		buildings.push( out );
 		return out;
 
 	};
 
-	// the Meridian Twins: identical square towers, the tallest things in the world (destructible landmarks)
-	const tw = blocks.find( ( b ) => b.id === 'twins' );
-	add( { id: 'twin-north', kind: 'tower', u: TOWER.north[ 0 ], v: TOWER.north[ 1 ], w: TOWER.size, d: TOWER.size, h: TOWER.h, floors: TOWER.floors, style: 'pinstripe', landmark: true, collapsible: true, protected: false, block: tw.id, name: 'Meridian Twins (North)', yaw: Math.PI } );
-	add( { id: 'twin-south', kind: 'tower', u: TOWER.south[ 0 ], v: TOWER.south[ 1 ], w: TOWER.size, d: TOWER.size, h: TOWER.h, floors: TOWER.floors, style: 'pinstripe', landmark: true, collapsible: true, protected: false, block: tw.id, name: 'Meridian Twins (South)' } );
+	// the skyline (wave 23A, Skyline.js): eight skyscrapers, no two alike, the tallest things in the world (destructible
+	// landmarks); three on the plaza here, five on whole downtown blocks once the lots are laid out (below)
+	const tw = blocks.find( ( b ) => b.id === 'skyline' );
+	const addTower = ( s, u, v, block ) => {
+
+		const e = towerExtent( s );
+		const y = Math.round( groundRel( u, v ) * 100 ) / 100;
+		const f = localForm( s ), pad = f.pads[ 0 ];
+		const [ px, pz ] = pad ? W( u + pad.x, v + pad.z ) : [ 0, 0 ];
+		return add( { id: s.id, kind: 'tower', u, v, w: e.w, d: e.d, h: e.h, top: y + e.top, floors: e.floors, style: s.style, landmark: true, collapsible: true, block, name: s.name, shape: s.shape, y,
+			helipad: pad ? { x: px, z: pz, y: Math.round( ( y + pad.y ) * 100 ) / 100, r: pad.r } : null } );
+
+	};
+	for ( const s of SKYLINE ) if ( s.block === 'skyline' ) addTower( s, s.u, s.v, tw.id );
 
 	// the civic buildings
 	const blockAt = ( u, v ) => blocks.find( ( b ) => u > b.u0 && u < b.u1 && v > b.v0 && v < b.v1 );
@@ -535,7 +556,7 @@ function build( seed ) {
 					d = D0 / 2 - 3;
 					if ( r < 0.72 ) { kind = 'highrise'; h = 64 + rnd() * 116; style = pick( [ 'glass', 'glassBlue', 'stone', 'concrete', 'glass' ] ); }
 					else { kind = 'midrise'; h = 30 + rnd() * 24; style = pick( [ 'stone', 'brick', 'concrete' ] ); }
-					// taller toward the Twins (a skyline that climbs to them)
+					// taller toward the plaza (a skyline that climbs to the towers)
 					const dd = Math.hypot( u - 170, ( side === 'N' ? B.v0 : B.v1 ) - 20 );
 					if ( kind === 'highrise' ) h *= 1.15 - 0.45 * smooth( 120, 300, dd );
 
@@ -555,6 +576,8 @@ function build( seed ) {
 
 				}
 
+				// (the skyscrapers stand clear: the highrises round them stop at ~135 m)
+				if ( kind === 'highrise' && h > 110 ) h = 110 + ( h - 110 ) * 0.42;
 				const v = side === 'N' ? B.v0 + d / 2 + 1 : B.v1 - d / 2 - 1;
 				const b = add( { kind, u, v, w, d, h, style, block: B.id, yaw: side === 'N' ? Math.PI : 0, sign, shop: kind === 'shop' ? 'shop' : undefined } );
 				// one multi-storey car park in two midtown blocks (21B parks cars inside)
@@ -568,6 +591,19 @@ function build( seed ) {
 			}
 
 		}
+
+	}
+
+	// the five block towers: each takes a whole downtown block (its lots laid out above for the seed's sake, then cleared: the
+	// other buildings keep their ids), a granite forecourt round it
+	const courts = [];
+	for ( const s of SKYLINE ) {
+
+		if ( s.block === 'skyline' ) continue;
+		const B = blocks.find( ( b ) => b.id === s.block );
+		for ( let i = buildings.length - 1; i >= 0; i -- ) if ( buildings[ i ].block === B.id ) buildings.splice( i, 1 );
+		addTower( s, ( B.u0 + B.u1 ) / 2, ( B.v0 + B.v1 ) / 2, B.id );
+		courts.push( { id: 'court-' + s.id, name: s.name + ' forecourt', B } );
 
 	}
 
@@ -643,7 +679,8 @@ function build( seed ) {
 
 	};
 	const plazas = [
-		P( 'twins', 'plaza', 'Twins Plaza', tw ),
+		P( 'skyline', 'plaza', 'Skyline Plaza', tw ),
+		...courts.map( ( c ) => P( c.id, 'square', c.name, c.B ) ),
 		P( 'park', 'park', 'Meridian Park', blocks.find( ( b ) => b.id === 'park' ) ),
 		P( 'market', 'market', 'Market Square', market ),
 		P( 'apron', 'apron', 'Harbour Quay', { u0: QX + STREET.width / 2 + SIDEWALK, u1: BASIN.x0, v0: - 168, v1: 148 } ),
@@ -781,7 +818,7 @@ function villaPad( u, v ) {
 
 export const HILL_ROAD_REL = HILL_ROAD;
 export const RIVER_REL = RIVER;
-export const LAYOUT = { DOCK_BOXES, TWINS, TOWER, PARK, BODY, BASIN, AIRPORT, MOLES, PIER, FERRY, HILLS, RUNWAY, PROMENADE, HARBOUR_X, QX: 505 };
+export const LAYOUT = { DOCK_BOXES, TWINS, PLAZA: TWINS, TOWER, PARK, BODY, BASIN, AIRPORT, MOLES, PIER, FERRY, HILLS, RUNWAY, PROMENADE, HARBOUR_X, QX: 505 };
 
 // ------------------------------------------------------------------ traffic signals (additive, wave 21A)
 // One fixed cycle for every signalled junction, offset per junction (a green wave of sorts): the signal heads Meridian.js

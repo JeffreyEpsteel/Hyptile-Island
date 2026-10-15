@@ -26,13 +26,13 @@ try {
 
 	const H = host.wreck.model, G = guest.wreck.model;
 	const collapse = id => { const b = H.byId.get( id ); H.hit( b, b.hp * 2, { cause: 'blast', by: 'player' } ); };
-	collapse( 'twin-south' ); H.update( 0.1, { hours: REPAIR.quiet + 0.1 } ); H.update( 0.1, { hours: REPAIR.clearRubble + 0.1 } );
-	collapse( 'twin-north' ); H.update( 0.1, { hours: REPAIR.quiet + 0.1 } );
-	check( H.byId.get( 'twin-north' ).repair.phase === 'clear' && H.byId.get( 'twin-south' ).repair.phase === 'build', 'old host has towers in both clearance and building phases' );
+	collapse( 'tidegate' ); H.update( 0.1, { hours: REPAIR.quiet + 0.1 } ); H.update( 0.1, { hours: REPAIR.clearRubble + 0.1 } );
+	collapse( 'helix-tower' ); H.update( 0.1, { hours: REPAIR.quiet + 0.1 } );
+	check( H.byId.get( 'helix-tower' ).repair.phase === 'clear' && H.byId.get( 'tidegate' ).repair.phase === 'build', 'old host has towers in both clearance and building phases' );
 	// Pass through the real sender, protocol event sanitizer and feature receiver.
 	host.net.sendWorldEvent = ( kind, data ) => { guest.features.emit( 'remoteWorldEvent', { ...sanitizeEvent( { kind, data } ), from: 'old-host' } ); return true; };
 	host.wreck._sendStages( H.snapshot( false ), true ); guest.wreck.update( 0.1 );
-	for ( const id of [ 'twin-north', 'twin-south' ] ) {
+	for ( const id of [ 'helix-tower', 'tidegate' ] ) {
 
 		const b = G.byId.get( id ), p = guest.city.building( id ).plan, x = p.x + 18, z = p.z, top = p.y + p.h;
 		check( b.stage === 3 && b.repair.due === Infinity, id + ': guest inherits paused repair phase from real stage stream' );
@@ -42,19 +42,19 @@ try {
 	host.net.isHost = false; host.wreck.update( 0.1 ); guest.net.isHost = true;
 	guest.net.sendWorldEvent = ( kind, data ) => { host.features.emit( 'remoteWorldEvent', { ...sanitizeEvent( { kind, data } ), from: 'new-host' } ); return true; };
 	guest.wreck.update( 0.1 );
-	for ( const id of [ 'twin-north', 'twin-south' ] ) {
+	for ( const id of [ 'helix-tower', 'tidegate' ] ) {
 
 		const b = G.byId.get( id ), duration = b.repair.phase === 'clear' ? REPAIR.clearRubble : REPAIR.hours[ 3 ];
 		check( ! G.puppet && Number.isFinite( b.repair.due ) && Math.abs( b.repair.due - b.repair.start - duration ) < 1e-9, id + ': actual host transition starts finite phase with normal duration' );
 		check( b.stage === 3, id + ': taking authority does not instantly repair collapsed geometry' );
 
 	}
-	const deadline = G.byId.get( 'twin-north' ).repair.due; guest.wreck.update( 0.1 );
-	check( G.byId.get( 'twin-north' ).repair.due === deadline, 'ordinary host frames do not restart repair scheduling' );
+	const deadline = G.byId.get( 'helix-tower' ).repair.due; guest.wreck.update( 0.1 );
+	check( G.byId.get( 'helix-tower' ).repair.due === deadline, 'ordinary host frames do not restart repair scheduling' );
 	guest.stepHours( REPAIR.clearRubble + 0.2 );
-	check( G.byId.get( 'twin-north' ).repair.phase === 'build' && G.byId.get( 'twin-north' ).cleared, 'new host finishes clearance and begins rebuilding' );
+	check( G.byId.get( 'helix-tower' ).repair.phase === 'build' && G.byId.get( 'helix-tower' ).cleared, 'new host finishes clearance and begins rebuilding' );
 	guest.stepHours( REPAIR.hours[ 3 ] + 0.2 );
-	for ( const id of [ 'twin-north', 'twin-south' ] ) {
+	for ( const id of [ 'helix-tower', 'tidegate' ] ) {
 
 		const b = G.byId.get( id ), p = guest.city.building( id ).plan, x = p.x + 18, z = p.z, top = p.y + p.h;
 		check( b.stage === 0 && b.repair === null && b.dmg === 0, id + ': promoted guest completes inherited repair' );

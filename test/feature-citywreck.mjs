@@ -1,14 +1,20 @@
 // Plain-node tests of the destructible city (src/features/citywreck, wave 21C) against the stand-in city (StubCity.js: the
 // shared plan shape and building handles): HP and stages by kind, destructible towers, aircraft impacts,
 // fire spread in dry weather and rain, the crews, repairs over in-game hours, road-blocked events, the
-// collapse queue (two at once), the looks, the save round trip, the host-authoritative stage stream, wanted / mood / shops.
+// collapse queue (two at once), the looks, the save round trip, the host-authoritative stage stream, wanted / mood / shops;
+// wave 23A: the skyscrapers of the real plan (breaks, fire floor by floor, aircraft, the rubble field, repairs, saves with
+// the old Twins' ids, the stream, their looks and their falls in the two animation slots).
 //   node test/feature-citywreck.mjs
 import { Features } from '../src/features/Features.js';
 import * as citywreck from '../src/features/citywreck/index.js';
-import { CityModel } from '../src/features/citywreck/Model.js';
+import { CityModel, sectionOf } from '../src/features/citywreck/Model.js';
 import { stubPlan, stubCity } from '../src/features/citywreck/StubCity.js';
-import { looks, heap, Collapse } from '../src/features/citywreck/Looks.js';
-import { HP, STAGE_AT, FIRE, CREW, REPAIR, COLLAPSE, classOf, hpOf } from '../src/features/citywreck/CityWreckData.js';
+import { looks, heap, sectionHeap, Collapse } from '../src/features/citywreck/Looks.js';
+import { HP, STAGE_AT, FIRE, CREW, REPAIR, COLLAPSE, TOWER, classOf, hpOf } from '../src/features/citywreck/CityWreckData.js';
+import { cityPlan } from '../src/world/islands/meridian/CityPlan.js';
+import { sectionsAt, insideAny, cutRange, TOWER_ALIASES } from '../src/world/islands/meridian/Skyline.js';
+import { Meridian } from '../src/world/islands/meridian/Meridian.js';
+import { Colliders } from '../src/world/Colliders.js';
 
 let fails = 0, passes = 0;
 const ok = ( c, msg ) => {
@@ -106,7 +112,7 @@ section( 'highrises: breached and burning, never down' );
 
 }
 
-section( 'the twin towers: structure, fire, collapse and recovery' );
+section( 'the stub towers: structure, fire, collapse and recovery' );
 {
  const { cw, m, city, features, of } = rig();
  const T = m.byId.get( 'stub.tower.0' ), h = city.building( T.id );
@@ -375,6 +381,177 @@ section( 'the city: mood, shops, interiors, wanted, the board' );
 
 }
 
+
+section( 'the skyscrapers (wave 23A, the real plan)' );
+{
+
+	const plan = cityPlan();
+	const mk = ( o = {} ) => new CityModel( plan, { seed: 5, ...o } );
+	const m0 = mk();
+	const T = m0.list.filter( ( b ) => b.cls === 'tower' ), mid = m0.list.find( ( b ) => b.kind === 'midrise' );
+	ok( T.length === plan.buildings.filter( ( b ) => b.kind === 'tower' ).length && T.every( ( b ) => b.hp > mid.hp * 5 ), `heavy structure: a skyscraper takes ${ Math.round( T[ 0 ].hp * 1 ) } kJ against a midrise's ${ Math.round( mid.hp ) }` );
+	// cannon at street level: hundreds of balls to scar one, never a break (too low)
+	const m = mk(), S = m.byId.get( 'meridian-spire' );
+	let balls = 0;
+	while ( S.stage < 1 && balls < 2000 ) { m.cannon( S.x + S.hw, S.y0 + 4, S.z, 16, 'player', S.id ); balls ++; }
+	ok( S.stage === 1 && balls > 100, `${ balls } six-pounder balls to scar the spire` );
+	m.hit( S, S.hp * 0.8, { by: 'player', cause: 'blast', at: { x: S.x, y: S.y0 + 3, z: S.z } } );
+	ok( S.stage === 2 && S.cut === null, 'gutted by blasts in the street: its top stays on (hit too low to break it)' );
+	// a hit high up on a badly damaged tower: the section above it breaks off and comes down beside it
+	const ev = [];
+	const m2 = mk( { emit: ( n, p ) => ev.push( [ n, p ] ) } ), H = m2.byId.get( 'helix-tower' );
+	const [ lo, hi ] = cutRange( H.p );
+	m2.hit( H, H.hp, { by: 'player', cause: 'blast', at: { x: H.x, y: H.y0 + 20, z: H.z } } );
+	ok( H.cut === null, 'not yet: under the break threshold' );
+	m2.hit( H, H.hp * 0.15, { by: 'player', cause: 'cannon', at: { x: H.x + H.hw, y: H.y0 + 170, z: H.z } } );
+	const fell = ev.find( ( e ) => e[ 0 ] === 'buildingSectionFell' );
+	ok( H.cut !== null && H.cut >= lo - 0.01 && H.cut <= hi + 0.01 && Math.abs( H.cut / H.fh - Math.round( H.cut / H.fh ) ) < 1e-6 && H.stage === 2, `a high hit breaks the top off at ${ H.cut } m (a floor line, inside ${ lo.toFixed( 0 ) }-${ hi.toFixed( 0 ) })` );
+	ok( fell && fell[ 1 ].id === H.id && fell[ 1 ].by === 'player' && Math.hypot( fell[ 1 ].x - H.x, fell[ 1 ].z - H.z ) > H.radius * 0.6, 'buildingSectionFell: it lands beside the tower' );
+	const sec = sectionOf( H );
+	ok( sec && Math.abs( sec.x - H.sec.x ) < 1e-9 && sec.R > 20, `deterministic landing (heap radius ${ sec.R.toFixed( 0 ) } m)` );
+	const hitBy = ev.filter( ( e ) => e[ 0 ] === 'buildingDamaged' && e[ 1 ].id !== H.id ).map( ( e ) => e[ 1 ].id );
+	const under = m2.list.filter( ( o ) => o !== H && o.stage > 0 && o.dmg > 0 );
+	ok( under.length > 0 && hitBy.length > 0, `it smashes what it lands on (${ under.map( ( o ) => o.id + ':' + o.stage ).join( ', ' ) })` );
+	ok( ! under.some( ( o ) => o.cls === 'tower' && o.stage === 3 ), 'no dominoes: no skyscraper brought down by another\'s debris' );
+	const rb = ev.filter( ( e ) => e[ 0 ] === 'roadBlocked' && e[ 1 ].id === H.id );
+	ok( rb.length > 0 && H.blocked.length > 0, `its rubble blocks roads (${ H.blocked.join( ', ' ) })` );
+	ok( m2.raycast( H.x - 60, H.y0 + H.cut + 15, H.z, H.x + 60, H.y0 + H.cut + 15, H.z ) === null || m2.raycast( H.x - 60, H.y0 + H.cut + 15, H.z, H.x + 60, H.y0 + H.cut + 15, H.z ).id !== H.id, 'balls fly through where its top was' );
+	// the full fall: a wide rubble field, more roads closed than a midrise's
+	m2.hit( H, H.hp, { by: 'player', cause: 'blast', at: { x: H.x, y: H.y0 + 30, z: H.z } } );
+	const midM = mk(), M = midM.byId.get( mid.id );
+	midM.hit( M, M.hp * 2, { cause: 'blast' } );
+	ok( H.stage === 3 && m2.spillOf( H ) > 2 * midM.spillOf( M ) && H.blocked.length >= 4, `down: a ${ m2.spillOf( H ).toFixed( 0 ) } m rubble field (a midrise's: ${ midM.spillOf( M ).toFixed( 0 ) } m), every street round its block blocked (${ H.blocked.length } edges)` );
+	// repairs: the rubble (and the section's) cleared, the road reopened, rebuilt over days
+	m2.update( 0, { hours: REPAIR.quiet + 0.1 } );
+	ok( H.repair && H.repair.phase === 'clear', 'clearance first' );
+	m2.update( 0, { hours: REPAIR.clearRubble + 0.1 } );
+	ok( H.blocked.length === 0 && H.cleared && H.sec && H.sec.cleared && H.repair.phase === 'build', 'the roads open, the rebuild starts' );
+	m2.update( 0, { hours: REPAIR.hours[ 3 ] + 0.1 } );
+	ok( H.stage === 0 && H.cut === null && H.dmg === 0, `rebuilt whole after ~${ REPAIR.clearRubble + REPAIR.hours[ 3 ] } in-game hours` );
+
+}
+
+section( 'skyscraper fires: floor by floor, aircraft' );
+{
+
+	const plan = cityPlan();
+	const ev = [];
+	const m = new CityModel( plan, { seed: 9, emit: ( n, p ) => ev.push( [ n, p ] ) } );
+	const R = m.byId.get( 'halo-tower' );
+	ok( m.ignite( R, 0.6, 'player', 60 ) && R.fireLo === R.fireHi && R.fireLo === Math.floor( 60 / R.fh ), `a fire starts on the floor it was set on (${ R.fireLo })` );
+	let t = 0;
+	const seen = [ R.fireHi ];
+	while ( t < 70 ) { m.update( 0.5, { rain: 0 } ); t += 0.5; if ( R.fireHi !== seen[ seen.length - 1 ] ) seen.push( R.fireHi ); }
+	ok( R.fireHi > R.fireLo && seen.length >= 4 && seen.every( ( f, i ) => i === 0 || f === seen[ i - 1 ] + 1 ), `it climbs a floor at a time (${ seen.join( ' > ' ) })` );
+	ok( R.fireHi - R.fireLo + 1 <= TOWER.band, 'at most a band of floors alight' );
+	ok( ev.some( ( e ) => e[ 0 ] === 'cityFireFloors' && e[ 1 ].id === R.id ), 'cityFireFloors for the looks and the stream' );
+	ok( m.towerAnchors( R ).length >= 2 && m.towerAnchors( R ).every( ( a ) => a.y > R.y0 + R.fireLo * R.fh - 1 && a.y < R.y0 + ( R.fireHi + 1 ) * R.fh + 1 ), 'the flames show on the floors alight' );
+	for ( let i = 0; i < 3000 && R.fire > 0; i ++ ) m.update( 0.5, { rain: 0 } );
+	ok( R.fire === 0 && R.fireLo === - 1 && R.stage < 3, 'the crews put it out in the end (fire alone never brings a tower down)' );
+	// an aircraft: damage by its energy, its fuel alight on the floor it hit
+	const m2 = new CityModel( plan, { seed: 9 } ), P = m2.byId.get( 'prism-tower' );
+	m2.crash( P.x, P.y0 + 120, P.z + P.hd * 0.4, 0.5 * 4000 * 60 * 60 / 1000, 'aircraft' );
+	ok( P.dmg > 0.2 && P.fire > 0 && Math.abs( P.fireLo - Math.floor( 120 / P.fh ) ) <= 1, `a heavy aircraft at 60 m/s: ${ ( P.dmg * 100 ).toFixed( 0 ) } % damage, its fuel burning on floor ${ P.fireLo }` );
+	const m3 = new CityModel( plan, { seed: 9 } ), Z = m3.byId.get( 'ziggurat' );
+	m3.crash( Z.x, Z.y0 + 60, Z.z, 0.5 * 900 * 40 * 40 / 1000, 'aircraft' );
+	ok( Z.dmg > 0 && Z.dmg < STAGE_AT[ 2 ] && Z.stage < 2, `a seaplane only scars one (${ ( Z.dmg * 100 ).toFixed( 1 ) } %)` );
+
+}
+
+section( 'skyscrapers: saves, old Twins ids, the stream, the handles' );
+{
+
+	const plan = cityPlan();
+	const colliders = new Colliders();
+	globalThis.__quietKit = true;
+	const city = new Meridian( { scene: null, colliders, kit: false } );
+	const app = { settings: { timeOfDay: 9, timeSpeed: 1 }, game: { toast: () => {} }, meridian: city };
+	const features = new Features( app );
+	const cw = features.add( 'citywreck', { install: ( a, f ) => citywreck.install( a, f, { city, render: false } ) } );
+	const m = cw.model, G = m.byId.get( 'tidegate' ), h = city.building( 'tidegate' ), pad = G.p.helipad;
+	ok( city.landingSurfaceAt( pad.x, pad.z, pad.y + 1 )?.y === pad.y, 'the Tidegate\'s helipad carries before' );
+	m.hit( G, G.hp, { by: 'player', cause: 'blast', at: { x: G.x, y: G.y0 + 20, z: G.z } } );
+	m.hit( G, G.hp * 0.15, { by: 'player', cause: 'cannon', at: { x: G.x, y: G.y0 + 200, z: G.z } } );
+	ok( G.cut !== null && h.cut === G.cut && ! city.landingSurfaceAt( pad.x, pad.z ), `the break reaches the handle (cut ${ G.cut } m): the pad gone` );
+	m.ignite( G, 0.8, 'player', G.cut - 20 );
+	const saved = JSON.parse( JSON.stringify( cw.toJSON() ) );
+	cw.reset();
+	ok( G.cut === null && h.cut === null && city.landingSurfaceAt( pad.x, pad.z, pad.y + 1 )?.y === pad.y, 'reset: whole again, the pad back' );
+	cw.fromJSON( saved );
+	ok( G.cut !== null && h.cut === G.cut && G.stage === 2 && G.fireLo >= 0 && ! city.landingSurfaceAt( pad.x, pad.z ), 'the save brings the break, the fire floors and the handle back' );
+	// an old save naming the Twins: their stages land on the towers on their spots
+	cw.fromJSON( { v: 1, hours: 3, b: [ [ 'twin-north', 3, 0, 0, 1500, null, null, 0, 0 ], [ 'twin-south', 1, 0, 0, 250, null, null, 1, 0 ] ] } );
+	ok( m.byId.get( TOWER_ALIASES[ 'twin-north' ] ).stage === 3 && city.building( TOWER_ALIASES[ 'twin-north' ] ).stage === 3 && m.byId.get( TOWER_ALIASES[ 'twin-south' ] ).stage === 1, 'an old save\'s Twins load onto the Spire and the Tidegate' );
+	ok( ! cw.toJSON().b.some( ( e ) => e[ 0 ].startsWith( 'twin-' ) ), 'and save under the new ids' );
+	// the stream: a guest gets the break and the floors alight
+	cw.reset();
+	const guest = new CityModel( plan, { puppet: true } );
+	m.hit( G, G.hp, { by: 'pirate', cause: 'blast', at: { x: G.x, y: G.y0 + 20, z: G.z } } );
+	m.hit( G, G.hp * 0.15, { by: 'pirate', cause: 'cannon', at: { x: G.x, y: G.y0 + 200, z: G.z } } );
+	m.ignite( G, 0.7, 'pirate', 60 );
+	guest.apply( m.snapshot( false ), { remote: true } );
+	const g = guest.byId.get( G.id );
+	ok( g.cut === G.cut && g.stage === G.stage && g.fireLo === G.fireLo && g.fireHi === G.fireHi && g.blocked.join() === G.blocked.join(), 'the host stream carries the break, the floors alight and the blocked roads' );
+	ok( JSON.stringify( { s: m.snapshot( false ) } ).length < 2048, 'still one small event' );
+	cw.dispose();
+	city.dispose();
+
+}
+
+section( 'skyscrapers: the looks and the falls' );
+{
+
+	const plan = cityPlan();
+	const m = new CityModel( plan, { seed: 2 } );
+	const R = m.byId.get( 'halo-tower' ), P = m.byId.get( 'prism-tower' );
+	m.ignite( R, 0.9, 'player', 80 );
+	for ( let i = 0; i < 60; i ++ ) m.update( 0.5, { rain: 0 } );
+	m.hit( R, R.hp * 0.6, { cause: 'blast', at: { x: R.x, y: R.y0 + 80, z: R.z } } );
+	const L = looks( R, {} );
+	const hot = L.filter( ( it ) => it.c[ 0 ] > 1.25 );
+	ok( hot.length > 10 && hot.every( ( it ) => it.p[ 1 ] > R.y0 + R.fireLo * R.fh - 0.5 && it.p[ 1 ] < R.y0 + ( R.fireHi + 1 ) * R.fh + 0.5 ), `the floors alight glow as bands round the cylinder (${ hot.length } boxes)` );
+	const decals = L.filter( ( it ) => it.s[ 2 ] <= 0.1 );
+	const offWall = decals.filter( ( it ) => { const d = Math.hypot( it.p[ 0 ] - R.x, it.p[ 2 ] - R.z ); return d < 13.5 || d > 16.5; } ).filter( ( it ) => it.p[ 1 ] < R.y0 + 172 || it.p[ 1 ] > R.y0 + 184 );
+	ok( decals.length > 10 && offWall.length === 0, `marks sit on the round wall, not on its bounding box (${ decals.length })` );
+	// a section: its heap where sectionOf says, the fall's chunks start above the break and land on it
+	m.hit( P, P.hp, { cause: 'blast', at: { x: P.x, y: P.y0 + 20, z: P.z } } );
+	m.hit( P, P.hp * 0.15, { cause: 'cannon', at: { x: P.x, y: P.y0 + 150, z: P.z } } );
+	ok( P.cut !== null, 'the prism\'s top breaks off' );
+	const SH = sectionHeap( P, TOWER.section.desktop );
+	ok( SH.length > 50 && SH.every( ( it ) => Math.hypot( it.p[ 0 ] - P.sec.x, it.p[ 2 ] - P.sec.z ) < P.sec.R + 4 ), `its heap lies where it fell (${ SH.length } pieces)` );
+	const fall = new Collapse( P, TOWER.sectionChunks.desktop, { heapN: TOWER.section.desktop, section: true } );
+	const start = fall.at( 0 ), end = fall.at( fall.duration + 1 ), big = SH.filter( ( it ) => it.big );
+	ok( start.every( ( c ) => c.p[ 1 ] > P.y0 + P.cut - 1 && insideAny( sectionsAt( P.p, c.p[ 1 ] ), c.p[ 0 ], c.p[ 2 ] ) ), 'the section\'s chunks start above the break, inside the triangle' );
+	ok( end.every( ( c ) => big.some( ( b ) => Math.hypot( b.p[ 0 ] - c.p[ 0 ], b.p[ 1 ] - c.p[ 1 ], b.p[ 2 ] - c.p[ 2 ] ) < 1e-6 ) ), 'and land exactly on its heap\'s big pieces: no jump' );
+	const tl = looks( P, {} );
+	ok( tl.some( ( it ) => it.c === undefined ) === false && tl.filter( ( it ) => Math.hypot( it.p[ 0 ] - P.sec.x, it.p[ 2 ] - P.sec.z ) < P.sec.R ).length > 50, 'the broken tower\'s looks hold the section heap' );
+	// the whole fall: chunks only where the ring tower is (a cylinder's corners are air), a field of rubble
+	m.hit( R, R.hp * 2, { cause: 'blast', at: { x: R.x, y: R.y0 + 10, z: R.z } } );
+	const c = new Collapse( R, TOWER.chunks.desktop, { heapN: TOWER.heap.desktop } );
+	ok( c.at( 0 ).every( ( q ) => insideAny( sectionsAt( R.p, q.p[ 1 ] ), q.p[ 0 ], q.p[ 2 ] ) ), 'the halo\'s collapse chunks start inside its round section' );
+	ok( c.duration > 6 && c.duration < 14, `a skyscraper takes ${ c.duration.toFixed( 1 ) } s to come down` );
+	const field = looks( R, {} ), fieldPhone = looks( R, { phone: true } );
+	ok( field.length >= TOWER.heap.desktop && fieldPhone.length < field.length / 2, `the field: ${ field.length } pieces (phones ${ fieldPhone.length })` );
+	// the two animation slots, shared by a section's fall and the collapses
+	const fake = { n: 0, dropped: 0, begin() { this.n = 0; }, push() { this.n ++; return true; }, end() {}, dispose() {} };
+	const app = { settings: { timeOfDay: 9 }, game: { toast: () => {} } };
+	const features = new Features( app );
+	const city = stubCity( { plan } );
+	const cw = features.add( 'citywreck', { install: ( a, f ) => citywreck.install( a, f, { city, render: false } ) } );
+	cw.render = fake;
+	const M = cw.model, X = M.byId.get( 'ziggurat' );
+	M.hit( X, X.hp, { cause: 'blast', at: { x: X.x, y: X.y0 + 20, z: X.z } } );
+	M.hit( X, X.hp * 0.15, { cause: 'cannon', at: { x: X.x, y: X.y0 + 140, z: X.z } } );
+	for ( const id of [ 'hanging-gardens', 'ledger-building' ] ) { const b = M.byId.get( id ); M.hit( b, b.hp * 2, { cause: 'blast', at: { x: b.x, y: b.y0 + 5, z: b.z } } ); }
+	cw.update( 0.05 );
+	ok( X.cut !== null && cw.anims.length === 2 && cw.queue.length === 1 && cw.anims.some( ( a ) => a.section ), `a section and a collapse fall, the third waits (${ cw.anims.length } / ${ cw.queue.length })` );
+	ok( city.building( 'ziggurat' ).stage < 3 && M.byId.get( 'ziggurat' ).stage === 2, 'the ziggurat stands, broken' );
+	for ( let i = 0; i < 400; i ++ ) cw.update( 0.05 );
+	ok( cw.anims.length === 0 && cw.queue.length === 0 && city.building( 'ledger-building' ).stage === 3 && city.building( 'hanging-gardens' ).stage === 3, 'all came down in turn' );
+	ok( fake.n > 0, `drawn (${ fake.n } instances)` );
+
+}
+
 section( 'the real Meridian plan (21A\'s CityPlan.js, when present)' );
 {
 
@@ -386,7 +563,7 @@ section( 'the real Meridian plan (21A\'s CityPlan.js, when present)' );
 		const plan = CP.cityPlan();
 		const m = new CityModel( plan, { seed: 3 } );
 		const towers = m.list.filter( ( b ) => b.cls === 'tower' );
-		ok( towers.length === 2 && towers.every( ( b ) => ! b.p.protected && b.kind === 'tower' ), `the plan's two towers are recognised (${ towers.map( ( b ) => b.id ).join( ', ' ) })` );
+		ok( towers.length >= 6 && towers.length <= 9 && towers.every( ( b ) => ! b.p.protected && b.kind === 'tower' ), `the plan's skyscrapers are recognised (${ towers.map( ( b ) => b.id ).join( ', ' ) })` );
 		ok( m.list.filter( ( b ) => b.kind === 'highrise' ).every( ( b ) => b.cls === 'high' ), 'every highrise is class high (never falls)' );
 		ok( m.list.every( ( b ) => Math.abs( b.y0 - ( Number.isFinite( b.p.y ) ? b.p.y : 0 ) ) < 1e-9 ), 'bases on the plan\'s pad heights' );
 		let t0 = performance.now();
@@ -403,7 +580,7 @@ section( 'the real Meridian plan (21A\'s CityPlan.js, when present)' );
 		const lows = m.list.filter( ( b ) => b.cls === 'low' || b.cls === 'mid' );
 		ok( lows.every( ( b ) => b.stage === 3 ), `the barrage flattens every low and midrise (${ lows.length })` );
 		ok( m.list.filter( ( b ) => b.cls === 'high' ).every( ( b ) => b.stage === 2 ), 'the highrises stand gutted' );
-		ok( towers.every( ( b ) => b.stage >= 1 && b.dmg > 0 ), 'the barrage damages both Twins' );
+		ok( towers.every( ( b ) => b.stage >= 1 && b.dmg > 0 ), 'the barrage damages every skyscraper' );
 		const edges = new Set( plan.roads.edges.map( ( e ) => e.id ) );
 		const blocked = m.blockedEdges();
 		ok( blocked.size > 20 && [ ...blocked ].every( ( id ) => edges.has( id ) ), `roadBlocked names real edges (${ blocked.size } of ${ edges.size })` );

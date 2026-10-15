@@ -102,27 +102,28 @@ const city = new Meridian( { scene: null, colliders, kit: false } );
 const app = { settings: { timeOfDay: 9 }, meridian: city };
 const features = new Features( app );
 const wreck = features.add( 'citywreck', { install: ( a, f ) => citywreck.install( a, f, { city, render: false } ) } );
-for ( const id of [ 'twin-north', 'twin-south' ] ) {
+for ( const id of [ 'helix-tower', 'tidegate' ] ) {
 
-	const h = city.building( id ), b = h.plan, top = b.y + b.h, x = b.x + 18, z = b.z;
+	// (the Tidegate's east prong roof runs x + 6..28: a point 26.5 m out leaves no room for a 6 m landing footprint)
+	const h = city.building( id ), b = h.plan, top = b.y + b.h, x = b.x + ( id === 'tidegate' ? 26.5 : 18 ), z = b.z;
 	check( city.landingSurfaceAt( x, z, top + 1 )?.y === top, id + ': perimeter roof is landable' );
 	check( colliders.groundHeightAt( x, z, top + 0.3 ) === top, id + ': player can walk on roof' );
 	check( city.landingSurfaceAt( x, z, top - 0.1 ) === null, id + ': surface cannot be selected from below' );
 	check( city.landingSurfaceAt( b.x + b.w / 2 + 0.1, z ) === null && city.landingSurfaceAt( b.x + b.w / 2 - 0.1, b.z + b.d / 2 - 0.1 ) === null, id + ': outside footprint and clipped roof corners do not support landing' );
 	check( city.landingSurfaceAt( x, z, top + 1, 6 ) === null, id + ': landing footprint must fit inside the roof' );
-	check( city.landingSurfaceAt( b.x + ( id === 'twin-north' ? 8 : 0 ), b.z )?.y === top + ( id === 'twin-south' ? 10 : 6 ), id + ': plant/pavilion roof heights match rendered geometry' );
-	if ( id === 'twin-north' ) check( city.landingSurfaceAt( b.x, b.z ) === null, 'north antenna is an obstacle, not a landing pad' );
+	check( city.landingSurfaceAt( b.helipad.x, b.helipad.z )?.y === b.helipad.y && city.landingSurfaceAt( b.helipad.x, b.helipad.z ).pad, id + ': the helipad is the roof the drawn pad sits on' );
+	if ( id === 'tidegate' ) check( city.landingSurfaceAt( b.x - 17, b.z ) === null, 'the west prong\'s plant room is an obstacle, not a landing pad' );
 	check( colliders.raycast( new Vector3( b.x + 50, top - 10, b.z ), new Vector3( - 1, 0, 0 ), 100 ) < 50, id + ': solid facade still blocks side approaches' );
 	const acc = new Acc(); buildingInto( acc, b, { stage: 3 } );
 	const geometry = acc.geometry(); geometry.computeBoundingBox();
-	check( geometry.boundingBox.max.y <= b.y + 4.001, id + ': collapsed facade contains no hidden full-height tower or mast' );
+	check( geometry.boundingBox.max.y <= b.y + 14.001, id + ': collapsed facade contains no hidden full-height tower or mast (a 9 m stump, its jagged top)' );
 	geometry.dispose();
 	// A visual collapse awaiting the renderer must already remove the roof from physics.
 	wreck.render = { draw() {}, dispose() {} };
 	const model = wreck.model.byId.get( id );
 	wreck.model.hit( id, model.hp * 2, { cause: 'blast', by: 'player' } );
 	check( model.stage === 3 && wreck.queue.includes( model ) && h.stage < 3 && city.landingSurfaceAt( x, z ) === null, id + ': authoritative collapse removes roof while animation is queued' );
-	check( colliders.groundHeightAt( x, z, top + 1 ) < top && h.colliders[ 0 ].top <= b.y + 4, id + ': no ghost player ground or facade remains high in the air' );
+	check( colliders.groundHeightAt( x, z, top + 1 ) < top && h.colliders.every( ( c ) => ! c.solid || c.top <= b.y + 9.001 ), id + ': no ghost player ground or facade remains high in the air' );
 	const collapse = new Collapse( model, 56 );
 	const settled = collapse.at( collapse.duration );
 	const target = heap( model, 110 ).filter( p => p.big );

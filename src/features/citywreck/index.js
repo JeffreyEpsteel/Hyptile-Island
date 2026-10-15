@@ -3,7 +3,10 @@
 // and go through the stages 1 scarred (scorch marks, broken windows), 2 gutted (fire through the floors, a breached facade,
 // a smoke column) and 3 collapsed (low and midrises: a progressive collapse of rigid chunks into a rubble heap, dust,
 // falling debris on what stands near, rubble on the road: roadBlocked). Highrises breach and burn, never fall.
-// The twin towers share structural damage, fire, collapse and repair, with heavier structure.
+// The skyscrapers (wave 23A, Meridian's skyline: Skyline.js) take far more and do more: fire climbs them floor by floor
+// (glowing bands, flames on the floors alight), a hit high on a badly damaged one breaks the section above it off (it
+// tips over and falls beside the tower: rubble, blocked roads, what it lands on smashed; the roofs and helipads above the
+// break gone), and a full fall leaves a wide rubble field; at most two falls (collapses or sections) animate at once.
 //
 // Fire spreads between adjacent low buildings in dry weather (weather.rain < 0.15); rain slows it and puts it out; the fire
 // crews arrive CREW.respond s after the call (event cityFireCall: a fire engine can answer it) and douse two fires at once.
@@ -27,11 +30,14 @@
 //   buildingRepaired { id, cost }, cityFire { id, x, z, on }, cityFireCall { id, x, z, at }, cityCrew { id, on },
 //   cityFireSpread { from, to }, cityRepair { id, phase, due }, roadBlocked { id, edges, x, z, radius } / roadCleared { id, edges },
 //   cityDebris { id, x, y, z, radius, energy (J) }, cityMood { mood, previous }, cityWanted { level, previous, heat },
-//   towerMarked { id, marks } (cosmetic).
+//   towerMarked { id, marks } (cosmetic), (wave 23A) buildingSectionFell { id, x, z (where it landed), y, cut, radius, by,
+//   remote, replay }, cityFireFloors { id, lo, hi } (a skyscraper's floors alight; -1 out).
 // Multiplayer: the host owns the stages. Guests' bombs, fire pools, car blasts and crashes go to the host
 // (netsync.askHost 'cityHit'); the host streams changes as world event 'cityStages' { s: [ [ id, stage, fire%, phase ] ] }
 // (batched every NET.flush s) and answers a guest's 'citySnap' with the whole damaged city. Cannon balls fly on the host.
-// Save: { v, hours, unrest, ledger, b: [ [ id, stage, fire, phase, dmg, start, due, cleared, marks ] ], heat }.
+// Save: { v, hours, unrest, ledger, b: [ [ id, stage, fire, phase, dmg, start, due, cleared, marks, ( towers: cut, lo, hi ) ] ],
+// heat } (the stream's entries: [ id, stage, fire%, phase, ( towers: cut, lo, hi ) ]); the old Twins' ids load onto the towers
+// on their spots.
 // Options: install( app, features, { city, plan, render: false, phone, seed } ).
 
 import { CityWreck } from './CityWreck.js';

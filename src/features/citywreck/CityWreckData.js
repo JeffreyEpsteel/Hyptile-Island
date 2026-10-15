@@ -2,8 +2,8 @@
 // the fire crews, repairs, the city's mood and wanted level, the repair bills, and the render / collapse budgets.
 // Damage is counted in kJ: a 6-pounder ball ~16, a powder bomb 60 (with falloff), a seaplane crash ~700.
 
-// Towers can burn and collapse, with heavier structure than ordinary buildings.
-// Other highrises remain breached/gutted shells.
+// The skyscrapers (wave 23A: Meridian's skyline, Skyline.js) burn floor by floor, can lose an upper section and collapse,
+// with far heavier structure than anything else; the other highrises remain breached / gutted shells.
 export const CLASS_OF = {
 	tower: 'tower',
 	highrise: 'high',
@@ -29,8 +29,29 @@ export const BLAST_REACH = 1.6;
 export const NEAR_BALL = 2.0; // m from a facade: a ball that lands this close still hits it
 export const CRASH = { mass: 900, radius: 9, classes: [ 'low', 'mid', 'tower' ] };
 
-// the towers: cosmetic marks on the lower facade (cannon, bombs), mended over a few in-game hours
+// the towers: cosmetic marks on the lower facade (cannon, bombs), mended over a few in-game hours (legacy: unused)
 export const TOWER_MARKS = { below: 40, max: 10, mendHours: 3 };
+
+// the skyscrapers (wave 23A): an upper section breaks off when a heavily damaged tower is hit high up (it topples onto the
+// city beside it: rubble, blocked roads, what it lands on smashed); fire climbs a floor at a time; a fall leaves a field
+export const TOWER = {
+	breakAt: 0.72, // damage share past which a hit high on a tower breaks the section above it off
+	breakHigh: 0.38, // ... a hit at least this share of the height up (a bomb in the street never takes the top off)
+	floorUp: 7, // s for a fire to climb one floor
+	floorDown: 26, // s for it to creep one floor down
+	band: 12, // the most floors alight at once (the ones under them burnt out)
+	douse: 0.75, // the crews' rate on a tower (the ladders do not reach the upper floors: slower)
+	crashFuel: 0.8, // the fire an aircraft's fuel starts on the floor it hits
+	spillMax: 42, // m of rubble round a fallen tower (COLLAPSE.spillMax for the rest)
+	spill: 0.22, // of the height
+	heapMax: 18, heapScale: 3.2, // the field's height (m), its biggest pieces' scale
+	heap: { desktop: 210, phone: 64 }, // rubble pieces in a fallen tower's field
+	section: { desktop: 110, phone: 36 }, // ... in a fallen section's
+	chunks: { desktop: 64, phone: 24 }, // rigid chunks of a tower's fall
+	sectionChunks: { desktop: 36, phone: 14 }, // ... of a section's
+	stump: 9, // m that stand of a fallen tower (SkylineMesh.STUMP)
+	drawWithin: 3200, // m: their fires and wreckage show from home
+};
 
 // fire (0..1 per building)
 export const FIRE = {

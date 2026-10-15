@@ -1,6 +1,7 @@
 // Drawing the city's damage through the engine: one instanced unit box for everything (scorch marks, broken windows,
 // breaches, soot, rubble heaps, the falling chunks, scaffolding, tarps), each instance scaled, turned and tinted. One draw
-// (plus its shadow passes) for the whole city's damage; the capacity is the budget (fewer on phones).
+// (plus its shadow passes) for the whole city's damage; the capacity is the budget (fewer on phones). An item whose red
+// runs past 1.25 is a floor alight (a skyscraper's fire bands, wave 23A): it glows, in floor stripes, flickering.
 //
 //   const r = new WreckRender( scene, capacity );  r.begin();  r.push( item );  r.end();  r.dispose();
 
@@ -12,10 +13,16 @@ const SURFACE = /* wgsl */`
 	let w = in.P * 1.7;
 	let n = fract( sin( dot( floor( w.xz + w.y ), vec2f( 12.9898, 78.233 ) ) ) * 43758.5453 );
 	let up = smoothstep( 0.6, 1.0, in.N.y );
+	let hot = smoothstep( 1.4, 1.9, in.color.r );
 	var c = in.color.rgb * ( 0.86 + 0.22 * n );
 	c = mix( c, c * 1.15 + vec3f( 0.02 ), up * 0.45 );
-	s.albedo = c;
+	s.albedo = mix( c, vec3f( 0.05, 0.03, 0.02 ), hot );
 	s.roughness = 0.93;
+	// (the glow inside each storey, dark at the slabs; it licks and flickers)
+	let fy = fract( in.P.y / 3.8 );
+	let storey = smoothstep( 0.12, 0.3, fy ) * ( 1.0 - smoothstep( 0.82, 0.97, fy ) );
+	let flick = 0.7 + 0.3 * sin( frame.time * 7.3 + in.P.x * 0.61 + in.P.z * 0.47 ) * sin( frame.time * 3.1 + in.P.y * 0.9 );
+	s.emissive = in.color.rgb * hot * storey * flick * 2.4;
 `;
 
 export class WreckRender {

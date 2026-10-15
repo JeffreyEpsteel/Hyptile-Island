@@ -1,6 +1,6 @@
 // A stand-in for wave 21A's Meridian while its builder is not there (tests, the captures): a small plan in the shape of
 // w21-common.md's cityPlan() (an avenue and two cross streets, a row of touching low buildings, shops, midrises, two
-// highrises and the twin towers on their plaza) and the runtime handle with building handles (setStage, stage,
+// highrises and two box towers on a plaza) and the runtime handle with building handles (setStage, stage,
 // fireAnchors, colliders, group, bounds, landmark, collapsible). With a scene, each building is a plain box mesh that
 // setStage( 3 ) hides (21A's real builder draws its own and calls meridian.onStage the same way).
 //
@@ -26,7 +26,7 @@ export function stubPlan( { x = 0, z = 0 } = {} ) {
 	add( 'stub.ware.0', 'warehouse', - 40, 20, 26, 18, 9, { block: 's1' } );
 	add( 'stub.mid.1', 'midrise', - 6, 20, 18, 16, 21, { block: 's1' } );
 	add( 'stub.high.0', 'highrise', 38, 26, 22, 22, 78, { block: 's2' } );
-	// the twins on their plaza, beyond the east cross street
+	// two box towers on a plaza, beyond the east cross street (the real skyline's shapes: Skyline.js)
 	add( 'stub.tower.0', 'tower', 112, - 30, 30, 30, 300, { block: 'plaza' } );
 	add( 'stub.tower.1', 'tower', 112, 30, 30, 30, 300, { block: 'plaza' } );
 	add( 'stub.high.1', 'highrise', 160, 0, 20, 20, 92, { block: 'e1' } );
