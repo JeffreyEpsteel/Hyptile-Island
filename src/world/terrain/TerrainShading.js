@@ -278,7 +278,8 @@ let _detailSpec = null;
 // the name `terrainDetailTex`
 export function detailBinding() {
 
-	return _detailSpec || ( _detailSpec = { texture: getDetailTexture() } );
+	// (lazy, wave 24D: a material made without a GPU, as in the plain-node world tests, binds it at its first draw)
+	return _detailSpec || ( _detailSpec = { texture: () => getDetailTexture() } );
 
 }
 
