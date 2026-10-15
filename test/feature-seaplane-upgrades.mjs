@@ -638,5 +638,44 @@ function makeWorld( { mode = null, money = 0, strip = true } = {} ) {
 
 }
 
+// ---------------------------------------------------------------- the Petrel through a head swell (the wave 21 play-test: with
+// the Jade's planing lift she rode the hump 11 deg nose down and "the propeller dug into the water" in any swell)
+{
+
+	const _q = new E.Vector3();
+	const swellRun = ( id, A, L, dir ) => {
+
+		const f = new Flight( spec( id ) );
+		f.place( 0, 0, 0 );
+		f.engineOn = true;
+		const k = 2 * Math.PI / L, w = Math.sqrt( 9.81 * k );
+		let t = 0, lift = null, strike = null;
+		const feed = () => { for ( let i = 0; i < 4; i ++ ) { f.probeWorld( i, _q ); const ph = k * _q.z * dir - w * t; f.setWater( i, A * Math.sin( ph ), - A * w * Math.cos( ph ) ); } f.resetWaterAge(); };
+		for ( let i = 0; i < 180; i ++ ) { t += 1 / 60; feed(); f.controls.throttle = 0; f.update( 1 / 60 ); f.drainEvents(); }
+		for ( let i = 0; i < 60 * 50 && lift === null && ! strike; i ++ ) {
+
+			t += 1 / 60; feed();
+			f.controls.throttle = 1;
+			f.controls.pitch = f.airspeed > 26 && ! f.airborne ? 0.55 : 0;
+			f.update( 1 / 60 );
+			for ( const e of f.drainEvents() ) { if ( e.type === 'liftoff' ) lift = i / 60; if ( e.type === 'strike' ) strike = e.part; }
+
+		}
+
+		return { lift, strike };
+
+	};
+	for ( const [ A, L, dir ] of [ [ 0.15, 20, - 1 ], [ 0.3, 25, - 1 ], [ 0.5, 40, - 1 ], [ 0.3, 25, 1 ] ] ) {
+
+		const r = swellRun( 'petrel', A, L, dir );
+		ok( r.lift !== null && ! r.strike, `the Petrel unsticks through a ${ A } m ${ dir < 0 ? 'head' : 'following' } swell (${ r.strike ? 'STRIKE ' + r.strike : 'airborne at ' + r.lift.toFixed( 0 ) + ' s' })` );
+
+	}
+
+	const j = swellRun( 'jade', 0.3, 25, - 1 );
+	ok( ! j.strike, `the Jade still crosses a 0.3 m head swell without a strike (${ j.lift !== null ? 'airborne at ' + j.lift.toFixed( 0 ) + ' s' : 'still on the water' })` );
+
+}
+
 console.log( fails ? `\n${ fails } FAILED` : '\nall seaplane upgrade tests passed' );
 process.exit( fails ? 1 : 0 );

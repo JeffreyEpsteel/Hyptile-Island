@@ -2,10 +2,11 @@
 // whole App like capture.mjs, then plays a scenario through the game's own input (app.input.keys / pressed) at 60 fps and
 // writes a PNG and a verdict line per check.
 //
-//   node tools/visuals/playcheck.mjs --dawn=<dir> [--only=takeoff,flash,carexit] [--out=<dir>] [--profile=medium]
+//   node tools/visuals/playcheck.mjs --dawn=<dir> [--only=takeoff,stormtakeoff,flash,carexit] [--out=<dir>] [--profile=medium] [--af=petrel]
 //
 //   takeoff   buys the seaplane, boards it with E, holds the throttle (Shift) and pulls up (S): airborne within 60 s, then
 //             E on the water climbs out and the same press does not climb back in
+//   stormtakeoff  the same run under the owner's storm (sandbox): the strike that ends it, or the climb
 //   flash     the exposure over 30 s with a front 2 km ahead of the player (no flash at all) and under its band (rare,
 //             never two within seconds); the storm's own lightning is left to the weather schedule
 //   carexit   in Meridian: E at a parked car's door gets in, W drives it through app.input, E gets out and stays out
@@ -95,7 +96,7 @@ check( ! F.panelOpen(), `no feature panel is open at the start (features.panelOp
 if ( only.includes( 'takeoff' ) ) {
 
 	const sp = F.get( 'seaplane' ), f = sp.flight;
-	if ( ! sp.owned ) sp.buy();
+	if ( ! sp.owned ) sp.buy( arg( 'af', 'jade' ) ); // --af=petrel: another airframe's run
 	const dr = f.geom.door;
 	const d = f.toWorldXYZ( dr[ 0 ] + 0.8, dr[ 1 ], dr[ 2 ], p.position.clone() );
 	p.position.set( d.x, Math.max( d.y, 0.3 ), d.z );
@@ -110,13 +111,13 @@ if ( only.includes( 'takeoff' ) ) {
 	await run( 40 );
 	await run( 2, { hit: [ 'KeyE' ] } );
 	check( sp.piloted, 'a later E boards again' );
-	// full throttle, S pulls up from 12 s until she is 20 m up; the shot is taken in the climb (before this run's pilot
-	// does anything else to her)
+	// full throttle, S pulls up from 12 s (and 22 m/s: the placard's "near 28 m/s") until she is 20 m up; the shot is
+	// taken in the climb (before this run's pilot does anything else to her)
 	let airborneAt = - 1, top = 0, vmax = 0, i = 0, file = null;
 	inp.keys.add( 'ShiftLeft' );
 	for ( ; i < 60 * 60 && ! file; i ++ ) {
 
-		if ( i === 60 * 12 ) inp.keys.add( 'KeyS' );
+		if ( i >= 60 * 12 && f.airspeed > 22 ) inp.keys.add( 'KeyS' );
 		app.frame( 1 / 60 );
 		if ( f.airborne && airborneAt < 0 ) airborneAt = i;
 		top = Math.max( top, f.position.y );
@@ -133,6 +134,50 @@ if ( only.includes( 'takeoff' ) ) {
 	// the next checks start on the pier (the plane is left to itself)
 	if ( sp.piloted ) { sp.piloted = false; sp.systems.stop(); sp.pilot.reset(); p.exitVehicle( 60, 2.5, - 40, 0, 'walk' ); }
 	await run( 30 );
+
+}
+
+if ( only.includes( 'stormtakeoff' ) ) {
+
+	// the same take-off under the owner's storm (sandbox): how far she gets before a strike, and what the strike is
+	const sp = F.get( 'seaplane' ), f = sp.flight, w = F.get( 'weather' );
+	if ( ! sp.owned ) sp.buy( arg( 'af', 'jade' ) );
+	w.setManual( 'storm', 0.9 );
+	app.settings.timeSpeed = 0.01;
+	await run( 60 * 45 );
+	console.log( `  storm: ${ w.current.kind } wind ${ w.wind.toFixed( 1 ) } m/s, swell ${ app.fft && app.fft.swell ? JSON.stringify( app.fft.swell.scale ) : '?' }, chop ${ app.fft && app.fft.choppiness ? app.fft.choppiness.value : '?' }` );
+	const dr = f.geom.door;
+	const d = f.toWorldXYZ( dr[ 0 ] + 0.8, dr[ 1 ], dr[ 2 ], p.position.clone() );
+	p.position.set( d.x, Math.max( d.y, 0.3 ), d.z );
+	p.mode = 'walk';
+	await run( 30 );
+	await run( 2, { hit: [ 'KeyE' ] } );
+	check( sp.piloted && p.mode === 'plane', `E at the door boards the seaplane in the storm (prompt was "${ p.prompt && p.prompt.text }")` );
+	const x0 = f.position.x, z0 = f.position.z;
+	let airborneAt = - 1, top = 0, vmax = 0, i = 0, crashed = null, file = null;
+	const off = F.on( 'planeCrashed', ( e ) => { crashed = e; } );
+	inp.keys.add( 'ShiftLeft' );
+	for ( ; i < 60 * 60 && ! file && ! crashed; i ++ ) {
+
+		if ( i >= 60 * 12 && f.airspeed > 22 ) inp.keys.add( 'KeyS' );
+		app.frame( 1 / 60 );
+		if ( f.airborne && airborneAt < 0 ) airborneAt = i;
+		top = Math.max( top, f.position.y );
+		vmax = Math.max( vmax, f.airspeed );
+		if ( f.position.y > 20 ) { inp.keys.delete( 'KeyS' ); file = await shot( 'stormtakeoff' ); }
+		if ( ( i & 15 ) === 15 ) await GPU.queue.onSubmittedWorkDone();
+
+	}
+
+	off();
+	inp.keys.delete( 'KeyS' );
+	inp.keys.delete( 'ShiftLeft' );
+	const ran = Math.hypot( f.position.x - x0, f.position.z - z0 );
+	if ( crashed ) console.log( `  crashed after ${ ( i / 60 ).toFixed( 1 ) } s and ${ ran.toFixed( 0 ) } m at ${ vmax.toFixed( 1 ) } m/s: ${ JSON.stringify( crashed ).slice( 0, 300 ) }` );
+	check( ! crashed && airborneAt > 0 && top > 10, `the plane took off in the storm (airborne after ${ ( airborneAt / 60 ).toFixed( 1 ) } s, ${ top.toFixed( 0 ) } m up, ${ vmax.toFixed( 0 ) } m/s)` );
+	if ( file ) console.log( '  -> ' + file );
+	w.setManual( null );
+	app.settings.timeSpeed = 0;
 
 }
 

@@ -119,7 +119,7 @@ const JADE_STRIKE_BODY = GEOM.strike.filter( ( s ) => s[ 0 ] !== 'wingtip' );
 const PETREL_GEOM = {
 	...GEOM,
 	probes: [ [ 1.2, 2.2 ], [ - 1.2, 2.2 ], [ 1.2, - 2.55 ], [ - 1.2, - 2.55 ] ],
-	floats: [ 1.2, - 1.2 ].map( ( x ) => ( { x, side: Math.sign( x ), y0: 0, beam: 0.7, top: 0.58, step: - 0.25, fore: 1.7, len: 0.68, sections: scaleSections( 0.85 ), rudder: true } ) ),
+	floats: [ 1.2, - 1.2 ].map( ( x ) => ( { x, side: Math.sign( x ), y0: 0, beam: 0.7, top: 0.58, step: - 0.25, fore: 2.4, len: 0.68, sections: scaleSections( 0.85 ), rudder: true } ) ),
 	keels: [ 1.2, - 1.2 ].flatMap( ( x ) => [ [ x, 0.3, 2.9 ], [ x, 0, 0.7 ], [ x, 0, - 0.25 ], [ x, 0.22, - 3.15 ] ] ),
 	strike: strikeFor( 11.6, [ [ 'propeller', 0, 1.2, 3.85 ], [ 'nose', 0, 2.2, 4.0 ], [ 'tail', 0, 1.95, - 6.4 ], [ 'fin', 0, 4.1, - 6.2 ], [ 'tailplane', 2.0, 2.55, - 5.6 ], [ 'tailplane', - 2.0, 2.55, - 5.6 ] ] ),
 	engines: [ [ 0, 1.95, 3.6 ] ],
@@ -183,6 +183,9 @@ const BASE = {
 			{ ...surf( 'fin' ), area: 1.9 },
 		],
 		dragArea: 1.15, sideArea: 4.4, controlRate: 6,
+		// twice the Jade's planing lift on her short forebody (PETREL_GEOM fore 2.4): with the Jade's she rode the hump
+		// 11 deg nose down and dug the propeller into any head swell before she reached the step
+		planing: 0.022,
 		waterRudder: { ...SPEC.waterRudder, z: - 3.3 },
 		fuelMinutes: 20,
 	} ),
