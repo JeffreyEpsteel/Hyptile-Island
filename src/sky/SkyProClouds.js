@@ -50,7 +50,21 @@ const PRESET = {
 // sky-pro "high" quality
 const QUALITY = { historyDivisor: 2, lattice: 4, maxSteps: 256, lightTaps: 6, stepMeters: 25, fullLightingAlpha: 0.5, lightReuseSteps: 3, historyWeight: 0.9 };
 
-const PANO_W = 512, PANO_H = 160; // same mapping as sky/Clouds.js (elevation -4..90 deg, v = sqrt)
+const COVERAGE_JUMP = 0.08; // a coverage change bigger than this (since the last reset) restarts the history
+const PANO_W = 512, PANO_H = 160;
+
+// (wave 24D) The weather's coverage (Climate.js: clear 0.15 - 0.3, breezy 0.4 - 0.55, overcast 0.7 - 0.97, storm 1)
+// -> the cumulus model's. Raw, the clear days drew an empty sky (this model shows nothing much under ~0.35): a fair
+// tropical day has scattered trade-wind cumulus (the preset's "Partly cloudy" is 0.49), 0 stays a cloudless sky.
+export function skyCoverage( c ) {
+
+	const x = Math.min( 1, Math.max( 0, Number.isFinite( c ) ? c : 0 ) );
+	if ( x <= 0.02 ) return x * 15; // (0 .. 0.3: nothing to a few scraps)
+	if ( x <= 0.3 ) return 0.3 + ( x - 0.02 ) / 0.28 * 0.16; // 0.3 .. 0.46: fair weather cumulus
+	return 0.46 + ( x - 0.3 ) / 0.7 * 0.54; // 0.46 .. 1: broken, then overcast
+
+}
+ // same mapping as sky/Clouds.js (elevation -4..90 deg, v = sqrt)
 const PANO_LATTICE = 4; // 1/16 of the panorama per frame
 const SHADOW_RES = 256;
 const AP_DIST = 30000; // m: aerial perspective toward the horizon
@@ -306,7 +320,11 @@ fn scMarch( origin: vec3f, dir: vec3f, dither: f32, pixelConeAngle: f32, stepCon
 			let skyVisibility = 0.2 + 0.8 / ( 1.0 + ( skyTau + sigmaT * 25.0 ) * 0.35 );
 			let ambient = ( mix( mix( zenith, horizon, 0.55 ), zenith, sqrt( height ) ) * skyVisibility + bounce * ( 1.0 - height ) )
 				* scs.cloudLight.z * ( 1.0 + scs.cloudLight.w );
-			let light = ( direct * energy * powder * baseShadow + ambient ) * scs.cloudLight.x;
+			// (wave 24D) an overcast deck: the two short sky probes above can't see the kilometres of cloud over the
+			// base, which stayed lit by the clear sky (a pale, flat storm sky). The lower part of a closed layer
+			// loses most of its sky and multiply scattered light.
+			let deck = smoothstep( 0.62, 0.98, scs.shell.w ) * ( 1.0 - sqrt( height ) );
+			let light = ( direct * energy * powder * baseShadow + ambient ) * scs.cloudLight.x * ( 1.0 - 0.72 * deck );
 			let stepT = exp( -sigmaT * stepLength );
 			let alpha = transmission * ( 1.0 - stepT );
 			color += alpha * light; weightedDepth += alpha * t;
@@ -882,13 +900,24 @@ ${ MAIN } {
 		}
 
 		// ---- settings: coverage, wind direction
-		const cov = this.coverage.value;
-		if ( cov !== this._lastCoverage ) {
+		// (wave 24D) the weather eases the coverage a little every frame: a history reset on each step left
+		// the view at the 1/8 resolution trace (blocky clouds) and re-traced the whole panorama every frame.
+		// A drift is absorbed by the temporal resolve (neighbourhood clamp) and the rolling panorama; only a
+		// jump (a manual pick, a load) restarts them.
+		const cov = skyCoverage( this.coverage.value );
+		if ( cov !== S.shell.value[ 3 ] ) {
 
 			S.shell.value[ 3 ] = cov;
-			this._lastCoverage = cov;
-			this.historyValid = false;
-			this.panoWarm = true;
+			// the closed deck greys the sky light (Atmosphere overcast; quantized: each step rebuilds its sky view LUT)
+			const ov = this.atmosphere && this.atmosphere.overcast;
+			if ( ov ) ov.value = Math.round( MathUtils.smoothstep( cov, 0.72, 1.0 ) * 32 ) / 32;
+			if ( Math.abs( cov - this._lastCoverage ) > COVERAGE_JUMP ) {
+
+				this._lastCoverage = cov;
+				this.historyValid = false;
+				this.panoWarm = true;
+
+			}
 
 		}
 

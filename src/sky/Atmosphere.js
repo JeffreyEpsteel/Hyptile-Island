@@ -18,6 +18,16 @@ import { Color, Vector3 } from '../engine/math/index.js';
 //   const ATMO_RG / ATMO_RT (km)
 // `atmosphere.multiScatModule`: fn atmosphereSampleMultiScat( rKm: f32, cosSun: f32 ) -> vec3f
 
+// (wave 24D) the overcast sky: tint (unit luminance), the luminance kept, how far toward it a full deck goes
+export const OVERCAST = { tint: [ 0.96, 1.0, 1.06 ], dim: 0.45, amount: 0.85 };
+export function overcastJS( L, k ) {
+
+	if ( ! ( k > 0 ) ) return L.slice();
+	const l = L[ 0 ] * 0.2126 + L[ 1 ] * 0.7152 + L[ 2 ] * 0.0722;
+	return L.map( ( x, i ) => x + ( l * OVERCAST.tint[ i ] * OVERCAST.dim - x ) * k * OVERCAST.amount );
+
+}
+
 const RG = 6360.0;
 const RT = 6460.0;
 
@@ -115,7 +125,9 @@ export class Atmosphere {
 			groundAlbedo: [ 'vec3f', new Color( 0.06, 0.08, 0.1 ) ],
 			viewHeight: [ 'f32', RG + 0.002 ], // km
 			sunIlluminance: [ 'vec3f', new Color( SUN_ILLUMINANCE, SUN_ILLUMINANCE, SUN_ILLUMINANCE ) ],
-			pad0: [ 'f32', 0 ],
+			// (wave 24D) 0..1: a closed cloud deck (the clouds set it from their coverage). The sky light it lets
+			// through is grey and dimmer: the haze, the horizon and the sky irradiance stop being clear-day blue in a storm
+			overcast: [ 'f32', 0 ],
 			// the real sun (may be below the horizon: twilight, night). G.sunDir is the key light, which
 			// becomes the moon at night; the sky itself is always scattered sunlight.
 			sunDir: [ 'vec3f', new Vector3( 0.3, 0.6, - 0.7 ).normalize() ],
@@ -131,6 +143,7 @@ export class Atmosphere {
 		this.viewHeight = U.viewHeight;
 		this.sunIlluminance = U.sunIlluminance;
 		this.sunDir = U.sunDir;
+		this.overcast = U.overcast;
 
 		// small buffer for sky irradiance readback
 		this.irrBuffer = new StorageBuffer( { label: 'atmoIrr', count: 4, type: 'vec4f' } );
@@ -212,7 +225,15 @@ fn atmosphereSkyLuminance( dir: vec3f ) -> vec3f {
 	let u = sqrt( clamp( lightViewCos * -0.5 + 0.5, 0.0, 1.0 ) );
 
 	let suv = vec2f( u * ${ f( ( SV_W - 1 ) / SV_W ) } + ${ f( 0.5 / SV_W ) }, v * ${ f( ( SV_H - 1 ) / SV_H ) } + ${ f( 0.5 / SV_H ) } );
-	return textureSampleLevel( atmosphereSkyViewLUT, smpLinearClamp, suv, 0.0 ).rgb;
+	let L = textureSampleLevel( atmosphereSkyViewLUT, smpLinearClamp, suv, 0.0 ).rgb;
+	return atmosphereOvercast( L );
+}
+// under an overcast deck: a cool grey of a little under half the clear sky's luminance (OVERCAST_JS mirrors it)
+fn atmosphereOvercast( L: vec3f ) -> vec3f {
+	let k = atmosphereParams.overcast;
+	if ( k <= 0.0 ) { return L; }
+	let grey = vec3f( dot( L, vec3f( 0.2126, 0.7152, 0.0722 ) ) ) * vec3f( ${ OVERCAST.tint.map( f ).join( ', ' ) } );
+	return mix( L, grey * ${ f( OVERCAST.dim ) }, k * ${ f( OVERCAST.amount ) } );
 }
 `,
 		} );
