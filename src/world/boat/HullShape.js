@@ -190,7 +190,54 @@ export function shapeFromObject( root, { yLo = - 0.6, yHi = 3, max = SHAPE.maxVe
 
 	} );
 	if ( pts.length / 2 < SHAPE.minPoints ) return null;
-	return makeShape( pts, { source: 'mesh', max } );
+	const body = hullBody( pts );
+	if ( body.length / 2 < SHAPE.minPoints ) return null;
+	return makeShape( body, { source: 'mesh', max } );
+
+}
+
+// The hull's own body out of a band of vertices: binned along the length, the run of stations round amidships (a stray
+// vertex or a helper object metres off the ends is not the hull: a gap of more than SHAPE.gap m ends the run), then the
+// thin ends trimmed (a bowsprit, a boom or a spar narrower than SHAPE.spar of the widest station is not a hull to collide
+// with; the stem keeps all but its last few cm).
+SHAPE.bin = 0.25;
+SHAPE.gap = 2.5;
+SHAPE.spar = 0.09;
+export function hullBody( pts ) {
+
+	const n = pts.length >> 1;
+	let z0 = Infinity, z1 = - Infinity;
+	for ( let i = 0; i < n; i ++ ) { const z = pts[ 2 * i + 1 ]; if ( z < z0 ) z0 = z; if ( z > z1 ) z1 = z; }
+	const bins = Math.max( 1, Math.ceil( ( z1 - z0 ) / SHAPE.bin ) + 1 );
+	const hb = new Float64Array( bins ).fill( - 1 );
+	for ( let i = 0; i < n; i ++ ) {
+
+		const k = Math.floor( ( pts[ 2 * i + 1 ] - z0 ) / SHAPE.bin );
+		hb[ k ] = Math.max( hb[ k ], Math.abs( pts[ 2 * i ] ) );
+
+	}
+
+	// the runs of stations (gaps of up to SHAPE.gap m bridged): the one holding the widest station is the hull
+	let widest = 0, wk = 0;
+	for ( let k = 0; k < bins; k ++ ) if ( hb[ k ] > widest ) { widest = hb[ k ]; wk = k; }
+	const gapBins = Math.ceil( SHAPE.gap / SHAPE.bin );
+	let a = wk, b = wk;
+	for ( let k = wk - 1, empty = 0; k >= 0; k -- ) { if ( hb[ k ] < 0 ) { if ( ++ empty > gapBins ) break; } else { empty = 0; a = k; } }
+	for ( let k = wk + 1, empty = 0; k < bins; k ++ ) { if ( hb[ k ] < 0 ) { if ( ++ empty > gapBins ) break; } else { empty = 0; b = k; } }
+	// the thin ends off
+	const thin = SHAPE.spar * widest;
+	while ( a < b && hb[ a ] < thin ) a ++;
+	while ( b > a && hb[ b ] < thin ) b --;
+	const lo = z0 + a * SHAPE.bin, hi = z0 + ( b + 1 ) * SHAPE.bin;
+	const out = [];
+	for ( let i = 0; i < n; i ++ ) {
+
+		const z = pts[ 2 * i + 1 ];
+		if ( z >= lo && z < hi ) out.push( pts[ 2 * i ], z );
+
+	}
+
+	return out;
 
 }
 
@@ -420,5 +467,37 @@ export function polyDistance( shape, lx, lz, out = {} ) {
 	const d = Math.sqrt( d2 ) || 1e-9;
 	out.d = d; out.nx = ( lx - qx ) / d; out.nz = ( lz - qz ) / d;
 	return out;
+
+}
+
+// the part of outline `a` inside outline `b` (both convex, the same frame): Sutherland-Hodgman, -> shape | null (a deckhouse
+// and the gear above the sheer, kept within the hull's own outline)
+export function clipShape( a, b ) {
+
+	let pts = [];
+	for ( let i = 0; i < a.n; i ++ ) pts.push( [ a.poly[ 2 * i ], a.poly[ 2 * i + 1 ] ] );
+	for ( let j = 0; j < b.n && pts.length; j ++ ) {
+
+		const px = b.poly[ 2 * j ], pz = b.poly[ 2 * j + 1 ], nx = b.nrm[ 2 * j ], nz = b.nrm[ 2 * j + 1 ];
+		const side = ( q ) => ( q[ 0 ] - px ) * nx + ( q[ 1 ] - pz ) * nz; // > 0 outside
+		const out = [];
+		for ( let i = 0; i < pts.length; i ++ ) {
+
+			const p = pts[ i ], q = pts[ ( i + 1 ) % pts.length ], sp = side( p ), sq = side( q );
+			if ( sp <= 0 ) out.push( p );
+			if ( ( sp < 0 && sq > 0 ) || ( sp > 0 && sq < 0 ) ) {
+
+				const t = sp / ( sp - sq );
+				out.push( [ p[ 0 ] + ( q[ 0 ] - p[ 0 ] ) * t, p[ 1 ] + ( q[ 1 ] - p[ 1 ] ) * t ] );
+
+			}
+
+		}
+
+		pts = out;
+
+	}
+
+	return pts.length >= 3 ? makeShape( pts.flat(), { source: a.source } ) : null;
 
 }

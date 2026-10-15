@@ -1,7 +1,7 @@
 import * as THREE from '../engine/index.js';
 import { berthOf } from '../game/Boats.js';
 import { WORLD } from '../world/WorldLayout.js';
-import { shapeFromLines, shapeFromDims, shapeFromObject, placeShape, placeBox, polySat, polyContact, polyDistance } from '../world/boat/HullShape.js';
+import { shapeFromLines, shapeFromDims, shapeFromObject, clipShape, placeShape, placeBox, polySat, polyContact, polyDistance } from '../world/boat/HullShape.js';
 
 const RHO = 1025; // sea water density
 const GRAV = 9.81;
@@ -717,6 +717,7 @@ export class BoatController {
 		this.hullTop = Math.max( d.freeboardBow || 0, d.freeboard || 0, 0.6 ) + 0.15;
 		this._near = null;
 		this._gatherT = 0;
+		this._upperOf( model );
 		if ( ! model.ready || typeof model.ready.then !== 'function' ) return;
 		model.ready.then( () => {
 
@@ -733,7 +734,25 @@ export class BoatController {
 
 			}
 
+			this._upperOf( model );
+
 		} ).catch( () => {} );
+
+	}
+
+	// What stands above the sheer up to the wheelhouse roof (the house, the trap stack), as an outline kept inside the hull's:
+	// a pier deck higher than the bow but lower than the roof lets the bow run under it and stops the house at its edge.
+	_upperOf( model ) {
+
+		this.upperShape = null;
+		this.upperTop = 0;
+		const d = model.dimensions || {};
+		const lo = this.hullTop + 0.1, hi = ( d.houseRoofHeight || 0 ) + 0.1;
+		if ( hi - lo < 0.3 || ! model.group || ! this.hullShape ) return;
+		let m = null;
+		try { m = shapeFromObject( model.group, { yLo: lo, yHi: hi } ); } catch ( e ) { m = null; }
+		const c = m ? clipShape( m, this.hullShape ) : null;
+		if ( c && c.area > 0.5 ) { this.upperShape = c; this.upperTop = hi; this._near = null; }
 
 	}
 
@@ -747,7 +766,7 @@ export class BoatController {
 		this._gatherT = CONTACT.gather;
 		if ( ! c || ! s ) return near;
 		const R = s.r + CONTACT.margin + this.speed * CONTACT.gather * 2;
-		const x = this.position.x, z = this.position.z, y0 = this.position.y - this.draft - 1, y1 = this.position.y + this.hullTop + 1;
+		const x = this.position.x, z = this.position.z, y0 = this.position.y - this.draft - 1, y1 = this.position.y + Math.max( this.hullTop, this.upperTop || 0 ) + 1;
 		for ( const b of c.cylinders || [] ) {
 
 			if ( b.yMax < y0 || b.yMin > y1 ) continue;
@@ -804,13 +823,16 @@ export class BoatController {
 		if ( near.box.length ) {
 
 			const sat = this._sat || ( this._sat = {} ), pt = this._pt || ( this._pt = {} );
+			const yu = this.position.y + ( this.upperTop || 0 );
 			for ( const b of near.box ) {
 
-				if ( b.top < y0 || b.bottom > y1 ) continue;
+				// over the sheer: only the deckhouse's outline reaches it (a deck she runs her bow under)
+				const up = b.bottom > y1;
+				if ( b.top < y0 || ( up && ( ! this.upperShape || b.bottom > yu ) ) ) continue;
 				const rr = s.r + ( b.radius || Math.hypot( b.half.x, b.half.z ) );
 				if ( Math.abs( b.center.x - this.position.x ) > rr || Math.abs( b.center.z - this.position.z ) > rr ) continue;
 				// (placed where she is now: an earlier contact of this step may have pushed her)
-				const H = this._wp = placeShape( s, this.position.x, this.position.z, yaw, this._wp );
+				const H = up ? ( this._up = placeShape( this.upperShape, this.position.x, this.position.z, yaw, this._up ) ) : ( this._wp = placeShape( s, this.position.x, this.position.z, yaw, this._wp ) );
 				const B = this._bp = placeBox( b, this._bp );
 				polySat( H, B, sat );
 				if ( ! sat.hit ) continue;
