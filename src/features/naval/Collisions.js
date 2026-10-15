@@ -33,6 +33,7 @@
 //   two touched gives the normal, and a hull found on the far side is pushed back the way it came. A pair in contact keeps
 //   its normal while the SAT would flip it (a hull pressed past half the other's beam is never popped out of the far side).
 //   COLLIDE.restitution 0.25: a skiff bounces off a frigate, the frigate barely moves (the impulse is split by inverse mass).
+//   hullPair( a, b ) -> { hit, sep, depth, nx, nz, x, z }   the same test for code outside the world (netsync/HullLink.js)
 
 export const COLLIDE = {
 	restitution: 0.25,
@@ -517,5 +518,35 @@ function supportMid( A, B, nx, nz, tol = 0.15 ) {
 	};
 	const a = side( A, nx, nz ), b = side( B, - nx, - nz );
 	return { x: ( a[ 0 ] + b[ 0 ] ) / 2, z: ( a[ 1 ] + b[ 1 ] ) / 2 };
+
+}
+
+// A pair's overlap on the water plane for code outside CollisionWorld (netsync/HullLink.js: the remote boats): their outlines
+// when both have one (body.shape), else their boxes. -> out { hit, sep, depth, nx, nz (A -> B), x, z (the contact) }
+const _hp = { A: null, B: null, sat: {}, pt: {} };
+export function hullPair( a, b, out = {} ) {
+
+	let pt;
+	if ( a.shape && b.shape ) {
+
+		const A = _hp.A = placeShape( a.shape, a.x, a.z, a.yaw, _hp.A ), B = _hp.B = placeShape( b.shape, b.x, b.z, b.yaw, _hp.B );
+		const s = polySat( A, B, _hp.sat );
+		out.sep = s.sep; out.nx = s.nx; out.nz = s.nz;
+		pt = s.hit ? polyContact( A, B, s, _hp.pt ) : supportMid( A, B, s.nx, s.nz );
+
+	} else {
+
+		const A = obb2( a.x, a.z, a.yaw, a.hx, a.hz ), B = obb2( b.x, b.z, b.yaw, b.hx, b.hz );
+		const s = satOverlap( A, B, _hp.sat );
+		out.sep = s.sep; out.nx = s.nx; out.nz = s.nz;
+		pt = contactPoint( A, B, s.nx, s.nz );
+
+	}
+
+	out.hit = out.sep < 0;
+	out.depth = out.hit ? - out.sep : 0;
+	out.x = pt.x;
+	out.z = pt.z;
+	return out;
 
 }
