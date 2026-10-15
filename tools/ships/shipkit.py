@@ -191,6 +191,9 @@ class Hull:
 		self.yTop = max( rail( x ) for x in [ self.xA + i * L / 40 for i in range( 41 ) ] )
 		self.w0 = 0.07                                # stem / sternpost half width
 		self.gaps = o.get( 'gaps', [] )               # boarding openings in the bulwarks: [ ( x0, x1 ) ] (both sides)
+		self.bulge = o.get( 'bulge', 0.22 )           # the transom's round-up: how far its middle stands aft of its edges
+		self.sternFrom = o.get( 'sternFrom', None )   # the transom above this height in sternMat (the painted upper stern)
+		self.sternMat = o.get( 'sternMat', None )
 
 	# the stem line: forefoot circle below the water, a straight rake above (the stem head at xF at the rail)
 	def xB( self, y ):
@@ -241,6 +244,10 @@ class Hull:
 		x = lerp( xs, xb, un )
 		hb = self.Bh * self.H( y, x ) * self.P( un, y )
 		return x, max( hb, self.w0 )
+
+	def transom_x( self, y, s ):
+		"""x of the transom at height y and s across (-1 starboard .. 1 port): rounded aft in the middle above the tuck"""
+		return self.xS( y ) - self.bulge * smooth( self.yTuck, self.yTuck + 0.6, y ) * ( 1 - s * s )
 
 	def in_gap( self, x ):
 		return any( g[ 0 ] < x < g[ 1 ] for g in self.gaps )
@@ -305,11 +312,20 @@ class Hull:
 		# the transom: the aft column of both sides closed by one face per row band above the tuck, the stern below by
 		# the sternpost (the columns meet at w0)
 		Gp, Gs = self.grid[ 0 ][ 0 ], self.grid[ 1 ][ 0 ]
+		K = 8 if nu > 20 else 2
+		def tp( j, k ):
+			a, b = Gp[ j ], Gs[ j ]
+			s = 1 - 2 * k / K
+			p = a.lerp( b, k / K )
+			# (the round-up only where the transom is wide: above the tuck)
+			return Vector( ( self.transom_x( p.z, s ) if abs( a.y ) > 0.25 else p.x, p.y, p.z ) )
 		for j in range( len( Gp ) - 1 ):
-			q = [ Gp[ j ], Gp[ j + 1 ], Gs[ j + 1 ], Gs[ j ] ]
 			ym = ( Gp[ j ].z + Gp[ j + 1 ].z ) / 2
 			mat = next( m for t, m in bands if ym < t )
-			mb.f( [ p.copy() for p in q ], mat, facing = ( - 1, 0, 0 ) )
+			if self.sternMat and self.sternFrom is not None and ym > self.sternFrom: mat = self.sternMat
+			for k in range( K ):
+				q = [ tp( j, k ), tp( j + 1, k ), tp( j + 1, k + 1 ), tp( j, k + 1 ) ]
+				mb.f( q, mat, facing = ( - 1, 0, 0 ), uvs = [ ( p.y / 4, p.z / 2 ) for p in q ] )
 		# the stem: the fore column of both sides joined
 		Gp, Gs = self.grid[ 0 ][ - 1 ], self.grid[ 1 ][ - 1 ]
 		for j in range( len( Gp ) - 1 ):
@@ -657,19 +673,25 @@ def anchor( mb, x, y, z, side, s = 1.0 ):
 		box( mb, ( x + d * 0.55 * s, y, z - 1.05 * s ), ( 0.2 * s, 0.05 * s, 0.25 * s ), 'M_NavalIron' )
 	torus( mb, ( x, y, z + 0.08 ), 0.1 * s, 0.025 * s, 'M_NavalIron', axis = ( 0, 1, 0 ), nu = 8, nv = 3 )
 
-def stern_windows( mb, hull, n, y0, y1, glass = 'M_NavalLanternGlass', frame = 'M_NavalAgedBrass', out = 0.02 ):
-	"""a row of n lights across the transom between heights y0 .. y1"""
+def stern_windows( mb, hull, n, y0, y1, glass = 'M_NavalWindow', frame = 'M_NavalAgedBrass', out = 0.02 ):
+	"""a row of n lights across the (rounded) transom between heights y0 .. y1, mullions and mouldings above and below"""
 	ym = ( y0 + y1 ) / 2
-	x = hull.xS( ym ) - out
-	hw = hull.hbAt( hull.xS( ym ) + 0.05, ym ) * 0.82
+	HW = hull.hbAt( hull.xS( ym ) + 0.05, ym )
+	hw = HW * 0.82
 	w = 2 * hw / n
+	X = lambda yy, z: hull.transom_x( z, clamp( yy / HW, - 1, 1 ) ) - out
 	for i in range( n ):
 		yy = - hw + w * ( i + 0.5 )
-		mb.f( [ ( x, yy - w * 0.36, y0 ), ( x, yy + w * 0.36, y0 ), ( x, yy + w * 0.36, y1 ), ( x, yy - w * 0.36, y1 ) ], glass, facing = ( - 1, 0, 0 ) )
+		a, b = yy - w * 0.36, yy + w * 0.36
+		mb.f( [ ( X( a, y0 ), a, y0 ), ( X( b, y0 ), b, y0 ), ( X( b, y1 ), b, y1 ), ( X( a, y1 ), a, y1 ) ], glass, facing = ( - 1, 0, 0 ) )
 		for dy in ( - w * 0.42, w * 0.42 ):
-			box( mb, ( x, yy + dy, ym ), ( 0.05, 0.07, y1 - y0 + 0.1 ), frame )
-	box( mb, ( x, 0, y1 + 0.06 ), ( 0.06, 2 * hw + 0.1, 0.1 ), frame )
-	box( mb, ( x, 0, y0 - 0.06 ), ( 0.06, 2 * hw + 0.1, 0.1 ), frame )
+			box( mb, ( X( yy + dy, ym ) - 0.01, yy + dy, ym ), ( 0.05, 0.07, y1 - y0 + 0.1 ), frame )
+	# the mouldings over and under the lights, following the round-up
+	K = 10
+	for z in ( y1 + 0.07, y0 - 0.07 ):
+		for k in range( K ):
+			ya, yb = - hw - 0.08 + ( 2 * hw + 0.16 ) * k / K, - hw - 0.08 + ( 2 * hw + 0.16 ) * ( k + 1 ) / K
+			cyl( mb, ( X( ya, z ) - 0.02, ya, z ), ( X( yb, z ) - 0.02, yb, z ), 0.05, 0.05, frame, n = 5, cap0 = k == 0, cap1 = k == K - 1 )
 
 def balance( mb, x, z = 0.5 ):
 	"""a 2 mm triangle at x: the X extent of the mesh comes out symmetric (the game centres a ship on its X extent)"""

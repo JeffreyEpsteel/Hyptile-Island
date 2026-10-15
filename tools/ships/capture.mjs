@@ -86,12 +86,14 @@ const holdWind = () => {
 };
 const nv = app.features.get( 'naval' );
 nv.settings.autoSpawn = false;
+// (the rescue feature teaches naval's ModelSet the procedural launch when it first needs one: here at once)
+( await import( '../../src/world/boat/Launch.js' ) ).drawProcedural( nv.models );
 const clearShips = () => { for ( let i = nv.ships.length - 1; i >= 0; i -- ) nv._removeShip( i ); };
 clearShips();
 
 // open water off the home island (the launch's sea in tools/visuals); the bow points east-north-east
 const SEA = { x: 215, z: 285, yaw: 1.15 };
-const TIMES = { noon: 12, golden: 17.6 };
+const TIMES = { noon: 12, golden: 17.6, dusk: 19.4, night: 22.5 };
 const ANGLES = { bow: [ 38, 11 ], side: [ 90, 7 ], stern: [ 148, 13 ] }; // azimuth from the bow toward starboard, elevation (deg)
 const SHIPS = [ 'trawler', 'sloop', 'brigantine', 'frigate', 'revenue', 'launch' ];
 const FLEET = Object.keys( BOATS ).filter( ( k ) => BOATS[ k ].kind === 'fleet' );
@@ -178,6 +180,34 @@ for ( const id of only ) {
 		app._placeBoat( { x: SEA.x, z: SEA.z, heading: SEA.yaw, moored: true } );
 		await frames( 60 );
 		await shoot( id, Math.max( b.length * 1.4, 6 ), 3.5, { x: SEA.x, z: SEA.z } );
+		app._placeBoat( { x: SEA.x + 2000, z: SEA.z, heading: 0, moored: true } );
+
+	} else if ( id.startsWith( 'aboard-' ) || id.startsWith( 'helm-' ) ) {
+
+		// the player's own ship (any Boats.js hull) moored on the patch, the player on deck (aboard-) or at the wheel (helm-):
+		// the game's own camera
+		const k = id.slice( id.indexOf( '-' ) + 1 );
+		if ( st && st.boat !== k && st.buyBoat ) st.buyBoat( k );
+		if ( app.setBoat && st ) app.setBoat( st.boat );
+		if ( app.boat && app.boat.ready ) try { await app.boat.ready; } catch ( e ) { /* the placeholder */ }
+		app._placeBoat( { x: SEA.x, z: SEA.z, heading: SEA.yaw, moored: true } );
+		if ( app.freeCam ) app.setFreeCam( false );
+		await frames( 30 );
+		const p = app.player;
+		if ( id.startsWith( 'helm-' ) && p.enterBoat ) p.enterBoat(); else if ( p.boardBoat ) p.boardBoat();
+		if ( p.yaw !== undefined && id.startsWith( 'aboard-' ) ) { p.yaw = SEA.yaw + Math.PI; p.pitch = 0.05; }
+		for ( const t of times ) {
+
+			app.settings.timeOfDay = TIMES[ t ];
+			await frames( settle + 30 );
+			const f = join( out, `${ profile }-${ id }-${ t }${ arg( 'tag' ) ? '-' + arg( 'tag' ) : '' }.png` );
+			await canvasPNG( GPU, f );
+			console.log( '  ' + f );
+
+		}
+
+		if ( p.mode === 'boat' && p.leaveHelm ) p.leaveHelm();
+		if ( ( p.mode === 'deck' || p.mode === 'seat' ) && p.exitBoat ) p.exitBoat( null, 1 );
 		app._placeBoat( { x: SEA.x + 2000, z: SEA.z, heading: 0, moored: true } );
 
 	} else if ( id === 'fleet' ) {

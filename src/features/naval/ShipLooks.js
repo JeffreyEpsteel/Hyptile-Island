@@ -8,12 +8,14 @@
 //     flags (…FlagCanvas, …NavyBlueCanvas): a travelling wave from the hoist, faster in a fresh wind; double sided
 //     canvas: glows warm when the sun is behind it (not shadowed: the backlight is the point)
 //     hull paint (…HullPlank, SheerStripe, BlackPaint, NavyHullBlue / White, HullTar): darker and glossier at the waterline
+//     windows (…NavalWindow): dark glass by day, warm cabin light at night
 //   mirrored: the GLB was mirrored across its centre plane (the player's brigantine): the static belly of the fore-and-aft
 //   sails and the bracing of the square yards are on the other side.
 
 const SAIL = /SailCanvas$/;
 const FLAG = /(FlagCanvas|NavyBlueCanvas)$/;
 const HULL = /(HullPlank|SheerStripe|BlackPaint|NavyHullBlue|NavyHullWhite|HullTar)$/;
+const WINDOW = /NavalWindow$/;
 
 // sails: u = s + 2 code, v (glTF) = ( 1 - t ) - 2 kind (kind 0 square: belly forward, the yards braced SAIL_BRACE about the
 // mast (tools/ships/build_ships.py BRACE); 1 fore-and-aft: belly +Z, -Z mirrored); the static belly is code * 5 cm * W( s, t ).
@@ -87,6 +89,11 @@ const HULL_SURFACE = /* wgsl */`
 	s.roughness = mix( s.roughness, 0.28, wet );
 `;
 
+// the stern and wheelhouse windows: dark glass by day, lamp-lit cabins after dusk (frame.night: no CPU work per ship)
+const WINDOW_SURFACE = /* wgsl */`
+	s.emissive += vec3f( 2.2, 1.35, 0.55 ) * smoothstep( 0.25, 0.85, frame.night ) * ( 0.75 + 0.25 * sin( in.P.x * 3.1 + in.P.z * 2.3 ) );
+`;
+
 // Teach a loaded ship GLB's materials the sail / flag / hull shading (once per template). mirrored: the GLB was mirrored
 // across its centre plane (the player's brigantine), which puts the fore-and-aft sails' static belly on the other side.
 export function shipMaterials( glb, { mirrored = false } = {} ) {
@@ -109,6 +116,10 @@ export function shipMaterials( glb, { mirrored = false } = {} ) {
 			m.side = 'double';
 			m.vertex = ( m.vertex || '' ) + FLAG_VERTEX;
 			m.surface = ( m.surface || '' ) + CANVAS_SURFACE;
+
+		} else if ( WINDOW.test( name ) ) {
+
+			m.surface = ( m.surface || '' ) + WINDOW_SURFACE;
 
 		} else if ( HULL.test( name ) ) {
 

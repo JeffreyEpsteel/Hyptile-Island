@@ -45,6 +45,7 @@ BASE = {
 	'M_NavalAgedBrass': ( ( 0.55, 0.38, 0.13 ), 0.38, 0.9 ),
 	'M_NavalRiggingHemp': ( ( 0.11, 0.085, 0.06 ), 0.9, 0 ),
 	'M_NavalLanternGlass': ( ( 0.86, 0.62, 0.28 ), 0.15, 0 ),
+	'M_NavalWindow': ( ( 0.035, 0.045, 0.055 ), 0.12, 0 ),
 	'M_NavalFlagCanvas': ( ( 1, 1, 1 ), 0.9, 0 ),
 	'M_NavyBlueCanvas': ( ( 1, 1, 1 ), 0.9, 0 ),
 	'M_NavalTarp': ( ( 0.6, 0.55, 0.45 ), 0.85, 0 ),
@@ -68,7 +69,7 @@ LIVERY = {
 # every material a ship may carry: the LOD files hold a primitive of each (see export)
 PALETTE = [ 'M_NavalHullTar', 'M_NavalHullPlank', 'M_NavyHullBlue', 'M_NavyHullWhite', 'M_NavalSheerStripe', 'M_NavalBlackPaint', 'M_NavalDeckPlank',
 	'M_NavalSparTimber', 'M_NavyHelmWheel', 'M_NavalIron', 'M_NavalAgedBrass', 'M_NavalSailCanvas', 'M_NavalFurledCanvas', 'M_NavalTarp',
-	'M_NavalRiggingHemp', 'M_NavalLanternGlass', 'M_NavalFlagCanvas', 'M_NavyBlueCanvas' ]
+	'M_NavalRiggingHemp', 'M_NavalLanternGlass', 'M_NavalWindow', 'M_NavalFlagCanvas', 'M_NavyBlueCanvas' ]
 DOUBLE = { 'M_NavalSailCanvas', 'M_NavalFlagCanvas', 'M_NavyBlueCanvas', 'M_NavalRiggingHemp' }
 
 def look( kind, name ):
@@ -159,6 +160,9 @@ class Ship:
 		L = self.L
 		self.rail = rail or rail_fn( self.levelAt, L, bw, sweep )
 		if self.boat and self.lod < 2: opts.setdefault( 'gaps', [ ( - DATA[ 'gap' ], DATA[ 'gap' ] ) ] )
+		# the upper transom painted in the band colour, from a little under the stern windows
+		opts.setdefault( 'sternMat', self.band )
+		opts.setdefault( 'sternFrom', self.levelAt( - L / 2 + 0.5 ) - 1.15 )
 		self.H = Hull( L, opts.pop( 'Bh', self.B / 2 ), self.d, self.rail, lambda x: self.sideAt( x, 1.0 ), opts )
 		nu = [ 88, 30, 14 ][ self.lod ]
 		top = min( self.rail( - L / 2 + i * L / 40 ) for i in range( 41 ) )
@@ -249,21 +253,35 @@ class Ship:
 					if s[ 'y' ] > c[ 'deck' ] + 0.05 and H.xS( s[ 'y' ] ) + 0.3 < x < H.xB( s[ 'y' ] ) - 0.3:
 						riser( mb, H, x, c[ 'deck' ], s[ 'y' ], - 5, 5, f, mat = self.band if self.navy else 'M_NavalSheerStripe', t = t )
 
-	def stern( self, windows = 4, wy = None, lanterns = 1, galleries = False ):
+	def stern( self, windows = 4, wy = None, lanterns = 1, galleries = False, taffrail = True ):
 		mb, H = self.mb, self.H
+		self.sternBoard = getattr( self, 'sternBoard', self.band )
 		yr = self.rail( H.xA )
 		if self.lod < 2 and windows:
 			y0, y1 = wy or ( self.levelAt( H.xA + 0.5 ) - 0.85, self.levelAt( H.xA + 0.5 ) - 0.25 )
 			stern_windows( mb, H, windows, y0, y1 )
-		# the taffrail: a brass-trimmed rail across the transom top, the lanterns on it
-		if self.lod < 2:
-			hw = H.hbAt( H.xS( yr - 0.1 ) + 0.05, yr - 0.1 )
-			box( mb, ( H.xS( yr ) - 0.03, 0, yr - 0.18 ), ( 0.08, 2 * hw * 0.95, 0.12 ), 'M_NavalAgedBrass' )
+		# the taffrail: an arched board over the transom top, gilt along its edge; the lanterns on it (one at the crown, a pair
+		# on the quarters)
+		hw = H.hbAt( H.xS( yr - 0.1 ) + 0.05, yr - 0.1 )
+		arch = 0.35 + 0.02 * self.L
+		top = lambda s: yr + ( arch * max( 0.0, 1 - s * s ) ** 0.7 if taffrail else 0.0 )
+		if self.lod < 2 and taffrail:
+			K = 12
+			for k in range( K ):
+				sa, sb = 1 - 2 * k / K, 1 - 2 * ( k + 1 ) / K
+				xa, xb = H.transom_x( yr, sa ) - 0.02, H.transom_x( yr, sb ) - 0.02
+				ya, yb = sa * hw * 0.98, sb * hw * 0.98
+				q = [ ( xa, ya, yr - 0.1 ), ( xb, yb, yr - 0.1 ), ( xb, yb, top( sb ) ), ( xa, ya, top( sa ) ) ]
+				mb.f( q, self.sternBoard, facing = ( - 1, 0, 0 ), uvs = [ ( p[ 1 ] / 4, p[ 2 ] / 2 ) for p in q ] )
+				mb.f( [ ( p[ 0 ] + 0.08, p[ 1 ], p[ 2 ] ) for p in q ], 'M_NavalSheerStripe', facing = ( 1, 0, 0 ) )
+				cyl( mb, ( xa + 0.03, ya, top( sa ) ), ( xb + 0.03, yb, top( sb ) ), 0.05, 0.05, 'M_NavalAgedBrass', n = 5, cap0 = k == 0, cap1 = k == K - 1 )
 		for i in range( lanterns ):
-			ly = ( i - ( lanterns - 1 ) / 2 ) * 1.2
-			lx = H.xS( yr ) - 0.25
-			if self.lod < 2: box( mb, ( lx + 0.12, ly, yr + 0.05 ), ( 0.32, 0.06, 0.06 ), 'M_NavalIron' )
-			lantern( mb, lx, ly, yr + 0.08, s = 0.34 if i == ( lanterns - 1 ) // 2 else 0.28 )
+			s = 0.0 if lanterns == 1 else ( i - ( lanterns - 1 ) / 2 ) / ( ( lanterns - 1 ) / 2 ) * 0.8
+			ly = s * hw
+			lx = H.transom_x( yr, s ) - 0.32
+			lz = top( s )
+			if self.lod < 2: box( mb, ( lx + 0.16, ly, lz + 0.02 ), ( 0.36, 0.06, 0.06 ), 'M_NavalIron' )
+			lantern( mb, lx, ly, lz + 0.05, s = 0.36 if abs( s ) < 0.1 else 0.28 )
 		# the rudder on the sternpost, its head through the counter
 		if self.lod < 2:
 			yT = H.yTuck
@@ -279,7 +297,7 @@ class Ship:
 				y0 = self.levelAt( gx ) - 1.4
 				hb = H.hbAt( gx, y0 + 0.6 )
 				box( mb, ( gx, side * ( hb + 0.22 ), y0 + 0.6 ), ( 1.8, 0.5, 1.2 ), self.trim )
-				box( mb, ( gx, side * ( hb + 0.5 ), y0 + 0.7 ), ( 1.2, 0.04, 0.5 ), 'M_NavalLanternGlass' )
+				box( mb, ( gx, side * ( hb + 0.5 ), y0 + 0.7 ), ( 1.2, 0.04, 0.5 ), 'M_NavalWindow' )
 				box( mb, ( gx, side * ( hb + 0.25 ), y0 + 1.26 ), ( 2.0, 0.56, 0.12 ), 'M_NavalAgedBrass' )
 				box( mb, ( gx, side * ( hb + 0.2 ), y0 - 0.06 ), ( 1.6, 0.42, 0.12 ), 'M_NavalAgedBrass' )
 
@@ -467,7 +485,7 @@ def build_trawler( lod ):
 	S = Ship( 'trawler', lod )
 	bands = [ ( 0.12, 'M_NavalHullTar' ), ( 0.24, 'M_NavalBlackPaint' ), ( 2.05, 'M_NavalHullPlank' ), ( 99, 'M_NavalHullPlank' ) ]
 	H = S.hull( { 'Bh': 3.08, 'um': 0.47, 'aft': ( 2.2, 1.0 ), 'fore': ( 2.7, 1.8 ), 'transom': 0.62, 'tuck': 0.9, 'counter': 1.15, 'stemRake': 0.45,
-		'forefoot': 1.2, 'yMB': 1.9, 'tumble': 0.03, 'sharp': 2.2, 'fine': 1.2, 'transomRake': 0.12 }, DATA[ 'bulwark' ], sweep = 0.3, bands = bands )
+		'forefoot': 1.2, 'yMB': 1.9, 'tumble': 0.03, 'sharp': 2.2, 'fine': 1.2, 'transomRake': 0.12, 'sternMat': 'M_NavalHullPlank' }, DATA[ 'bulwark' ], sweep = 0.3, bands = bands )
 	mb = S.mb
 	S.check_lines()
 	if lod < 2:
@@ -476,7 +494,7 @@ def build_trawler( lod ):
 		rail_band( S, - 0.36, - 0.12, 'M_NavalSheerStripe', out = 0.025 )
 	S.bulwarks( inner = 'M_NavalSheerStripe', cap = 'M_NavalSparTimber' )
 	S.decks()
-	S.stern( windows = 0, lanterns = 1 )
+	S.stern( windows = 0, lanterns = 1, taffrail = False )
 	S.head( knee = 0.35, fig = False, anchors = True )
 	tip, _ = S.bowsprit( 3.2, 6, 0.13, heel = 1.6 )
 	deckY = S.deckY
@@ -488,14 +506,14 @@ def build_trawler( lod ):
 			box( mb, ( ( - 7.85 + x1 ) / 2, side * 1.75, pz + 1.3 ), ( x1 + 7.85, 0.3, 2.6 ), 'M_NavalSheerStripe' )
 			# windows along the sides, a darker sill line
 			for wx in ( - 7.0, - 5.6 ):
-				box( mb, ( wx, side * 1.91, pz + 1.85 ), ( 0.9, 0.04, 0.62 ), 'M_NavalLanternGlass' )
+				box( mb, ( wx, side * 1.91, pz + 1.85 ), ( 0.9, 0.04, 0.62 ), 'M_NavalWindow' )
 				box( mb, ( wx, side * 1.92, pz + 1.5 ), ( 1.0, 0.05, 0.06 ), 'M_NavalSparTimber' )
 			# corner posts at the open front, the front windscreen over head height
 			box( mb, ( x1 - 0.08, side * 1.72, pz + 1.3 ), ( 0.16, 0.36, 2.6 ), 'M_NavalSparTimber' )
 		box( mb, ( - 7.85, 0, pz + 1.3 ), ( 0.3, 3.8, 2.6 ), 'M_NavalSheerStripe' )
-		box( mb, ( - 7.69, 0, pz + 1.9 ), ( 0.04, 1.6, 0.6 ), 'M_NavalLanternGlass' )
+		box( mb, ( - 8.02, 0, pz + 1.9 ), ( 0.04, 1.6, 0.6 ), 'M_NavalWindow' )
 		box( mb, ( x1 - 0.06, 0, pz + 2.35 ), ( 0.14, 3.4, 0.5 ), 'M_NavalSheerStripe' )
-		box( mb, ( x1 - 0.14, 0, pz + 2.3 ), ( 0.04, 3.0, 0.32 ), 'M_NavalLanternGlass' )
+		box( mb, ( x1 - 0.14, 0, pz + 2.3 ), ( 0.04, 3.0, 0.32 ), 'M_NavalWindow' )
 		# the roof with an overhang, a rail round it, the stack and the dinghy on it
 		box( mb, ( ( x0 + x1 ) / 2, 0, pz + 2.68 ), ( x1 - x0 + 0.5, 4.1, 0.16 ), 'M_NavalSparTimber' )
 		if lod == 0:
@@ -715,7 +733,7 @@ def build_brigantine( lod ):
 		rail_band( S, - 0.62, - 0.3, 'M_NavalSheerStripe', out = 0.03 )
 	S.bulwarks( inner = 'M_NavalSheerStripe', cap = 'M_NavalBlackPaint' )
 	S.decks()
-	S.stern( windows = 5, wy = ( 2.45, 3.0 ), lanterns = 1 )
+	S.stern( windows = 5, wy = ( 2.45, 3.0 ), lanterns = 3 )
 	S.head( knee = 1.3, fig = True )
 	tip, jt = S.bowsprit( 5.6, 11, 0.22, jib = 3.6, heel = 2.2 )
 	st = [ s for s in S.c[ 'stations' ] if s[ 'side' ] == 'port' ]
@@ -810,7 +828,7 @@ def build_frigate( lod ):
 	rail = rail_fn( lambda x: lv( x ) + ( 0.0 if lv( x ) > c[ 'deck' ] + 0.1 else 0.35 ), S.L, 1.0, sweep = 0.3 )
 	bands = [ ( 0.14, 'M_NavalHullTar' ), ( 0.3, 'M_NavalBlackPaint' ), ( 2.15, 'M_NavyHullBlue' ), ( 2.82, 'M_NavyHullWhite' ), ( 3.62, 'M_NavyHullBlue' ), ( 4.3, 'M_NavyHullWhite' ), ( 99, 'M_NavyHullBlue' ) ]
 	H = S.hull( { 'Bh': 3.95, 'um': 0.47, 'aft': ( 2.4, 1.0 ), 'fore': ( 3.0, 2.1 ), 'transom': 0.68, 'tuck': 0.85, 'counter': 1.6, 'stemRake': 1.4,
-		'forefoot': 3.0, 'yMB': 2.6, 'tumble': 0.07, 'sharp': 2.1, 'fine': 1.5, 'transomRake': 0.8 }, 1.0, bands = bands, rail = rail )
+		'forefoot': 3.0, 'yMB': 2.6, 'tumble': 0.07, 'sharp': 2.1, 'fine': 1.5, 'transomRake': 0.8, 'sternFrom': 2.35 }, 1.0, bands = bands, rail = rail )
 	mb = S.mb
 	deckY = c[ 'deck' ]
 	if lod < 2:
