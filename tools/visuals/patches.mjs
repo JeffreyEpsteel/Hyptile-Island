@@ -46,4 +46,10 @@ export const PATCHES = [
 		anchor: [ TAB + TAB + 'this.world.apply( p, dt );', '' ].join( NL ),
 		replace: [ TAB + TAB + 'this.world.apply( p, dt );', TAB + TAB + 'updateWetness( dt, p.rain, { sun: 1 - clamp( ( p.clouds - 0.4 ) / 0.55, 0, 1 ), wind: p.wind } ); // wave 24D: wet surfaces in rain', '' ].join( NL ),
 	},
+	// npm test runs the wave's two plain-node tests (sky weather response, rain wetness)
+	{
+		file: 'package.json',
+		anchor: 'node test/visuals-grade.mjs && ',
+		replace: 'node test/visuals-grade.mjs && node test/visuals-clouds.mjs && node test/visuals-wet.mjs && ',
+	},
 ];

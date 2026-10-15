@@ -66,3 +66,30 @@ Pairs (before left, after right) in `tools/visuals/out/18f/`: `pair-launchSide.p
   zone (darker, glossier, last 0.55 m above the sea). Character rim at golden hour (`CHARACTER_RIM`, strength
   `SunShadows.rim`; skinned materials only; 0 = off).
 - Test: `node test/visuals-shadows.mjs` (block layout, soft level follows the tier, phones never soft).
+
+## Wave 24D: sky, forest, ground, rain (2026-10-16)
+
+Sets in `tools/visuals/out/w24/`: `before/` (HEAD f312b87; phone from a `git archive` of it), `after1/` (the sky,
+vegetation and town-ground work with the patches applied), contact sheets `compare1-<profile>.png` (land views) and
+`compare1b-<profile>.png` (sea views), before left. Diagnostics in `w24/diag/`.
+
+- Clouds (`src/sky/SkyProClouds.js`): the weather eases the coverage every frame and each step reset the cloud history,
+  so the sky showed the 1/8 resolution trace (blocky clouds at dusk, at night, over the launch) and re-traced the whole
+  panorama every frame. Now only a jump (> 0.08) resets them. `skyCoverage()` maps the weather's coverage onto the
+  cumulus model: clear days (0.15 - 0.3) drew an empty sky and now draw fair-weather cumulus (0.37 - 0.46); a closed deck
+  (overcast, storm) darkens its lower part (the short sky probes could not see the layer above) and greys the sky light
+  (`Atmosphere.js` `overcast`: the haze, the horizon and the sky irradiance stop being clear-day blue in a storm).
+  Interleaved A/B (`--ab-eval`) of the remap: within the harness noise (+-1 ms).
+- Vegetation: the impostor bake used a fixed 0.5 leaf coverage threshold on small frames (128 px, 40 on phones) whose
+  coarse mips average under it: phones drew every far tree as bare branches, desktops thinned the far crowns. The bake
+  uses the footprint threshold, which now reads the atlas tile's real size. Canopy albedo x1.3 (the forest read as
+  near-black blobs beside the sand), lighter crown interiors on the impostors.
+- Town islands' ground (`src/materials/TileTerrain.js`, applied by the patch): Tidemark's and Blackwater's terrain tiles
+  were one flat vertex colour (a lime hill); now the shared terrain detail and the home island's meadow tones.
+- Rain wetness (`src/materials/Wetness.js`, `frame.wetness`, the frame block's spare slot): every scene material darkens
+  by porosity and goes glossy in rain, flat ground holds sheets of water (not on phones); dries in minutes.
+- Patches (root): `node tools/visuals/apply-patches.mjs [--check]` (Tidemark / Blackwater land meshes, the weather's
+  wetness call, npm test). Tests: `test/visuals-clouds.mjs`, `test/visuals-wet.mjs`.
+- Still short: Tidemark's square lawn is a flat sheet in the town kit (not the terrain); the overcast deck has little
+  texture from below; the sea keeps its turquoise under a storm sky (ocean owners); anti-aliasing is off by default
+  (the user's choice), so edges alias.
