@@ -128,6 +128,23 @@ for ( const k of KINDS ) {
 
 }
 
+// the player's four small boats (tools/ships/build_boats.py): one node in the boat frame, the keel at the draft, the bow (+Z)
+// the narrower end, a sail on the cutter, the launch's cuddy glass
+for ( const [ id, file ] of [ [ 'skiff', 'SM_MarshSkiff' ], [ 'canoe', 'SM_Outrigger' ], [ 'cutter', 'SM_SailCutter' ], [ 'launch', 'SM_CabinLaunch' ] ] ) {
+
+	const { json, g } = readGLB( 'models/fleet/' + file + '.glb' ), b = BOATS[ id ];
+	let bot = Infinity, zlo = Infinity, zhi = - Infinity;
+	const pts = [];
+	for ( const { p } of prims( g ) ) { const P = p.attributes.POSITION.array; for ( let i = 0; i < P.length; i += 3 ) { bot = Math.min( bot, P[ i + 1 ] ); if ( P[ i + 1 ] > - 0.05 && P[ i + 1 ] < 0.4 && Math.abs( P[ i ] ) < 1.2 ) { zlo = Math.min( zlo, P[ i + 2 ] ); zhi = Math.max( zhi, P[ i + 2 ] ); pts.push( P[ i ], P[ i + 2 ] ); } } }
+	const w = ( z0, z1 ) => { let m = 0; for ( let i = 0; i < pts.length; i += 2 ) if ( pts[ i + 1 ] >= z0 && pts[ i + 1 ] <= z1 ) m = Math.max( m, Math.abs( pts[ i ] ) ); return m; };
+	const names = json.materials.map( ( m ) => m.name ), tris = trisOf( json );
+	ok( json.nodes.length === 1 && json.nodes[ 0 ].name === file && Math.abs( bot + b.draft ) < 0.02 && tris > 2500 && tris < 9000, `${ id }: ${ file }, keel ${ f2( bot ) } (draft ${ b.draft }), ${ tris } triangles` );
+	ok( w( zhi - 0.4, zhi ) < w( - 1.6, - 1.2 ), `${ id }: the bow (+Z) is the fine end (${ f2( w( zhi - 0.4, zhi ) ) } vs ${ f2( w( - 1.6, - 1.2 ) ) } m)` );
+	if ( id === 'cutter' ) ok( names.includes( 'M_NavalSailCanvas' ), 'cutter: her sail on the ship sail shader' );
+	if ( id === 'launch' ) ok( names.some( ( n ) => /Glass/.test( n ) ), 'launch: the cuddy glass (the boat-glass of FleetBoatModel)' );
+
+}
+
 // ================================================================================================ 2. measurements
 section( '2. the game\'s measurements' );
 for ( const k of KINDS ) {

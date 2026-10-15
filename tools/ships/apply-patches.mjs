@@ -1,13 +1,14 @@
 // Wave 24C patches to files 24C does not own (root, 24B): exact anchors, each applied once; --check reports without writing.
 //   node tools/ships/apply-patches.mjs [--check] [--root=<dir>]
-// 1. src/world/boat/ShipBoatModel.js (24B): the player's ship gets the ship materials (wind in the sails, waving flags, wet
-//    waterline) like the AI ships; the brigantine is mirrored.
+// 1. src/world/boat/FleetBoatModel.js (24B): the player's boat (the small boats and, through ShipBoatModel, the ships) gets
+//    the ship materials (wind in the sails, waving flags, wet waterline, lit windows) like the AI ships; the brigantine is
+//    mirrored (Boats.js mirror).
 // 2. test/feature-ships.mjs (24B): the hull's length / beam measured on the hull shell (HullPlank / SheerStripe / HullTar meshes):
 //    the rebuilt ships carry a bowsprit, booms and braced yards past the hull.
 // 3. test/feature-naval.mjs (24B): the same for the asset check; the render section's PNG decoder hands JPEG maps a grey 2 x 2
 //    (the rebuilt GLBs embed JPEG).
 // 4. package.json (root): test/feature-ship-looks.mjs in npm test.
-// 5. CREDITS.md (root): the ships' credit line.
+// 5. CREDITS.md (root): the ships' credit line; then (a second entry) the small boats' line.
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
@@ -22,6 +23,17 @@ const CHECK = process.argv.includes( '--check' );
 
 const PATCHES = [
 	{
+		file: 'src/world/boat/FleetBoatModel.js',
+		done: 'shipMaterials( glb',
+		edits: [
+			[ `import { WHEEL_TURNS, steerWheel, wheelGripPoints, helmStandFor } from '../BoatModel.js';`, `import { WHEEL_TURNS, steerWheel, wheelGripPoints, helmStandFor } from '../BoatModel.js';
+import { shipMaterials } from '../../features/naval/ShipLooks.js';` ],
+			[ `			for ( const m of glb.materials ) m.underwaterLighting = 'lite';`, `			for ( const m of glb.materials ) m.underwaterLighting = 'lite';
+			shipMaterials( glb, { mirrored: !! spec.mirror } ); // (wave 24C: wind in the sails, waving flags, the wet waterline, lit windows)` ],
+		],
+	},
+	{
+		// (applied by root in f8f6303; the FleetBoatModel call above runs first, this one is then a no-op)
 		file: 'src/world/boat/ShipBoatModel.js',
 		done: 'shipMaterials( glb',
 		edits: [
@@ -35,7 +47,7 @@ import { shipMaterials } from '../../features/naval/ShipLooks.js';` ],
 	},
 	{
 		file: 'test/feature-ships.mjs',
-		done: 'hull shell (wave 24C)',
+		done: 'the hull shell (wave 24C',
 		edits: [
 			[ `	let lo = Infinity, hi = - Infinity, top = - Infinity, bot = Infinity, wide = 0;
 	for ( const m of Object.values( model.meshes ) ) {
@@ -78,6 +90,13 @@ import { shipMaterials } from '../../features/naval/ShipLooks.js';` ],
 		if ( b[ 0 ] !== 0x89 ) return { data: new Uint8Array( [ 150, 140, 125, 255, 150, 140, 125, 255, 150, 140, 125, 255, 150, 140, 125, 255 ] ), width: 2, height: 2 }; // (JPEG maps: grey)
 		const w = b.readUInt32BE( 16 ), h = b.readUInt32BE( 20 ), bpp = b[ 25 ] === 6 ? 4 : 3;` ],
 		],
+	},
+	{
+		file: 'CREDITS.md',
+		done: 'tools/ships/build_boats.py',
+		edits: [ [ '| Fleet hulls (`public/models/fleet`), ship modules', '| Ship modules' ],
+			[ "(Blender headless) with procedural textures (`tools/ships/textures.py`, numpy), no scans or downloads | this repository's MIT license |",
+				"(Blender headless) with procedural textures (`tools/ships/textures.py`, numpy), no scans or downloads | this repository's MIT license |\n| The four small boats: the marsh skiff, the outrigger canoe, the sail cutter, the cabin launch (`public/models/fleet`) | procedural, `tools/ships/build_boats.py` (the ship kit, the same textures) | this repository's MIT license |" ] ],
 	},
 	{
 		file: 'package.json',

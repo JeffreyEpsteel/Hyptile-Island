@@ -1,6 +1,7 @@
 # Preview renders of a ship GLB (tools/ships/build_ships.py output), headless EEVEE:
 #   blender -b --factory-startup -P tools/ships/render_preview.py -- <in.glb> <out_prefix> [size] [views]
 # views: comma list of bow, side, stern, deck, rig, close (default bow,side,stern); writes <out_prefix>-<view>.png.
+# A 5th argument 'boat': a fleet boat in the boat frame (bow +Z), turned to face +X first.
 # A sun from the starboard bow quarter, a sky-blue world, a sea-coloured plane at the waterline.
 import bpy, sys, math, mathutils
 
@@ -12,6 +13,10 @@ views = ( argv[ 3 ] if len( argv ) > 3 else 'bow,side,stern' ).split( ',' )
 bpy.ops.wm.read_factory_settings( use_empty = True )
 bpy.ops.import_scene.gltf( filepath = src )
 objs = [ o for o in bpy.context.scene.objects if o.type == 'MESH' ]
+# 'boat' (5th argument): a fleet boat GLB (bow +Z in glTF, -Y in Blender) turned bow +X like the ships
+if len( argv ) > 4 and argv[ 4 ] == 'boat':
+	for o in objs: o.rotation_euler.z += math.pi / 2
+	bpy.context.view_layer.update()
 lo = mathutils.Vector( ( 1e9, 1e9, 1e9 ) ); hi = - lo
 for o in objs:
 	for c in o.bound_box:

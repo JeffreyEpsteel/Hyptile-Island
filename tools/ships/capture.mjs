@@ -136,7 +136,7 @@ const orbit = ( c, yaw, az, el, d ) => {
 
 };
 
-const shoot = async ( name, len, height, centre ) => {
+const shoot = async ( name, len, height, centre, near = 5 ) => {
 
 	for ( const t of times ) {
 
@@ -145,7 +145,7 @@ const shoot = async ( name, len, height, centre ) => {
 
 			const [ az, el ] = ANGLES[ a ];
 			const target = { x: centre.x, y: height * 0.36, z: centre.z };
-			look( orbit( target, SEA.yaw, az, el, Math.max( len, height ) * 1.25 + 5 ), target );
+			look( orbit( target, SEA.yaw, az, el, Math.max( len, height ) * 1.25 + near ), target );
 			await frames( settle );
 			const f = join( out, `${ profile }-${ name }-${ t }-${ a }${ arg( 'tag' ) ? '-' + arg( 'tag' ) : '' }.png` );
 			await canvasPNG( GPU, f );
@@ -179,7 +179,7 @@ for ( const id of only ) {
 		if ( app.setBoat && st ) app.setBoat( st.boat );
 		app._placeBoat( { x: SEA.x, z: SEA.z, heading: SEA.yaw, moored: true } );
 		await frames( 60 );
-		await shoot( id, Math.max( b.length * 1.4, 6 ), 3.5, { x: SEA.x, z: SEA.z } );
+		await shoot( id, b.length, b.kind === 'ship' ? 12 : 2.2, { x: SEA.x, z: SEA.z }, b.kind === 'ship' ? 5 : 1.2 );
 		app._placeBoat( { x: SEA.x + 2000, z: SEA.z, heading: 0, moored: true } );
 
 	} else if ( id.startsWith( 'aboard-' ) || id.startsWith( 'helm-' ) ) {
