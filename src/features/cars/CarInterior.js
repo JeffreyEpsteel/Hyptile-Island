@@ -8,9 +8,9 @@
 //   const it = buildInterior( gltf, { screenTexture, rain: true } )
 //   it.group (car-local Group)  it.nodes.get( 'Wheel' )  it.screens.cluster / stack / aux (Meshes)  it.materials
 //   it.set( { night, glow, dome, rain, wipers: [ angle, angle ], speedW, time, cabin } )   it.dispose()
-//   limbs: const arm = new Limb( material, r0, r1 ); arm.reach( shoulder, wrist, l1, l2, hint )   (two-bone IK, local frame)
+//   limbs: const set = new LimbSet( material, group ); const arm = set.limb( radii ); arm.reach( ... ); set.commit()
 //   rayScreens( it, origin, dir ) -> { screen: 'cluster' | 'stack' | 'aux', u, v, t } | null   (car-local ray)
-import { Group, Mesh, BufferGeometry, BufferAttribute, Vector3, Vector4, Quaternion, Matrix4, Color } from '../../engine/index.js';
+import { Group, Mesh, BufferGeometry, BufferAttribute, Vector3, Vector4, Quaternion, Matrix3, Matrix4, Color } from '../../engine/index.js';
 import { Material } from '../../engine/render/Material.js';
 import { ShaderModule } from '../../engine/gpu/Shader.js';
 import { commonModule } from '../../engine/render/wgsl/common.js';
@@ -203,7 +203,7 @@ const RAIN = /* wgsl */`
 	s.alpha = drop * ( 0.35 + 0.35 * rim ) + spark * 0.3 + rain * 0.04;
 `;
 
-export function cabinMaterial( name, { color = null, roughness = 0.6, metalness = 0, rotor = false, screenTexture = null, rect = null, atlas = ATLAS } = {} ) {
+export function cabinMaterial( name, { color = null, roughness = 0.6, metalness = 0, rotor = false, screenTexture = null, rect = null, atlas = ATLAS, batched = false } = {} ) {
 
 	const fam = familyOf( name );
 	const uniforms = { cabin: [ 'vec3f', new Color( 0, 0, 0 ) ] };
@@ -226,7 +226,8 @@ export function cabinMaterial( name, { color = null, roughness = 0.6, metalness 
 	} else {
 
 		if ( fam === 'lamp' ) uniforms.glow = [ 'f32', 0 ];
-		o.surface = SURF[ fam ] + COMMON;
+		o.surface = ( batched ? '\ts.roughness = in.vs.vRM.x; s.metalness = in.vs.vRM.y;\n' : '' ) + SURF[ fam ] + COMMON;
+		if ( batched ) Object.assign( o, { vertexColors: true, attributes: { aRM: 'vec2f' }, varyings: { vRM: 'vec2f' }, vertex: 'o.vRM = v.aRM;' } );
 		o.side = 'double';
 
 	}
@@ -249,25 +250,21 @@ function toFloat( a ) {
 
 const SCREEN_KEYS = { Screen_Cluster: 'cluster', Screen_Stack: 'stack', Screen_Aux: 'aux', Screen_Overhead: 'overhead' };
 
+// Nodes the game moves; everything else is static and bakes into one batch per material family (draw calls: a car's
+// cabin is ~25 draws, not a draw per authored material).
+const ANIMATED = /^(Wheel|Pedal_|Gear|Handbrake|Stalk_|Wiper_|Cyclic|Collective)/;
+// materials kept apart from their family's batch: the live screens, the rain, glass, lamps (their own glow), the
+// driver's gloves and boots (hidden in the chase view)
+const OWN = /^(Screen_|RainGlass|Glass|Lamp_|Glove|Shoe)/;
+const _mrel = new Matrix4(), _mn = new Matrix4(), _inv4 = new Matrix4();
+
 export function buildInterior( gltf, { screenTexture = null, rotor = false, regions = REGIONS, layers = null, atlas = ATLAS } = {} ) {
 
 	const group = new Group();
 	group.name = 'vehicle-interior';
 	const nodes = new Map(), materials = new Map(), geometries = [], screens = {};
-	const matFor = ( index ) => {
-
-		const gm = gltf.materials[ index ] || {};
-		const name = gm.name || 'Plastic_Dark';
-		if ( materials.has( name ) ) return materials.get( name );
-		const pbr = gm.pbrMetallicRoughness || {};
-		const f = pbr.baseColorFactor || [ 0.5, 0.5, 0.5, 1 ];
-		const key = SCREEN_KEYS[ name ];
-		const m = cabinMaterial( name, { color: new Color( f[ 0 ], f[ 1 ], f[ 2 ] ), roughness: pbr.roughnessFactor ?? 0.6, metalness: pbr.metallicFactor ?? 0, rotor, screenTexture, rect: key ? regions[ key ] : null, atlas } );
-		materials.set( name, m );
-		return m;
-
-	};
-	const visit = ( ni, parent ) => {
+	const parts = [];
+	const visit = ( ni, parent, animatedAncestor ) => {
 
 		const n = gltf.nodes[ ni ];
 		const g = new Group();
@@ -279,33 +276,110 @@ export function buildInterior( gltf, { screenTexture = null, rotor = false, regi
 		g.userData.p0 = g.position.clone();
 		parent.add( g );
 		nodes.set( n.name, g );
-		if ( n.mesh !== undefined ) for ( const p of gltf.meshes[ n.mesh ] ) {
-
-			if ( p.mode !== 4 || ! p.attributes.POSITION ) continue;
-			const geo = new BufferGeometry();
-			geo.setAttribute( 'position', new BufferAttribute( toFloat( p.attributes.POSITION ).slice(), 3 ) );
-			if ( p.attributes.NORMAL ) geo.setAttribute( 'normal', new BufferAttribute( toFloat( p.attributes.NORMAL ).slice(), 3 ) );
-			if ( p.attributes.TEXCOORD_0 ) geo.setAttribute( 'uv', new BufferAttribute( toFloat( p.attributes.TEXCOORD_0 ).slice(), 2 ) );
-			if ( p.indices ) geo.setIndex( new BufferAttribute( p.indices instanceof Uint8Array ? Uint16Array.from( p.indices ) : p.indices.slice(), 1 ) );
-			if ( ! p.attributes.NORMAL ) geo.computeVertexNormals();
-			geo.computeBoundingBox(); geo.computeBoundingSphere();
-			geometries.push( geo );
-			const mat = matFor( p.material ?? 0 );
-			const mesh = new Mesh( geo, mat );
-			mesh.name = n.name + ':' + mat.name;
-			mesh.castShadow = false;
-			mesh.receiveShadow = true;
-			mesh.frustumCulled = false;
-			if ( mat.transparent ) { mesh.renderOrder = 2; if ( layers ) mesh.layers.set( layers ); }
-			g.add( mesh );
-			const sk = SCREEN_KEYS[ gltf.materials[ p.material ]?.name ];
-			if ( sk ) screens[ sk ] = mesh;
-
-		}
-		for ( const c of n.children ) visit( c, g );
+		const owner = ANIMATED.test( n.name ) ? g : animatedAncestor;
+		if ( n.mesh !== undefined ) for ( const p of gltf.meshes[ n.mesh ] ) if ( p.mode === 4 && p.attributes.POSITION ) parts.push( { node: g, owner, p } );
+		for ( const c of n.children ) visit( c, g, owner );
 
 	};
-	for ( const r of gltf.roots ) visit( r, group );
+	for ( const r of gltf.roots ) visit( r, group, null );
+	group.updateMatrixWorld( true );
+
+	// the batches: ( target group, key ) -> primitives; static parts are carried into the root's frame; a moving part is
+	// one batch in the family of its biggest piece (a wheel's rim grain matters, its spokes' less)
+	const batches = new Map(), mainFamily = new Map();
+	for ( const { owner, p } of parts ) {
+
+		if ( ! owner ) continue;
+		const name = gltf.materials[ p.material ?? 0 ]?.name || 'Plastic_Dark';
+		if ( OWN.test( name ) ) continue;
+		const c = mainFamily.get( owner ) || new Map(), fam = familyOf( name );
+		c.set( fam, ( c.get( fam ) || 0 ) + p.attributes.POSITION.array.length );
+		mainFamily.set( owner, c );
+
+	}
+	for ( const [ owner, c ] of mainFamily ) mainFamily.set( owner, [ ...c ].sort( ( a, b ) => b[ 1 ] - a[ 1 ] )[ 0 ][ 0 ] );
+	for ( const { node, owner, p } of parts ) {
+
+		const gm = gltf.materials[ p.material ?? 0 ] || {}, name = gm.name || 'Plastic_Dark';
+		const own = OWN.test( name ), target = own && ( SCREEN_KEYS[ name ] || name === 'RainGlass' ) ? node : owner || group;
+		const key = own ? name : owner ? mainFamily.get( owner ) : familyOf( name );
+		const id = target.uuid ?? target.id;
+		const bk = id + '|' + key;
+		if ( ! batches.has( bk ) ) batches.set( bk, { target, key, own, name, list: [] } );
+		// the part's frame relative to its batch's target
+		node.updateWorldMatrix( true, false ); target.updateWorldMatrix( true, false );
+		_mrel.copy( target.matrixWorld ).invert().multiply( node.matrixWorld );
+		batches.get( bk ).list.push( { p, gm, m: _mrel.clone() } );
+
+	}
+	const familyMat = ( fam ) => {
+
+		const k = 'family:' + fam;
+		if ( ! materials.has( k ) ) materials.set( k, cabinMaterial( fam === 'cloth' ? 'Cloth' : fam === 'leather' ? 'Leather' : fam === 'vinyl' ? 'Vinyl' : fam === 'plastic' ? 'Plastic' : fam === 'carpet' ? 'Carpet' : fam === 'rubber' ? 'Rubber' : fam === 'metal' ? 'Metal_Brushed' : fam === 'painted' ? 'Metal_Painted' : fam === 'carbon' ? 'Carbon' : fam === 'wood' ? 'Wood' : fam === 'mirror' ? 'Mirror' : fam === 'cardboard' ? 'Cardboard' : 'Plastic', { color: new Color( 1, 1, 1 ), rotor, batched: true } ) );
+		return materials.get( k );
+
+	};
+	for ( const b of batches.values() ) {
+
+		let nv = 0, ni = 0;
+		for ( const { p } of b.list ) { const c = p.attributes.POSITION.array.length / 3; nv += c; ni += p.indices ? p.indices.length : c; }
+		const pos = new Float32Array( nv * 3 ), nrm = new Float32Array( nv * 3 ), uv = new Float32Array( nv * 2 ), col = new Float32Array( nv * 3 ), rm = new Float32Array( nv * 2 );
+		const idx = nv > 65535 ? new Uint32Array( ni ) : new Uint16Array( ni );
+		let vo = 0, io = 0;
+		const v = new Vector3();
+		for ( const { p, gm, m } of b.list ) {
+
+			const P = toFloat( p.attributes.POSITION ), N = p.attributes.NORMAL ? toFloat( p.attributes.NORMAL ) : null, T = p.attributes.TEXCOORD_0 ? toFloat( p.attributes.TEXCOORD_0 ) : null;
+			_mn.copy( m ); const nm = new Matrix3().getNormalMatrix( _mn );
+			const pbr = gm.pbrMetallicRoughness || {}, f = pbr.baseColorFactor || [ 0.5, 0.5, 0.5, 1 ];
+			const count = P.length / 3;
+			for ( let i = 0; i < count; i ++ ) {
+
+				v.set( P[ i * 3 ], P[ i * 3 + 1 ], P[ i * 3 + 2 ] ).applyMatrix4( m ); pos.set( [ v.x, v.y, v.z ], ( vo + i ) * 3 );
+				if ( N ) { v.set( N[ i * 3 ], N[ i * 3 + 1 ], N[ i * 3 + 2 ] ).applyMatrix3( nm ).normalize(); nrm.set( [ v.x, v.y, v.z ], ( vo + i ) * 3 ); }
+				if ( T ) uv.set( [ T[ i * 2 ], T[ i * 2 + 1 ] ], ( vo + i ) * 2 );
+				col.set( [ f[ 0 ], f[ 1 ], f[ 2 ] ], ( vo + i ) * 3 );
+				rm.set( [ pbr.roughnessFactor ?? 0.6, pbr.metallicFactor ?? 0 ], ( vo + i ) * 2 );
+
+			}
+			if ( p.indices ) for ( let i = 0; i < p.indices.length; i ++ ) idx[ io + i ] = p.indices[ i ] + vo;
+			else for ( let i = 0; i < count; i ++ ) idx[ io + i ] = vo + i;
+			vo += count; io += p.indices ? p.indices.length : count;
+
+		}
+		const geo = new BufferGeometry();
+		geo.setAttribute( 'position', new BufferAttribute( pos, 3 ) );
+		geo.setAttribute( 'normal', new BufferAttribute( nrm, 3 ) );
+		geo.setAttribute( 'uv', new BufferAttribute( uv, 2 ) );
+		let mat;
+		if ( b.own ) {
+
+			const gm = b.list[ 0 ].gm, pbr = gm.pbrMetallicRoughness || {}, f = pbr.baseColorFactor || [ 0.5, 0.5, 0.5, 1 ];
+			const sk = SCREEN_KEYS[ b.name ];
+			if ( ! materials.has( b.name ) ) materials.set( b.name, cabinMaterial( b.name, { color: new Color( f[ 0 ], f[ 1 ], f[ 2 ] ), roughness: pbr.roughnessFactor ?? 0.6, metalness: pbr.metallicFactor ?? 0, rotor, screenTexture, rect: sk ? regions[ sk ] : null, atlas } ) );
+			mat = materials.get( b.name );
+
+		} else {
+
+			geo.setAttribute( 'color', new BufferAttribute( col, 3 ) );
+			geo.setAttribute( 'aRM', new BufferAttribute( rm, 2 ) );
+			mat = familyMat( b.key );
+
+		}
+		geo.setIndex( new BufferAttribute( idx, 1 ) );
+		geo.computeBoundingBox(); geo.computeBoundingSphere();
+		geometries.push( geo );
+		const mesh = new Mesh( geo, mat );
+		mesh.name = b.target.name + ':' + ( b.own ? b.name : b.key );
+		mesh.castShadow = false;
+		mesh.receiveShadow = true;
+		mesh.frustumCulled = false;
+		if ( mat.transparent ) { mesh.renderOrder = 2; if ( layers ) mesh.layers.set( layers ); }
+		b.target.add( mesh );
+		const sk = SCREEN_KEYS[ b.name ];
+		if ( b.own && sk ) screens[ sk ] = mesh;
+
+	}
 	group.updateMatrixWorld( true );
 
 	const v3 = ( name ) => { const g = nodes.get( name ); if ( ! g ) return null; const p = new Vector3(); g.updateWorldMatrix( true, false ); p.setFromMatrixPosition( g.matrixWorld ); return group.worldToLocal( p ); };
@@ -335,6 +409,7 @@ export function buildInterior( gltf, { screenTexture = null, rotor = false, regi
 
 		},
 	};
+	void _inv4;
 	return it;
 
 }
@@ -439,80 +514,28 @@ export function interiorTriangles( it, { skipScreens = true, skipTransparent = t
 
 }
 
-// ---- limbs: a tapered tube along +Y, placed from a to b each frame; two of them make an arm or a leg
+// ---- limbs: the driver's / pilot's arms and legs, two-bone IK each, all of them one mesh (one draw) rewritten per frame
+//   const set = new LimbSet( material, parent );  const arm = set.limb( [ r0, r1, r2 ] );
+//   arm.reach( shoulder, wrist, l1, l2, hint ) ... set.commit()   set.mesh (visible / hide)   arm.joint, arm.end
 
-function limbGeometry( r0, r1, seg = 10 ) {
+const SEG = 10, PROFILE = [ [ 0, 0 ], [ 0.5, 0.5 ], [ 1, 1 ] ], RINGS = 6;
+const TUBE_V = PROFILE.length * ( SEG + 1 ), BALL_V = ( RINGS + 1 ) * ( SEG + 1 ), LIMB_V = TUBE_V * 2 + BALL_V;
+function tubeIndex( base, out ) {
 
-	const pos = [], nrm = [], uv = [], idx = [];
-	const rings = [ [ 0, r0 ], [ 0.5, ( r0 + r1 ) / 2 * 1.04 ], [ 1, r1 ] ];
-	rings.forEach( ( [ y, r ], j ) => {
+	for ( let j = 1; j < PROFILE.length; j ++ ) for ( let i = 0; i < SEG; i ++ ) { const b = base + ( j - 1 ) * ( SEG + 1 ) + i, c = base + j * ( SEG + 1 ) + i; out.push( b, c, b + 1, b + 1, c, c + 1 ); }
 
-		for ( let i = 0; i <= seg; i ++ ) {
+}
+function ballIndex( base, out ) {
 
-			const a = i / seg * Math.PI * 2;
-			pos.push( Math.cos( a ) * r, y, Math.sin( a ) * r ); nrm.push( Math.cos( a ), 0, Math.sin( a ) ); uv.push( i / seg * 0.3, y * 0.4 );
-			if ( j && i < seg ) { const b = ( j - 1 ) * ( seg + 1 ) + i, c = j * ( seg + 1 ) + i; idx.push( b, c, b + 1, b + 1, c, c + 1 ); }
-
-		}
-
-	} );
-	// round caps: a ring pinched to a point at each end
-	const base = pos.length / 3;
-	pos.push( 0, - r0 * 0.6, 0, 0, 1 + r1 * 0.6, 0 ); nrm.push( 0, - 1, 0, 0, 1, 0 ); uv.push( 0, 0, 0, 0.4 );
-	for ( let i = 0; i < seg; i ++ ) { idx.push( base, i + 1, i ); idx.push( base + 1, 2 * ( seg + 1 ) + i, 2 * ( seg + 1 ) + i + 1 ); }
-	const g = new BufferGeometry();
-	g.setAttribute( 'position', new BufferAttribute( new Float32Array( pos ), 3 ) );
-	g.setAttribute( 'normal', new BufferAttribute( new Float32Array( nrm ), 3 ) );
-	g.setAttribute( 'uv', new BufferAttribute( new Float32Array( uv ), 2 ) );
-	g.setIndex( idx );
-	g.computeBoundingBox(); g.computeBoundingSphere();
-	return g;
+	for ( let j = 1; j <= RINGS; j ++ ) for ( let i = 0; i < SEG; i ++ ) { const b = base + ( j - 1 ) * ( SEG + 1 ) + i, c = base + j * ( SEG + 1 ) + i; out.push( b, b + 1, c, b + 1, c + 1, c ); }
 
 }
 
-function jointGeometry( r, seg = 10, rings = 6 ) {
+const _y = new Vector3( 0, 1, 0 ), _seg = new Vector3(), _dir = new Vector3(), _perp = new Vector3(), _ql = new Quaternion(), _lv = new Vector3(), _ln = new Vector3();
 
-	const pos = [], nrm = [], uv = [], idx = [];
-	for ( let j = 0; j <= rings; j ++ ) for ( let i = 0; i <= seg; i ++ ) {
+class Limb {
 
-		const t = j / rings * Math.PI, a = i / seg * Math.PI * 2, n = [ Math.sin( t ) * Math.cos( a ), Math.cos( t ), Math.sin( t ) * Math.sin( a ) ];
-		pos.push( n[ 0 ] * r, n[ 1 ] * r, n[ 2 ] * r ); nrm.push( ...n ); uv.push( i / seg * 0.3, j / rings * 0.1 );
-		if ( j && i < seg ) { const b = ( j - 1 ) * ( seg + 1 ) + i, c = j * ( seg + 1 ) + i; idx.push( b, b + 1, c, b + 1, c + 1, c ); }
-
-	}
-	const g = new BufferGeometry();
-	g.setAttribute( 'position', new BufferAttribute( new Float32Array( pos ), 3 ) );
-	g.setAttribute( 'normal', new BufferAttribute( new Float32Array( nrm ), 3 ) );
-	g.setAttribute( 'uv', new BufferAttribute( new Float32Array( uv ), 2 ) );
-	g.setIndex( idx ); g.computeBoundingBox(); g.computeBoundingSphere();
-	return g;
-
-}
-
-const _y = new Vector3( 0, 1, 0 ), _seg = new Vector3(), _dir = new Vector3(), _perp = new Vector3(), _mid = new Vector3();
-
-export class Limb {
-
-	constructor( material, [ r0, r1, r2 ], parent ) {
-
-		this.upper = new Mesh( limbGeometry( r0, r1 ), material );
-		this.lower = new Mesh( limbGeometry( r1, r2 ), material );
-		// the knee / elbow: a ball that rounds the joint between the two tubes
-		this.knee = new Mesh( jointGeometry( r1 * 1.08 ), material );
-		for ( const m of [ this.upper, this.lower, this.knee ] ) { m.castShadow = false; m.receiveShadow = true; m.frustumCulled = false; m.name = 'limb'; parent.add( m ); }
-		this.joint = new Vector3();
-
-	}
-
-	static place( mesh, a, b ) {
-
-		_seg.subVectors( b, a );
-		const len = Math.max( 1e-4, _seg.length() );
-		mesh.position.copy( a );
-		mesh.quaternion.setFromUnitVectors( _y, _seg.multiplyScalar( 1 / len ) );
-		mesh.scale.set( 1, len, 1 );
-
-	}
+	constructor( set, radii, color ) { this.set = set; this.radii = radii; this.color = color; this.a = new Vector3(); this.joint = new Vector3(); this.end = new Vector3(); this.active = false; }
 
 	// two-bone IK from the root a to the end c, bones l1 and l2, the joint pushed toward hint (a direction)
 	reach( a, c, l1, l2, hint ) {
@@ -525,17 +548,112 @@ export class Limb {
 		_perp.copy( hint ).addScaledVector( _dir, - hint.dot( _dir ) );
 		if ( _perp.lengthSq() < 1e-8 ) _perp.set( 0, - 1, 0 );
 		_perp.normalize();
+		this.a.copy( a );
 		this.joint.copy( a ).addScaledVector( _dir, x ).addScaledVector( _perp, h );
-		Limb.place( this.upper, a, this.joint );
 		// the lower bone ends at c even when c is out of reach (the hand stays on the rim)
-		Limb.place( this.lower, this.joint, _mid.copy( c ) );
-		this.knee.position.copy( this.joint );
+		this.end.copy( c );
+		this.active = true;
 		return this.joint;
 
 	}
 
-	set visible( v ) { this.upper.visible = this.lower.visible = this.knee.visible = v; }
-	dispose() { for ( const m of [ this.upper, this.lower, this.knee ] ) { m.removeFromParent(); m.geometry.dispose(); } }
+}
+
+export class LimbSet {
+
+	constructor( material, parent, count = 4 ) {
+
+		this.limbs = [];
+		this.count = count;
+		const nv = LIMB_V * count, idx = [];
+		for ( let k = 0; k < count; k ++ ) { const b = k * LIMB_V; tubeIndex( b, idx ); tubeIndex( b + TUBE_V, idx ); ballIndex( b + TUBE_V * 2, idx ); }
+		const g = new BufferGeometry();
+		g.setAttribute( 'position', new BufferAttribute( new Float32Array( nv * 3 ), 3 ) );
+		g.setAttribute( 'normal', new BufferAttribute( new Float32Array( nv * 3 ), 3 ) );
+		g.setAttribute( 'uv', new BufferAttribute( new Float32Array( nv * 2 ), 2 ) );
+		// (a batched cloth material: each limb's own colour, sleeves and trousers in one draw)
+		g.setAttribute( 'color', new BufferAttribute( new Float32Array( nv * 3 ).fill( 0.1 ), 3 ) );
+		g.setAttribute( 'aRM', new BufferAttribute( new Float32Array( nv * 2 ).fill( 0.92 ), 2 ) );
+		g.setIndex( idx );
+		g.boundingSphere = null;
+		this.mesh = new Mesh( g, material );
+		this.mesh.name = 'limbs';
+		this.mesh.castShadow = false; this.mesh.receiveShadow = true; this.mesh.frustumCulled = false;
+		parent.add( this.mesh );
+
+	}
+
+	limb( radii, color = new Color( 0.1, 0.12, 0.16 ) ) {
+
+		const l = new Limb( this, radii, color ), k = this.limbs.length, g = this.mesh.geometry, c = g.attributes.color.array, rm = g.attributes.aRM.array;
+		for ( let v = k * LIMB_V; v < ( k + 1 ) * LIMB_V; v ++ ) { c[ v * 3 ] = color.r; c[ v * 3 + 1 ] = color.g; c[ v * 3 + 2 ] = color.b; rm[ v * 2 ] = 0.92; rm[ v * 2 + 1 ] = 0; }
+		g.attributes.color.needsUpdate = true;
+		this.limbs.push( l );
+		return l;
+
+	}
+
+	_tube( P, N, U, o, a, b, r0, r1 ) {
+
+		_seg.subVectors( b, a );
+		const len = Math.max( 1e-4, _seg.length() );
+		_ql.setFromUnitVectors( _y, _seg.multiplyScalar( 1 / len ) );
+		let v = o;
+		for ( const [ t, k ] of PROFILE ) {
+
+			const r = r0 + ( r1 - r0 ) * k;
+			for ( let i = 0; i <= SEG; i ++ ) {
+
+				const ang = i / SEG * Math.PI * 2, cx = Math.cos( ang ), cz = Math.sin( ang );
+				_lv.set( cx * r, t * len, cz * r ).applyQuaternion( _ql ).add( a );
+				_ln.set( cx, 0, cz ).applyQuaternion( _ql );
+				P[ v * 3 ] = _lv.x; P[ v * 3 + 1 ] = _lv.y; P[ v * 3 + 2 ] = _lv.z;
+				N[ v * 3 ] = _ln.x; N[ v * 3 + 1 ] = _ln.y; N[ v * 3 + 2 ] = _ln.z;
+				U[ v * 2 ] = i / SEG * 0.3; U[ v * 2 + 1 ] = t * len;
+				v ++;
+
+			}
+
+		}
+
+	}
+
+	_ball( P, N, U, o, c, r ) {
+
+		let v = o;
+		for ( let j = 0; j <= RINGS; j ++ ) for ( let i = 0; i <= SEG; i ++ ) {
+
+			const t = j / RINGS * Math.PI, a = i / SEG * Math.PI * 2, nx = Math.sin( t ) * Math.cos( a ), ny = Math.cos( t ), nz = Math.sin( t ) * Math.sin( a );
+			P[ v * 3 ] = c.x + nx * r; P[ v * 3 + 1 ] = c.y + ny * r; P[ v * 3 + 2 ] = c.z + nz * r;
+			N[ v * 3 ] = nx; N[ v * 3 + 1 ] = ny; N[ v * 3 + 2 ] = nz;
+			U[ v * 2 ] = i / SEG * 0.3; U[ v * 2 + 1 ] = j / RINGS * 0.1;
+			v ++;
+
+		}
+
+	}
+
+	// write every limb that reached this frame into the shared mesh (an idle one collapses to a point)
+	commit() {
+
+		const g = this.mesh.geometry, P = g.attributes.position.array, N = g.attributes.normal.array, U = g.attributes.uv.array;
+		this.limbs.forEach( ( l, k ) => {
+
+			const o = k * LIMB_V, [ r0, r1, r2 ] = l.radii;
+			if ( ! l.active ) { P.fill( 0, o * 3, ( o + LIMB_V ) * 3 ); return; }
+			this._tube( P, N, U, o, l.a, l.joint, r0, r1 );
+			this._tube( P, N, U, o + TUBE_V, l.joint, l.end, r1, r2 );
+			this._ball( P, N, U, o + TUBE_V * 2, l.joint, r1 * 1.08 );
+
+		} );
+		g.attributes.position.needsUpdate = g.attributes.normal.needsUpdate = g.attributes.uv.needsUpdate = true;
+		g.computeBoundingBox(); g.computeBoundingSphere();
+
+	}
+
+	set visible( v ) { this.mesh.visible = v; }
+	get visible() { return this.mesh.visible; }
+	dispose() { this.mesh.removeFromParent(); this.mesh.geometry.dispose(); }
 
 }
 

@@ -9,7 +9,7 @@ import { Texture } from '../../engine/gpu/Texture.js';
 import { GPU } from '../../engine/gpu/GPU.js';
 import { generateMipmaps } from '../../engine/gpu/Mipmaps.js';
 import { standard } from '../../materials/Materials.js';
-import { buildInterior, loadInteriorGLB, rayScreens, Limb, cabinMaterial, cabinModule, ROTOR_SHADOW } from '../cars/CarInterior.js';
+import { buildInterior, loadInteriorGLB, rayScreens, LimbSet, cabinMaterial, cabinModule, ROTOR_SHADOW } from '../cars/CarInterior.js';
 import { LAYERS } from '../../core/SceneRenderer.js';
 import { WORLD } from '../../world/WorldLayout.js';
 import { FLIGHT } from './Flight.js';
@@ -292,15 +292,17 @@ export class HelicopterCockpit {
 		const it = this.interior = buildInterior( this.gltf, { screenTexture: this.overTex, regions: { overhead: { x: 0, y: 0, w: OVER.w, h: OVER.h } }, atlas: OVER, rotor: true, layers: LAYERS.TRANSPARENT } );
 		it.group.name = 'rescue-helicopter-cockpit';
 		h.visual.root.add( it.group ); h.visual.setDetailed?.( true );
-		const suit = cabinMaterial( 'Cloth_Suit', { color: new Color( 0.07, 0.085, 0.06 ), roughness: 0.92 } );
+		// the pilot's olive flight suit (one batched cloth draw for the four limbs)
+		const suit = cabinMaterial( 'Cloth_Suit', { color: new Color( 1, 1, 1 ), batched: true } );
 		it.materials.set( 'Cloth_Suit', suit );
-		this.limbs = [ 0, 1, 2, 3 ].map( i => new Limb( suit, i < 2 ? [ 0.05, 0.043, 0.034 ] : [ 0.08, 0.062, 0.046 ], it.group ) );
-		this.body = [];
+		this.limbSet = new LimbSet( suit, it.group );
+		const olive = new Color( 0.07, 0.085, 0.055 );
+		this.limbs = [ 0, 1, 2, 3 ].map( i => this.limbSet.limb( i < 2 ? [ 0.05, 0.043, 0.034 ] : [ 0.08, 0.062, 0.046 ], olive ) );
+		this.body = [ this.limbSet.mesh ];
 		it.group.traverse( m => { if ( m.isMesh && /Glove|Shoe/.test( m.name ) ) this.body.push( m ); } );
-		for ( const l of this.limbs ) this.body.push( l.upper, l.lower, l.knee );
 	}
 	_release() {
-		for ( const l of this.limbs ) l.dispose(); this.limbs = []; this.body = [];
+		this.limbSet?.dispose(); this.limbSet = null; this.limbs = []; this.body = [];
 		if ( this.interior ) { this.interior.dispose(); this.interior = null; this.h.visual?.setDetailed?.( false ); }
 	}
 	// the controls (Model.js poses them from the commands), the pilot's limbs, the rotor's shadow, the cabin light
@@ -322,6 +324,7 @@ export class HelicopterCockpit {
 				const a = it.point( ankle, _tv ); if ( ! a ) continue;
 				this.limbs[ i ].reach( _sh.set( e[ 0 ] + side * 0.11, 1.07, - 0.15 ), a, 0.52, 0.5, _hint.set( side * 0.1, 1, 0.3 ) );
 			}
+			this.limbSet.commit();
 		}
 		// the blades' shadow: hub, mast axis and one blade in world space (Model.js: mast at 0,3.19,-0.4; blades along z)
 		const f = h.flight;

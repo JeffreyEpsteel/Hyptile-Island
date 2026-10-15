@@ -166,9 +166,8 @@ app.menuOpen = false;
 	m.run( 4 );
 	Object.assign( H.flight.controls, { forward: .7, strafe: - .5, lift: .6, yaw: .8 } ); H.visual.spin( .05, H.flight.rpm, H.flight ); P.setView( 'first' ); H.cockpit.update( .016 );
 	check( it.nodes.get( 'Cyclic' ).quaternion.angleTo( H.visual.cyclic.quaternion ) < 1e-6 && it.nodes.get( 'Collective' ).quaternion.angleTo( H.visual.collective.quaternion ) < 1e-6 && Math.abs( it.nodes.get( 'Pedal_L' ).position.z - H.visual.pedals[ 1 ].position.z ) < 1e-6, 'the modelled cyclic, collective and pedals take the commanded poses' );
-	const wrist = it.point( 'Wrist_R' ), lower = H.cockpit.limbs[ 1 ].lower; lower.updateWorldMatrix( true, false );
-	const tipR = new Vector3( 0, 1, 0 ).applyMatrix4( lower.matrixWorld ); it.group.worldToLocal( tipR );
-	check( tipR.distanceTo( wrist ) < .002 && lower.visible, 'the pilot\'s right forearm reaches the glove on the cyclic in the first person' );
+	const wrist = it.point( 'Wrist_R' ), arm = H.cockpit.limbs[ 1 ];
+	check( arm.end.distanceTo( wrist ) < .002 && H.cockpit.limbSet.mesh.visible, 'the pilot\'s right forearm reaches the glove on the cyclic in the first person' );
 	P.setView( 'third' ); H.cockpit.update( .016 ); check( H.cockpit.body.every( b => ! b.visible ), 'the pilot\'s limbs hide in the chase view (the avatar is hidden aboard)' ); P.setView( 'first' );
 	// the overhead console by eye: the fuel pump toggle
 	const fuelBtn = OVERHEAD.find( b => b.id === 'fuel' ), om = it.screens.overhead, pts = om.geometry.attributes.position, uvs = om.geometry.attributes.uv;

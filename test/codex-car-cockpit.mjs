@@ -145,9 +145,9 @@ try {
 		w.held.add( 'KeyA' ); w.step( 20 ); w.held.clear();
 		const q = new Quaternion().copy( cp.wheel.userData.q0 ).invert().multiply( cp.wheel.quaternion ), ang = 2 * Math.atan2( q.z, q.w );
 		check( Math.abs( r.body.steer ) > 0.05 && Math.abs( Math.abs( ang ) - Math.abs( r.body.steer ) * ( kind === 'bus' ? 5.5 : kind === 'sports' ? 2.1 : kind === 'pickup' ? 3 : kind === 'van' ? 3.2 : kind === 'police' ? 2.5 : 2.6 ) ) < 1e-3 && Math.abs( q.x ) + Math.abs( q.y ) < 1e-6, kind + ': steering wheel turns about its own column with the rack' );
-		const wrist = it.point( 'Wrist_L' ), arm = cp.limbs[ 0 ].lower; arm.updateWorldMatrix( true, false );
-		const tip = new Vector3( 0, 1, 0 ).applyMatrix4( arm.matrixWorld ); it.group.worldToLocal( tip );
-		check( tip.distanceTo( wrist ) < 0.002 && arm.visible, kind + ': the driver\'s forearm follows the glove on the turning rim' );
+		const wrist = it.point( 'Wrist_L' ), arm = cp.limbs[ 0 ], lp = cp.limbSet.mesh.geometry.attributes.position;
+		let nearest = Infinity; for ( let i = 0; i < lp.count; i ++ ) nearest = Math.min( nearest, new Vector3().fromBufferAttribute( lp, i ).distanceTo( wrist ) );
+		check( arm.end.distanceTo( wrist ) < 0.002 && nearest < 0.05 && cp.limbSet.mesh.visible, kind + ': the driver\'s forearm follows the glove on the turning rim' );
 		// pedals and the selector
 		w.held.add( 'KeyW' ); w.step( 10 );
 		const gas = it.nodes.get( 'Pedal_Gas' ), dq = new Quaternion().copy( gas.userData.q0 ).invert().multiply( gas.quaternion );

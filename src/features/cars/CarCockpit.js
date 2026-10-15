@@ -12,7 +12,7 @@ import { Texture } from '../../engine/gpu/Texture.js';
 import { GPU } from '../../engine/gpu/GPU.js';
 import { carPanelSnapshot, carControl, systemsOf, wiperAngle, drivetrain, WIPE } from './CarSystems.js';
 import { LAYERS } from '../../core/SceneRenderer.js';
-import { ATLAS, buildInterior, loadInteriorGLB, rainSetup, rayScreens, Limb, turnNode, cabinMaterial } from './CarInterior.js';
+import { ATLAS, buildInterior, loadInteriorGLB, rainSetup, rayScreens, LimbSet, turnNode, cabinMaterial } from './CarInterior.js';
 import { CONTROLS, controlsFor, hitControl, drawInstruments, controlOn, controlState } from './CarInstruments.js';
 
 export { CONTROLS, hitControl, controlsFor };
@@ -180,13 +180,14 @@ export class CarCockpit {
 		this.wheel = it.nodes.get( 'Wheel' ); this.pedals = [ it.nodes.get( 'Pedal_Gas' ), it.nodes.get( 'Pedal_Brake' ) ].filter( Boolean );
 		this.rainRig = rainSetup( it );
 		// the driver's arms and legs (first person only): sleeves to the gloves on the rim, trousers to the shoes
-		const sleeve = cabinMaterial( 'Cloth_Sleeve', { color: new Color( r.kind === 'police' ? 0.05 : 0.11, r.kind === 'police' ? 0.07 : 0.14, r.kind === 'police' ? 0.13 : 0.19 ), roughness: 0.9 } );
-		const trousers = cabinMaterial( 'Cloth_Trousers', { color: new Color( 0.07, 0.075, 0.09 ), roughness: 0.92 } );
-		it.materials.set( 'Cloth_Sleeve', sleeve ); it.materials.set( 'Cloth_Trousers', trousers );
-		this.limbs = [ new Limb( sleeve, [ 0.05, 0.042, 0.033 ], this.group ), new Limb( sleeve, [ 0.05, 0.042, 0.033 ], this.group ), new Limb( trousers, [ 0.075, 0.06, 0.045 ], this.group ), new Limb( trousers, [ 0.075, 0.06, 0.045 ], this.group ) ];
-		this.body = [];
-		this.group.traverse( ( m ) => { if ( m.isMesh && /Glove|Shoe|limb/.test( m.name ) ) this.body.push( m ); } );
-		for ( const l of this.limbs ) this.body.push( l.upper, l.lower, l.knee );
+		// sleeves and trousers: one batched cloth draw, a colour per limb (a police officer's navy, a driver's denim jacket)
+		const cloth = cabinMaterial( 'Cloth_Limbs', { color: new Color( 1, 1, 1 ), batched: true } );
+		it.materials.set( 'Cloth_Limbs', cloth );
+		this.limbSet = new LimbSet( cloth, this.group );
+		const sleeve = r.kind === 'police' ? new Color( 0.03, 0.045, 0.1 ) : new Color( 0.09, 0.12, 0.17 ), trousers = new Color( 0.035, 0.035, 0.045 );
+		this.limbs = [ this.limbSet.limb( [ 0.05, 0.042, 0.033 ], sleeve ), this.limbSet.limb( [ 0.05, 0.042, 0.033 ], sleeve ), this.limbSet.limb( [ 0.075, 0.06, 0.045 ], trousers ), this.limbSet.limb( [ 0.075, 0.06, 0.045 ], trousers ) ];
+		this.body = [ this.limbSet.mesh ];
+		this.group.traverse( ( m ) => { if ( m.isMesh && /Glove|Shoe/.test( m.name ) ) this.body.push( m ); } );
 		r.cockpitDetailed = true; this._acc = 1;
 		if ( this.app.localLights && ! this._lightsAdded ) { for ( const l of this.lights ) this.app.localLights.add?.( l ); this._lightsAdded = true; }
 
@@ -361,10 +362,12 @@ export class CarCockpit {
 
 			const a = it.point( ankle, _w );
 			if ( ! a ) continue;
-			const hip = _v.set( e[ 0 ] + side * 0.1, r.spec.seat[ 1 ] + ( r.kind === 'bus' ? 0.6 : 0.36 ), e[ 2 ] - 0.08 );
-			leg.reach( hip, a, 0.45, 0.43, _h.set( side * 0.15, 1, 0.2 ) );
+			// the hip just over the cushion; the knee bends forward and a little up (low cars: knees under the wheel)
+			const hip = _v.set( e[ 0 ] + side * 0.1, r.spec.seat[ 1 ] + ( r.kind === 'bus' ? 0.55 : r.kind === 'sports' ? 0.2 : 0.3 ), e[ 2 ] - 0.1 );
+			leg.reach( hip, a, 0.46, 0.44, _h.set( side * 0.12, 0.65, 0.75 ) );
 
 		}
+		this.limbSet.commit();
 
 	}
 
@@ -405,7 +408,7 @@ export class CarCockpit {
 
 	_releaseVisual() {
 
-		for ( const l of this.limbs ) l.dispose();
+		this.limbSet?.dispose(); this.limbSet = null;
 		this.limbs = []; this.body = [];
 		if ( this.interior ) this.interior.dispose();
 		this.interior = null; this.interiorKind = null; this.group = null; this.wheel = null; this.pedals = []; this.rainRig = null;
