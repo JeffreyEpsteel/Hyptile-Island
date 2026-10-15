@@ -46,6 +46,10 @@ export const VIEWS = {
 	// the same launch seen from the water 12 m off its quarter (a free camera set once after the placement): where the hull volume showed
 	launchSide: { time: 14, weather: 'storm', intensity: 0.45, frames: 360, place: { kind: 'deck', boat: 'launch', x: 200, z: 260, heading: 2.4 }, eval: 'app.setFreeCam( true ); app.fly.setPose( app.fly.camera.position.clone().set( 192, 2.2, 267 ), - 0.9, - 0.05 );' },
 	launchStormGolden: { time: 17.7, weather: 'storm', intensity: 0.9, frames: 420, place: { kind: 'deck', boat: 'launch', x: 200, z: 260, heading: 1.2 } },
+	// wave 24D (not in the default set: --only=...): Blackwater's cove by day (its land mesh), the home bay under an
+	// overcast sky (the cloud deck eases in like the storm)
+	blackwaterNoon: { time: 13, weather: 'clear', extra: true, place: { kind: 'fly', pose: { x: - 215, y: 8, z: 1500, yaw: - 1.62, pitch: - 0.08 } } },
+	overcast: { time: 15, weather: 'overcast', intensity: 0.8, frames: 1800, extra: true, place: { kind: 'fly', pose: { x: 150, y: 38, z: 150, yaw: 0.3, pitch: - 0.12 } } },
 };
 
 const [ W, H ] = arg( 'size', '1280x720' ).split( 'x' ).map( Number );
@@ -54,7 +58,7 @@ const phone = profile === 'phone';
 const tier = phone ? 'low' : profile;
 const out = resolve( arg( 'out', join( import.meta.dirname, 'out', 'before' ) ) );
 const cache = resolve( arg( 'cache', join( tmpdir(), 'hyptile-visuals-images' ) ) );
-const only = arg( 'only' ) ? arg( 'only' ).split( ',' ) : Object.keys( VIEWS );
+const only = arg( 'only' ) ? arg( 'only' ).split( ',' ) : Object.keys( VIEWS ).filter( ( k ) => ! VIEWS[ k ].extra );
 const settle = Number( arg( 'frames', '90' ) );
 mkdirSync( out, { recursive: true } );
 mkdirSync( cache, { recursive: true } );
