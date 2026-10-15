@@ -1,6 +1,7 @@
 // Side by side contact sheet of the before / after captures (capture.mjs): one row per view, before on the left,
 // after on the right, each frame at half size, a 4 px gap. No text (the row order is printed and in docs/VISUALS.md).
 //   node tools/visuals/contact.mjs [--profile=medium] [--out=tools/visuals/out/compare.png] [--views=homeNoon,...]
+//                                  [--before=<dir>] [--after=<dir>] (wave 24D: other capture sets)
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { deflateSync } from 'node:zlib';
 import { join } from 'node:path';
@@ -42,7 +43,7 @@ const half = ( img ) => {
 const rows = [];
 for ( const v of views ) {
 
-	const a = join( dir, 'before', `${ profile }-${ v }.png` ), b = join( dir, 'after', `${ profile }-${ v }.png` );
+	const a = join( arg( 'before', join( dir, 'before' ) ), `${ profile }-${ v }.png` ), b = join( arg( 'after', join( dir, 'after' ) ), `${ profile }-${ v }.png` );
 	if ( ! existsSync( a ) || ! existsSync( b ) ) { console.log( 'missing ' + v ); continue; }
 	rows.push( [ half( await load( a ) ), half( await load( b ) ) ] );
 	console.log( `row ${ rows.length }: ${ v }` );

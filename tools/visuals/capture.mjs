@@ -222,12 +222,41 @@ for ( const id of only ) {
 
 	}
 
+	// --ab-eval=<js A>|<js B> (wave 24D): any two states, interleaved in blocks of 10 frames (A first, then B), `app` in
+	// scope; the GPU frame times of both (one process, same load: the other workers' GPU use spreads over both)
+	if ( arg( 'ab-eval' ) ) {
+
+		const [ fa, fb ] = arg( 'ab-eval' ).split( '|' ).map( ( c ) => new Function( 'app', c ) );
+		const A = [], B = [];
+		for ( let b = 0; b < 24; b ++ ) {
+
+			( b & 1 ? fb : fa )( app );
+			for ( let i = 0; i < 10; i ++ ) {
+
+				set.tick( 1 / 60, 0 );
+				const a = performance.now();
+				app.frame( 1 / 60 );
+				await GPU.queue.onSubmittedWorkDone();
+				if ( i >= 3 ) ( b & 1 ? B : A ).push( performance.now() - a );
+
+			}
+
+		}
+
+		fa( app );
+		const med = ( v ) => v.sort( ( x, y ) => x - y )[ v.length >> 1 ];
+		perf[ id + ':A' ] = Math.round( med( A ) * 100 ) / 100;
+		perf[ id + ':B' ] = Math.round( med( B ) * 100 ) / 100;
+		console.log( `  ${ id } A ${ perf[ id + ':A' ] } ms, B ${ perf[ id + ':B' ] } ms` );
+
+	}
+
 	set.undo();
 	console.log( `  ${ id }${ perf[ id ] ? ' ' + perf[ id ] + ' ms' : '' }${ set.info && set.info.notes && set.info.notes.length ? ' (' + set.info.notes.join( '; ' ) + ')' : '' }` );
 
 }
 
-if ( process.argv.includes( '--perf' ) || process.argv.includes( '--ab' ) || process.argv.includes( '--ab-soft' ) ) writeFileSync( join( out, `perf-${ profile }.json` ), JSON.stringify( perf, null, '\t' ) );
+if ( process.argv.includes( '--perf' ) || process.argv.includes( '--ab' ) || process.argv.includes( '--ab-soft' ) || arg( 'ab-eval' ) ) writeFileSync( join( out, `perf-${ profile }.json` ), JSON.stringify( perf, null, '\t' ) );
 if ( gpuErrors.length ) console.log( `${ gpuErrors.length } GPU errors, first: ${ JSON.stringify( gpuErrors[ 0 ] ).slice( 0, 400 ) }` );
 // images met for the first time: decode them now (the next run draws them)
 const pending = readdirSync( cache ).filter( ( f ) => f.endsWith( '.img' ) && ! existsSync( join( cache, f.replace( '.img', '.png' ) ) ) );
