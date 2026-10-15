@@ -59,7 +59,7 @@ LIVERY = {
 		'M_NavalHullTar': ( ( 0.09, 0.08, 0.07 ), 0.75, 0 ), 'M_NavalSailCanvas': ( ( 0.66, 0.6, 0.5 ), 0.9, 0 ) },
 	# the brigantine flagship: black hull, an oxblood band and bulwarks, a tallow bottom, smoke-dark sails
 	'brigantine': { 'M_NavalHullPlank': ( ( 0.045, 0.042, 0.04 ), 0.6, 0 ), 'M_NavalSheerStripe': ( ( 0.36, 0.035, 0.025 ), 0.6, 0 ),
-		'M_NavalHullTar': ( ( 0.7, 0.66, 0.56 ), 0.75, 0 ), 'M_NavalSailCanvas': ( ( 0.34, 0.31, 0.28 ), 0.9, 0 ) },
+		'M_NavalHullTar': ( ( 0.42, 0.39, 0.33 ), 0.75, 0 ), 'M_NavalSailCanvas': ( ( 0.34, 0.31, 0.28 ), 0.9, 0 ) },
 	# the navy: blue topsides, white strakes, red bulwarks inside, coppered bottoms, white canvas
 	'frigate': { 'M_NavyHullBlue': ( ( 0.025, 0.05, 0.15 ), 0.55, 0 ), 'M_NavyHullWhite': ( ( 0.85, 0.82, 0.72 ), 0.55, 0 ), 'M_NavalSheerStripe': ( ( 0.42, 0.06, 0.04 ), 0.6, 0 ),
 		'M_NavalHullTar': ( ( 0.95, 0.5, 0.3 ), 0.4, 0.75 ), 'M_NavalSailCanvas': ( ( 0.95, 0.93, 0.87 ), 0.9, 0 ), 'M_NavalTarp': ( ( 0.85, 0.83, 0.76 ), 0.85, 0 ) },
@@ -1042,7 +1042,7 @@ def export( kind, lod, S, ext ):
 	xs = [ v.co.x for v in mb.bm.verts ]
 	lo, hi = min( xs ), max( xs )
 	if abs( lo + hi ) > 0.01:
-		balance( mb, - hi if hi > - lo else - lo, z = 1.0 )
+		balance( mb, - hi if hi > - lo else - lo, z = 0.6 * DATA[ 'classes' ][ kind ][ 'mast' ] )
 	if lod > 0:
 		# every material of the palette gets a primitive (a 2 mm triangle inside the hull if it has none): the game swaps each
 		# full-model mesh's geometry for the LOD's of the same name

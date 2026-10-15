@@ -631,11 +631,11 @@ def lantern( mb, x, y, z, s = 0.28, glass = 'M_NavalLanternGlass' ):
 	cyl( mb, ( x, y, z + s * 0.15 ), ( x, y, z + s * 1.1 ), s * 0.45, s * 0.5, glass, n = 8 )
 	cyl( mb, ( x, y, z + s * 1.1 ), ( x, y, z + s * 1.5 ), s * 0.55, 0.02, 'M_NavalAgedBrass', n = 8 )
 
-def ship_wheel( mb, c, axis, R = 0.44, tube = 0.045, spokes = 8, mat = 'M_NavalSparTimber', hub = 'M_NavalAgedBrass', reach = 0.52 ):
+def ship_wheel( mb, c, axis, R = 0.415, tube = 0.04, spokes = 8, mat = 'M_NavalSparTimber', hub = 'M_NavalAgedBrass', reach = 0.5 ):
 	"""a spoked helm wheel at c, its axle along `axis`; every piece lies inside a disc of radius `reach` and +-0.1 along the
 	axle, separate from the stand (ShipBoatModel._carveWheel lifts it out of the hull by that test)"""
 	c = Vector( c ); ax = Vector( axis ).normalized(); e1, e2 = frame_of( ax )
-	torus( mb, c, R, tube, mat, axis = ax, nu = 20, nv = 5 )
+	torus( mb, c, R, tube, mat, axis = ax, nu = 24, nv = 6 )
 	for k in range( spokes ):
 		a = 2 * math.pi * k / spokes
 		d = e1 * math.cos( a ) + e2 * math.sin( a )
