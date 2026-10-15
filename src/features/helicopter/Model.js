@@ -1,9 +1,10 @@
 // Authored light utility helicopter: bubble cockpit, panel, cabin, tail boom,
 // four main blades, tail rotor, skid gear and rescue paint. Uses native engine materials.
-import { Group, Mesh, Vector3, BufferGeometry, BufferAttribute } from '../../engine/index.js';
+import { Group, Mesh, Vector2, Vector3, BufferGeometry, BufferAttribute } from '../../engine/index.js';
 import { standard } from '../../materials/Materials.js';
 import { prepare, mergePrepared, box, roundedBox, cylinder, sphere, rod, torus, mat4 } from '../../world/boat/GeoKit.js';
 import { createPropMaterial } from '../../game/GameMaterials.js';
+import { LAYERS } from '../../core/SceneRenderer.js';
 
 const V = ( x, y, z ) => new Vector3( x, y, z );
 export const PEDAL_Z = 0.85;
@@ -13,7 +14,10 @@ const CANOPY = /* wgsl */`
 	let vdn = abs( dot( normalize( in.V ), s.normal ) );
 	let fres = pow( 1.0 - vdn, 4.0 );
 	s.alpha = clamp( s.alpha + fres * 0.45, 0.0, 0.85 );
-	let g = vec2f( in.uv.x * 140.0, in.uv.y * 70.0 + mat.streak * frame.time * 1.5 );
+	// the bubble (a unit sphere scaled) has no uv: wrap its object-space position instead
+	let sph = vec2f( atan2( in.vs.vObj.z, in.vs.vObj.x ) / 6.2832 + 0.5, in.vs.vObj.y );
+	let duv = mix( in.uv, sph, mat.fromPos );
+	let g = vec2f( duv.x * mat.dropScale.x, duv.y * mat.dropScale.y + mat.streak * frame.time * 1.5 );
 	let c = floor( g );
 	let h = fract( sin( dot( c, vec2f( 12.9898, 78.233 ) ) ) * 43758.5453 );
 	let o = vec2f( fract( h * 7.13 ), fract( h * 3.71 ) ) * 0.6 + 0.2;
@@ -95,11 +99,16 @@ export class HelicopterVisual {
 		// curved through the footwell and overlaid the lower panel from inside.
 		// the glazing: the bubble, its skirt down to the belly and the door windows; reflections at grazing angles, rain on
 		// it (setRain) beaded and streaming back with the airspeed
-		const glass = standard( { color: 0x9dd5dd, roughness: 0.08, metalness: 0.05, transparent: true, opacity: 0.16, depthWrite: false, side: 2, uniforms: { rain: [ 'f32', 0 ], streak: [ 'f32', 0 ] }, surface: CANOPY } );
-		this.materials.push( glass ); this.glass = glass;
+		const glazing = ( scale, fromPos ) => standard( { color: 0x9dd5dd, roughness: 0.08, metalness: 0.05, transparent: true, opacity: 0.16, depthWrite: false, side: 2, uniforms: { rain: [ 'f32', 0 ], streak: [ 'f32', 0 ], fromPos: [ 'f32', fromPos ], dropScale: [ 'vec2f', new Vector2( ...scale ) ] }, varyings: { vObj: 'vec3f' }, vertex: 'o.vObj = v.position;', surface: CANOPY } );
+		// (the bubble wraps its unit-sphere position 0..1 round and -1..1 up; the skirt's uv runs round it 0..1 and up it in
+		// metres: drop cells of about 3 cm on both)
+		const glass = glazing( [ 200, 30 ], 1 ), skirtGlass = glazing( [ 160, 32 ], 0 );
+		this.materials.push( glass, skirtGlass ); this.glass = glass; this.glazing = [ glass, skirtGlass ];
 		this._mesh( sphere( 1, 28, 14, 0, Math.PI * 2, 0, Math.PI / 2 ), glass, this.root, 'bubble-canopy' ).scale.set( 1.13, 0.85, 1.62 );
 		this.meshes[ this.meshes.length - 1 ].position.set( 0, 1.7, 0.72 );
-		this._mesh( canopySkirt(), glass, this.root, 'canopy-skirt' );
+		this._mesh( canopySkirt(), skirtGlass, this.root, 'canopy-skirt' );
+		// the glazing draws in the late transparent pass, over the sea and the sky (in the main pass the water covered it)
+		for ( const m of this.meshes.slice( - 2 ) ) { m.layers.set( LAYERS.TRANSPARENT ); m.renderOrder = 1; }
 		const cabin = createPropMaterial( 'helicopter-cabin-simple' ); this.materials.push( cabin );
 		this.simple = this._mesh( mergePrepared( simple ), cabin, this.root, 'cabin-simple' );
 		this.mainRotor = new Group(); this.mainRotor.position.set( 0, 3.19, - 0.4 ); this.root.add( this.mainRotor );
@@ -136,7 +145,7 @@ export class HelicopterVisual {
 	}
 	setPose( p, q ) { this.root.position.copy( p ); this.root.quaternion.copy( q ); }
 	setLights( mask = 0 ) { this.lamps.forEach( l => { l.mesh.visible = !! ( mask & l.bit ); } ); }
-	setRain( rain = 0, airspeed = 0 ) { if ( this.glass?.uniforms.rain ) { this.glass.uniforms.rain.value = rain; this.glass.uniforms.streak.value = Math.min( 1, airspeed / 30 ); } }
+	setRain( rain = 0, airspeed = 0 ) { for ( const g of this.glazing || [] ) { g.uniforms.rain.value = rain; g.uniforms.streak.value = Math.min( 1, airspeed / 30 ); } }
 	// the detailed cockpit (Cockpit.js) replaces the simple seats and control meshes; their groups keep moving
 	setDetailed( on ) { if ( this.simple ) this.simple.visible = ! on; for ( const g of [ this.cyclic, this.collective, ...this.pedals ] ) for ( const m of g.children ) m.visible = ! on; }
 	spin( dt, rpm = 0, flight = null ) {
