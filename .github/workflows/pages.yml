@@ -1,5 +1,7 @@
 # Builds the game and publishes it to GitHub Pages on every push to main.
 # Single player runs entirely from the static site; Multiplayer > Universe joins a server somebody hosts (HOSTING.md).
+# The site is built from the `live` branch, not from main: main carries work in progress (waves 19-21 under repair,
+# 2026-10-15) while `live` holds the release players get (wave 18, a990a7b). Move `live` forward to release.
 name: Deploy to GitHub Pages
 
 on:
@@ -21,6 +23,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: live
       - uses: actions/setup-node@v4
         with:
           node-version: 22
