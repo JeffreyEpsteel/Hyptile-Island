@@ -13,7 +13,7 @@ import { CarAudio } from './CarAudio.js';
 import { DealerPanel } from './DealerPanel.js';
 import { Mirror, encodeSnapshot } from './CarNet.js';
 import { CarCockpit } from './CarCockpit.js';
-import { drivetrain } from './CarSystems.js';
+import { drivetrain, systemsOf, stepSystems } from './CarSystems.js';
 
 const SAVE_VERSION = 1;
 const FAR = { x: 1e9, y: - 1e4, z: 1e9 };
@@ -448,6 +448,10 @@ export class Cars {
 		v.seat = S.seat; v.eye = S.eye; v.chase = S.chase; v.focus = [ 0, Math.min( 2.2, S.hgt * 0.85 ), 0 ];
 		this._syncQuat( rec );
 		p.enterVehicle( v );
+		// the door, and the courtesy lamp for a few seconds at night (wave 24A)
+		const sys = systemsOf( rec );
+		if ( this.night ) sys.domeT = 4;
+		this.audio.door( true );
 		this.cockpit.setRecord( rec );
 		this._emit( 'carEntered', { id: rec.id, kind: rec.kind, own: rec.own, how } );
 		if ( ! this._tip ) {
@@ -487,6 +491,7 @@ export class Cars {
 
 		this.drive = null;
 		this.cockpit.setRecord( null );
+		this.audio.door( false );
 		this._hornPulse = 0; this._horn = this._hornWas = false;
 		this._sinceExit = 0;
 		this.siren = false;
@@ -563,6 +568,15 @@ export class Cars {
 		const inp = { ...( this.opts.input ? this.opts.input() : this._input() ) };
 		inp.engineOn = rec.engineOn !== false && rec.stage < 4 && rec.hp > 0;
 		if ( ! inp.engineOn ) inp.throttle = 0;
+		// , and . the indicators (wave 24A); a bus will not pull away with its doors open
+		if ( ! this.cockpit.blocked() && ! this.cockpit.isOpen ) {
+
+			if ( input?.hit?.( 'Comma' ) ) this.cockpit.act( 'indL' );
+			if ( input?.hit?.( 'Period' ) ) this.cockpit.act( 'indR' );
+
+		}
+		const sys = systemsOf( rec );
+		if ( sys.doors ) { inp.throttle = 0; inp.brake = 0; inp.handbrake = true; }
 		if ( rec.parkBrake ) { inp.handbrake = true; inp.throttle = 0; inp.brake = 0; }
 		inp.horn = inp.horn || this._hornPulse > 0;
 		this._hornPulse = Math.max( 0, ( this._hornPulse || 0 ) - dt );
@@ -578,6 +592,9 @@ export class Cars {
 		this._hornWas = !! inp.horn;
 		this._stepBody( rec, dt, inp );
 		this._syncQuat( rec );
+		// fuel, coolant, indicators, wipers, the meter (CarSystems.js); their relay and motor sounds
+		const cues = stepSystems( rec, dt, { rain: this.cockpit.rain || 0, steer: b.steer / ( rec.spec.steer || 0.6 ), speed: b.speed, throttle: inp.throttle || 0, rpm: drivetrain( rec ).rpm, engineOn: inp.engineOn } );
+		if ( cues.ticks || cues.wipes ) this.audio.tick( cues );
 		// in the sea: the car is lost, you swim
 		const g = this.world.ground( b.x, b.z, b.y + 1 );
 		if ( g < - 0.8 && b.y < - 0.6 ) {
@@ -1740,6 +1757,7 @@ export class Cars {
 		if ( price > 0 && ( ! st || ! st.spend || ! st.spend( price ) ) ) return { ok: false, text: 'Not enough money' };
 		rec.hp = rec.maxHp;
 		rec.stage = 0;
+		rec.fuel = 1; // (the showroom fills the tank with a service)
 		this._stopFx( rec );
 		return { ok: true, price, text: 'Good as new' };
 
@@ -2026,7 +2044,7 @@ export class Cars {
 
 		return {
 			v: SAVE_VERSION, heat: Math.round( this.heat ),
-			owned: this.owned().filter( ( r ) => r.stage < 4 ).map( ( r ) => ( { id: r.id, kind: r.kind, color: r.color, x: r2( r.x ), y: r2( r.y ), z: r2( r.z ), yaw: r2( r.yaw ), hp: r2( r.hp ), island: 'meridian', engineOn: r.engineOn !== false, parkBrake: !! r.parkBrake } ) ),
+			owned: this.owned().filter( ( r ) => r.stage < 4 ).map( ( r ) => ( { id: r.id, kind: r.kind, color: r.color, x: r2( r.x ), y: r2( r.y ), z: r2( r.z ), yaw: r2( r.yaw ), hp: r2( r.hp ), island: 'meridian', engineOn: r.engineOn !== false, parkBrake: !! r.parkBrake, fuel: Number.isFinite( r.fuel ) ? r2( r.fuel ) : undefined } ) ),
 		};
 
 	}
@@ -2045,6 +2063,7 @@ export class Cars {
 			rec.mine = true;
 			rec.engineOn = o.engineOn !== false;
 			rec.parkBrake = o.parkBrake === true;
+			if ( Number.isFinite( o.fuel ) ) rec.fuel = clamp( o.fuel, 0.05, 1 );
 			if ( Number.isFinite( o.hp ) ) { rec.hp = clamp( o.hp, 1, rec.maxHp ); rec.stage = stageOf( rec.hp / rec.maxHp ); }
 			quatYPR( rec.yaw, 0, 0, rec.quat );
 			this.records.push( rec );

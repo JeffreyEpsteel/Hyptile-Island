@@ -150,13 +150,13 @@ class Mesh:
 
 	# a greenhouse / box with a different base and top: base ( z0, z1, y, halfWidth ), top ( z0, z1, y, halfWidth );
 	# mats per face: front, back, sides, top (each ( material, cell ))
-	def hexa( self, base, top, front, back, sides, roof, bottom = None ):
+	def hexa( self, base, top, front, back, sides, roof, bottom = None, skip = () ):
 		bz0, bz1, by, bw = base; tz0, tz1, ty, tw = top
 		b = [ ( - bw, by, bz0 ), ( bw, by, bz0 ), ( bw, by, bz1 ), ( - bw, by, bz1 ) ]
 		t = [ ( - tw, ty, tz0 ), ( tw, ty, tz0 ), ( tw, ty, tz1 ), ( - tw, ty, tz1 ) ]
 		c = ( 0, ( by + ty ) / 2, ( bz0 + bz1 + tz0 + tz1 ) / 4 )
-		self.face( [ b[ 3 ], b[ 2 ], t[ 2 ], t[ 3 ] ], *front, inside = c )
-		self.face( [ b[ 0 ], b[ 1 ], t[ 1 ], t[ 0 ] ], *back, inside = c )
+		if 'front' not in skip: self.face( [ b[ 3 ], b[ 2 ], t[ 2 ], t[ 3 ] ], *front, inside = c )
+		if 'back' not in skip: self.face( [ b[ 0 ], b[ 1 ], t[ 1 ], t[ 0 ] ], *back, inside = c )
 		self.face( [ b[ 1 ], b[ 2 ], t[ 2 ], t[ 1 ] ], *sides, inside = c )
 		self.face( [ b[ 0 ], b[ 3 ], t[ 3 ], t[ 0 ] ], *sides, inside = c )
 		self.face( t, *roof, inside = c )
@@ -300,8 +300,13 @@ def build_van( m, S ):
 	m.loft( [ ( zr, 0.34, 1.0, w ), ( zf - 1.0, 0.34, 1.0, w ), ( zf - 0.2, 0.34, 0.95, w ), ( zf, 0.4, 0.82, w - 0.05 ) ] )
 	box_end = zf - 1.75
 	# the cargo box (paint all round) and the cab greenhouse
-	m.hexa( ( zr, box_end, 0.98, w ), ( zr, box_end, 2.35, w - 0.04 ), ( 'CarPaint', 'white' ), ( 'CarPaint', 'white' ), ( 'CarPaint', 'white' ), ( 'CarPaint', 'white' ) )
-	m.hexa( ( box_end, zf - 1.0, 0.98, w - 0.04 ), ( box_end, zf - 1.5, 2.15, w - 0.12 ), ( 'CarTrim', 'glass' ), ( 'CarPaint', 'white' ), ( 'CarTrim', 'glass' ), ( 'CarPaint', 'white' ) )
+	# (wave 24A: the cab opens into the cargo bay through a frame; the interior's bulkhead and the traffic cabin close it)
+	m.hexa( ( zr, box_end, 0.98, w ), ( zr, box_end, 2.35, w - 0.04 ), ( 'CarPaint', 'white' ), ( 'CarPaint', 'white' ), ( 'CarPaint', 'white' ), ( 'CarPaint', 'white' ), skip = ( 'front', ) )
+	ox, oy0, oy1 = w - 0.16, 1.0, 2.1
+	for pts in ( [ ( - w, 0.98, box_end ), ( - ox, 0.98, box_end ), ( - ox, 2.35, box_end ), ( - w + 0.04, 2.35, box_end ) ], [ ( ox, 0.98, box_end ), ( w, 0.98, box_end ), ( w - 0.04, 2.35, box_end ), ( ox, 2.35, box_end ) ],
+		[ ( - ox, oy1, box_end ), ( ox, oy1, box_end ), ( ox, 2.35, box_end ), ( - ox, 2.35, box_end ) ], [ ( - ox, 0.98, box_end ), ( ox, 0.98, box_end ), ( ox, oy0, box_end ), ( - ox, oy0, box_end ) ] ):
+		m.face( pts, 'CarPaint', inside = ( 0, 1.6, box_end - 1 ) )
+	m.hexa( ( box_end, zf - 1.0, 0.98, w - 0.04 ), ( box_end, zf - 1.5, 2.15, w - 0.12 ), ( 'CarTrim', 'glass' ), ( 'CarPaint', 'white' ), ( 'CarTrim', 'glass' ), ( 'CarPaint', 'white' ), skip = ( 'back', ) )
 	# rear doors' split and handles, the side band
 	m.box( ( 0, 1.6, zr - 0.006 ), ( 0.02, 1.2, 0.01 ), 'CarTrim', 'plastic' )
 	for s in ( 1, - 1 ): m.box( ( s * ( w + 0.004 ), 1.45, zr + ( box_end - zr ) / 2 ), ( 0.01, 0.2, box_end - zr - 0.3 ), 'CarTrim', 'green' )

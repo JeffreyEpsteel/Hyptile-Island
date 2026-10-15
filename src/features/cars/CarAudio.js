@@ -8,6 +8,8 @@
 //
 //   const a = new CarAudio( app );  a.update( dt, { on, rpm 0..1, throttle, slip, horn, x, y, z, siren: { x, y, z } | null } )
 //   a.honk( x, y, z, kind )   a.crash( strength, x, y, z )   a.dispose()   a.state (the last values: tests)
+//   cabin one-shots (wave 24A, unpositioned: you sit in it): a.tick( { ticks, wipes } ) the indicator relay and the wiper
+//   motor's reversal, a.click( id ) a switch, a.door( open ) the door's latch and thud
 
 export class CarAudio {
 
@@ -15,7 +17,7 @@ export class CarAudio {
 
 		this.app = app;
 		this.nodes = null;
-		this.state = { on: false, rpm: 0, slip: 0, horn: false, siren: false, honks: 0, crashes: 0 };
+		this.state = { on: false, rpm: 0, slip: 0, horn: false, siren: false, honks: 0, crashes: 0, ticks: 0, wipes: 0, clicks: 0, doors: 0 };
 		this._noise = null;
 
 	}
@@ -191,6 +193,75 @@ export class CarAudio {
 			setTimeout( () => { try { p.disconnect(); } catch ( e ) { /* gone */ } }, 1200 );
 
 		} catch ( e ) { /* audio is optional */ }
+
+	}
+
+	// a short enveloped blip: a band of noise and / or a tone, straight to the sfx bus
+	_blip( { freq = 0, noise = 0, q = 4, gain = 0.05, attack = 0.002, decay = 0.05, delay = 0, type = 'square', drop = 1 } ) {
+
+		const ctx = this.ctx;
+		if ( ! ctx ) return;
+		try {
+
+			const t = ctx.currentTime + delay, g = ctx.createGain();
+			g.gain.setValueAtTime( 0, t );
+			g.gain.linearRampToValueAtTime( gain, t + attack );
+			g.gain.exponentialRampToValueAtTime( 0.0005, t + attack + decay );
+			g.connect( this._bus() );
+			if ( noise ) {
+
+				const src = ctx.createBufferSource(); src.buffer = this._noiseBuffer( ctx );
+				const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = noise; bp.Q.value = q;
+				src.connect( bp ); bp.connect( g ); src.start( t ); src.stop( t + attack + decay + 0.02 );
+
+			}
+			if ( freq ) {
+
+				const o = ctx.createOscillator(); o.type = type; o.frequency.setValueAtTime( freq, t );
+				if ( drop !== 1 ) o.frequency.exponentialRampToValueAtTime( freq * drop, t + attack + decay );
+				o.connect( g ); o.start( t ); o.stop( t + attack + decay + 0.02 );
+
+			}
+			setTimeout( () => { try { g.disconnect(); } catch ( e ) { /* gone */ } }, ( delay + attack + decay ) * 1000 + 200 );
+
+		} catch ( e ) { /* audio is optional */ }
+
+	}
+
+	// the indicator relay (tick on, tock off) and the wiper motor at each end of its sweep
+	tick( { ticks = 0, wipes = 0 } = {} ) {
+
+		for ( let i = 0; i < ticks; i ++ ) {
+
+			this.state.ticks ++;
+			const on = this.state.ticks % 2 === 1;
+			this._blip( { freq: on ? 2400 : 1500, noise: on ? 4200 : 2600, q: 3, gain: 0.05, decay: 0.022, type: 'square' } );
+
+		}
+		for ( let i = 0; i < wipes; i ++ ) {
+
+			this.state.wipes ++;
+			this._blip( { freq: 95, noise: 700, q: 1.5, gain: 0.05, attack: 0.01, decay: 0.12, type: 'triangle', drop: 0.7 } );
+			this._blip( { noise: 3200, q: 6, gain: 0.012, attack: 0.05, decay: 0.25 } );
+
+		}
+
+	}
+
+	// a dashboard switch
+	click( id = '' ) {
+
+		this.state.clicks ++;
+		this._blip( { freq: id === 'horn' ? 0 : 1800, noise: 5200, q: 2, gain: 0.04, decay: 0.018 } );
+
+	}
+
+	// the door: the latch, then the panel's thud (shutting) or the seal's give (opening)
+	door( open = false ) {
+
+		this.state.doors ++;
+		this._blip( { noise: 2400, q: 2.5, gain: 0.06, decay: 0.03 } );
+		this._blip( { freq: open ? 140 : 80, noise: open ? 900 : 300, q: 1, gain: open ? 0.05 : 0.14, attack: 0.004, decay: open ? 0.12 : 0.22, delay: 0.03, type: 'sine', drop: 0.6 } );
 
 	}
 

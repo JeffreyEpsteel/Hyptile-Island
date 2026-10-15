@@ -179,6 +179,8 @@ export function carCabinGeometry( spec, bounds ) {
 	for ( const x of [ - 0.15, 0.15 ] ) box( spec.eye[ 0 ] + x, dashY - 0.08, dashZ - 0.32, 0.035, 0.2, 0.035, [ 0.2, 0.21, 0.22 ] );
 	for ( const y of [ - 0.18, 0.02 ] ) box( spec.eye[ 0 ], dashY + y, dashZ - 0.32, 0.33, 0.035, 0.035, [ 0.2, 0.21, 0.22 ] );
 	for ( const side of [ - 1, 1 ] ) box( side * w / 2, ( floor + belt ) / 2, ( z0 + z1 ) / 2, 0.06, belt - floor, z1 - z0, [ 0.23, 0.24, 0.25 ] );
+	// the van's cab opens into its cargo bay (wave 24A): a plain bulkhead closes it in the cheap cabin
+	if ( spec.glb === 'cars/van.glb' ) box( 0, ( bounds.min.y + bounds.max.y ) / 2, bounds.min.z + 0.02, spec.wid - 0.1, bounds.max.y - bounds.min.y + 0.1, 0.03, [ 0.2, 0.21, 0.22 ] );
 	const out = mergeGeometries( parts );
 	for ( const p of parts ) p.dispose();
 	out.computeBoundingBox(); out.computeBoundingSphere();
