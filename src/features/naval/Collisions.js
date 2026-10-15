@@ -23,9 +23,19 @@
 // controller, a Ship) and must refresh the record's x, z, vx, vz, w (the next contact of the frame reads them).
 // One damage event per contact: a pair is armed while apart (gap > skin) and fires once when it closes faster than
 // minSpeed, at most every COLLIDE.minGap s; rubbing alongside never re-arms it.
+//
+// Wave 24B (hulls as drawn, nothing tunnels):
+//   body.shape (world/boat/HullShape.js: the convex outline of the hull as drawn, from the GLB that is loaded) replaces the box
+//   when both hulls of a pair have one: the SAT runs over the outlines' edges, the contact sits where the outlines meet (a
+//   fine bow touches with its stem, two sides alongside meet in the middle of their overlap).
+//   world.step( time, bodies ): every body's pose of the last step is kept, and a pair that moved further than a quarter
+//   of the thinner hull in one step (a frame hitch, a sleeping ship integrated in one jump) is swept: the first moment the
+//   two touched gives the normal, and a hull found on the far side is pushed back the way it came. A pair in contact keeps
+//   its normal while the SAT would flip it (a hull pressed past half the other's beam is never popped out of the far side).
+//   COLLIDE.restitution 0.25: a skiff bounces off a frigate, the frigate barely moves (the impulse is split by inverse mass).
 
 export const COLLIDE = {
-	restitution: 0.15,
+	restitution: 0.25,
 	friction: 0.3,
 	k: 0.00944, // of the hull's max points per (m/s)^2 at an even mass split (see ramDamage)
 	bowOn: 1.5, // a bow-on hit does x1.5 to the other hull...
@@ -37,7 +47,12 @@ export const COLLIDE = {
 	skin: 0.3, // m: closer than this the pair counts as touching (no re-arm)
 	slop: 0.01, // m of overlap left (keeps the contact warm instead of popping in and out)
 	maxDv: 12, // m/s cap of one impulse's velocity change (a skiff against a brigantine)
+	sweep: 0.25, // of the thinner hull's half breadth: a step that moves the pair further than this is swept
+	sweepMax: 16, // samples along a swept step
+	teleport: 40, // m: a body that moved further than this in one step was placed, not sailed (no sweep)
 };
+
+import { placeShape, polySat, polyContact, overlapAlong } from '../../world/boat/HullShape.js';
 
 const cross = ( rx, rz, nx, nz ) => rz * nx - rx * nz; // (r x n).y about +Y
 
@@ -244,7 +259,8 @@ export class CollisionWorld {
 		this._cells = new Map(); // cell key -> [ body index ]
 		this._cellOf = [];
 		this._cand = [];
-		this.stats = { tested: 0, grid: false };
+		this._pt = {};
+		this.stats = { tested: 0, grid: false, swept: 0 };
 
 	}
 
@@ -308,19 +324,105 @@ export class CollisionWorld {
 
 	}
 
+	// a pair that moved far in one step (relative to the thinner hull): { len, thin } or null
+	_sweepable( a, b ) {
+
+		const f = this._frame - 1;
+		if ( a._pf !== f || b._pf !== f ) return null;
+		const dax = a.x - a._px, daz = a.z - a._pz, dbx = b.x - b._px, dbz = b.z - b._pz;
+		if ( Math.hypot( dax, daz ) > COLLIDE.teleport || Math.hypot( dbx, dbz ) > COLLIDE.teleport ) return null;
+		const len = Math.hypot( dbx - dax, dbz - daz );
+		const thin = Math.max( 0.2, Math.min( a.shape ? a.shape.hx : a.hx, b.shape ? b.shape.hx : b.hx ) );
+		return len > COLLIDE.sweep * 2 * thin ? { len, thin } : null;
+
+	}
+
+	// the pair's overlap test at its current poses: this._sat (+ A / B placed for outlines)
+	_overlap( a, b, poly, ax = a.x, az = a.z, ayaw = a.yaw, bx = b.x, bz = b.z, byaw = b.yaw ) {
+
+		if ( poly ) {
+
+			const A = a._wp = placeShape( a.shape, ax, az, ayaw, a._wp ), B = b._wp = placeShape( b.shape, bx, bz, byaw, b._wp );
+			polySat( A, B, this._sat );
+			return [ A, B ];
+
+		}
+
+		const A = obb2( ax, az, ayaw, a.hx, a.hz, this._A ), B = obb2( bx, bz, byaw, b.hx, b.hz, this._B );
+		satOverlap( A, B, this._sat );
+		return [ A, B ];
+
+	}
+
+	// the first moment along the last step the pair touched: its normal (A -> B), or null when they never did
+	_sweep( a, b, sw, poly ) {
+
+		const n = Math.min( COLLIDE.sweepMax, Math.ceil( sw.len / ( 0.5 * sw.thin ) ) );
+		const da = wrapAngle( a.yaw - a._pyaw ), db = wrapAngle( b.yaw - b._pyaw );
+		for ( let k = 1; k <= n; k ++ ) {
+
+			const t = k / n;
+			this._overlap( a, b, poly, a._px + ( a.x - a._px ) * t, a._pz + ( a.z - a._pz ) * t, a._pyaw + da * t,
+				b._px + ( b.x - b._px ) * t, b._pz + ( b.z - b._pz ) * t, b._pyaw + db * t );
+			if ( this._sat.hit ) return { nx: this._sat.nx, nz: this._sat.nz, t };
+
+		}
+
+		return null;
+
+	}
+
 	_test( time, a, b, ra, rb, out ) {
 
 		this.stats.tested ++;
-		const reach = ra + rb + COLLIDE.skin;
+		const sw = this._sweepable( a, b );
+		const reach = ra + rb + COLLIDE.skin + ( sw ? sw.len : 0 );
 		if ( Math.abs( b.x - a.x ) > reach || Math.abs( b.z - a.z ) > reach ) return;
-		const A = obb2( a.x, a.z, a.yaw, a.hx, a.hz, this._A ), B = obb2( b.x, b.z, b.yaw, b.hx, b.hz, this._B );
-		const s = satOverlap( A, B, this._sat );
-		if ( s.sep > COLLIDE.skin ) return; // apart: the pair re-arms below (not seen this frame)
+		const poly = !! ( a.shape && b.shape );
+		let nx = 0, nz = 0, depth = 0, fixed = false;
+		// swept: the normal of the first touch; a hull that went in deep (or right through) is pushed back the way it came
+		if ( sw ) {
+
+			this._overlap( a, b, poly );
+			const s0 = this._sat;
+			if ( ! s0.hit || s0.depth > 0.5 * sw.thin ) {
+
+				const f = this._sweep( a, b, sw, poly );
+				if ( f ) { nx = f.nx; nz = f.nz; fixed = true; this.stats.swept = ( this.stats.swept || 0 ) + 1; }
+
+			}
+
+		}
+
+		const [ A, B ] = this._overlap( a, b, poly );
+		const s = this._sat;
+		const k = a.id < b.id ? `${ a.id }|${ b.id }` : `${ b.id }|${ a.id }`;
+		const old = this.pairs.get( k );
+		// in contact last step: keep that normal while the SAT's would flip it
+		if ( ! fixed && old && old.nf === this._frame - 1 && s.hit ) {
+
+			const sg = old.na === a.id ? 1 : - 1;
+			if ( s.nx * old.nx * sg + s.nz * old.nz * sg < 0 ) { nx = old.nx * sg; nz = old.nz * sg; fixed = true; }
+
+		}
+
+		if ( fixed ) {
+
+			depth = poly ? overlapAlong( A, B, nx, nz ) : radius( A, nx, nz ) + radius( B, nx, nz ) - ( ( B.cx - A.cx ) * nx + ( B.cz - A.cz ) * nz );
+			if ( depth <= 0 && - depth > COLLIDE.skin ) return;
+
+		} else {
+
+			if ( s.sep > COLLIDE.skin ) return; // apart: the pair re-arms below (not seen this frame)
+			nx = s.nx; nz = s.nz; depth = s.depth;
+
+		}
+
 		const p = this._pair( a, b );
-		if ( ! s.hit ) return; // within the skin: touching, nothing to resolve
-		const nx = s.nx, nz = s.nz, depth = s.depth;
-		const pt = contactPoint( A, B, nx, nz );
-		const c = { a, b, x: pt.x, z: pt.z, nx, nz, depth, vClose: 0, jn: 0, damage: null, bowA: false, bowB: false };
+		if ( depth <= 0 ) return; // within the skin: touching, nothing to resolve
+		p.nf = this._frame; p.na = a.id; p.nx = nx; p.nz = nz;
+		const pt = poly ? ( fixed ? supportMid( A, B, nx, nz ) : polyContact( A, B, s, this._pt ) ) : contactPoint( A, B, nx, nz );
+		const c = { a, b, x: pt.x, z: pt.z, nx, nz, depth, vClose: 0, jn: 0, damage: null, bowA: false, bowB: false, swept: fixed };
 		const bowA = isBowOn( a, nx, nz, pt ), bowB = isBowOn( b, - nx, - nz, pt );
 		const r = resolveContact( a, b, c );
 		c.vClose = r.vClose;
@@ -348,7 +450,7 @@ export class CollisionWorld {
 		const n = bodies.length;
 		const rad = this._rad;
 		rad.length = n;
-		for ( let i = 0; i < n; i ++ ) rad[ i ] = Math.hypot( bodies[ i ].hx, bodies[ i ].hz );
+		for ( let i = 0; i < n; i ++ ) rad[ i ] = bodies[ i ].shape ? bodies[ i ].shape.r : Math.hypot( bodies[ i ].hx, bodies[ i ].hz );
 		const grid = n >= GRID.min && this._bin( bodies, rad );
 		this.stats.grid = grid;
 		for ( let i = 0; i < n; i ++ ) {
@@ -365,6 +467,14 @@ export class CollisionWorld {
 				}
 
 			} else for ( let j = i + 1; j < n; j ++ ) this._test( time, a, bodies[ j ], rad[ i ], rad[ j ], out );
+
+		}
+
+		// every body's pose for the next step's sweep
+		for ( let i = 0; i < n; i ++ ) {
+
+			const b = bodies[ i ];
+			b._px = b.x; b._pz = b.z; b._pyaw = b.yaw; b._pf = this._frame;
 
 		}
 
@@ -391,3 +501,21 @@ export class CollisionWorld {
 }
 
 const ascending = ( a, b ) => a - b;
+const wrapAngle = ( a ) => Math.atan2( Math.sin( a ), Math.cos( a ) );
+
+// midway between A's furthest vertices along n and B's along -n (placed outlines; an edge leading: its middle)
+function supportMid( A, B, nx, nz, tol = 0.15 ) {
+
+	const side = ( P, sx, sz ) => {
+
+		let m = - Infinity;
+		for ( let i = 0; i < P.n; i ++ ) m = Math.max( m, P.x[ i ] * sx + P.z[ i ] * sz );
+		let x = 0, z = 0, k = 0;
+		for ( let i = 0; i < P.n; i ++ ) if ( P.x[ i ] * sx + P.z[ i ] * sz >= m - tol ) { x += P.x[ i ]; z += P.z[ i ]; k ++; }
+		return [ x / k, z / k ];
+
+	};
+	const a = side( A, nx, nz ), b = side( B, - nx, - nz );
+	return { x: ( a[ 0 ] + b[ 0 ] ) / 2, z: ( a[ 1 ] + b[ 1 ] ) / 2 };
+
+}
