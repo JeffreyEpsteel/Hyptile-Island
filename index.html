@@ -60,6 +60,12 @@
 		#loader .loader-fill { background: linear-gradient(90deg, #e8735a, #f1e3c6 55%, #74c9a0); box-shadow: 0 0 12px rgba(116, 201, 160, 0.55); }
 		#loader .loader-tip-label { color: #74c9a0; border-color: rgba(116, 201, 160, 0.5); }
 		#loader .loader-tips { border-top-color: rgba(241, 227, 198, 0.16); }
+		/* the tips in the words of the controls at hand: a touch screen reads the touch buttons' names */
+		#loader .loader-touch { display: none; }
+		@media (pointer: coarse) and (hover: none) {
+			#loader .loader-mouse { display: none; }
+			#loader .loader-touch { display: inline; }
+		}
 		@media (max-width: 760px) {
 			#loader .loader-art { object-position: 66% 50%; }
 			#loader .loader-scrim { background: linear-gradient(0deg, rgba(3, 18, 22, 0.92) 0%, rgba(3, 18, 22, 0.6) 45%, rgba(3, 18, 22, 0.08) 75%); }
@@ -110,14 +116,14 @@
 				<div class="loader-tips">
 					<span class="loader-tip-label">Tip</span>
 					<div class="loader-tip-list">
-						<p class="loader-tip">Press <kbd>R</kbd> for the rod. Hold the left mouse button to wind up, release to cast: the longer you hold, the farther it goes.</p>
+						<p class="loader-tip"><span class="loader-mouse">Press <kbd>R</kbd> for the rod. Hold the left mouse button to wind up, release to cast: the longer you hold, the farther it goes.</span><span class="loader-touch">Tap <kbd>Rod</kbd> for the rod. Hold <kbd>Cast</kbd> to wind up and let go to cast: the longer you hold, the farther it goes.</span></p>
 						<p class="loader-tip">You start at Jade Landing, the pavilion at the east end of the bay. The boardwalk runs west past Captain Roid's yard to Ethena Prosper, PoorGoat and the pier.</p>
-						<p class="loader-tip">Watch the bobber. A few nibbles, then it's pulled under: click the left mouse button that moment to set the hook.</p>
+						<p class="loader-tip">Watch the bobber. A few nibbles, then it's pulled under: <span class="loader-mouse">click the left mouse button</span><span class="loader-touch">tap <kbd>Cast</kbd></span> that moment to set the hook.</p>
 						<p class="loader-tip">In a fight, hold to reel but keep the line tension in the green. Ease off when the fish runs, or the line snaps.</p>
 						<p class="loader-tip">What bites depends on where you fish: the shallows, the pier, the reef, the deep water past the drop-off, and the time of day.</p>
 						<p class="loader-tip">PoorGoat at the fish stand buys your catch and posts quests: story quests earn new crew, and rolling orders pay extra for the fish he wants.</p>
 						<p class="loader-tip">Captain Roid (listen for the clicks) sells boats at the yard east of the pier; Ethena's chandlery sells gear. Press <kbd>K</kbd> for the crew.</p>
-						<p class="loader-tip">Press <kbd>V</kbd> to switch between third and first person. Add <code>?server=ws://host:8765/island</code> to the URL to fish with friends: name tags, chat and one shared island clock.</p>
+						<p class="loader-tip"><span class="loader-mouse">Press <kbd>V</kbd> to switch</span><span class="loader-touch">The <kbd>View</kbd> button switches</span> between third and first person. Add <code>?server=ws://host:8765/island</code> to the URL to fish with friends: name tags, chat and one shared island clock.</p>
 					</div>
 				</div>
 			</div>

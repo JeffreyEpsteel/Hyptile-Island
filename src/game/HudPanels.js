@@ -160,7 +160,8 @@ export function installHudPanels( GameHUD ) {
 			const fuelRow = `<div class="gm-shop-row"><span>${ t( 'hud.diesel', 'Diesel · ${price} / L', { price: FUEL_PRICE.toFixed( 2 ) } ) }<small>${ t( 'hud.tank', 'Tank: {l} of {max} L', { l: s.fuelL.toFixed( 0 ), max: s.stats.fuelL } ) }</small></span>${ missing > 0.5 ? `<button class="gm-btn" data-fuel ${ s.money < FUEL_PRICE && ! s.free ? 'disabled' : '' }>${ t( 'hud.fill', 'Fill · {price}', { price: s.free ? t( 'hud.free_lc', 'free' ) : `$${ s.refuelCost() }` } ) }</button>` : `<span class="gm-have">${ t( 'hud.full', 'Full' ) }</span>` }</div>`;
 			const rodRow = s.rodBroken ? `<div class="gm-shop-row"><span>${ t( 'hud.rod_repair', 'Rod repair' ) }<small>${ t( 'hud.rod_broke', 'Your rod broke in a fight: hauled too hard past the line\'s strength' ) }</small></span><button class="gm-btn" data-rodfix ${ ! s.free && s.rodRepairCost() > s.money ? 'disabled' : '' }>${ t( 'hud.fix', 'Fix · {price}', { price: s.free ? t( 'hud.free_lc', 'free' ) : `$${ s.rodRepairCost() }` } ) }</button></div>` : '';
 			const guns = this.game.app && this.game.app.features && this.game.app.features.get( 'firearms' );
-			body = rodRow + fuelRow + ( guns && guns.shopRows ? guns.shopRows() : '' ) + ( this.game.app?.features?.get( 'weapons' )?.shopRows?.() || '' ) + ( this.game.app?.features?.get( 'rescue' )?.shopRows?.() || '' ) + rows;
+			// what a newcomer can use first: the rod, the fuel and the fishing gear, then the flares, the arms and the guns
+			body = rodRow + fuelRow + rows + ( this.game.app?.features?.get( 'rescue' )?.shopRows?.() || '' ) + ( this.game.app?.features?.get( 'weapons' )?.shopRows?.() || '' ) + ( guns && guns.shopRows ? guns.shopRows() : '' );
 			foot = s.free ? t( 'hud.gear_foot_free', 'Free in sandbox · upgrades take effect at once' ) : t( 'hud.gear_foot', 'Upgrades take effect at once' );
 
 		}

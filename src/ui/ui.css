@@ -796,6 +796,9 @@ body {
 	transition: opacity var(--tw-med) var(--tw-ease), transform var(--tw-slow) var(--tw-ease);
 }
 
+/* a vendor's window open (GameHUD's stand): its footer carries "Leave (E)"; the pill would sit under it */
+.tw-root:has(.gm-panel.is-open) .tw-prompt { opacity: 0 !important; pointer-events: none; }
+
 .tw-prompt.is-on {
 	opacity: 1;
 	transform: translate(-50%, 0);
@@ -2777,8 +2780,9 @@ body {
 
 .tw-root.is-touch .gm-map em { display: none; }
 
-/* phones in landscape (under 420 px of height): the title chips go, the mode chip stays (the minimap sits under it) */
-@media (max-height: 420px) and (orientation: landscape) {
+/* phones in landscape (under 420 px of height) and narrow portrait (under 480 px: the purse's gauges reach the brand):
+   the title chips go, the mode chip stays (the minimap sits under it) */
+@media (max-height: 420px) and (orientation: landscape), (max-width: 480px) {
 	.tw-root.is-touch .tw-tl .tw-mark,
 	.tw-root.is-touch .tw-tl .tw-brand-name { display: none; }
 	.tw-root.is-touch .tw-tl .tw-brand { padding-left: 0; }
