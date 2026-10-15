@@ -19,7 +19,7 @@
 # Wave 12C (airframes, src/features/seaplane/Airframes.js): a third argument picks the variant, all with the Jade's cabin,
 # panel housing and eye point unchanged (the cockpit and its UVs are shared) and the same node names (the wreck parts):
 #   jade       (default) Seaplane.glb
-#   petrel     Petrel.glb: an 11.6 m wing, smaller floats (x 1.2, 85 % long), a 1.0 m propeller, orange and cream
+#   petrel     Petrel.glb: an 11.6 m wing, smaller floats (x 1.2, the afterbody 85 % long, the forebody 97 %), a 1.0 m propeller, orange and cream
 #   albatross  Albatross.glb: a boat hull under the fuselage (keel at y 0), a 19 m wing, two engines in nacelles (nodes
 #              Propeller / Propeller2 at x +-2.7), wingtip floats as FloatL / FloatR, a longer tail, slate and white
 #   kestrel    Kestrel.glb: the Jade on a fixed tricycle gear (FloatL / FloatR are the main legs and wheels), teal
@@ -374,20 +374,23 @@ struts = Builder('Struts')
 FX = 1.2 if VARIANT == 'petrel' else 1.35
 WSX = 3.6 * SPAN_K  # the wing struts' attachment
 if VARIANT in ('jade', 'petrel'):
-    fk, fw = (0.85, 0.875) if VARIANT == 'petrel' else (1.0, 1.0)
+    # the Petrel's floats: the afterbody 85 % of the Jade's, the forebody 97 % (Airframes.js PETREL_Z: her bows reach to
+    # under the propeller; cut back to 85 % she came down nose first off the chop)
+    fw = 0.875 if VARIANT == 'petrel' else 1.0
+    fz = (lambda z: z * (0.97 if z >= 0 else 0.85)) if VARIANT == 'petrel' else (lambda z: z)
     for cx, name in ((FX, 'FloatL'), (-FX, 'FloatR')):
         fb = Builder(name)
         floats.append(fb)
-        fb.loft([float_ring(cx, z * fk, w * fw, k, d) for z, w, k, d in FL], lambda c, *_: 'SeaplaneCream' if c[1] > 0.55 else 'SeaplaneJade', True, True, False)
-        fb.box((cx, 0.3, -4.0 * fk), (0.02, 0.22, 0.14), 'SeaplaneDark')  # the water rudder at the heel
+        fb.loft([float_ring(cx, fz(z), w * fw, k, d) for z, w, k, d in FL], lambda c, *_: 'SeaplaneCream' if c[1] > 0.55 else 'SeaplaneJade', True, True, False)
+        fb.box((cx, 0.3, fz(-4.0)), (0.02, 0.22, 0.14), 'SeaplaneDark')  # the water rudder at the heel
         for z in (3.0, -3.2):
-            fb.box((cx, 0.66, z * fk), (0.06, 0.04, 0.03), 'SeaplaneStrut')  # cleats
+            fb.box((cx, 0.66, fz(z)), (0.06, 0.04, 0.03), 'SeaplaneStrut')  # cleats
     for s in (1, -1):
         # float struts (N) from the lower fuselage
-        struts.rod((s * FX, 0.62, 1.7 * fk), (s * 0.45, 1.36, 1.55), 0.045, 'SeaplaneStrut')
-        struts.rod((s * FX, 0.62, 1.7 * fk), (s * 0.45, 1.36, 0.1), 0.04, 'SeaplaneStrut')
-        struts.rod((s * FX, 0.62, -0.5 * fk), (s * 0.45, 1.4, -0.55), 0.045, 'SeaplaneStrut')
-    for z in (1.7 * fk, -0.5 * fk):
+        struts.rod((s * FX, 0.62, fz(1.7)), (s * 0.45, 1.36, 1.55), 0.045, 'SeaplaneStrut')
+        struts.rod((s * FX, 0.62, fz(1.7)), (s * 0.45, 1.36, 0.1), 0.04, 'SeaplaneStrut')
+        struts.rod((s * FX, 0.62, fz(-0.5)), (s * 0.45, 1.4, -0.55), 0.045, 'SeaplaneStrut')
+    for z in (fz(1.7), fz(-0.5)):
         struts.rod((FX, 0.6, z), (-FX, 0.6, z), 0.035, 'SeaplaneStrut')  # spreader bars
     struts.box((0.95, 1.0, 1.2), (0.12, 0.015, 0.1), 'SeaplaneStrut')  # boarding step by the port door
 elif VARIANT == 'albatross':
