@@ -616,9 +616,10 @@ fn vegLeafTile( seed: f32, isShrub: bool ) -> f32 {
 	return select( select( 0.0, 1.0, fract( spT * 0.5 ) > 0.25 ), select( 2.0, 3.0, spS == 1.0 ), isShrub );
 }
 
-// alpha-test threshold compensating the coverage loss of the minified (mipmapped) leaf texture
-fn vegCoverageThreshold( st: vec2f ) -> f32 {
-	let lod = log2( max( max( fwidth( st.x ), fwidth( st.y ) ) * 256.0, 1e-4 ) );
+// alpha-test threshold compensating the coverage loss of the minified (mipmapped) leaf texture. tilePx: the atlas
+// tile's side (px; vegLeafTilePx(): 512 on desktop, 256 on phones, whose half-size atlas reaches each mip a level sooner)
+fn vegCoverageThreshold( st: vec2f, tilePx: f32 ) -> f32 {
+	let lod = log2( max( max( fwidth( st.x ), fwidth( st.y ) ) * tilePx, 1e-4 ) );
 	return mix( 0.5, 0.3, sat( lod / 4.0 ) );
 }
 
@@ -645,7 +646,7 @@ fn vegCanopyMask( in: FragInput, L: vec4f ) -> bool {
 	let fade = smoothstep( nearD * ( 1.0 - VEG_LOD_BAND / 2.0 ), nearD * ( 1.0 + VEG_LOD_BAND / 2.0 ), length( vegParams.camPos - in.vs.vIPos ) );
 	// cards seen edge-on thin out (no sliver lines through the crown)
 	let facing = abs( dot( normalize( cross( dpdx( in.P ), dpdy( in.P ) ) ), in.V ) );
-	let thr = vegCoverageThreshold( in.uv ) + ( 1.0 - smoothstep( 0.08, 0.35, facing ) ) * 0.45;
+	let thr = vegCoverageThreshold( in.uv, vegLeafTilePx() ) + ( 1.0 - smoothstep( 0.08, 0.35, facing ) ) * 0.45;
 	return ( isBark || L.x > thr ) && bayer4( in.pixel ) >= fade;
 }
 fn vegCanopyLeaf( in: FragInput ) -> vec4f {
@@ -734,7 +735,7 @@ export function createCanopyBakeMaterials( leafAtlas ) {
 		name: 'veg-impostor-bake-' + which,
 		side: 'double',
 		lit: false,
-		modules: [ vegModule, leafAtlas.module ],
+		modules: [ vegModule, canopyModule, leafAtlas.module ],
 		attributes: { aMat: 'vec4f' },
 		varyings: { vMat: 'vec4f', vLocalN: 'vec3f' },
 		vertex: 'o.vMat = v.aMat; o.vLocalN = v.normal;',
@@ -745,7 +746,9 @@ export function createCanopyBakeMaterials( leafAtlas ) {
 	let isShrub = part > 2.5;
 	let st = in.uv;
 	let L = vegLeafSample( st, select( 0.0, 2.0, isShrub ) );
-	if ( ! ( isBark || L.x > 0.5 ) ) { discard; }`,
+	// (wave 24D) the frames are small (128 px, 40 on phones): the leaf atlas is read from coarse mips there, whose
+	// averaged coverage sat under a fixed 0.5 and baked bare branches (phones: every far crown a dead tree)
+	if ( ! ( isBark || L.x > vegCoverageThreshold( st, vegLeafTilePx() ) ) ) { discard; }`,
 		output: which === 'albedo' ? /* wgsl */`
 	let aMat = in.vs.vMat;
 	let part = aMat.x;

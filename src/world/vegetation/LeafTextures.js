@@ -82,6 +82,8 @@ export class LeafAtlas {
 			name: 'vegLeafAtlas', deps: [ vegModule ],
 			bindings: { vegLeafTex: { texture: () => self.texture } },
 			code: /* wgsl */`
+// the side of one atlas tile (px)
+fn vegLeafTilePx() -> f32 { return f32( textureDimensions( vegLeafTex ).x ) * 0.5; }
 // sample tile ( 0..3 ) at card uv st -> ( coverage, bright, cell, 1 )
 fn vegLeafSample( st: vec2f, tile: f32 ) -> vec4f {
 	let tuv = ( vec2f( fract( tile * 0.5 ) * 2.0, floor( tile * 0.5 ) ) + clamp( st, vec2f( 0.004 ), vec2f( 0.996 ) ) ) * 0.5;
