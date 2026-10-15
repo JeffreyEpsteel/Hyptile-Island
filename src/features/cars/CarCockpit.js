@@ -331,7 +331,7 @@ export class CarCockpit {
 		const dp = it.dome || _v.set( 0, r.spec.hgt * 0.85, 0 );
 		_w.copy( dp ).applyQuaternion( this.group.quaternion ).add( this.group.position );
 		L.position.copy( _w );
-		it.set( { cabin: _cabin.setRGB( dome ? 0.05 : glowOn ? 0.004 : 0, dome ? 0.044 : glowOn ? 0.009 : 0, dome ? 0.034 : glowOn ? 0.011 : 0 ), dome: dome ? 1 : 0, power: driven ? ( r.engineOn !== false ? 1 : 0.25 ) : 0, glow: 0 } );
+		it.set( { cabin: _cabin.setRGB( dome ? 0.05 : glowOn ? 0.004 : 0, dome ? 0.044 : glowOn ? 0.009 : 0, dome ? 0.034 : glowOn ? 0.011 : 0 ), dome: dome ? 1 : r.kind === 'bus' && night && driven ? 0.7 : 0, power: driven ? ( r.engineOn !== false ? 1 : 0.25 ) : 0, glow: driven && r.engineOn !== false ? ( r.kind === 'police' && ! this.cars.siren ? 0.35 : 1 ) : 0 } );
 		// rain: the glass up direction, the wipers' pivots and their current angles, the drops' density
 		if ( rig && it.rainMesh ) {
 
