@@ -1,6 +1,7 @@
 import { Group, Mesh, Vector3, Color } from '../../engine/index.js';
 import { prepare, mergePrepared, box, cylinder, sphere, mat4 } from '../boat/GeoKit.js';
 import { createPropMaterial, PAT } from '../../game/GameMaterials.js';
+import { createTileTerrainMaterial } from '../../materials/TileTerrain.js';
 import { buildJetty } from './Jetty.js';
 import { WOOD, WOODX, STONE, rng, frameAt, cottage, palm, lantern, cullParts } from './IslandKit.js';
 import { strongholdLayout, bw, bwYaw } from './stronghold/Layout.js';
@@ -104,11 +105,13 @@ export class Blackwater {
 	buildLand( tile, phone = 1 ) {
 
 		if ( ! tile ) return { near: new Group(), far: new Group(), tile: null };
-		const near = new Mesh( blackwaterLandGeometry( tile, { step: phone < 1 ? 3 : 2, floor: phone < 1 ? - 3 : - 4 } ), this.material );
+		// wave 24D: the ground's own material (detail, meadow tones; src/materials/TileTerrain.js)
+		this.terrainMaterial = this.terrainMaterial || createTileTerrainMaterial( 'blackwaterTerrain' );
+		const near = new Mesh( blackwaterLandGeometry( tile, { step: phone < 1 ? 3 : 2, floor: phone < 1 ? - 3 : - 4 } ), this.terrainMaterial );
 		near.name = 'BlackwaterTerrainNear';
 		near.receiveShadow = true;
 		near.castShadow = true;
-		const far = new Mesh( blackwaterLandGeometry( tile, { step: 8, floor: - 40 } ), this.material );
+		const far = new Mesh( blackwaterLandGeometry( tile, { step: 8, floor: - 40 } ), this.terrainMaterial );
 		far.name = 'BlackwaterTerrainFar';
 		far.receiveShadow = true;
 		this.group.add( near, far );

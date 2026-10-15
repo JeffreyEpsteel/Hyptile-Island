@@ -7,6 +7,7 @@ import { RainFX } from './RainFX.js';
 import { WeatherAudio } from './WeatherAudio.js';
 import { WeatherHUD } from './WeatherHUD.js';
 import { G } from '../../core/Globals.js';
+import { updateWetness } from '../../materials/Wetness.js';
 import { FISH } from '../../game/FishTable.js';
 
 // Dynamic weather: clear, breezy, overcast, rain, storm and fog, eased in over two to four minutes, on a
@@ -352,6 +353,7 @@ export class Weather {
 		}
 
 		this.world.apply( p, dt );
+		updateWetness( dt, p.rain, { sun: 1 - clamp( ( p.clouds - 0.4 ) / 0.55, 0, 1 ), wind: p.wind } ); // wave 24D: wet surfaces in rain
 		this._shelterTick( dt );
 		this._lightningTick( dt );
 		this._frontStrikes( A );

@@ -2,6 +2,7 @@ import { Group, Mesh, Vector3, Color } from '../../engine/index.js';
 import { G } from '../../engine/render/Frame.js';
 import { prepare, mergePrepared } from '../boat/GeoKit.js';
 import { createPropMaterial } from '../../game/GameMaterials.js';
+import { createTileTerrainMaterial } from '../../materials/TileTerrain.js';
 import { WORLD } from '../WorldLayout.js';
 import { TIDEMARK as I, tidemarkWorld } from '../terrain/IslandShape.js';
 import { cameraPosition } from './IslandKit.js';
@@ -58,11 +59,13 @@ export class Tidemark {
 
 		// the terrain: the land and shallows at 4 m (6 m on phones) near, and a 16 m mesh of the whole tile that is always
 		// drawn (the deeper seabed; dropped 1 m under the near mesh while that shows, so they never fight) and the stream
-		const nearT = new Mesh( terrainGeometry( T, { step: phone < 1 ? 3 : 2, floor: phone < 1 ? - 3 : - 4 } ), this.material );
+		// wave 24D: the ground's own material (detail, meadow tones; src/materials/TileTerrain.js)
+		this.terrainMaterial = createTileTerrainMaterial( 'tidemarkTerrain' );
+		const nearT = new Mesh( terrainGeometry( T, { step: phone < 1 ? 3 : 2, floor: phone < 1 ? - 3 : - 4 } ), this.terrainMaterial );
 		nearT.name = 'TidemarkTerrainNear';
 		nearT.receiveShadow = true;
 		nearT.castShadow = true;
-		const farT = new Mesh( terrainGeometry( T, { step: 8, floor: - 40 } ), this.material );
+		const farT = new Mesh( terrainGeometry( T, { step: 8, floor: - 40 } ), this.terrainMaterial );
 		farT.name = 'TidemarkTerrainFar';
 		farT.receiveShadow = true;
 		this.group.add( nearT, farT );
