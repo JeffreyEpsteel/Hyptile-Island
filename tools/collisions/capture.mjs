@@ -4,7 +4,8 @@
 // for the "before" shots: put this file in its tools/collisions and junction public / node_modules).
 //   node tools/collisions/capture.mjs --dawn=<dir> [--out=<dir>] [--only=ram,frigates,pier,swim] [--tag=after]
 //   ram       the lobster boat at full throttle into a sloop lying stopped across her bow (from abeam, low)
-//   frigates  two navy frigates pressed together side by side (from above the gap)
+//   frigates  two brigantines pressed together side by side (from astern, above the gap; the navy feature takes frigates
+//             that are not its own off the sea, so the pirates' hulls stand in)
 //   pier      the lobster boat at full throttle into the side of the home pier (from the pier's other side)
 //   swim      a swimmer swimming into a moored brigantine's side (the player's own camera)
 import { installEnv } from '../perf/headless-env.mjs';
@@ -93,7 +94,8 @@ const report = {};
 const say = ( k, o ) => { report[ k ] = o; console.log( k.padEnd( 9 ), Object.entries( o ).map( ( [ a, b ] ) => `${ a } ${ typeof b === 'number' ? b.toFixed( 2 ) : b }` ).join( ', ' ) ); };
 
 // the truth outlines
-const shipShape = ( s ) => s.visual && s.visual.loaded ? shapeFromObject( s.visual.group, { yLo: - 0.6, yHi: s.cls.sheer } ) : null;
+// (each ship's first good outline is kept: a visual swapping its level of detail far off may have nothing in the band)
+const shipShape = ( s ) => s._truth || ( s._truth = s.visual && s.visual.loaded ? shapeFromObject( s.visual.group, { yLo: - 0.6, yHi: s.cls.sheer } ) : null );
 const boatShape = () => shapeFromLines( app.boat.lines );
 const yawOfQ = ( q ) => Math.atan2( 2 * ( q.x * q.z + q.w * q.y ), 1 - 2 * ( q.x * q.x + q.y * q.y ) );
 const overlap = ( sa, xa, za, ya, sb, xb, zb, yb ) => { const r = polySat( placeShape( sa, xa, za, ya ), placeShape( sb, xb, zb, yb ) ); return - r.sep; };
@@ -144,19 +146,21 @@ if ( only.includes( 'frigates' ) ) {
 
 	clearShips();
 	await atHelm( 'skiff', 60, 640, 0 );
-	const a = naval.spawn( 'frigate', { x: 60 - 5, z: 700, yaw: 0 } ), c = naval.spawn( 'frigate', { x: 60 + 5, z: 700, yaw: 0 } );
+	const a = naval.spawn( 'brigantine', { x: 60 - 4.6, z: 700, yaw: 0 } ), c = naval.spawn( 'brigantine', { x: 60 + 4.6, z: 700, yaw: 0 } );
 	for ( const s of [ a, c ] ) { s.state = 'adrift'; s.speed = 0; s.wantSpeed = 0; }
 	await loaded( a ); await loaded( c );
-	let worst = - Infinity;
+	let worst = - Infinity, dbg = 0;
 	await run( 60 * 6, () => {
 
 		a.push.x = Math.max( a.push.x, 0.8 ); c.push.x = Math.min( c.push.x, - 0.8 );
+		if ( arg( 'debug' ) && ( ++ dbg % 30 ) === 0 ) console.log( `  ${ a.state } ${ c.state } x ${ a.x.toFixed( 2 ) } ${ c.x.toFixed( 2 ) } z ${ a.z.toFixed( 2 ) } ${ c.z.toFixed( 2 ) } yaw ${ a.yaw.toFixed( 2 ) } ${ c.yaw.toFixed( 2 ) } contacts ${ naval.contacts.length } shape ${ a._body && a._body.shape && a._body.shape.source } ${ a._body && a._body.shape && a._body.shape.hx.toFixed( 2 ) } sleep ${ !! a._sleep } puppet ${ !! a.puppet } inv ${ a._body && a._body.invMass }` );
 		const sa = shipShape( a );
 		worst = Math.max( worst, overlap( sa, a.x, a.z, a.yaw, sa, c.x, c.z, c.yaw ) );
 
 	} );
 	const sa = shipShape( a ), o = overlap( sa, a.x, a.z, a.yaw, sa, c.x, c.z, c.yaw );
-	look( ( a.x + c.x ) / 2 + 2, 20, a.z + 30, ( a.x + c.x ) / 2, 1.5, a.z + 6 );
+	// (from astern and above: the two transoms side by side, the gap between the sterns)
+	look( ( a.x + c.x ) / 2 + 1, 13, a.z - 40, ( a.x + c.x ) / 2, 2, a.z - 8 );
 	await run( 2 );
 	const f = await shot( 'frigates' );
 	say( 'frigates', { 'centres apart (m)': c.x - a.x, 'drawn beam (m)': sa.hx * 2, 'overlap now (m)': o, 'worst overlap (m)': worst, file: f } );
