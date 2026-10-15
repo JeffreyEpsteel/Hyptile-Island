@@ -122,6 +122,7 @@ section( '1. assets' );
 		const g = parseGLB( buf.buffer.slice( buf.byteOffset, buf.byteOffset + buf.byteLength ) );
 		const cls = SHIP_CLASSES[ k ];
 		let mn = [ 1e9, 1e9, 1e9 ], mx = [ - 1e9, - 1e9, - 1e9 ];
+		const hl = [ 1e9, - 1e9 ]; // the hull shell's X extent (wave 24C: spars reach past it)
 		let lantern = null;
 		g.nodes.forEach( ( n ) => {
 
@@ -133,6 +134,7 @@ section( '1. assets' );
 				for ( let i = 0; i < P.length; i += 3 ) {
 
 					for ( let c = 0; c < 3; c ++ ) { mn[ c ] = Math.min( mn[ c ], P[ i + c ] ); mx[ c ] = Math.max( mx[ c ], P[ i + c ] ); }
+					if ( /HullPlank|SheerStripe|HullTar/.test( g.materials[ p.material ].name ) ) { hl[ 0 ] = Math.min( hl[ 0 ], P[ i ] ); hl[ 1 ] = Math.max( hl[ 1 ], P[ i ] ); }
 					cx += P[ i ]; cn ++;
 
 				}
@@ -142,7 +144,7 @@ section( '1. assets' );
 			}
 
 		} );
-		ok( near( mx[ 0 ] - mn[ 0 ], cls.length, 0.7 ), `${ k }: hull length ${ ( mx[ 0 ] - mn[ 0 ] ).toFixed( 2 ) } m matches the class (${ cls.length })` );
+		ok( near( hl[ 1 ] - hl[ 0 ], cls.length, 0.7 ), `${ k }: hull length ${ ( hl[ 1 ] - hl[ 0 ] ).toFixed( 2 ) } m matches the class (${ cls.length })` );
 		ok( near( mn[ 1 ], - cls.draft, 0.1 ) && near( mx[ 1 ], cls.mast, 0.1 ), `${ k }: keel ${ mn[ 1 ].toFixed( 2 ) } m / mast ${ mx[ 1 ].toFixed( 2 ) } m match draft ${ cls.draft } / mast ${ cls.mast }` );
 		ok( lantern !== null && lantern < - cls.length * 0.3, `${ k }: the stern lantern sits at -X (x = ${ lantern && lantern.toFixed( 2 ) }), so the bow is +X and MODEL_YAW turns it to +Z` );
 
@@ -1184,6 +1186,7 @@ if ( ! NO_RENDER ) {
 	globalThis.__assetImage = async ( bytes ) => {
 
 		const b = Buffer.from( bytes );
+		if ( b[ 0 ] !== 0x89 ) return { data: new Uint8Array( [ 150, 140, 125, 255, 150, 140, 125, 255, 150, 140, 125, 255, 150, 140, 125, 255 ] ), width: 2, height: 2 }; // (JPEG maps: grey)
 		const w = b.readUInt32BE( 16 ), h = b.readUInt32BE( 20 ), bpp = b[ 25 ] === 6 ? 4 : 3;
 		let pos = 8;
 		const idat = [];

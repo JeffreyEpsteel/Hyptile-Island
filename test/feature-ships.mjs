@@ -112,11 +112,14 @@ for ( const id of SHIPS ) {
 	const hull = model.group.children.find( ( c ) => c.name === 'boat-hull' );
 	ok( Math.abs( hull.rotation.y + Math.PI / 2 ) < 1e-9, `${ id }: the GLB hangs in a pivot turned -90 degrees (bow +Z)` );
 	let lo = Infinity, hi = - Infinity, top = - Infinity, bot = Infinity, wide = 0;
-	for ( const m of Object.values( model.meshes ) ) {
+	for ( const [ name, m ] of Object.entries( model.meshes ) ) {
 
 		m.geometry.computeBoundingBox();
 		const bb = m.geometry.boundingBox;
-		lo = Math.min( lo, bb.min.x ); hi = Math.max( hi, bb.max.x ); top = Math.max( top, bb.max.y ); bot = Math.min( bot, bb.min.y );
+		top = Math.max( top, bb.max.y ); bot = Math.min( bot, bb.min.y );
+		// length and beam: the hull shell (wave 24C: the bowsprit, the booms and the braced yards reach past it)
+		if ( ! /HullPlank|SheerStripe|HullTar/.test( name ) ) continue;
+		lo = Math.min( lo, bb.min.x ); hi = Math.max( hi, bb.max.x );
 		wide = Math.max( wide, bb.max.z, - bb.min.z );
 
 	}

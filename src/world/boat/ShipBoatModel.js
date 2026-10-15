@@ -6,6 +6,7 @@ import { MODEL_YAW, centreOnHull, mirrorHull } from './ShipFrame.js';
 import { shipColliders, shipExitPoints, gunMounts, helmDeckY, MUZZLE_REACH } from './ShipDecks.js';
 import { wheelGeometry } from './Wheelhouse.js';
 import { helmStandFor } from '../BoatModel.js';
+import { shipMaterials } from '../../features/naval/ShipLooks.js';
 
 // The player's ship (Boats.js kind 'ship': trawler, sloop, brigantine): the fork's ship GLB under a SimpleHullLines body
 // (measured shape options in the catalog entry), with the same public interface as FleetBoatModel / BoatModel so
@@ -274,6 +275,7 @@ export class ShipBoatModel extends FleetBoatModel {
 
 		if ( this.spec.mirror ) mirrorHull( glb );
 		centreOnHull( glb );
+		shipMaterials( glb, { mirrored: !! this.spec.mirror } ); // (wave 24C: wind in the sails, waving flags, the wet waterline)
 		this.wheelTriangles = this._carveWheel( glb );
 		if ( ! this.wheelTriangles ) this._standInWheel();
 		const pivot = new Group();
