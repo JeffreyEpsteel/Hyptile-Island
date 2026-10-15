@@ -250,7 +250,8 @@ if ( fly ) {
 	const pages = read( '.github/workflows/pages.yml' );
 	const pagesName = ( /^name:\s*(.+)$/m.exec( pages ) || [] )[ 1 ].trim();
 	ok( wf.includes( `workflows: [ "${ pagesName }" ]` ) && /types: \[ completed \]/.test( wf ) && /branches: \[ main \]/.test( wf ) && /conclusion == 'success'/.test( wf ), `it runs after a successful "${ pagesName }" on main` );
-	ok( /head_sha/.test( wf ) && /git rev-parse --short=7 HEAD/.test( wf ) && /flyctl deploy --remote-only --build-arg BUILD_HASH=/.test( wf ), 'from the same commit, stamped into the image' );
+	// (2026-10-15: both workflows build the `live` branch, the release, so the game and the universe stay one commit)
+	ok( /ref: live/.test( wf ) && /ref: live/.test( pages ) && /git rev-parse --short=7 HEAD/.test( wf ) && /flyctl deploy --remote-only --build-arg BUILD_HASH=/.test( wf ), 'from the same commit, stamped into the image' );
 	ok( /secrets\.FLY_API_TOKEN/.test( wf ) && /FLY_API_TOKEN is not set/.test( wf ), 'with the FLY_API_TOKEN secret (a notice, not a red build, until it is set)' );
 	ok( /\.fly\.dev\/health/.test( wf ) && /\\"build\\":/.test( wf ), 'and it checks /health reports that commit' );
 	const vite = read( 'vite.config.js' );
