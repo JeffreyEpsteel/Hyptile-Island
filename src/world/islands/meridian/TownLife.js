@@ -21,7 +21,7 @@ const ring = ( c, n, r, a0 = 0 ) => Array.from( { length: n }, ( _, i ) => {
 } );
 const W = ( u, v ) => toWorld( u, v );
 
-export const MERIDIAN_POPULATION = { roles: { vendor: 3, fisher: 4, dockworker: 6, carter: 2, folk: 16, child: 3, regular: 4, watchman: 2, sweeper: 2 } };
+export const MERIDIAN_POPULATION = { roles: { vendor: 3, fisher: 4, dockworker: 6, carter: 2, folk: 24, child: 4, regular: 4, watchman: 2, sweeper: 2 } }; // (wave 24E: more on the streets)
 
 // the quarter (island-relative): from Meridian Avenue's west side to the basin, Meridian Boulevard to South Boulevard
 const AREA = { u0: 286, u1: 620, v0: - 186, v1: 176 }; // (to the pier head)

@@ -160,7 +160,7 @@ section( 'day plans' );
 	ok( townActivity( 'watchman', 23 ) === 'watch' && townActivity( 'watchman', 10 ) === 'sleep', 'the watch walks the night' );
 	ok( townActivity( 'lamplighter', 18 ) === 'lamps', 'the lamplighter at dusk' );
 	ok( townActivity( 'pirate', 22 ) === 'tavern' && townActivity( 'pirate', 8 ) === 'sleep', 'pirates carouse at night, sleep the morning' );
-	ok( townActivity( 'child', 10 ) === 'play' && townActivity( 'child', 22 ) === 'sleep', 'children play by day' );
+	ok( townActivity( 'child', 15 ) === 'play' && townActivity( 'child', 10 ) === 'school' && townActivity( 'child', 22 ) === 'sleep', 'children: school in the morning (wave 24E), play after it, bed at night' );
 
 }
 
@@ -225,7 +225,7 @@ for ( const plan of plans ) {
 section( 'budgets per tier' );
 {
 
-	const want = { home: 12, tidemark: 47, blackwater: 16, meridian: 42 };
+	const want = { home: 18, tidemark: 56, blackwater: 16, meridian: 51 }; // (wave 24E: more folk; the far ones are the instanced crowd)
 	const d = world();
 	for ( const t of d.tl.towns ) ok( t.sim.list.length === want[ t.plan.id ], `desktop: ${ t.plan.id } has ${ t.sim.list.length } townsfolk` );
 	const ph = world( { phone: true } );

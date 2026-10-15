@@ -1,6 +1,7 @@
 import { SCHEDULES } from '../harbour/Roles.js';
 import { hashId } from '../harbour/Schedules.js';
 import { FOLK_NAMES, FOLK_CHARACTERS, ROLE_LINES, yawToward } from '../../world/residents/ResidentData.js';
+import { townPlaces, onFreeGround } from './Places.js';
 
 // The townsfolk of townlife: each citizen has a home (a door: indoors at night), a job and a day plan (Roles.js
 // schedules plus the town roles below), and walks the town's NavGrid routes between the places of its plan (Towns.js).
@@ -20,11 +21,13 @@ export const TOWN_SCHEDULES = {
 	dockworker: SCHEDULES.dockworker,
 	carter: SCHEDULES.dockworker,
 	carpenter: SCHEDULES.dockworker,
-	child: SCHEDULES.child,
+	// (wave 24E) the children walk to school together in the morning and play after it; folk take a siesta in the heat and
+	// an evening walk in pairs along the front before the tavern
+	child: [ [ 0, 7.5, 'sleep' ], [ 7.5, 8.1, 'wake' ], [ 8.1, 12, 'school' ], [ 12, 13, 'eat' ], [ 13, 18.5, 'play' ], [ 18.5, 19.5, 'stroll' ], [ 19.5, 24, 'sleep' ] ],
 	sweeper: [ [ 0, 6, 'sleep' ], [ 6, 11, 'work' ], [ 11, 12, 'eat' ], [ 12, 16, 'work' ], [ 16, 20, 'stroll' ], [ 20, 24, 'sleep' ] ],
-	vendor: [ [ 0, 6, 'sleep' ], [ 6, 7, 'wake' ], [ 7, 12.5, 'work' ], [ 12.5, 13.5, 'eat' ], [ 13.5, 18.5, 'work' ], [ 18.5, 21, 'stroll' ], [ 21, 24, 'sleep' ] ],
-	folk: [ [ 0, 7, 'sleep' ], [ 7, 8, 'wake' ], [ 8, 12, 'stroll' ], [ 12, 13, 'eat' ], [ 13, 17.5, 'stroll' ], [ 17.5, 21, 'tavern' ], [ 21, 24, 'sleep' ] ],
-	regular: [ [ 0, 0.6, 'drunk' ], [ 0.6, 10, 'sleep' ], [ 10, 12, 'stroll' ], [ 12, 13, 'eat' ], [ 13, 17, 'stroll' ], [ 17, 23.4, 'tavern' ], [ 23.4, 24, 'drunk' ] ],
+	vendor: [ [ 0, 6, 'sleep' ], [ 6, 7, 'wake' ], [ 7, 12.5, 'work' ], [ 12.5, 13.5, 'eat' ], [ 13.5, 18.5, 'work' ], [ 18.5, 19.8, 'promenade' ], [ 19.8, 21, 'stroll' ], [ 21, 24, 'sleep' ] ],
+	folk: [ [ 0, 7, 'sleep' ], [ 7, 8, 'wake' ], [ 8, 12, 'stroll' ], [ 12, 13, 'eat' ], [ 13, 14.6, 'siesta' ], [ 14.6, 17.5, 'stroll' ], [ 17.5, 19.2, 'promenade' ], [ 19.2, 21.5, 'tavern' ], [ 21.5, 24, 'sleep' ] ],
+	regular: [ [ 0, 0.6, 'drunk' ], [ 0.6, 10, 'sleep' ], [ 10, 12, 'stroll' ], [ 12, 13, 'eat' ], [ 13, 15, 'siesta' ], [ 15, 17, 'stroll' ], [ 17, 23.4, 'tavern' ], [ 23.4, 24, 'drunk' ] ],
 	watchman: [ [ 0, 6, 'watch' ], [ 6, 14, 'sleep' ], [ 14, 18, 'stroll' ], [ 18, 20, 'tavern' ], [ 20, 24, 'watch' ] ],
 	lamplighter: [ [ 0, 7, 'sleep' ], [ 7, 12, 'stroll' ], [ 12, 13, 'eat' ], [ 13, 17.6, 'stroll' ], [ 17.6, 19.3, 'lamps' ], [ 19.3, 22, 'tavern' ], [ 22, 24, 'sleep' ] ],
 	pirate: [ [ 0, 3.5, 'tavern' ], [ 3.5, 4.5, 'drunk' ], [ 4.5, 11, 'sleep' ], [ 11, 12, 'wake' ], [ 12, 17, 'stroll' ], [ 17, 24, 'tavern' ] ],
@@ -32,7 +35,7 @@ export const TOWN_SCHEDULES = {
 	fence: [ [ 0, 3, 'work' ], [ 3, 11, 'sleep' ], [ 11, 12, 'wake' ], [ 12, 24, 'work' ] ],
 	pirateWatch: [ [ 0, 8, 'watch' ], [ 8, 16, 'sleep' ], [ 16, 20, 'tavern' ], [ 20, 24, 'watch' ] ],
 };
-export const ACTIVITIES = new Set( [ 'sleep', 'wake', 'work', 'eat', 'tavern', 'play', 'stroll', 'watch', 'lamps', 'drunk' ] );
+export const ACTIVITIES = new Set( [ 'sleep', 'wake', 'work', 'eat', 'tavern', 'play', 'stroll', 'watch', 'lamps', 'drunk', 'school', 'siesta', 'promenade', 'festival' ] );
 
 export function validTownSchedule( s ) {
 
@@ -96,9 +99,22 @@ const LOOK = {
 	queue: { base: 'Idle_Breathe', gestures: [ 'Look_Around', 'Shrug' ] },
 	play: { base: 'Idle_Breathe', gestures: [ 'Cheer_Clap', 'Dance' ] },
 	cheer: { base: 'Clap', gestures: [] },
+	// wave 24E
+	stallSetup: { base: 'Kneel_Work', gestures: [ 'Inspect_Catch' ] }, // the morning: crates out, the awning up
+	haggle: { base: 'Idle_Breathe', gestures: [ 'Shrug', 'Point', 'Chat_Gesture', 'Inspect_Catch', 'Talk' ] },
+	siesta: { base: 'Sit_Chair_Idle', gestures: [], sit: true },
+	walkTalk: { base: 'Chat_Gesture', gestures: [ 'Laugh', 'Point', 'Talk' ] }, // the evening walk's pauses
+	quay: { base: 'Idle_Breathe', gestures: [ 'Point_Out', 'Friendly_Wave', 'Wave', 'Talk', 'Cheer_Clap' ] }, // a ship coming in
+	chain: { base: 'Inspect_Catch', gestures: [] }, // the bucket passed on
+	dance: { base: 'Dance', gestures: [ 'Dance_2', 'Cheer_Clap', 'Clap' ] },
+	watchFest: { base: 'Clap', gestures: [ 'Cheer_Clap', 'Laugh', 'Talk_Group' ] },
+	stare: { base: 'Idle_Breathe', gestures: [] },
 };
 
-const SPEED = { walk: 1.05, run: 3.1, drunk: 0.6, sweep: 0.4, barrow: 0.85, carry: 0.9, patrol: 0.85, chase: 2.6, flee: 2.2 };
+const SPEED = { walk: 1.05, run: 3.1, drunk: 0.6, sweep: 0.4, barrow: 0.85, carry: 0.9, patrol: 0.85, chase: 2.6, flee: 2.2, promenade: 0.8, procession: 0.7, back: 1.3 };
+const WET = 0.3, DRY = 0.12; // weather.rain: in out of it above, out again below
+// outdoor activities the rain sends people in from (unless they hold an umbrella)
+const OUTDOOR = new Set( [ 'stroll', 'wake', 'eat', 'play', 'siesta', 'promenade', 'festival' ] );
 const FAR_TICK = 0.5; // s: citizens away from the player step at 2 Hz
 const NEAR_R = 75; // m: within this they step every frame
 const DORMANT_R = 450; // m beyond the town's radius: activities jump (no walking)
@@ -193,6 +209,20 @@ export class Citizen {
 		this.tagFreeze = 0;
 		this.pending = null; // a route request waiting its turn
 		this.lantern = this.role === 'watchman' || this.role === 'pirateWatch';
+		// wave 24E: the weather, the player's gun, the town's events
+		this.hasUmbrella = this.role !== 'child' && ! this.role.startsWith( 'pirate' ) && ( ( h >>> 5 ) % 5 ) < 2; // two in five carry one
+		this.umbrella = false; // holding it up now
+		this.sheltering = false; // gone in out of the rain
+		this.oilskin = false; // the fishers and dockhands work on in the rain
+		this.bucket = false; // in a bucket chain
+		this.pair = null; // the evening walk's partner
+		this.eventRole = null; // a procession, the festival's dance, a quay crowd: the event owns the goals
+		this.stareAt = - 1e9;
+		this.eventUntil = 0;
+		this.setupAt = - 1e9; // the vendor set the stall out
+		this.unloadN = 0; // crates left to carry up from a skiff
+		this.cross = null; // the crossing waited at: { cr, a, b }
+		this.stepPh = ( h % 628 ) / 100; // the far figure's walk cycle
 
 	}
 
@@ -261,7 +291,319 @@ export class TownSim {
 		this.dormant = true;
 		this.seats = plan.seats.slice();
 		this._clipScratch = { name: '', loop: true, speed: 1 };
+		// wave 24E: the weather, the island day (market days, the festival), the events running, the places they use
+		this.rain = 0;
+		this.wet = false;
+		this.day = 0;
+		this.marketDay = false;
+		this.festival = false;
+		this.event = null; // { kind: 'procession', ... } (one at a time)
+		this.chain = null; // a bucket chain: { pts, members, fire: { x, z }, t }
+		this.places = townPlaces( plan );
+		this._quay = null; // the quay spots on free ground (resolved once the grid is ready)
+		this.crossings = []; // signalled crossings: { node, edge, a, b } (the city's; setStreets)
+		this.busStops = []; // { node, x, z, yaw }
+		this.crossOK = null; // ( crossing ) -> true while its traffic has a red light
 		this._populate( roster || plan, scale );
+		// the evening walk goes in pairs: folk (and the vendors) two by two
+		const walkers = this.list.filter( ( c ) => c.role === 'folk' || c.role === 'vendor' );
+		for ( let i = 0; i + 1 < walkers.length; i += 2 ) { walkers[ i ].pair = walkers[ i + 1 ]; walkers[ i + 1 ].pair = walkers[ i ]; walkers[ i ].pairLead = true; }
+
+	}
+
+	// ------------------------------------------------------------------ wave 24E: conditions and events
+
+	// the weather and the day, from the feature each frame: rain sends people in (or up go the umbrellas), the day picks the
+	// market days and the festival nights
+	setConditions( { rain = 0, day = 0, marketDay = false, festival = false } = {} ) {
+
+		this.rain = rain;
+		const wet = this.wet ? rain > DRY : rain > WET;
+		this.wet = wet;
+		this.day = day;
+		this.marketDay = marketDay;
+		if ( festival !== this.festival ) {
+
+			this.festival = festival;
+			// everyone thinks again: the festival takes the evening over (and gives it back)
+			for ( const c of this.list ) if ( ! c.eventRole && ! c.fleeing && ! c.bucket ) c.act = null;
+
+		}
+
+	}
+
+	// the city's streets (the cars feature): crossings at the lights and the bus stops; crossOK( crossing ) -> may walk now
+	setStreets( { crossings = [], busStops = [], crossOK = null } = {} ) {
+
+		this.crossings = crossings;
+		this.busStops = busStops;
+		this.crossOK = crossOK;
+
+	}
+
+	// a bus stopped at a stop: those waiting there get on (walk to its door, gone); a few others get off and walk away
+	busArrived( node, door, { off = 2 } = {} ) {
+
+		let on = 0;
+		for ( const c of this.list ) {
+
+			if ( c.hidden || ! c.goal || c.goal.kind !== 'busWait' || c.goal.stop !== node ) continue;
+			this._goal( c, { x: door.x, z: door.z, yaw: door.yaw, indoors: true, kind: 'board' }, 'walk' );
+			on ++;
+
+		}
+
+		// alighting: strollers out of sight (far from the stop) step off the bus instead
+		let k = 0;
+		for ( const c of this.list ) {
+
+			if ( k >= off ) break;
+			if ( c.hidden || c.eventRole || c.near || c.act !== 'stroll' || ! c.arrived || Math.hypot( c.x - door.x, c.z - door.z ) < 60 ) continue;
+			this.slots.release( c.id );
+			c.x = door.x; c.z = door.z; c.path = null; c.pending = null; c.goal = null;
+			this._stroll( c );
+			k ++;
+
+		}
+
+		return on;
+
+	}
+
+	// the quay spots (on free ground once the grid is up)
+	quaySpots() {
+
+		this._places();
+		return this.places.quay;
+
+	}
+
+	// the derived places moved onto the grid's free ground, once it is ready
+	_places() {
+
+		if ( this._placesOk || ! this.grid || ! this.grid.ready ) return;
+		this._placesOk = true;
+		const P = this.places, G = this.grid;
+		P.quay = onFreeGround( G, P.quay );
+		P.walk = onFreeGround( G, P.walk, 4 );
+		if ( P.fest ) { P.fest.dance = onFreeGround( G, P.fest.dance, 2 ); P.fest.watch = onFreeGround( G, P.fest.watch, 2 ); P.fest.posts = onFreeGround( G, P.fest.posts, 3 ); }
+		for ( const k in P.fronts ) P.fronts[ k ] = onFreeGround( G, P.fronts[ k ], 1.2 );
+
+	}
+
+	// someone draws a gun near (x, z): people turn and stare; the near ones (children first) back away from it
+	stare( x, z, radius = 14 ) {
+
+		let n = 0;
+		for ( const c of this.list ) {
+
+			if ( c.hidden || c.fleeing || c.eventRole || c.bucket || c.sitting || this.time - c.stareAt < 8 ) continue;
+			const d = Math.hypot( c.x - x, c.z - z );
+			if ( d > radius ) continue;
+			c.stareAt = this.time;
+			const yaw = yawToward( c.x, c.z, x, z );
+			if ( d < 5 && ( c.role === 'child' || hashId( c.id ) % 3 === 0 ) && ! c.role.startsWith( 'pirate' ) ) {
+
+				// back off a few metres, then go on with the day
+				this.slots.release( c.id );
+				const ax = ( c.x - x ) / ( d || 1 ), az = ( c.z - z ) / ( d || 1 );
+				let tx = c.x + ax * 6, tz = c.z + az * 6;
+				if ( this.grid && this.grid.ready ) { const q = this.grid.nearestFree( tx, tz, 3 ); if ( q ) { tx = q.x; tz = q.z; } }
+				this._goal( c, { x: tx, z: tz, yaw, look: LOOK.stare, kind: 'backoff', dwell: 5 }, 'back' );
+
+			} else {
+
+				// pirates square up instead of staring
+				c.react = { clip: c.role.startsWith( 'pirate' ) ? 'Swagger_Idle' : 'Stare', t: 2.5 + ( hashId( c.id ) % 10 ) / 10, yaw };
+
+			}
+
+			n ++;
+
+		}
+
+		return n;
+
+	}
+
+	// a ship comes in: a crowd gathers on the quay to watch, point and wave
+	gatherQuay( seconds = 60, max = 10 ) {
+
+		const spots = this.quaySpots();
+		if ( ! spots.length || this.dormant ) return 0;
+		const q0 = spots[ 0 ];
+		const cand = this.list.filter( ( c ) => ! c.hidden && ! c.fleeing && ! c.eventRole && ! c.bucket && ! c.sheltering && c.queueSlot < 0 && ( c.act === 'stroll' || c.act === 'wake' || c.act === 'promenade' || c.act === 'play' || c.act === 'eat' || c.act === 'siesta' ) )
+			.sort( ( a, b ) => Math.hypot( a.x - q0.x, a.z - q0.z ) - Math.hypot( b.x - q0.x, b.z - q0.z ) );
+		let n = 0;
+		for ( const c of cand.slice( 0, Math.min( max, spots.length ) ) ) {
+
+			this.slots.release( c.id );
+			const q = spots[ n ];
+			c.eventRole = 'quay';
+			c.eventUntil = this.time + seconds + 60; // (whoever cannot get there in time gives up)
+			this._goal( c, { x: q.x, z: q.z, yaw: q.yaw, look: LOOK.quay, kind: 'quay', dwell: seconds * ( 0.8 + ( hashId( c.id ) % 40 ) / 100 ) }, c.role === 'child' ? 'run' : 'walk' );
+			n ++;
+
+		}
+
+		return n;
+
+	}
+
+	// a fire in town: a line of people from the quay to it passing buckets (seconds: how long they keep at it)
+	bucketChain( x, z, seconds = 45 ) {
+
+		if ( this.chain || this.dormant ) return 0;
+		const spots = this.quaySpots();
+		if ( ! spots.length ) return 0;
+		let src = spots[ 0 ], bd = Infinity;
+		for ( const s of spots ) { const d = Math.hypot( s.x - x, s.z - z ); if ( d < bd ) { bd = d; src = s; } }
+		if ( bd > 140 ) return 0;
+		// the line: from the water's edge to 2.5 m short of the fire, a person every ~1.6 m (3 to 9 of them)
+		const L = Math.max( 0, bd - 2.5 ), n = Math.max( 3, Math.min( 9, Math.round( L / 1.6 ) + 1 ) );
+		const pts = [];
+		for ( let i = 0; i < n; i ++ ) {
+
+			const k = n > 1 ? i / ( n - 1 ) : 0;
+			let px = src.x + ( x - src.x ) * ( L / Math.max( bd, 1e-3 ) ) * k, pz = src.z + ( z - src.z ) * ( L / Math.max( bd, 1e-3 ) ) * k;
+			if ( this.grid && this.grid.ready ) { const q = this.grid.nearestFree( px, pz, 3 ); if ( q ) { px = q.x; pz = q.z; } }
+			pts.push( { x: px, z: pz } );
+
+		}
+
+		const cand = this.list.filter( ( c ) => c.role !== 'child' && ! c.eventRole && ! c.bucket && c.queueSlot < 0 && Math.hypot( c.x - x, c.z - z ) < 120 )
+			.sort( ( a, b ) => Math.hypot( a.x - x, a.z - z ) - Math.hypot( b.x - x, b.z - z ) ).slice( 0, n );
+		if ( cand.length < 3 ) return 0;
+		const members = [];
+		cand.forEach( ( c, i ) => {
+
+			const p = pts[ i ], q = pts[ Math.min( i + 1, pts.length - 1 ) ], back = pts[ Math.max( 0, i - 1 ) ];
+			// each faces along the line, toward the fire (the last one faces it)
+			const yaw = i < pts.length - 1 ? yawToward( p.x, p.z, q.x, q.z ) : yawToward( p.x, p.z, x, z );
+			c.fleeing = false; c.fleeT = 0; c.react = null;
+			this.slots.release( c.id );
+			c.bucket = true;
+			c.eventRole = 'chain';
+			c.queueSlot = - 1;
+			this._goal( c, { x: p.x, z: p.z, yaw: Number.isFinite( yaw ) ? yaw : yawToward( back.x, back.z, p.x, p.z ), look: LOOK.chain, kind: 'chain', dwell: Infinity }, 'run' );
+			members.push( c );
+
+		} );
+		this.chain = { pts: pts.slice( 0, members.length ), members, fire: { x, z }, t: seconds, splashT: 0 };
+		return members.length;
+
+	}
+
+	// a skiff tied up with the catch: fishers and dockhands carry its crates up to the fish hall (a few trips each)
+	unloadCatch( dock, trips = 3 ) {
+
+		const H = this.plan.hall;
+		if ( ! H || this.dormant ) return 0;
+		const spots = this.quaySpots();
+		let from = null, bd = Infinity;
+		for ( const s of spots ) { const d = Math.hypot( s.x - dock.x, s.z - dock.z ); if ( d < bd ) { bd = d; from = s; } }
+		if ( ! from || bd > 60 ) return 0;
+		const q0 = H.queue[ 0 ];
+		let to = { x: q0.x + Math.cos( H.yaw ) * 1.4, z: q0.z - Math.sin( H.yaw ) * 1.4 };
+		if ( this.grid && this.grid.ready ) to = this.grid.nearestFree( to.x, to.z, 3 ) || to;
+		const cand = this.list.filter( ( c ) => ( c.role === 'fisher' || c.role === 'dockworker' || c.role === 'pirateHand' || c.role === 'carter' ) && ! c.hidden && ! c.eventRole && ! c.bucket && ! c.fleeing && c.act === 'work' )
+			.sort( ( a, b ) => Math.hypot( a.x - from.x, a.z - from.z ) - Math.hypot( b.x - from.x, b.z - from.z ) ).slice( 0, 2 );
+		for ( const c of cand ) {
+
+			this.slots.release( c.id );
+			c.loop = [ { x: from.x, z: from.z, yaw: from.yaw }, { x: to.x, z: to.z, yaw: H.yaw } ];
+			c.loaded = false;
+			c.stage = 0;
+			c.unloadN = trips;
+			this._goal( c, { ...c.loop[ 0 ], look: LOOK.carryEnd, kind: 'carry', dwell: 2.5 }, 'carry' );
+
+		}
+
+		return cand.length;
+
+	}
+
+	// a procession through the town (a wedding): a couple ahead, friends two by two behind, along the route; a cheer at the end
+	procession( route, { followers = 8, name = 'wedding' } = {} ) {
+
+		if ( this.event || this.dormant || ! route || route.length < 2 ) return 0;
+		const r0 = route[ 0 ];
+		const cand = this.list.filter( ( c ) => ! c.hidden && ! c.fleeing && ! c.eventRole && ! c.bucket && c.queueSlot < 0 && ( c.role === 'folk' || c.role === 'regular' || c.role === 'child' || c.role === 'vendor' ) )
+			.sort( ( a, b ) => Math.hypot( a.x - r0.x, a.z - r0.z ) - Math.hypot( b.x - r0.x, b.z - r0.z ) ).slice( 0, followers + 2 );
+		if ( cand.length < 4 ) return 0;
+		for ( const c of cand ) { this.slots.release( c.id ); c.eventRole = 'procession'; }
+		this.event = { kind: 'procession', name, route, k: 0, members: cand, waitT: 0, endT: 0 };
+		this._eventLeg();
+		return cand.length;
+
+	}
+
+	// the procession's next waypoint: rows of two behind the couple, 1.4 m apart, along the way they came
+	_eventLeg() {
+
+		const E = this.event, R = E.route;
+		const p = R[ E.k ], prev = R[ Math.max( 0, E.k - 1 ) ], next = R[ Math.min( R.length - 1, E.k + 1 ) ];
+		let dx = p.x - prev.x, dz = p.z - prev.z;
+		if ( E.k === 0 ) { dx = next.x - p.x; dz = next.z - p.z; }
+		const L = Math.hypot( dx, dz ) || 1;
+		const fx = dx / L, fz = dz / L, sx = fz, sz = - fx;
+		const yaw = yawToward( 0, 0, fx, fz );
+		E.members.forEach( ( c, i ) => {
+
+			const row = Math.floor( i / 2 ), side = i % 2 ? 0.45 : - 0.45;
+			let x = p.x - fx * row * 1.4 + sx * side, z = p.z - fz * row * 1.4 + sz * side;
+			if ( this.grid && this.grid.ready ) { const q = this.grid.nearestFree( x, z, 3 ); if ( q ) { x = q.x; z = q.z; } }
+			this._goal( c, { x, z, yaw, look: i < 2 ? LOOK.walkTalk : LOOK.watchFest, kind: 'procession', dwell: Infinity }, 'procession' );
+
+		} );
+		E.waitT = 0;
+
+	}
+
+	_eventStep( dt ) {
+
+		const E = this.event;
+		if ( ! E ) return;
+		if ( E.endT > 0 ) {
+
+			E.endT -= dt;
+			if ( E.endT <= 0 ) { for ( const c of E.members ) { c.eventRole = null; c.act = null; c.react = null; } this.event = null; }
+			return;
+
+		}
+
+		E.waitT += dt;
+		// the next leg once the couple and most of the rest are there (or after a while: nobody is left behind for long)
+		const there = E.members.filter( ( c ) => c.arrived ).length;
+		if ( ( E.members[ 0 ].arrived && there >= E.members.length - 1 ) || E.waitT > 40 ) {
+
+			if ( E.k >= E.route.length - 1 ) {
+
+				// the end: everyone turns to the couple and cheers
+				const a = E.members[ 0 ];
+				E.members.forEach( ( c, i ) => { c.react = { clip: i < 2 ? 'Friendly_Wave' : i % 2 ? 'Cheer_Clap' : 'Clap', t: 6, yaw: i < 2 ? c.yaw + Math.PI : yawToward( c.x, c.z, a.x, a.z ) }; } );
+				E.endT = 6.5;
+				return;
+
+			}
+
+			E.k ++;
+			this._eventLeg();
+
+		}
+
+	}
+
+	// the chain: a while at it, then everyone goes back to their day
+	_chainStep( dt ) {
+
+		const C = this.chain;
+		if ( ! C ) return;
+		C.t -= dt;
+		C.splashT -= dt;
+		if ( C.t > 0 ) return;
+		for ( const c of C.members ) { c.bucket = false; c.eventRole = null; c.act = null; }
+		this.chain = null;
 
 	}
 
@@ -319,6 +661,8 @@ export class TownSim {
 			if ( c.hidden && c.fleeing ) { c.fleeT = Math.max( c.fleeT, seconds ); continue; }
 			if ( x !== null && Math.hypot( c.x - x, c.z - z ) > radius ) continue;
 			if ( c.role === 'pirateWatch' ) continue; // the fort's men stand to
+			if ( c.bucket ) continue; // (wave 24E) the bucket chain holds its line
+			c.eventRole = null;
 			c.fleeing = true;
 			c.fleeT = seconds;
 			c.react = null;
@@ -511,8 +855,49 @@ export class TownSim {
 		c.queueSlot = - 1;
 		c.stage = 0;
 		const home = c.home;
+		c.umbrella = false;
+		// (wave 24E) out in the rain: up goes the umbrella, or in out of it (the workers work on in oilskins)
+		if ( this.wet && OUTDOOR.has( act ) && ! c.hasUmbrella ) {
+
+			c.sheltering = true;
+			const T = P.tavern;
+			// the nearer of home and the tavern
+			const tav = T && act !== 'play' && Math.hypot( T.door.x - c.x, T.door.z - c.z ) < Math.hypot( home.x - c.x, home.z - c.z );
+			const d = tav ? T.door : home;
+			return this._goal( c, { x: d.x, z: d.z, yaw: d.yaw, indoors: true, kind: 'shelter' }, Math.hypot( d.x - c.x, d.z - c.z ) < 45 ? 'run' : 'walk' );
+
+		}
+
+		c.umbrella = this.wet && OUTDOOR.has( act );
+		c.oilskin = this.wet && act === 'work';
+		if ( this.festival && ( act === 'tavern' || act === 'promenade' || act === 'stroll' || ( act === 'play' && this.hour >= 18 ) ) ) act = 'festival';
 		switch ( act ) {
 
+			case 'school': {
+
+				const S = this.places.school;
+				return this._goal( c, { x: S.x, z: S.z, yaw: S.yaw, indoors: true, kind: 'school' } );
+
+			}
+
+			case 'siesta': {
+
+				// a seat in the shade, else a nap at home
+				if ( ! this.wet ) {
+
+					const k = S.claim( 'seat', this.seats.length, c.id, Math.floor( R() * Math.max( 1, this.seats.length ) ) );
+					if ( k >= 0 ) { const s = this.seats[ k ]; return this._goal( c, { x: s.x, z: s.z, yaw: s.yaw, h: s.h, look: LOOK.siesta, kind: 'seat', dwell: Infinity } ); }
+
+				}
+
+				return this._goal( c, { x: home.x, z: home.z, yaw: home.yaw, indoors: true, kind: 'home' } );
+
+			}
+
+			case 'promenade':
+				return this._promenade( c );
+			case 'festival':
+				return this._dance( c );
 			case 'sleep':
 				return this._goal( c, { x: home.x, z: home.z, yaw: home.yaw, indoors: true, kind: 'home' } );
 			case 'drunk':
@@ -533,7 +918,7 @@ export class TownSim {
 				return this._lamp( c );
 			case 'eat': {
 
-				const k = S.claim( 'seat', this.seats.length, c.id );
+				const k = this.wet ? - 1 : S.claim( 'seat', this.seats.length, c.id );
 				if ( k >= 0 ) { const s = this.seats[ k ]; return this._goal( c, { x: s.x, z: s.z, yaw: s.yaw, h: s.h, look: LOOK.seatEat, kind: 'seat', dwell: Infinity } ); }
 				const pk = S.claim( 'patio', P.tavern ? P.tavern.patio.length : 0, c.id );
 				if ( pk >= 0 ) { const s = P.tavern.patio[ pk ]; return this._goal( c, { ...s, look: LOOK.standEat, kind: 'patio', dwell: Infinity } ); }
@@ -593,7 +978,20 @@ export class TownSim {
 			case 'stall': {
 
 				const k = S.claim( 'stall', this.plan.stalls.length, c.id );
-				if ( k >= 0 ) { const s = this.plan.stalls[ k ]; c.stall = s; return this._goal( c, { ...s.vendor, look: LOOK.stall, kind: 'stall', dwell: Infinity } ); }
+				if ( k >= 0 ) {
+
+					const s = this.plan.stalls[ k ]; c.stall = s;
+					// (wave 24E) first thing in the morning the stall is set out: crates down, goods up (once a morning)
+					if ( this.hour < 9 && this.time - c.setupAt > 3000 ) {
+
+						c.setupAt = this.time;
+						return this._goal( c, { ...s.vendor, look: LOOK.stallSetup, kind: 'stallSetup', dwell: 35 } );
+
+					}
+
+					return this._goal( c, { ...s.vendor, look: LOOK.stall, kind: 'stall', dwell: Infinity } );
+
+				}
 				break;
 
 			}
@@ -660,13 +1058,99 @@ export class TownSim {
 
 	}
 
+	// (wave 24E) the evening walk: two by two along the front, a pause now and then to talk; the pair keep together
+	_promenade( c ) {
+
+		const W = this.places.walk;
+		if ( ! W || W.length < 2 ) return this._stroll( c );
+		// the partner follows the lead's way; the lead (or one walking alone) starts at the nearest point of the walk
+		const p = this._walkMate( c );
+		if ( p && ! c.pairLead && p.goal && p.goal.kind === 'promenade' ) { c.stage = p.stage; c.walkDir = p.walkDir; }
+		else {
+
+			let best = 0, bd = Infinity;
+			for ( let i = 0; i < W.length; i ++ ) { const d = Math.hypot( W[ i ].x - c.x, W[ i ].z - c.z ); if ( d < bd ) { bd = d; best = i; } }
+			c.stage = best;
+			c.walkDir = c.walkDir || ( hashId( c.id ) % 2 ? 1 : - 1 );
+
+		}
+
+		return this._walkLeg( c );
+
+	}
+
+	// the evening walk's partner when it is out walking too
+	_walkMate( c ) {
+
+		const p = c.pair;
+		return p && p.act === 'promenade' && ! p.hidden && ! p.eventRole && ! p.sheltering ? p : null;
+
+	}
+
+	_walkLeg( c ) {
+
+		const W = this.places.walk, q = W[ c.stage ];
+		const nx = W[ Math.min( W.length - 1, Math.max( 0, c.stage + c.walkDir ) ) ];
+		// side by side: the lead on the left of the way, the partner on its right
+		const dx = nx.x - q.x, dz = nx.z - q.z, L = Math.hypot( dx, dz ) || 1;
+		const side = c.pair ? ( c.pairLead ? - 0.42 : 0.42 ) : 0;
+		let x = q.x + dz / L * side, z = q.z - dx / L * side;
+		if ( this.grid && this.grid.ready ) { const f = this.grid.nearestFree( x, z, 2 ); if ( f ) { x = f.x; z = f.z; } }
+		const pause = hashId( ( c.pair && ! c.pairLead ? c.pair.id : c.id ) + ':' + c.stage ) % 4 === 0; // a stop to talk at one point in four (the pair's)
+		// a partner left behind catches up at a brisk walk
+		const p = this._walkMate( c );
+		const behind = p && ! c.pairLead && Math.hypot( p.x - c.x, p.z - c.z ) > 4;
+		this._goal( c, { x, z, yaw: yawToward( q.x, q.z, nx.x, nx.z ), look: pause ? LOOK.walkTalk : LOOK.alone, kind: 'promenade', dwell: pause ? 8 : 0.3 }, behind ? 'walk' : 'promenade' );
+
+	}
+
+	// (wave 24E) the festival: a ring of dancers round the square, the rest clapping along the edge
+	_dance( c ) {
+
+		const F = this.places.fest;
+		if ( ! F ) return this._stroll( c );
+		const k = this.slots.claim( 'dance', F.dance.length, c.id );
+		if ( k >= 0 ) { const s = F.dance[ k ]; return this._goal( c, { ...s, look: LOOK.dance, kind: 'festival', dwell: Infinity } ); }
+		const w = this.slots.claim( 'festWatch', F.watch.length, c.id );
+		if ( w >= 0 ) { const s = F.watch[ w ]; return this._goal( c, { ...s, look: LOOK.watchFest, kind: 'festival', dwell: Infinity } ); }
+		return this._stroll( c );
+
+	}
+
 	// a stroll: a gathering, a stall to browse, a seat, or somewhere along the streets
 	_stroll( c ) {
 
 		const P = this.plan, S = this.slots, R = this.rand;
 		S.release( c.id );
 		c.gather = null;
-		const roll = R();
+		// (wave 24E) the city: over the road at the lights, or to wait for the bus
+		if ( this.crossings.length && R() < 0.25 ) {
+
+			let best = null, bd = 140;
+			for ( const cr of this.crossings ) for ( const [ a, b ] of [ [ cr.a, cr.b ], [ cr.b, cr.a ] ] ) {
+
+				const d = Math.hypot( a.x - c.x, a.z - c.z );
+				if ( d < bd ) { bd = d; best = { cr, a, b }; }
+
+			}
+
+			if ( best ) { c.cross = best; return this._goal( c, { x: best.a.x, z: best.a.z, yaw: yawToward( best.a.x, best.a.z, best.b.x, best.b.z ), look: LOOK.queue, kind: 'crossWait', dwell: 75 } ); }
+
+		}
+
+		if ( this.busStops.length && R() < 0.12 ) {
+
+			const s = this.busStops[ Math.floor( R() * this.busStops.length ) ];
+			const a = R() * Math.PI * 2, r = 0.6 + R() * 1.4;
+			let x = s.x + Math.cos( a ) * r, z = s.z + Math.sin( a ) * r;
+			if ( this.grid && this.grid.ready ) { const q = this.grid.nearestFree( x, z, 2 ); if ( q ) { x = q.x; z = q.z; } }
+			return this._goal( c, { x, z, yaw: s.yaw, look: LOOK.queue, kind: 'busWait', stop: s.node, dwell: 240 } );
+
+		}
+
+		let roll = R();
+		// (wave 24E) a market day: most of a stroll is spent at the stalls; no one sits about in the rain
+		if ( this.marketDay && this.hour >= 7.5 && this.hour < 13.5 && P.stalls.length && R() < 0.65 ) roll = 0.5;
 		if ( roll < 0.45 && P.gathers.length ) {
 
 			// prefer a gathering someone already waits at
@@ -686,13 +1170,15 @@ export class TownSim {
 
 		if ( roll < 0.7 && P.stalls.length ) {
 
+			// a stall: at its counter (haggling with the vendor), else waiting a step behind
 			const s = P.stalls[ Math.floor( R() * P.stalls.length ) ];
-			const k = S.claim( 'front:' + s.id, s.front.length, c.id );
-			if ( k >= 0 ) return this._goal( c, { ...s.front[ k ], look: LOOK.browse, kind: 'browse', dwell: 15 + R() * 25 } );
+			const fronts = this.places.fronts[ s.id ] || s.front;
+			const k = S.claim( 'front:' + s.id, fronts.length, c.id, 0 );
+			if ( k >= 0 ) return this._goal( c, { ...fronts[ k ], look: k < s.front.length ? LOOK.haggle : LOOK.browse, kind: 'browse', stall: s, dwell: 15 + R() * 25 } );
 
 		}
 
-		if ( roll < 0.82 && this.seats.length ) {
+		if ( roll < 0.82 && this.seats.length && ! this.wet ) {
 
 			const k = S.claim( 'seat', this.seats.length, c.id, Math.floor( R() * this.seats.length ) );
 			if ( k >= 0 ) { const s = this.seats[ k ]; return this._goal( c, { x: s.x, z: s.z, yaw: s.yaw, h: s.h, look: LOOK.seat, kind: 'seat', dwell: 40 + R() * 60 } ); }
@@ -726,11 +1212,52 @@ export class TownSim {
 
 			case 'carry': {
 
+				// (wave 24E) the catch carried up from a skiff: back to the day once the last crate is in
+				if ( c.unloadN > 0 && c.stage === 1 && ! c.loaded ) {
+
+					c.unloadN --;
+					if ( c.unloadN <= 0 ) { c.loop = null; c.act = null; c.goal = null; return; }
+
+				}
+
 				c.stage = 1 - c.stage;
 				const q = c.loop[ c.stage ];
 				return this._goal( c, { ...q, look: LOOK.carryEnd, kind: 'carry', dwell: 2.5 }, 'carry' );
 
 			}
+
+			case 'stallSetup':
+				return this._goal( c, { ...c.stall.vendor, look: LOOK.stall, kind: 'stall', dwell: Infinity } );
+			case 'promenade': {
+
+				// the lead waits at each point until the partner is beside it; the partner goes where the lead goes
+				const p = this._walkMate( c );
+				const W = this.places.walk;
+				if ( p && c.pairLead ) {
+
+					if ( Math.hypot( p.x - c.x, p.z - c.z ) > 2.5 && c.waitT < 30 ) return;
+
+				} else if ( p && p.goal && p.goal.kind === 'promenade' ) {
+
+					if ( p.stage === c.stage && c.waitT < 30 ) return; // the lead has not gone on yet
+					c.stage = p.stage; c.walkDir = p.walkDir;
+					return this._walkLeg( c );
+
+				}
+
+				let s = c.stage + c.walkDir;
+				if ( s < 0 || s >= W.length ) { c.walkDir = - c.walkDir; s = c.stage + c.walkDir; }
+				c.stage = Math.max( 0, Math.min( W.length - 1, s ) );
+				return this._walkLeg( c );
+
+			}
+
+			case 'quay':
+			case 'backoff':
+				c.eventRole = null;
+				c.act = null;
+				c.goal = null;
+				return;
 
 			case 'barrow':
 			case 'sweepAt':
@@ -756,7 +1283,7 @@ export class TownSim {
 			}
 
 			default:
-				if ( c.act === 'stroll' || g.kind === 'wander' || g.kind === 'gather' || g.kind === 'browse' || g.kind === 'seat' ) return this._stroll( c );
+				if ( c.act === 'stroll' || g.kind === 'wander' || g.kind === 'gather' || g.kind === 'browse' || g.kind === 'seat' || g.kind === 'crossing' || g.kind === 'crossWait' || g.kind === 'busWait' ) return this._stroll( c );
 
 		}
 
@@ -782,7 +1309,7 @@ export class TownSim {
 
 		}
 
-		if ( ! this.dormant ) this._routeNext();
+		if ( ! this.dormant ) { this._places(); this._routeNext(); }
 		const list = this.list;
 		for ( let i = 0; i < list.length; i ++ ) {
 
@@ -790,7 +1317,9 @@ export class TownSim {
 			const d2 = viewer ? ( c.x - viewer.x ) ** 2 + ( c.z - viewer.z ) ** 2 : Infinity;
 			c.near = d2 < NEAR_R * NEAR_R && ! this.dormant;
 			c.acc += dt;
-			if ( ! c.near ) {
+			// (wave 24E: one with no plan yet thinks at once: a town woken with the player already in it, after a load or a
+			// start there, has everyone at their places, not the whole town walking out of its doors together)
+			if ( ! c.near && c.act !== null ) {
 
 				if ( c.acc < ( this.dormant ? FAR_TICK * 4 : FAR_TICK ) ) continue;
 
@@ -804,6 +1333,8 @@ export class TownSim {
 		}
 
 		if ( ! this.dormant ) this._tag( dt );
+		this._eventStep( dt );
+		this._chainStep( dt );
 
 	}
 
@@ -829,7 +1360,38 @@ export class TownSim {
 
 		if ( c.talkT > 0 ) { c.talkT -= dt; return; }
 		if ( c.queueSlot >= 0 ) return;
+		// (wave 24E) the weather: in out of the rain until it stops; up with the umbrella when it starts
+		if ( c.sheltering ) {
+
+			if ( this.wet && ! c.eventRole ) return;
+			c.sheltering = false;
+			c.act = null;
+
+		}
+
 		const act = townActivity( c.role, this.hour + c.hourOff );
+		if ( ! c.eventRole && ! c.hidden && c.act === act ) {
+
+			const out = OUTDOOR.has( act );
+			if ( this.wet && out && ( ! c.hasUmbrella || ( c.goal && c.goal.look && c.goal.look.sit ) ) && ! c.umbrella ) { this._plan( c, act ); return; }
+			if ( this.wet && out && c.hasUmbrella && ! c.umbrella ) c.umbrella = true;
+			if ( ! this.wet && ( c.umbrella || c.oilskin ) ) { c.umbrella = false; c.oilskin = false; }
+			if ( this.wet && act === 'work' ) c.oilskin = true;
+
+		}
+
+		// an event owns the goals while it lasts (the procession, the quay crowd, the bucket chain)
+		if ( c.eventRole ) {
+
+			if ( c.eventRole === 'quay' && this.time > c.eventUntil && c.goal ) return this._next( c );
+			if ( ! c.arrived || ! c.goal ) return;
+			c.waitT += dt;
+			if ( c.waitT >= ( c.goal.dwell ?? Infinity ) ) return this._next( c );
+			this._gesture( c, dt );
+			return;
+
+		}
+
 		if ( act !== c.act ) {
 
 			c.act = act;
@@ -848,6 +1410,14 @@ export class TownSim {
 		c.waitT += dt;
 		// a gathering of one does not last
 		const g = c.goal;
+		// (wave 24E) at the lights: over when the traffic it crosses has a red
+		if ( g.kind === 'crossWait' && c.cross && this.crossOK && this.crossOK( c.cross.cr ) ) {
+
+			const b = c.cross.b;
+			c.cross = null;
+			return this._goal( c, { x: b.x, z: b.z, look: LOOK.alone, kind: 'crossing', dwell: 0.5 }, 'back' );
+
+		}
 		if ( g.kind === 'gather' && c.gather ) {
 
 			const company = this.slots.count( c.gather.id ) > 1;
@@ -857,13 +1427,22 @@ export class TownSim {
 		}
 
 		if ( c.waitT >= ( g.dwell ?? Infinity ) ) return this._next( c );
-		// idle gestures (bodies only care; the far ones skip them)
+		// (wave 24E) a vendor with someone at the counter haggles: talks, shrugs and points far more often
+		if ( g.kind === 'stall' && c.stall && this.slots.count( 'front:' + c.stall.id ) > 0 ) c.gestureT -= dt * 2;
+		this._gesture( c, dt );
+
+	}
+
+	// idle gestures (bodies only care; the far ones skip them)
+	_gesture( c, dt ) {
+
+		const g = c.goal;
 		if ( c.gesture ) {
 
 			c.gestureLeft -= dt;
 			if ( c.gestureLeft <= 0 ) c.gesture = null;
 
-		} else if ( c.near && g.look && g.look.gestures && g.look.gestures.length ) {
+		} else if ( c.near && g && g.look && g.look.gestures && g.look.gestures.length ) {
 
 			c.gestureT -= dt;
 			if ( c.gestureT <= 0 ) {

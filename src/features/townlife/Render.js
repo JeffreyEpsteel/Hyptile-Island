@@ -1,33 +1,17 @@
 import { InstancedMesh, Matrix4, Quaternion, Vector3, Color } from '../../engine/index.js';
-import { prepare, mergePrepared, box, cylinder, sphere, torus, mat4 } from '../../world/boat/GeoKit.js';
+import { prepare, mergePrepared, box, cylinder, sphere, torus, lathe, mat4 } from '../../world/boat/GeoKit.js';
 import { createPropMaterial, PAT } from '../../game/GameMaterials.js';
 import { G } from '../../core/Globals.js';
+import { CrowdBatch } from './Crowd.js';
 
-// townlife's instanced draws: the far crowd (a cheap figure per citizen beyond the avatars' reach: one draw for a whole
-// town), what the near ones carry (a crate, a wheelbarrow, the watch's lantern: its glass glows at night) and the local
-// skiffs with their rower. Every list is refilled each frame from plain records:
+// townlife's instanced draws: the far crowd (wave 24E: animated figures, Crowd.js; one draw for every town), what the near
+// ones carry (a crate, a wheelbarrow, the watch's lantern: its glass glows at night; wave 24E: umbrellas in the rain, the
+// bucket chain's buckets), the local skiffs with their rower, and the events' dressing (wave 24E: the festival's lantern
+// strings and posts, the regatta's dinghies). Every list is refilled each frame from plain records:
 //   const R = new TownMeshes( scene, { crowd: 80, props: 16, skiffs: 6 } );
-//   R.begin(); R.peg( x, y, z, yaw, scale, tint, phase ); R.crate( ... ); R.barrow( ... ); R.lantern( ... ); R.skiff( ... ); R.end();
+//   R.begin(); R.pegs.push( x, y, z, yaw, scale, look, pose ); R.crates.push( x, y, z, yaw, scale ); ... R.end();
 
 const _m = new Matrix4(), _q = new Quaternion(), _q2 = new Quaternion(), _ax = new Vector3(), _p = new Vector3(), _s = new Vector3(), _c = new Color(), _y = new Vector3( 0, 1, 0 );
-
-// a person in a few boxes (1.65 m, facing +z; the rig convention of the avatars is turned by yaw + PI like theirs)
-function pegGeometry() {
-
-	const P = [];
-	const add = ( g, o ) => P.push( prepare( g, { rough: 0.9, ...o } ) );
-	for ( const s of [ - 1, 1 ] ) {
-
-		add( box( 0.13, 0.78, 0.15 ), { color: 0x4a4a52, pattern: PAT.cloth, matrix: mat4( s * 0.09, 0.39, 0 ) } );
-		add( box( 0.09, 0.62, 0.1 ), { color: 0xe8e4dc, pattern: PAT.cloth, matrix: mat4( s * 0.25, 1.12, 0, 0, 0, s * 0.08 ) } );
-
-	}
-
-	add( box( 0.38, 0.62, 0.22 ), { color: 0xf2efe8, pattern: PAT.cloth, matrix: mat4( 0, 1.1, 0 ) } );
-	add( sphere( 0.12, 8, 6 ), { color: 0xc8a07a, pattern: PAT.skin, matrix: mat4( 0, 1.53, 0.01 ) } );
-	return mergePrepared( P );
-
-}
 
 function crateGeometry() {
 
@@ -84,6 +68,64 @@ function skiffGeometry() {
 	for ( const s of [ - 1, 1 ] ) add( cylinder( 0.025, 0.025, 2.6, 5 ), { color: 0xc8b088, pattern: PAT.wood, matrix: mat4( s * 0.95, 0.55, - 0.25, 0, 0, s * 1.2 ) } );
 	// a basket of fish aft
 	add( cylinder( 0.22, 0.18, 0.25, 10 ), { color: 0x9a7a4a, pattern: PAT.cloth, matrix: mat4( 0, 0.45, - 1.2 ) } );
+	return mergePrepared( P );
+
+}
+
+// an umbrella open over the head (the shaft down to the hand at -y), canopy in the instance colour
+function umbrellaGeometry() {
+
+	return mergePrepared( [
+		prepare( cylinder( 0.012, 0.012, 0.95, 5 ), { color: 0x2a2420, rough: 0.6, matrix: mat4( 0, - 0.47, 0 ) } ),
+		prepare( lathe( [ [ 0.0, 0.26 ], [ 0.58, - 0.02 ], [ 0.6, 0.0 ], [ 0.42, 0.13 ], [ 0.18, 0.26 ], [ 0.0, 0.3 ] ], 12 ), { color: 0xffffff, rough: 0.55, pattern: PAT.cloth } ),
+		prepare( sphere( 0.025, 5, 4 ), { color: 0x2a2420, matrix: mat4( 0, 0.31, 0 ) } ),
+	] );
+
+}
+
+function bucketGeometry() {
+
+	return mergePrepared( [
+		prepare( cylinder( 0.13, 0.1, 0.24, 9 ), { color: 0x6a5238, rough: 0.8, pattern: PAT.woodZ } ),
+		prepare( cylinder( 0.115, 0.115, 0.01, 9 ), { color: 0x3a6a8a, rough: 0.1, matrix: mat4( 0, 0.09, 0 ) } ),
+		prepare( torus( 0.12, 0.006, 4, 12, Math.PI ), { color: 0x2a2a2a, metal: 0.6, matrix: mat4( 0, 0.12, 0 ) } ),
+	] );
+
+}
+
+// a lantern on a string (paper, glowing at night in the instance colour) and the post the strings hang from
+function bulbGeometry() {
+
+	return mergePrepared( [ prepare( sphere( 0.13, 8, 6 ), { color: 0xffffff, rough: 0.6, matrix: mat4( 0, 0, 0, 0, 0, 0, 1, 1.25, 1 ) } ) ] );
+
+}
+
+function postGeometry() {
+
+	return mergePrepared( [
+		prepare( cylinder( 0.07, 0.09, 4.2, 7 ), { color: 0x6a5238, rough: 0.85, pattern: PAT.wood, matrix: mat4( 0, 2.1, 0 ) } ),
+		prepare( cylinder( 0.22, 0.26, 0.2, 7 ), { color: 0x5a4a3a, rough: 0.9, matrix: mat4( 0, 0.1, 0 ) } ),
+	] );
+
+}
+
+// a racing dinghy (bow +z): a white hull, a mast and a triangle of sail on the beam the instance's roll leans
+function dinghyGeometry() {
+
+	const P = [];
+	const add = ( g, o ) => P.push( prepare( g, { rough: 0.6, ...o } ) );
+	add( box( 1.1, 0.4, 3.2 ), { color: 0xf2f0ea, matrix: mat4( 0, 0.12, 0 ) } );
+	add( box( 0.75, 0.3, 0.8 ), { color: 0xf2f0ea, matrix: mat4( 0, 0.15, 1.75, 0, Math.PI / 4, 0 ) } );
+	add( box( 1.14, 0.05, 3.24 ), { color: 0x2a5a8a, matrix: mat4( 0, 0.34, 0 ) } );
+	add( cylinder( 0.03, 0.04, 4.2, 6 ), { color: 0xd8d0c0, matrix: mat4( 0, 2.4, 0.5 ) } );
+	add( cylinder( 0.025, 0.025, 2.2, 5 ), { color: 0xd8d0c0, matrix: mat4( 0, 0.75, - 0.55, Math.PI / 2, 0, 0 ) } );
+	// the sail: a thin wedge from the mast back along the boom
+	const sail = box( 0.02, 3.6, 2.1 );
+	const pos = sail.attributes.position;
+	for ( let i = 0; i < pos.count; i ++ ) { const y = pos.getY( i ) + 1.8, z = pos.getZ( i ); pos.setZ( i, z * ( 1 - y / 3.6 ) - 1.05 * ( 1 - y / 3.6 ) + 0.5 ); pos.setY( i, y + 0.75 ); }
+	add( sail, { color: 0xf8f6f0, rough: 0.7, pattern: PAT.cloth } );
+	add( box( 0.36, 0.5, 0.24 ), { color: 0x2a3a5a, pattern: PAT.cloth, matrix: mat4( 0.3, 0.6, - 0.9 ) } );
+	add( sphere( 0.11, 7, 5 ), { color: 0xb88a62, pattern: PAT.skin, matrix: mat4( 0.3, 0.98, - 0.9 ) } );
 	return mergePrepared( P );
 
 }
@@ -149,35 +191,49 @@ export class TownMeshes {
 		this.scene = scene;
 		this.material = createPropMaterial( 'townlife' );
 		this.glass = createPropMaterial( 'townlifeLanterns' );
-		this.pegs = new List( scene, pegGeometry(), this.material, crowd, 'townlife-crowd' );
+		this.pegs = new CrowdBatch( scene, crowd );
 		this.crates = new List( scene, crateGeometry(), this.material, props, 'townlife-crates' );
 		this.barrows = new List( scene, barrowGeometry(), this.material, props, 'townlife-barrows' );
 		this.lanterns = new List( scene, lanternFrameGeometry(), this.material, props, 'townlife-lanterns', { shadow: false } );
 		this.glow = new List( scene, mergePrepared( [ prepare( cylinder( 0.07, 0.07, 0.24, 8 ), { color: 0xffd9a0, rough: 0.2 } ) ] ), this.glass, props, 'townlife-lanternGlass', { shadow: false } );
 		this.skiffs = new List( scene, skiffGeometry(), this.material, skiffs, 'townlife-skiffs' );
-		this.lists = [ this.pegs, this.crates, this.barrows, this.lanterns, this.glow, this.skiffs ];
+		// wave 24E
+		this.paper = createPropMaterial( 'townlifeFestoon' );
+		this.paper.surface += '\n\ts.emissive = mat.emissive * base;\n'; // (each lantern glows in its own colour)
+		this.umbrellas = new List( scene, umbrellaGeometry(), this.material, props, 'townlife-umbrellas' );
+		this.buckets = new List( scene, bucketGeometry(), this.material, 12, 'townlife-buckets', { shadow: false } );
+		this.bulbs = new List( scene, bulbGeometry(), this.paper, 96, 'townlife-festoon', { shadow: false } );
+		this.posts = new List( scene, postGeometry(), this.material, 8, 'townlife-posts' );
+		this.dinghies = new List( scene, dinghyGeometry(), this.material, 8, 'townlife-dinghies' );
+		this.lists = [ this.crates, this.barrows, this.lanterns, this.glow, this.skiffs, this.umbrellas, this.buckets, this.bulbs, this.posts, this.dinghies ];
 
 	}
 
 	begin() {
 
 		for ( const l of this.lists ) l.n = 0;
+		this.pegs.begin();
 
 	}
 
 	end() {
 
 		for ( const l of this.lists ) l.end();
+		this.pegs.end();
 		// the lanterns' glass glows from dusk
 		const night = Math.max( 0, Math.min( 1, ( ( G.night ? G.night.value : 0 ) - 0.05 ) / 0.5 ) );
 		const e = 0.1 + 3.4 * night;
 		this.glass.emissive = [ e, e * 0.8, e * 0.5 ];
+		// the festival's paper lanterns glow in their own colours (the emissive tints the instance colour)
+		const f = 0.05 + 2.6 * night;
+		this.paper.emissive = [ f, f, f ];
 
 	}
 
 	dispose() {
 
 		for ( const l of this.lists ) l.dispose( this.scene );
+		this.pegs.dispose();
 
 	}
 
