@@ -1,5 +1,5 @@
 import { InstancedMesh, Matrix4, Quaternion, Vector3, Euler, Color } from '../../engine/index.js';
-import { prepare, mergePrepared, box, cylinder, sphere, mat4 } from '../boat/GeoKit.js';
+import { prepare, mergePrepared, box, roundedBox, cylinder, sphere, mat4 } from '../boat/GeoKit.js';
 import { createPropMaterial, PAT } from '../../game/GameMaterials.js';
 import { mulberry32 } from '../../util/Noise.js';
 
@@ -30,7 +30,7 @@ const TINTS = {
 const _m = new Matrix4(), _q = new Quaternion(), _p = new Vector3(), _s = new Vector3(), _e = new Euler(), _c = new Color();
 const _mh = new Matrix4(), _ml = new Matrix4();
 
-// a body facing +z with its feet at y 0 (the legs are drawn separately); pale so the tint shows
+// a body facing +z with its feet at y 0 (the legs are drawn separately); pale so the tint shows (wave 24E: rounded, not boxes)
 function bodyGeometry( kind ) {
 
 	const P = [];
@@ -39,9 +39,10 @@ function bodyGeometry( kind ) {
 	const dark = { color: 0x1c1a18 };
 	if ( kind === 'dog' ) {
 
-		add( box( 0.22, 0.22, 0.56 ), { ...coat, matrix: mat4( 0, 0.46, 0 ) } );
-		add( box( 0.17, 0.18, 0.2 ), { ...coat, matrix: mat4( 0, 0.6, 0.34, - 0.15, 0, 0 ) } );
-		add( box( 0.1, 0.09, 0.13 ), { ...coat, matrix: mat4( 0, 0.56, 0.48 ) } );
+		add( roundedBox( 0.22, 0.22, 0.56, 0.09, 3 ), { ...coat, matrix: mat4( 0, 0.46, 0 ) } );
+		add( sphere( 0.1, 10, 7 ), { ...coat, matrix: mat4( 0, 0.48, 0.24, 0, 0, 0, 1.05, 1.05, 0.9 ) } ); // the chest
+		add( roundedBox( 0.17, 0.18, 0.2, 0.07, 3 ), { ...coat, matrix: mat4( 0, 0.6, 0.34, - 0.15, 0, 0 ) } );
+		add( roundedBox( 0.1, 0.09, 0.13, 0.035, 2 ), { ...coat, matrix: mat4( 0, 0.56, 0.48 ) } );
 		add( box( 0.05, 0.04, 0.03 ), { ...dark, matrix: mat4( 0, 0.58, 0.55 ) } );
 		for ( const s of [ - 1, 1 ] ) {
 
@@ -54,7 +55,7 @@ function bodyGeometry( kind ) {
 
 	} else if ( kind === 'cat' ) {
 
-		add( box( 0.13, 0.13, 0.34 ), { ...coat, matrix: mat4( 0, 0.27, 0 ) } );
+		add( roundedBox( 0.13, 0.13, 0.34, 0.055, 3 ), { ...coat, matrix: mat4( 0, 0.27, 0 ) } );
 		add( sphere( 0.075, 10, 7 ), { ...coat, matrix: mat4( 0, 0.37, 0.2, 0, 0, 0, 1, 0.9, 1 ) } );
 		for ( const s of [ - 1, 1 ] ) {
 
@@ -76,9 +77,9 @@ function bodyGeometry( kind ) {
 
 	} else {
 
-		add( box( 0.26, 0.28, 0.66 ), { ...coat, matrix: mat4( 0, 0.66, 0 ) } );
-		add( box( 0.12, 0.26, 0.12 ), { ...coat, matrix: mat4( 0, 0.85, 0.34, 0.5, 0, 0 ) } );
-		add( box( 0.13, 0.14, 0.24 ), { ...coat, matrix: mat4( 0, 0.96, 0.46, 0.35, 0, 0 ) } );
+		add( roundedBox( 0.26, 0.28, 0.66, 0.1, 3 ), { ...coat, matrix: mat4( 0, 0.66, 0 ) } );
+		add( roundedBox( 0.12, 0.26, 0.12, 0.05, 2 ), { ...coat, matrix: mat4( 0, 0.85, 0.34, 0.5, 0, 0 ) } );
+		add( roundedBox( 0.13, 0.14, 0.24, 0.05, 2 ), { ...coat, matrix: mat4( 0, 0.96, 0.46, 0.35, 0, 0 ) } );
 		for ( const s of [ - 1, 1 ] ) {
 
 			add( cylinder( 0.012, 0.022, 0.16, 5 ), { color: 0x6a5c4a, matrix: mat4( s * 0.04, 1.1, 0.38, - 0.6, 0, s * 0.25 ) } );

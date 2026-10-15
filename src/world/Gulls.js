@@ -4,9 +4,12 @@ import { Material } from '../engine/render/Material.js';
 // Seagulls soaring over the bay: each bird circles its own thermal, banking into the turn, with
 // occasional flapping bursts and the characteristic bent ("M") wing. Everything is animated in
 // the vertex shader from time and per-instance parameters (no CPU work per frame).
+//
+// Wave 24E: `follow` makes small flocks that go with something (townlife's skiffs coming in with the catch): instances in
+// groups of `follow.group`, each group wheeling low round the point moveFlock( g, x, z ) sets (hideFlock( g ) sends it off).
 export class Gulls {
 
-	constructor( { scene, count = 18, center = new THREE.Vector3( 35, 0, - 10 ), spread = 140, seed = 7 } ) {
+	constructor( { scene, count = 18, center = new THREE.Vector3( 35, 0, - 10 ), spread = 140, seed = 7, follow = null } ) {
 
 		let s = seed >>> 0;
 		const rand = () => ( ( s = Math.imul( s ^ ( s >>> 15 ), 2246822519 ) + 0x6D2B79F5 >>> 0 ) / 4294967296 );
@@ -14,14 +17,24 @@ export class Gulls {
 		const geo = gullGeometry();
 		// per instance: (cx, cz, radius, height) (phase, speed, flapSeed, dir)
 		const a = new Float32Array( count * 4 ), b = new Float32Array( count * 4 );
+		this.follow = follow;
+		this.offsets = follow ? new Float32Array( count * 3 ) : null;
 		for ( let i = 0; i < count; i ++ ) {
 
-			a.set( [ center.x + ( rand() - 0.5 ) * spread, center.z + ( rand() - 0.5 ) * spread * 0.8, 14 + rand() * 36, 9 + rand() * 24 ], i * 4 );
+			if ( follow ) {
+
+				// round the followed point: a tight circle each, low over the water, ahead of and behind the boat
+				const r = follow.radius[ 0 ] + rand() * ( follow.radius[ 1 ] - follow.radius[ 0 ] );
+				this.offsets.set( [ ( rand() - 0.5 ) * 10, ( rand() - 0.5 ) * 10, follow.height[ 0 ] + rand() * ( follow.height[ 1 ] - follow.height[ 0 ] ) ], i * 3 );
+				a.set( [ 0, 0, r, - 200 ], i * 4 );
+
+			} else a.set( [ center.x + ( rand() - 0.5 ) * spread, center.z + ( rand() - 0.5 ) * spread * 0.8, 14 + rand() * 36, 9 + rand() * 24 ], i * 4 );
 			b.set( [ rand() * Math.PI * 2, 8 + rand() * 4, rand() * 100, rand() < 0.5 ? - 1 : 1 ], i * 4 );
 
 		}
 
-		geo.setAttribute( 'gA', new THREE.InstancedBufferAttribute( a, 4 ) );
+		this.gA = new THREE.InstancedBufferAttribute( a, 4 );
+		geo.setAttribute( 'gA', this.gA );
 		geo.setAttribute( 'gB', new THREE.InstancedBufferAttribute( b, 4 ) );
 
 		// velocity: camera motion only (the TSL version used staticVelocityMRT): the engine's
@@ -69,6 +82,36 @@ export class Gulls {
 		this.mesh.frustumCulled = false;
 		this.mesh.castShadow = false;
 		scene.add( this.mesh );
+
+	}
+
+	// (follow flocks) group g wheels round (x, z); hideFlock( g ) parks it out of sight (under the sea, never drawn on screen)
+	moveFlock( g, x, z ) {
+
+		const n = this.follow.group, a = this.gA.array;
+		for ( let i = g * n; i < Math.min( ( g + 1 ) * n, a.length / 4 ); i ++ ) {
+
+			a[ i * 4 ] = x + this.offsets[ i * 3 ]; a[ i * 4 + 1 ] = z + this.offsets[ i * 3 + 1 ]; a[ i * 4 + 3 ] = this.offsets[ i * 3 + 2 ];
+
+		}
+
+		this.gA.needsUpdate = true;
+
+	}
+
+	hideFlock( g ) {
+
+		const n = this.follow.group, a = this.gA.array;
+		let changed = false;
+		for ( let i = g * n; i < Math.min( ( g + 1 ) * n, a.length / 4 ); i ++ ) if ( a[ i * 4 + 3 ] !== - 200 ) { a[ i * 4 + 3 ] = - 200; changed = true; }
+		if ( changed ) this.gA.needsUpdate = true;
+
+	}
+
+	dispose() {
+
+		if ( this.mesh.parent ) this.mesh.parent.remove( this.mesh );
+		this.mesh.geometry.dispose();
 
 	}
 
