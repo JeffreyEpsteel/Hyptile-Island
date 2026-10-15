@@ -316,7 +316,7 @@ ${ common }
 	let bright = vA.x / cov; let leaf = vA.y / cov; let cr = vA.z / cov;
 	// exposure (baked crown AO): the inside and underside of the crown in deep shade
 	let ex = vB.w / cov;
-	let albedo = ${ colorOf( { seed: 'iDat.w', cr: 'cr', leaf: 'leaf', bright: 'bright', isGroup1: 'g1Flag' } ) } * mix( 0.26, 1.0, ex * ex ) * ( bright * 0.6 + 0.7 );
+	let albedo = ${ colorOf( { seed: 'iDat.w', cr: 'cr', leaf: 'leaf', bright: 'bright', isGroup1: 'g1Flag' } ) } * mix( 0.34, 1.0, ex * ex ) * ( bright * 0.6 + 0.7 );
 	s.albedo = albedo;
 	// B is written where A has coverage: un-premultiply the filtered edges by A's coverage
 	let nl = vB.xyz / max( vA.w, 1e-3 ) * 2.0 - 1.0;

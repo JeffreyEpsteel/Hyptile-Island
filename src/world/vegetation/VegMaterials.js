@@ -603,7 +603,9 @@ fn vegCanopyLeafColor( seed: f32, cr: f32, isShrub: bool ) -> vec3f {
 	c = mix( c, mix( ${ C( 0x5c5234 ) }, ${ C( 0x6e5a3a ) }, cr ), dry * 0.5 );
 	let flower = step( 0.988, iv2 ) * treeK * step( 0.5, cr );
 	c = mix( c, ${ C( 0x8a4a2c ) }, flower * 0.5 );
-	return mix( vec3f( luminance( c ) ), c, 0.85 );
+	// (wave 24D) x1.3: the hillside forest read as near-black blobs next to the sand (~35x darker on screen, ~10x is a
+	// sunlit tropical canopy); the palette's hues are kept, the leaves now sit at a real leaf albedo (green ~0.08 - 0.12)
+	return mix( vec3f( luminance( c ) ), c, 0.85 ) * 1.3;
 }
 
 fn vegBarkColor( n: f32, n2: f32 ) -> vec3f {
