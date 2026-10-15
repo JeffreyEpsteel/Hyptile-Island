@@ -1,6 +1,7 @@
 import * as THREE from '../engine/index.js';
 import { berthOf } from '../game/Boats.js';
 import { WORLD } from '../world/WorldLayout.js';
+import { shapeFromLines, shapeFromDims, shapeFromObject, placeShape, placeBox, polySat, polyContact, polyDistance } from '../world/boat/HullShape.js';
 
 const RHO = 1025; // sea water density
 const GRAV = 9.81;
@@ -19,6 +20,26 @@ export function isSmallHull( mass, length ) {
 	return Number.isFinite( mass ) && Number.isFinite( length ) && mass <= CAPSIZE.mass && length <= CAPSIZE.length;
 
 }
+
+// Hull against the world (wave 24B). The hull's outline as drawn (world/boat/HullShape.js: the sheer line of its lines, the
+// GLB's own outline once a ship's model has loaded) against the solid colliders near her (piles, pier decks, quays, rocks:
+// src/world/Colliders.js boxes and cylinders), every 1/120 s step after the integration: the overlap is pushed out (all of
+// the excess past `deep`, `beta` of the rest a step) and the velocity into the obstacle at the contact point is taken out with an
+// impulse through her mass and inertia (the added mass of the water in it), bounced by `restitution` (fenders and timber at a
+// nudge, `hard` at speed, none while she only leans on it) and rubbed along by `friction`. Nothing tunnels: a step moves her at most a few cm. Every blow
+// faster than `touch` is kept in ctl.impacts [ { what, x, y, z, speed, nx, nz } ] (naval's world contacts drain it: damage,
+// the thump or the crunch, the splash); ctl.rub is the speed she grinds along with.
+// The ground (the terrain heightfield under the keel points): a stiff contact along the terrain's normal (a rock face stops
+// her, a beach lifts her) with Coulomb friction `ground` (the keel scrapes to a stop instead of skating up the sand); a
+// new grounding faster than `touch` is an impact too ('ground', speed across the slope weighted by its steepness).
+export const CONTACT = {
+	restitution: 0.3, hard: 0.08, hardAt: 6, // bounce at a nudge -> at hardAt m/s and over
+	friction: 0.35, ground: 0.7,
+	slop: 0.02, beta: 0.3, deep: 0.12, // m left, of the rest pushed out a step, past this the excess at once
+	touch: 0.35, // m/s: slower is a rest (moored against the fenders), not a blow
+	gather: 0.25, margin: 6, // s between gathering the colliders within her reach (+ margin m)
+	maxImpacts: 8,
+};
 
 const sstep = THREE.MathUtils.smoothstep;
 const clamp = THREE.MathUtils.clamp;
@@ -102,6 +123,11 @@ export class BoatController {
 		this.pull = 0;
 		this._assist = 0;
 		this.onCapsize = null;
+		// world contacts (wave 24B)
+		this.impacts = [];
+		this.rub = 0;
+		this.grounded = 0;
+		this.onImpact = null;
 
 		this.apply();
 
@@ -151,6 +177,7 @@ export class BoatController {
 		// contact geometry (grounding keel points, waterline outline against pier piles)
 		this.contactPoints = model.contactPoints || null;
 		this.outline = model.outline || null;
+		this._setShape( model );
 		// the hull's own size for the resistance curve (the lobster boat's constants scale with length)
 		const L = model.dimensions ? model.dimensions.length : 8.2;
 		this.sizeK = L / 8.2;
@@ -534,6 +561,9 @@ export class BoatController {
 		// origin = com - R * comLocal
 		this.position.copy( comW ).sub( _v.copy( this.com ).applyQuaternion( this.quaternion ) );
 
+		// ---- the hull against piles, piers, quays and rocks (after the move: nothing it moved into stays in)
+		this._worldContacts( h, wetD );
+
 	}
 
 	isFinite() {
@@ -623,6 +653,8 @@ export class BoatController {
 
 	}
 
+	// The keel points on the ground: a stiff contact along the terrain's normal (a rock face stops her, a beach lifts her),
+	// damped, with Coulomb friction (the keel scrapes; a little viscous give at a crawl so she settles instead of chattering).
 	contacts( F, T, comW ) {
 
 		const pts = this.contactPoints || ( this.contactPoints = [
@@ -630,49 +662,247 @@ export class BoatController {
 			new THREE.Vector3( 1.1, - 0.4, 1.5 ), new THREE.Vector3( - 1.1, - 0.4, 1.5 ), new THREE.Vector3( 1.2, - 0.35, - 2.5 ), new THREE.Vector3( - 1.2, - 0.35, - 2.5 ),
 			new THREE.Vector3( 0, 0.2, 4.2 ),
 		] );
-		const pw = _c1, vp = _c2, f = _c3, r = _c4;
+		const pw = _c1, vp = _c2, f = _c3, r = _c4, n = _c5;
+		const mk = this.mass / 3200, kn = 400000 * mk, cn = 30000 * mk;
+		let touching = 0, scrape = 0, blow = 0, bx = 0, bz = 0;
 		for ( const lp of pts ) {
 
 			this.toWorld( lp, pw );
 			const ground = this.terrain.heightAt( pw.x, pw.z );
 			const pen = ground - pw.y;
-			if ( pen > 0 ) {
+			if ( pen <= 0 ) continue;
+			touching ++;
+			// the terrain's normal from its slope (0.5 m either side)
+			const e = 0.5;
+			const gx = ( this.terrain.heightAt( pw.x + e, pw.z ) - this.terrain.heightAt( pw.x - e, pw.z ) ) / ( 2 * e );
+			const gz = ( this.terrain.heightAt( pw.x, pw.z + e ) - this.terrain.heightAt( pw.x, pw.z - e ) ) / ( 2 * e );
+			n.set( - gx, 1, - gz ).normalize();
+			vp.copy( this.angular ).cross( r.copy( pw ).sub( comW ) ).add( this.velocity );
+			const vn = vp.dot( n );
+			const fn = Math.max( 0, Math.min( pen, 0.6 ) * kn - Math.min( vn, 0 ) * cn );
+			f.copy( n ).multiplyScalar( fn );
+			// friction against the slide along the ground (viscous at a crawl, so she settles instead of chattering)
+			vp.addScaledVector( n, - vn );
+			const vt = vp.length();
+			if ( vt > 1e-4 ) {
 
-				vp.copy( this.angular ).cross( r.copy( pw ).sub( comW ) ).add( this.velocity );
-				const fn = pen * 400000 - Math.min( vp.y, 0 ) * 30000;
-				f.set( - vp.x * 6000, Math.max( fn, 0 ), - vp.z * 6000 );
-				F.add( f );
-				T.add( r.copy( pw ).sub( comW ).cross( f ) );
+				const ft = Math.min( CONTACT.ground * fn, vt * 24000 * mk );
+				f.addScaledVector( vp, - ft / vt );
+
+			}
+
+			F.add( f );
+			T.add( r.copy( pw ).sub( comW ).cross( f ) );
+			scrape = Math.max( scrape, vt );
+			// a new grounding: the speed into the slope and across it (a steep face takes the way head on)
+			const hit = Math.max( - vn, vt * clamp( ( 1 - n.y ) * 4, 0.15, 1 ) );
+			if ( hit > blow ) { blow = hit; bx = pw.x; bz = pw.z; }
+
+		}
+
+		if ( touching && ! this.grounded && blow > CONTACT.touch ) this._impact( 'ground', bx, this.position.y - this.draft, bz, blow, 0, 0 );
+		this.grounded = touching;
+		this.groundRub = touching ? scrape : 0;
+
+	}
+
+	// the hull's outline (HullShape): the sheer line of her lines; a ship's GLB outline once it is in (kept only when it agrees
+	// with the lines within a quarter: a stray mesh never makes her wider than she is drawn)
+	_setShape( model ) {
+
+		const d = model.dimensions || {};
+		const lines = shapeFromLines( model.lines );
+		this.hullShape = lines || shapeFromDims( d.length || this.length || 8.2, d.beam || 2.9 );
+		// the sheer (+ the rail) above the waterline: a pier deck lower than that stops her, a higher one she runs under
+		this.hullTop = Math.max( d.freeboardBow || 0, d.freeboard || 0, 0.6 ) + 0.15;
+		this._near = null;
+		this._gatherT = 0;
+		if ( ! model.ready || typeof model.ready.then !== 'function' ) return;
+		model.ready.then( () => {
+
+			if ( this.model !== model || ! model.group ) return;
+			const hull = model.group.children.find( ( c ) => c.name === 'boat-hull' );
+			const m = hull ? shapeFromObject( hull, { yLo: - 0.6, yHi: this.hullTop, withRoot: true } ) : null;
+			const ref = this.hullShape;
+			if ( ! m || ! ref ) return;
+			const len = ( m.zBow - m.zAft ) / Math.max( 0.5, ref.zBow - ref.zAft );
+			if ( Math.abs( m.hx / ref.hx - 1 ) < 0.25 && len > 0.8 && len < 1.25 ) {
+
+				this.hullShape = m;
+				this._near = null;
+
+			}
+
+		} ).catch( () => {} );
+
+	}
+
+	// the solid colliders within her reach (re-gathered every CONTACT.gather s: piles, decks, quays, rocks, crates)
+	_gather() {
+
+		const c = this.colliders, s = this.hullShape;
+		const near = this._near || ( this._near = { cyl: [], box: [] } );
+		near.cyl.length = 0;
+		near.box.length = 0;
+		this._gatherT = CONTACT.gather;
+		if ( ! c || ! s ) return near;
+		const R = s.r + CONTACT.margin + this.speed * CONTACT.gather * 2;
+		const x = this.position.x, z = this.position.z, y0 = this.position.y - this.draft - 1, y1 = this.position.y + this.hullTop + 1;
+		for ( const b of c.cylinders || [] ) {
+
+			if ( b.yMax < y0 || b.yMin > y1 ) continue;
+			const r = R + b.radius;
+			if ( Math.abs( b.x - x ) < r && Math.abs( b.z - z ) < r ) near.cyl.push( b );
+
+		}
+
+		for ( const b of c.boxes || [] ) {
+
+			if ( ! b.solid || b.top < y0 || b.bottom > y1 ) continue;
+			const r = R + ( b.radius || Math.hypot( b.half.x, b.half.z ) );
+			if ( Math.abs( b.center.x - x ) < r && Math.abs( b.center.z - z ) < r ) near.box.push( b );
+
+		}
+
+		return near;
+
+	}
+
+	// Hull against the colliders near her: push out, take out the way into it at the contact (with a bounce), rub along.
+	_worldContacts( h, wetD ) {
+
+		this.rub = 0;
+		if ( ! this.colliders || ! this.hullShape ) return;
+		this._gatherT -= h;
+		const near = ( ! this._near || this._gatherT <= 0 ) ? this._gather() : this._near;
+		if ( ! near.cyl.length && ! near.box.length ) { if ( this._touch ) this._touch.clear(); return; }
+		const s = this.hullShape, yaw = this.getYaw(), sn = Math.sin( yaw ), cs = Math.cos( yaw );
+		const y0 = this.position.y - this.draft, y1 = this.position.y + this.hullTop;
+		const px = this.position.x, pz = this.position.z;
+		const dist = this._pd || ( this._pd = {} );
+		// what she touched last step: a contact that is new and already deep came in from above or below (she heaved up under
+		// a deck's edge, rolled into a quay's coping), not across the water: that one is left alone instead of thrown clear
+		const was = this._touch || ( this._touch = new Set() ), now = this._touchNow || ( this._touchNow = new Set() );
+		now.clear();
+		const entry = CONTACT.deep + 2 * this.speed * h + 0.05;
+		for ( const c of near.cyl ) {
+
+			if ( c.yMax < y0 || c.yMin > y1 ) continue;
+			const dx = c.x - this.position.x, dz = c.z - this.position.z, rr = s.r + c.radius;
+			if ( dx * dx + dz * dz > rr * rr ) continue;
+			polyDistance( s, dx * cs - dz * sn, dx * sn + dz * cs, dist );
+			const pen = c.radius - dist.d;
+			if ( pen <= 0 ) continue;
+			now.add( c );
+			if ( ! was.has( c ) && pen > entry ) continue;
+			// the outline's normal towards the pile, in the world; the hull goes the other way
+			const wx = dist.nx * cs + dist.nz * sn, wz = - dist.nx * sn + dist.nz * cs;
+			this._resolve( - wx, - wz, pen, c.x - wx * c.radius, c.z - wz * c.radius, c.tag || 'pile', wetD );
+
+		}
+
+		if ( near.box.length ) {
+
+			const sat = this._sat || ( this._sat = {} ), pt = this._pt || ( this._pt = {} );
+			for ( const b of near.box ) {
+
+				if ( b.top < y0 || b.bottom > y1 ) continue;
+				const rr = s.r + ( b.radius || Math.hypot( b.half.x, b.half.z ) );
+				if ( Math.abs( b.center.x - this.position.x ) > rr || Math.abs( b.center.z - this.position.z ) > rr ) continue;
+				// (placed where she is now: an earlier contact of this step may have pushed her)
+				const H = this._wp = placeShape( s, this.position.x, this.position.z, yaw, this._wp );
+				const B = this._bp = placeBox( b, this._bp );
+				polySat( H, B, sat );
+				if ( ! sat.hit ) continue;
+				now.add( b );
+				if ( ! was.has( b ) && sat.depth > entry ) continue;
+				polyContact( H, B, sat, pt );
+				this._resolve( - sat.nx, - sat.nz, sat.depth, pt.x, pt.z, b.tag || 'box', wetD );
 
 			}
 
 		}
 
-		// pier piles: keep the hull outline out of vertical cylinders / solid boxes near the waterline
-		if ( this.colliders ) {
+		this._touch = now;
+		this._touchNow = was;
+		if ( this.position.x !== px || this.position.z !== pz ) this.apply();
 
-			const outline = this.outline || ( this.outline = [
-				new THREE.Vector3( 0, 0.3, 4.1 ), new THREE.Vector3( 1.2, 0.3, 2.0 ), new THREE.Vector3( - 1.2, 0.3, 2.0 ),
-				new THREE.Vector3( 1.4, 0.3, - 1.0 ), new THREE.Vector3( - 1.4, 0.3, - 1.0 ), new THREE.Vector3( 1.2, 0.3, - 3.8 ), new THREE.Vector3( - 1.2, 0.3, - 3.8 ),
-			] );
-			const tmp = _c5;
-			for ( const lp of outline ) {
+	}
 
-				this.toWorld( lp, pw );
-				tmp.copy( pw );
-				tmp.y -= 0.9;
-				if ( this.colliders.resolveCapsule( tmp, 0.25, 1.6, 0 ) ) {
+	// one contact: the hull pushed along ( nx, nz ) (unit, horizontal) out of `depth` m at the world point ( px, pz )
+	_resolve( nx, nz, depth, px, pz, what, wetD ) {
 
-					vp.copy( this.angular ).cross( r.copy( pw ).sub( comW ) ).add( this.velocity );
-					f.set( ( tmp.x - pw.x ) * 260000 - vp.x * 8000, 0, ( tmp.z - pw.z ) * 260000 - vp.z * 8000 );
-					F.add( f );
-					T.add( r.copy( pw ).sub( comW ).cross( f ) );
 
-				}
+		// a share of the overlap a step (she settles against it without a jolt); past `deep` all of the excess at once
+		const corr = Math.max( 0, depth - CONTACT.deep ) + Math.max( 0, Math.min( depth, CONTACT.deep ) - CONTACT.slop ) * CONTACT.beta;
+		this.position.x += nx * corr;
+		this.position.z += nz * corr;
+		// the contact point's velocity (the blow lands a little above the waterline)
+		const comW = this.toWorld( this.com, _c1 );
+		const r = _c2.set( px - comW.x, this.position.y + 0.3 - comW.y, pz - comW.z );
+		const vp = _c3.copy( this.angular ).cross( r ).add( this.velocity );
+		const vn = vp.x * nx + vp.z * nz;
+		const tx = vp.x - nx * vn, tz = vp.z - nz * vn, vt = Math.hypot( tx, tz );
+		this.rub = Math.max( this.rub, vt );
+		if ( vn >= 0 ) return; // resting against it (moored to the fenders, pressed by the wind): nothing to take out
 
-			}
+		// the effective mass along n: the boat-frame mass with the water's added mass, and the inertia about the lever
+		const invQ = _invQ.copy( this.quaternion ).invert();
+		const m = this.mass, am = this.addedMass, ai = this.addedInertia, I = this.inertia;
+		const nb = _c4.set( nx, 0, nz ).applyQuaternion( invQ );
+		const imx = 1 / ( m * ( 1 + am.x * wetD ) ), imy = 1 / ( m * ( 1 + am.y * wetD ) ), imz = 1 / ( m * ( 1 + am.z * wetD ) );
+		const invMn = nb.x * nb.x * imx + nb.y * nb.y * imy + nb.z * nb.z * imz;
+		const iIx = 1 / ( I.x * ( 1 + ai.x * wetD ) ), iIy = 1 / ( I.y * ( 1 + ai.y * wetD ) ), iIz = 1 / ( I.z * ( 1 + ai.z * wetD ) );
+		// n . ( ( I^-1 ( r x n ) ) x r ), in the boat frame
+		const rb = _c5.copy( r ).applyQuaternion( invQ );
+		const cx = rb.y * nb.z - rb.z * nb.y, cy = rb.z * nb.x - rb.x * nb.z, cz = rb.x * nb.y - rb.y * nb.x;
+		const ix = cx * iIx, iy = cy * iIy, iz = cz * iIz;
+		const kAng = ( iy * rb.z - iz * rb.y ) * nb.x + ( iz * rb.x - ix * rb.z ) * nb.y + ( ix * rb.y - iy * rb.x ) * nb.z;
+		const speed = - vn;
+		// no bounce while she only leans on it (moored against the fenders: no chatter), the fenders' at a nudge, dead at speed
+		const e = ( CONTACT.restitution + ( CONTACT.hard - CONTACT.restitution ) * sstep( speed, 1, CONTACT.hardAt ) ) * sstep( speed, 0.15, CONTACT.touch + 0.25 );
+		const jn = ( 1 + e ) * speed / ( invMn + Math.max( 0, kAng ) );
+		// friction along the face: at most mu jn, never more than stops the slide
+		const jt = vt > 1e-4 ? Math.min( CONTACT.friction * jn, vt / Math.max( invMn, 1e-9 ) * 0.5 ) : 0;
+		const jx = nx * jn - ( jt ? tx / vt * jt : 0 ), jz = nz * jn - ( jt ? tz / vt * jt : 0 );
+		// linear: J through the boat-frame mass
+		const jb = _c4.set( jx, 0, jz ).applyQuaternion( invQ );
+		jb.set( jb.x * imx, jb.y * imy, jb.z * imz ).applyQuaternion( this.quaternion );
+		this.velocity.add( jb );
+		// angular: r x J through the inertia (bounded: a blow never throws her over)
+		const L = _c3.set( r.y * jz, r.z * jx - r.x * jz, - r.y * jx ).applyQuaternion( invQ );
+		L.set( clamp( L.x * iIx, - 0.3, 0.3 ), clamp( L.y * iIy, - 1.0, 1.0 ), clamp( L.z * iIz, - 0.4, 0.4 ) ).applyQuaternion( this.quaternion );
+		this.angular.add( L );
+		if ( speed > CONTACT.touch ) this._impact( what, px, this.position.y + 0.3, pz, speed, nx, nz );
+
+	}
+
+	_impact( what, x, y, z, speed, nx, nz ) {
+
+		const list = this.impacts;
+		// one entry per obstacle and blow: the hardest of the steps it took
+		for ( const i of list ) {
+
+			if ( i.what !== what || Math.hypot( i.x - x, i.z - z ) > 3 ) continue;
+			if ( speed > i.speed ) { i.x = x; i.y = y; i.z = z; i.speed = speed; i.nx = nx; i.nz = nz; }
+			return;
 
 		}
+
+		if ( list.length >= CONTACT.maxImpacts ) list.shift();
+		const hit = { what, x, y, z, speed, nx, nz };
+		list.push( hit );
+		if ( this.onImpact ) try { this.onImpact( hit ); } catch ( e ) { /* the listener's problem */ }
+
+	}
+
+	// the blows since the last call (naval's world contacts drain them every frame)
+	drainImpacts( out = [] ) {
+
+		out.length = 0;
+		for ( const i of this.impacts ) out.push( i );
+		this.impacts.length = 0;
+		return out;
 
 	}
 
