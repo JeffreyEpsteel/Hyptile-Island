@@ -604,7 +604,8 @@ section( '10. the island model (headless)' );
 	}
 
 	ok( isle.land.tile === tile && lt[ 0 ] > 10000 && lt[ 0 ] < 140000 && lt[ 1 ] > 1000 && lt[ 1 ] < lt[ 0 ] && inBox && hiY > 50, 'the land mesh: near 2 m and far 8 m grids of the tile, up to the summit', `${ lt.join( ' / ' ) } triangles, top ${ hiY.toFixed( 0 ) } m` );
-	ok( isle.land.near.material === isle.material && isle.land.near.castShadow && isle.land.near.receiveShadow && lum / nv < 0.12, 'on the prop material, casting shadows, dark volcanic colours', `mean luminance ${ ( lum / nv ).toFixed( 3 ) } (linear)` );
+	// (wave 24D: the land is on its own ground material, src/materials/TileTerrain.js, shared by the near and far grids)
+	ok( isle.land.near.material && isle.land.near.material === isle.land.far.material && isle.land.near.material !== isle.material && isle.land.near.castShadow && isle.land.near.receiveShadow && lum / nv < 0.12, 'on the ground material, casting shadows, dark volcanic colours', `mean luminance ${ ( lum / nv ).toFixed( 3 ) } (linear)` );
 	ok( isle.lights.length >= 3 && isle.lights.length <= 6, 'a few lights that matter (tavern, market, gate, dock)', isle.lights.length + ' lights' );
 	ok( isle.structures.size === strongholdPlan( terrain ).length && isle.guns.size === 2, 'every breakable structure and both gun batteries drawn' );
 	isle.setBroken( L.palisade[ 0 ].id, true );
