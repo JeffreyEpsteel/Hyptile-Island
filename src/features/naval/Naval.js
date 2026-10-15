@@ -41,6 +41,16 @@
 //   a crunch, the camera kick, destruction.impulse at the spot and planks when she is stove in; ships going down shed
 //   floating planks (Planks.js). Event: hullsCollided { a, b, x, z, speed, damage: { a, b }, byPlayer }.
 //   Pirates heavier than their target ram while both batteries reload; merchants steer away from a contact seen 3 s ahead.
+//
+// Wave 24B (collisions that feel solid):
+//   Every hull is its outline as drawn (world/boat/HullShape.js): a ship's from the GLB her visual loaded (per class and scale,
+//   the class's dimensions until it is in), the player's from her BoatController (hullShape). Collisions.js sweeps a pair that
+//   moved far in one step (hitches, sleeping ships) and keeps a contact's normal, so nothing passes through; restitution 0.25.
+//   The player's boat against the world (BoatController: piles, piers, quays, rocks, the ground) reports its blows here
+//   (drainImpacts): WORLD_HIT turns them into hull damage (an immovable thing takes the whole blow: ramDamage against an
+//   infinite mass, x WORLD_HIT.k[ kind ]), a fender thump under WORLD_HIT.soft m/s, the crunch, a scrape while the keel
+//   grinds, splinters / a splash, the camera kick and event hullStruck { what: 'pier' | 'rock' | 'ground' | 'object', x, z,
+//   speed, damage, byPlayer: true }. A swimmer is kept out of the ships' hulls (pushed to the outline between keel and rail).
 //   naval.aiming / naval.aimInfo       right mouse (or app.input.aimHeld) at the helm: the guns follow the camera look
 //                               (AimAssist.lookAim); the left button fires that side (naval.fire( side, { aimed: true } ))
 //   naval.playerGun.owned is always true in the sandbox (a free swivel gun); the yard sells it in the campaign
@@ -150,7 +160,8 @@ import { NavalAudio } from './NavalAudio.js';
 import { WaterPool } from './WaterPool.js';
 import { ModelSet } from './Models.js';
 import { NavalHud, hudModel, ARROW_RANGE, NO_GUN_TEXT } from './Hud.js';
-import { CollisionWorld, predictContact, yawInertia } from './Collisions.js';
+import { CollisionWorld, predictContact, yawInertia, ramDamage } from './Collisions.js';
+import { shapeFromObject, shapeFromDims, polyDistance } from '../../world/boat/HullShape.js';
 import { ShipLights } from './ShipLights.js';
 import { Planks } from './Planks.js';
 import { lookAim } from './AimAssist.js';
@@ -193,6 +204,13 @@ const byFar = ( a, b ) => b.dist - a.dist;
 // wave 16C: the states a ship may sleep in (setShipCap), and how many frames between a sleeper's steps (~4 Hz)
 const SLEEPY = new Set( [ 'patrol', 'sail', 'moored' ] );
 const SLEEP_EVERY = 15;
+// wave 24B: the player's boat against the world (BoatController impacts). soft: m/s under which a blow is a fender's thump (no
+// damage); k: the share of ramDamage's blow (against an immovable hull) a kind of obstacle deals; gap: s between two damaging
+// blows of one kind; scrape: m/s of grinding along that plays the scrape / creak (every `every` s)
+export const WORLD_HIT = { soft: 1.2, k: { pier: 0.6, rock: 0.9, ground: 0.35, object: 0.25 }, gap: 0.6, scrape: 0.6, every: 0.9 };
+const PIER_TAGS = /pile|pier|jetty|quay|dock|bollard|wharf|navy|tidemark|meridian|haven|key|shrine|landing|stage/i;
+// a swimmer this far (m) off a ship's outline is outside it (the body's radius)
+const SWIMMER_R = 0.35;
 const isCrippled = ( s ) => s.faction === 'pirate' && s.hpFraction < CRIPPLE;
 
 // quaternion product a * b ( [ x, y, z, w ] )
@@ -335,6 +353,10 @@ export class Naval {
 		this.shipLights = new ShipLights( this, { ships: 3 } ); // lanterns on the nearest ships (features' lights[] -> the scene's local lights)
 		this.lights = this.shipLights.sources;
 		this.contacts = []; // this frame's hull contacts (Collisions.js records)
+		this._shapes = new Map(); // ship class (@ scale) -> hull outline (HullShape)
+		this._hits = [];
+		this._worldT = {}; // kind -> time of its last damaging blow
+		this._scrapeT = 0;
 		this.aiming = false;
 		this.aimInfo = null; // lookAim() while aiming
 		this._lmbPrev = false;
@@ -2339,6 +2361,7 @@ export class Naval {
 		r.vz = b.velocity ? b.velocity.z : 0;
 		r.w = b.angular ? b.angular.y : 0;
 		r.maxHp = h.max;
+		r.shape = b.hullShape || null;
 		return r;
 
 	}
@@ -2405,7 +2428,38 @@ export class Naval {
 		r.w = s.yawRate;
 		r.maxHp = s.maxHp;
 		r.gentle = GENTLE.has( s.state );
+		r.shape = this._hullShape( s );
 		return r;
+
+	}
+
+	// A ship's outline as drawn: her visual's GLB once it is in (every ship of a class at one scale shares it), the class's
+	// dimensions until then (or when the meshes do not look like her hull: a stray part, a model still loading).
+	_hullShape( s ) {
+
+		const c = s.cls, v = s.visual;
+		const scale = v && v.group && v.group.scale ? v.group.scale.x : 1;
+		const key = s.kind + '@' + scale.toFixed( 3 );
+		const e = this._shapes.get( key );
+		if ( e && ( e.source === 'mesh' || ! v || ! v.loaded || e._tried ) ) return e;
+		if ( v && v.loaded ) {
+
+			let m = null;
+			try { m = shapeFromObject( v.group, { yLo: - 0.6, yHi: c.sheer * scale } ); } catch ( err ) { m = null; }
+			const len = m ? m.zBow - m.zAft : 0;
+			if ( m && m.hx > c.beam * 0.3 && m.hx < c.beam * 0.9 && len > c.length * 0.75 && len < c.length * 1.4 ) {
+
+				this._shapes.set( key, m );
+				return m;
+
+			}
+
+		}
+
+		const d = e || shapeFromDims( c.length * scale, c.beam * scale );
+		d._tried = !! ( v && v.loaded );
+		this._shapes.set( key, d );
+		return d;
 
 	}
 
@@ -2441,11 +2495,125 @@ export class Naval {
 
 	}
 
-	// every hull against every other: separate, bounce, and on a new blow the damage and the show
+	// every hull against every other: separate, bounce, and on a new blow the damage and the show; then the player's boat's
+	// blows against the world, and a swimmer kept out of the hulls
 	_collide() {
 
 		this.contacts = this.collisions.step( this.time, this._bodies() );
 		for ( const c of this.contacts ) this._onContact( c );
+		this._worldHits();
+		this._keepSwimmerOut();
+
+	}
+
+	// the player's boat against piles, piers, quays, rocks and the ground (BoatController.drainImpacts)
+	_worldHits() {
+
+		const b = this.app.boatCtl;
+		if ( ! b || typeof b.drainImpacts !== 'function' ) return;
+		const hits = b.drainImpacts( this._hits );
+		if ( this.playerHull.sunk || this.sinking ) return;
+		for ( const h of hits ) this._worldHit( h );
+		// grinding along a quay or over the bottom: the scrape (the keel) or the creak (the side), now and then
+		const rub = Math.max( b.grounded ? b.groundRub || 0 : 0, b.rub || 0 );
+		if ( rub > WORLD_HIT.scrape && this.time > this._scrapeT && b.position ) {
+
+			this._scrapeT = this.time + WORLD_HIT.every;
+			const g = clamp( 0.3 + rub / 6, 0.3, 0.9 );
+			if ( b.grounded ) this.audio.scrape( b.position.x, b.position.y - 0.5, b.position.z, g, 0.8 );
+			else this.audio.creak( b.position.x, b.position.y + 0.5, b.position.z, g * 0.8 );
+
+		}
+
+	}
+
+	_worldHit( h ) {
+
+		const what = h.what === 'ground' ? 'ground' : h.what === 'rock' ? 'rock' : PIER_TAGS.test( h.what ) ? 'pier' : 'object';
+		const v = h.speed, x = h.x, z = h.z, y = h.y;
+		const vfx = this._vfx();
+		if ( v < WORLD_HIT.soft ) {
+
+			// a nudge: the fenders take it
+			if ( what !== 'ground' ) this.audio.thump( x, y, z, clamp( 0.25 + v / 2, 0.25, 0.7 ) );
+			else this.audio.scrape( x, y, z, 0.35, 0.5 );
+			return;
+
+		}
+
+		const pb = this._playerBody();
+		let d = 0;
+		if ( pb && this.time - ( this._worldT[ what ] ?? - Infinity ) >= WORLD_HIT.gap ) {
+
+			this._worldT[ what ] = this.time;
+			d = ramDamage( pb, { mass: 1e12 }, v ) * ( WORLD_HIT.k[ what ] ?? WORLD_HIT.k.object );
+
+		}
+
+		const k = clamp( v / 4, 0.3, 3 );
+		if ( vfx ) {
+
+			if ( vfx.splash ) vfx.splash( x, 0, z, k * 0.7 );
+			if ( d > 0 && what !== 'ground' && vfx.splinters ) vfx.splinters( x, y + 0.3, z, k * 0.8 );
+			if ( d > 0.04 * ( this.playerHull.max || 100 ) && vfx.debris ) vfx.debris( x, y, z, k * 0.6, 'wood' );
+
+		} else this.fx.splash( x, 0, z, k * 0.7 );
+
+		if ( what === 'ground' ) this.audio.scrape( x, y, z, clamp( 0.45 + v / 10, 0.45, 1 ), 1.2 );
+		else this.audio.crunch( x, y, z, clamp( 0.4 + v / 10, 0.4, 1 ) );
+		// pier props near the blow fly (the destruction feature)
+		const de = what === 'pier' && this.features && this.features.get ? this.features.get( 'destruction' ) : null;
+		if ( de && typeof de.impulse === 'function' ) {
+
+			const m = pb ? pb.mass : 3200;
+			try { de.impulse( x, y + 1, z, 2 + v * 0.5, 0.5 * m * v * v * 0.2 ); } catch ( e ) { /* decoration */ }
+
+		}
+
+		const cf = this.app.cameraFeel;
+		if ( cf && cf.kick ) cf.kick( v > 4 ? 'broadside' : 'hit', { scale: clamp( v / 5, 0.3, 1.4 ) } );
+		if ( d > 0 ) {
+
+			this.damagePlayer( d, what === 'ground' || what === 'rock' ? 'grounding' : 'ramming', { x: x + h.nx * 4, z: z + h.nz * 4 }, { quiet: true } );
+			if ( what !== 'ground' && d > 0.04 * ( this.playerHull.max || 100 ) ) this.planks.burst( x, z, 1, 1 );
+
+		}
+
+		this._emit( 'hullStruck', { what, x: Math.round( x * 10 ) / 10, z: Math.round( z * 10 ) / 10, speed: Math.round( v * 10 ) / 10, damage: Math.round( d * 10 ) / 10, byPlayer: true } );
+
+	}
+
+	// a swimmer (or someone wading) is kept out of the ships' hulls between the keel and the deck (under the keel she may
+	// pass; on the deck she is aboard)
+	_keepSwimmerOut() {
+
+		const p = this.app.player;
+		if ( ! p || ( p.mode !== 'swim' && p.mode !== 'walk' ) || ! p.position ) return;
+		const q = p.position, dist = this._sd || ( this._sd = {} );
+		for ( const s of this.ships ) {
+
+			if ( ! s.alive && s.state !== 'sinking' ) continue;
+			const c = s.cls, sh = this._hullShape( s );
+			const dx = q.x - s.x, dz = q.z - s.z;
+			if ( dx * dx + dz * dz > ( sh.r + 1 ) ** 2 ) continue;
+			const y = q.y - ( s.pose ? s.pose.y : 0 );
+			if ( y < - c.draft - 0.3 || y > Math.min( c.deck, c.sheer ) - 0.4 ) continue;
+			const sn = Math.sin( s.yaw ), cs = Math.cos( s.yaw );
+			polyDistance( sh, dx * cs - dz * sn, dx * sn + dz * cs, dist );
+			const pen = SWIMMER_R - dist.d;
+			if ( pen <= 0 ) continue;
+			const wx = dist.nx * cs + dist.nz * sn, wz = - dist.nx * sn + dist.nz * cs;
+			q.x += wx * pen;
+			q.z += wz * pen;
+			const v = p.velocity;
+			if ( v ) {
+
+				const vn = v.x * wx + v.z * wz;
+				if ( vn < 0 ) { v.x -= wx * vn; v.z -= wz * vn; }
+
+			}
+
+		}
 
 	}
 

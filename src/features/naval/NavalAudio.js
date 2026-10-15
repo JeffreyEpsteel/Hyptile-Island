@@ -8,6 +8,8 @@
 //   audio.impact( x, y, z, gain )     a ball into a hull
 //   audio.crunch( x, y, z, gain )     two hulls colliding (wave 9): synthesised - a low thump and a burst of splintering noise
 //   audio.creak( x, y, z, gain )      timber straining as hulls grind together: a wobbling, filtered saw (synthesised)
+//   audio.thump( x, y, z, gain )      wave 24B: a hull nudging a pier on its fenders: a soft, rubbery low thud (no splinters)
+//   audio.scrape( x, y, z, gain, len ) wave 24B: the keel grinding over sand and stone: low, gritty noise that dies away
 //   audio.dispose();   audio.played   [ { name, x, y, z, delay } ] log of requests (tests)
 
 const FILES = { cannon: 'audio/naval/CannonShot_V01.mp3', impact: 'audio/naval/ShipImpact_V01.mp3' };
@@ -270,6 +272,63 @@ export class NavalAudio {
 			o.start( t0 );
 			lfo.start( t0 );
 			o.stop( t0 + len + 0.05 );
+			lfo.stop( t0 + len + 0.05 );
+			return len;
+
+		} );
+
+	}
+
+	// a nudge on the fenders: a damped thud with a little rubber squeak on top
+	thump( x, y, z, gain = 0.6 ) {
+
+		this._synth( 'thump', x, y, z, gain, ( ctx, out, t0, g0 ) => {
+
+			const o = ctx.createOscillator(), og = ctx.createGain();
+			o.type = 'sine';
+			o.frequency.setValueAtTime( 72, t0 );
+			o.frequency.exponentialRampToValueAtTime( 46, t0 + 0.22 );
+			og.gain.setValueAtTime( 0.0001, t0 );
+			og.gain.exponentialRampToValueAtTime( g0, t0 + 0.02 );
+			og.gain.exponentialRampToValueAtTime( 0.0001, t0 + 0.32 );
+			o.connect( og ).connect( out );
+			o.start( t0 );
+			o.stop( t0 + 0.35 );
+			const sq = ctx.createOscillator(), sg = ctx.createGain();
+			sq.type = 'triangle';
+			sq.frequency.setValueAtTime( 260 + Math.random() * 80, t0 + 0.03 );
+			sq.frequency.linearRampToValueAtTime( 190, t0 + 0.2 );
+			sg.gain.setValueAtTime( 0.0001, t0 );
+			sg.gain.exponentialRampToValueAtTime( g0 * 0.08, t0 + 0.05 );
+			sg.gain.exponentialRampToValueAtTime( 0.0001, t0 + 0.22 );
+			sq.connect( sg ).connect( out );
+			sq.start( t0 );
+			sq.stop( t0 + 0.25 );
+			return 0.35;
+
+		} );
+
+	}
+
+	// the keel over the bottom: low-passed noise with a slow grit, `len` s
+	scrape( x, y, z, gain = 0.5, len = 0.8 ) {
+
+		this._synth( 'scrape', x, y, z, gain, ( ctx, out, t0, g0 ) => {
+
+			const n = this._noise( ctx ), lp = ctx.createBiquadFilter(), g = ctx.createGain(), lfo = ctx.createOscillator(), lg = ctx.createGain();
+			lp.type = 'lowpass';
+			lp.frequency.value = 380 + Math.random() * 160;
+			lp.Q.value = 2;
+			lfo.frequency.value = 7 + Math.random() * 5; // the grit: gravel under the keel
+			lg.gain.value = g0 * 0.25;
+			lfo.connect( lg ).connect( g.gain );
+			g.gain.setValueAtTime( 0.0001, t0 );
+			g.gain.exponentialRampToValueAtTime( g0 * 0.7, t0 + 0.06 );
+			g.gain.exponentialRampToValueAtTime( 0.0001, t0 + len );
+			n.connect( lp ).connect( g ).connect( out );
+			n.start( t0 );
+			lfo.start( t0 );
+			n.stop( t0 + len + 0.05 );
 			lfo.stop( t0 + len + 0.05 );
 			return len;
 
