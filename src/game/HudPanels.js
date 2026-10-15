@@ -39,7 +39,9 @@ const CSS = /* css */`
 .gm-crew-card { display: flex; flex-direction: column; gap: var(--tw-1); padding: var(--tw-2); border-radius: var(--tw-r-md); background: var(--tw-fill); border: 1px solid var(--tw-line); }
 .gm-crew-card.is-playing { border-color: rgba(var(--tw-aqua-rgb), 0.55); box-shadow: 0 0 0 1px rgba(var(--tw-aqua-rgb), 0.25); }
 .gm-crew-card.is-locked { opacity: 0.78; }
-.gm-crew-face { display: grid; place-items: center; height: 64px; border-radius: var(--tw-r-sm); background: radial-gradient(60% 80% at 50% 60%, rgba(12, 18, 26, 0.55), rgba(4, 9, 15, 0.9)); overflow: hidden; }
+/* (wave 24F) a pale sky-and-sea disc behind the portrait: the dark green characters read as black blobs on the old dark well */
+.gm-crew-face { display: grid; place-items: center; height: 64px; border-radius: var(--tw-r-sm); overflow: hidden;
+	background: radial-gradient(70% 90% at 50% 40%, rgba(170, 225, 235, 0.42), rgba(95, 160, 190, 0.22) 55%, rgba(12, 18, 26, 0.3) 100%); box-shadow: inset 0 0 0 1px var(--tw-line); }
 .gm-crew-face img { height: 64px; max-width: 100%; object-fit: contain; filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.55)); }
 .gm-crew-card.is-locked .gm-crew-face img { filter: grayscale(0.7) brightness(0.6) drop-shadow(0 4px 8px rgba(0, 0, 0, 0.55)); }
 .gm-crew-name { display: flex; justify-content: space-between; align-items: baseline; gap: var(--tw-2); font-weight: 600; }
