@@ -393,6 +393,19 @@ export const VOICES = {
 		},
 	},
 
+	// ---- breath (22B): a slow double thump under the water (the last seconds of air, the damage)
+	heartbeat: {
+		cat: 'sfx', gain: 0.7, ref: 2, max: 20, voices: 1, gap: 0.9, build( ctx, out, t, o ) {
+
+			const k = num( o && o.rate, 1 );
+			const lp = filterNode( ctx, 'lowpass', 140, 0.9, out );
+			tone( ctx, lp, { type: 'sine', f0: 62, f1: 44, t, dur: 0.16, peak: 0.6, attack: 0.01 } );
+			tone( ctx, lp, { type: 'sine', f0: 56, f1: 40, t: t + 0.28 / k, dur: 0.14, peak: 0.45, attack: 0.01 } );
+			return 0.7 / k;
+
+		},
+	},
+
 	// ---- the towns (18B)
 	// a dog barking once or a few times (o.size 0.6 small .. 1.3 big; o.n barks)
 	dog_bark: {

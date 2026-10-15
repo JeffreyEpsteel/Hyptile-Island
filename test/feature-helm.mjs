@@ -229,7 +229,7 @@ for ( const id of [ 'lobster', 'launch', 'sloop' ] ) {
 	ok( m.current === 'Seated_Idle' && restDev( 'thigh_l' ) > 45 && restDev( 'upperarm_l' ) > 15, `an idle skiff at the helm: seated, no bind pose (${ av.state } / ${ m.current }, thigh ${ f2( restDev( 'thigh_l' ) ) } deg)` );
 	// rowing keeps its real clip
 	helmAt( models.skiff, { action: 'rowForward', seconds: 0.8, ik: false } );
-	ok( av.state === 'action' && m.current === 'Row_Forward', `rowing plays the row clip (${ m.current })` );
+	ok( /^Row_(Forward|Stroke)/.test( m.current ), `rowing plays the row clip (${ m.current }; wave 17B: the Row_Stroke loop)` );
 	// a rig without the IK (no hand targets possible): the plain upper-body pose, hands forward at wheel height
 	const saved = av.ik;
 	av.ik = null;

@@ -43,6 +43,7 @@ import * as navy from './navy/index.js';
 import * as interiors from '../world/interiors/index.js';
 import * as cars from './cars/index.js';
 import * as citywreck from './citywreck/index.js';
+import * as capsize from './capsize/index.js';
 
 export const MODULES = [
 	[ 'start', start ], // Jade Landing + intro (first: later modules see its colliders)
@@ -75,6 +76,7 @@ export const MODULES = [
 	[ 'hijack', hijack ], // wave 15C: take any vessel (after boarding, naval, seaplane)
 	[ 'death', death ], // respawn at Jade Landing, the sea chest, wreck / death markers
 	[ 'rescue', rescue ], // wave 15D: distress flares and the harbour launch that answers them
+	[ 'capsize', capsize ], // wave 22B: a small boat stays over, hull up; E at her hull rights her (after naval, crew, death)
 	[ 'firearms', firearms ], // flintlock pistol and musket (G draws, LMB fires, RMB aims, R reloads; cartridges at the chandlery)
 	[ 'weapons', weapons ], // wave 18D: cutlass, axe, pin, harpoon, bombs, fire bottles, smoke pots, the swivel gun, quick slots 1-4 / 0
 	[ 'navy', navy ], // wave 19B: Tidemark's frigate and cutters, hails, navy bounties and standing, sea events

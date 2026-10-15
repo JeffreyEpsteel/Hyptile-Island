@@ -61,6 +61,8 @@ export const INVENTORY = [
 	{ event: 'crew pump (activity pump; pump channel)', cue: 'pump_stroke', sound: 'clank, gush', source: 'sfx synth' },
 	{ event: 'crew dice (activity dice)', cue: 'dice_rattle', sound: 'cup rattle, roll', source: 'sfx synth' },
 	{ event: 'crew snoring (activity sleep)', cue: 'snore', sound: 'snore', source: 'sfx synth' },
+	{ event: 'the last seconds of air under water (breathLow / breathOut)', cue: 'heartbeat', sound: 'double thump', source: 'sfx synth' },
+	{ event: 'a boat capsizing / coming upright (capsize feature)', cue: 'flood_rush', also: 'bucket_slosh', sound: 'water rush, slosh', source: 'sfx synth (capsize calls events.trigger)' },
 	{ event: 'market chatter (home plaza, Blackwater stall)', cue: null, loop: 'market_home', sound: 'crowd bed', source: 'sfx synth (Tidemark: Places)' },
 	{ event: 'gulls at the quay (home pier, Blackwater docks)', cue: 'gull', sound: 'mewing calls', source: 'sfx synth (Tidemark: Places)' },
 	{ event: 'dogs (town animals; gunfire nearby)', cue: 'dog_bark', sound: 'barks', source: 'sfx synth' },
@@ -262,6 +264,9 @@ export class EventSounds {
 
 			const on = ( n, fn ) => this.off.push( f.on( n, ( e ) => { try { fn( e || {} ); } catch ( err ) { /* a missed sound is fine */ } } ) );
 			on( 'meleeHit', ( e ) => this._meleeHit( e ) );
+			// wave 22B: the last seconds of air under water (death's breath): a heartbeat at the listener
+			on( 'breathLow', () => { const p = this.sfx.app && this.sfx.app.player && this.sfx.app.player.position; if ( p ) this.trigger( 'heartbeat', { at: { x: p.x, y: p.y + 1.5, z: p.z } } ); } );
+			on( 'breathOut', () => { const p = this.sfx.app && this.sfx.app.player && this.sfx.app.player.position; if ( p ) this.trigger( 'heartbeat', { at: { x: p.x, y: p.y + 1.5, z: p.z }, rate: 1.6 } ); } );
 			on( 'gunHit', ( e ) => { const p = pt( e ); if ( p ) this.trigger( 'bullet_hit', { at: p, kind: e.kind } ); } );
 			on( 'gunHarpoon', ( e ) => { const p = pt( e ); if ( p ) this.trigger( 'harpoon_strike', { at: p } ); } );
 			on( 'cannonFired', ( e ) => this._cannon( e ) );

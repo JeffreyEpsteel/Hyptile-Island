@@ -5,11 +5,11 @@
 //
 //   const r = new BreathRing( parentEl );   r.set( breath.ring(), time );   r.dispose()
 
-export const RING = { size: 46, stroke: 5, y: 0.6 }; // px (x the UI scale), centre at y of the screen height
+export const RING = { size: 46, stroke: 5, x: 84, y: 0.5 }; // px (x the UI scale); centre x px right of the screen's middle, at y of its height (clear of the third-person body)
 export const TONES = { ok: '#d8f1ff', warn: '#ffc35a', out: '#ff5a4a', track: 'rgba(8, 20, 30, 0.45)' };
 
 const CSS = /* css */`
-.br-ring { position: absolute; left: 50%; top: ${ RING.y * 100 }%; width: calc(${ RING.size } * var(--tw-u, 1px)); height: calc(${ RING.size } * var(--tw-u, 1px));
+.br-ring { position: absolute; left: calc(50% + ${ RING.x } * var(--tw-u, 1px)); top: ${ RING.y * 100 }%; width: calc(${ RING.size } * var(--tw-u, 1px)); height: calc(${ RING.size } * var(--tw-u, 1px));
 	transform: translate(-50%, -50%); pointer-events: none; z-index: 40; opacity: 0; transition: opacity 0.25s; }
 .br-ring.is-on { opacity: 1; }
 .br-ring svg { width: 100%; height: 100%; display: block; overflow: visible; }
@@ -58,7 +58,7 @@ export class BreathRing {
 		const key = `${ m.show ? 1 : 0 }|${ m.frac.toFixed( 3 ) }|${ m.tone }|${ m.vignette.toFixed( 2 ) }|${ pulse.toFixed( 2 ) }`;
 		if ( key === this._key ) return;
 		this._key = key;
-		if ( this.el.classList ) this.el.classList.toggle( 'is-on', !! m.show );
+		if ( this.el.classList && this.el.classList.toggle ) this.el.classList.toggle( 'is-on', !! m.show );
 		if ( this.arc && this.arc.setAttribute && this.arc.style ) {
 
 			this.arc.setAttribute( 'stroke-dashoffset', ( C * ( 1 - Math.max( 0, Math.min( 1, m.frac ) ) ) ).toFixed( 2 ) );

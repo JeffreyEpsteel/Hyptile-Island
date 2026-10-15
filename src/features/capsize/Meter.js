@@ -71,7 +71,7 @@ export class RightingMeter {
 		const key = m ? [ m.centre, m.half, m.marker, m.heel, m.stamina, m.strain ].map( ( v ) => v.toFixed( 3 ) ).join( '|' ) + ( m.inSpot ? 'i' : '' ) + m.helpers : '';
 		if ( key === this._key ) return;
 		this._key = key;
-		if ( this.el.classList ) this.el.classList.toggle( 'is-on', !! m );
+		if ( this.el.classList && this.el.classList.toggle ) this.el.classList.toggle( 'is-on', !! m );
 		if ( ! m ) return;
 		this.spot.style.left = pct( m.centre - m.half );
 		this.spot.style.width = pct( 2 * m.half );

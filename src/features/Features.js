@@ -57,6 +57,8 @@
 //   (citywreck, wave 21C) buildingDamaged buildingCollapsed buildingDestroyed buildingRespawned buildingRepaired cityFire cityFireCall cityCrew
 //   cityFireSpread cityRepair roadBlocked { id, edges, x, z, radius } roadCleared cityDebris cityMood cityWanted { level } towerMarked; firePool { id, x, y, z, by }
 //   (weapons); world event cityStages (host -> all); hostRequest cityHit / citySnap
+//   (capsize, wave 22B) boatCapsized { boat, x, z, aboard, lost } rightingStarted { helpers, rough } boatRighted { boat, x, z, t, helpers }
+//   rightingSlipped { heel, letGo }; world events capsize / capsizeHelp   (death, wave 22B) breathLow { left } breathOut
 //
 // Mode rules (Sandbox / Campaign / Multiplayer): features.mode is app.mode or 'campaign'; features.sandbox.
 // Money and the save stay in GameState: features.state is app.game.state (money, earn, spend, career...).

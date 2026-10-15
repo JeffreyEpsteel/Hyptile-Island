@@ -13,7 +13,7 @@ const BALLAST = { from: 35 * DEG, gm: 2.0, damp: 0.25 };
 // but past `at` they are over and stay over, hull up (turtle: a hold torque about +-PI, damped), until the player rights them
 // (src/features/capsize: ctl.pull 0..1 lifts her from inverted towards upright, ctl.right() lets the ballast bring her up over
 // `assist` s). The big hulls keep the ballast at every heel (or sink by flooding).
-export const CAPSIZE = { mass: 1500, length: 6.5, keep: 60 * DEG, at: 100 * DEG, hold: 1.4, damp: 0.6, assist: 4, lift: 0.22 };
+export const CAPSIZE = { mass: 1500, length: 6.5, keep: 60 * DEG, at: 100 * DEG, hold: 1.4, damp: 0.6, assist: 4, lift: 0.35 };
 export function isSmallHull( mass, length ) {
 
 	return Number.isFinite( mass ) && Number.isFinite( length ) && mass <= CAPSIZE.mass && length <= CAPSIZE.length;
@@ -485,7 +485,7 @@ export class BoatController {
 			const keel = this.toWorld( _p.set( 0, - this.draft, this.com.z ), _p );
 			const sea = this.sampleWaterAt( keel );
 			const lift = clamp( ( sea + CAPSIZE.lift - keel.y ) / 0.3, - 0.5, 1 ) * ( 1 - clamp( this.pull, 0, 1 ) );
-			F.y += m * GRAV * 0.5 * lift - this.velocity.y * m * 1.5;
+			F.y += m * GRAV * 0.8 * lift - this.velocity.y * m * 1.5;
 
 		} else if ( over > 0 && ( ! this.small || Math.abs( roll ) < CAPSIZE.keep || this._assist > 0 ) ) {
 

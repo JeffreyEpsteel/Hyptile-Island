@@ -524,7 +524,7 @@ export class CrewFeature {
 
 		}
 
-		const visible = !! ( ctx.boat && b && b.position && b.enabled !== false && b.position.y > - 50 && ! ( nv && nv.playerHull && nv.playerHull.sunk ) );
+		const visible = !! ( ctx.boat && b && b.position && b.enabled !== false && ! b.capsized && b.position.y > - 50 && ! ( nv && nv.playerHull && nv.playerHull.sunk ) );
 		const lines = b && b.model && b.model.lines;
 		const deckY = lines && Number.isFinite( lines.deckY ) ? lines.deckY : null;
 		const cam = this.app.camera;

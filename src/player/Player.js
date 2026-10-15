@@ -212,7 +212,7 @@ export class Player {
 
 	nearBoat() {
 
-		if ( ! this.boat ) return false;
+		if ( ! this.boat || this.boat.capsized ) return false; // (hull up: src/features/capsize climbs onto her keel)
 		const bp = this.boat.toWorld( this.boat.model.boardPoint, _v );
 		const d = Math.hypot( bp.x - this.position.x, bp.z - this.position.z );
 		const dy = Math.abs( bp.y - this.position.y );
@@ -871,7 +871,7 @@ export class Player {
 	_boatClimb( x, z, surfaceY ) {
 
 		const b = this.boat;
-		if ( ! b || ! b.model || ! b.position || b.enabled === false || b.sunk || ! b.model.lines ) return null;
+		if ( ! b || ! b.model || ! b.position || b.enabled === false || b.sunk || b.capsized || ! b.model.lines ) return null;
 		const L = b.model.lines, dims = b.model.dimensions || {};
 		const yaw = b.getYaw ? b.getYaw() : 0, c = Math.cos( yaw ), s = Math.sin( yaw );
 		const dx = x - b.position.x, dz = z - b.position.z;

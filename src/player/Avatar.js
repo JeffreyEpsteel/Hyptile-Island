@@ -76,7 +76,7 @@ export const ONE_SHOT = {
 	celebrate: 'celebrate', disappointed: 'disappointed', wave: 'wave', cheer: 'cheer',
 	landSoft: 'landSoft', stumble: 'stumble', knockdown: 'knockdown', getUp: 'getUp', hit: 'hit', swing: 'swing', shrug: 'shrug', point: 'point',
 	inspect: 'inspect', offer: 'offer', prankLaugh: 'prankLaugh', friendlyWave: 'friendlyWave', beckon: 'beckon', sitDown: 'sitDown', standUp: 'standUp',
-	boardLow: 'boardLow', disembarkLow: 'disembarkLow', climbUp: 'climbUp',
+	boardLow: 'boardLow', disembarkLow: 'disembarkLow', climbUp: 'climbUp', keelPull: 'keelPull', // (keelPull loops while the action is set)
 };
 export const LOOPS = {
 	talk: 'talk', dance: 'dance', look: 'lookAround', tumble: 'tumble', fall: 'fall', chat: 'chat', sweep: 'sweep', laugh: 'laugh',
@@ -603,7 +603,7 @@ export class Ragdoll {
 
 // foot IK weight for a pose: on the ground in walk / deck / seat, out while airborne, swimming, at the helm, in a tumble or a
 // clip that moves the root (boarding, knockdowns), and faded out from a jog to a sprint
-const NO_FEET = { tumble: true, fall: true, knockdown: true, getUp: true, boardLow: true, disembarkLow: true, stumble: true, landSoft: true, climbUp: true };
+const NO_FEET = { tumble: true, fall: true, knockdown: true, getUp: true, boardLow: true, disembarkLow: true, stumble: true, landSoft: true, climbUp: true, keelPull: true };
 const FEET_RUN = [ 2.6, 4.2 ]; // m/s: full plant below, none above
 export function footWeight( pose, action = null ) {
 

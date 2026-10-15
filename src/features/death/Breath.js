@@ -108,7 +108,7 @@ export class Breath {
 		const show = this.dove || this.air <= 0;
 		const left = this.left;
 		const tone = this.drowning > 0 || this.air <= 0 ? 'out' : this.under && left <= BREATH.warn ? 'warn' : 'ok';
-		const v = this.under ? clamp( 1 - left / BREATH.warn, 0, 1 ) * 0.75 + this.hurt * 0.25 : 0;
+		const v = this.under ? clamp( 1 - left / BREATH.warn, 0, 1 ) * 0.85 + this.hurt * 0.15 : 0;
 		return { show: !! show, frac: this.air, tone, vignette: clamp( v, 0, 1 ), pulse: tone === 'ok' ? 0 : tone === 'warn' ? 0.5 : 1, left };
 
 	}

@@ -167,6 +167,13 @@ export default {
 			{ t: 0.35, ease: 'out', pose: { spine_01: [ [ 'x', 26 ] ], head: [ [ 'x', - 14 ] ], thigh_r: [ [ 'x', - 75 ] ], calf_r: [ [ 'x', 105 ] ], reach: { l: [ 0.26, 0.92, 0.3, 1, 0.3, - 1 ], r: [ - 0.26, 0.92, 0.3, - 1, 0.3, - 1 ] } } },
 			{ t: 0.8, pose: {} },
 		] },
+		// wave 22B: on the keel of an upturned hull, leaning back on the line to her far gunwale (the capsize feature's 'keelPull'
+		// action while you right her): knees bent, the body back, both hands forward at the waist, a slow sway with the swell
+		Keel_Lean: { base: 'Idle_Breathe', loopBase: true, keys: [
+			{ t: 0, pose: { pelvis: [ 0, - 0.12, - 0.08 ], spine_01: [ [ 'x', - 18 ] ], spine_02: [ [ 'x', - 8 ] ], head: [ [ 'x', 14 ] ], thigh_l: [ [ 'x', - 40 ] ], calf_l: [ [ 'x', 56 ] ], foot_l: [ [ 'x', - 16 ] ], thigh_r: [ [ 'x', - 32 ] ], calf_r: [ [ 'x', 48 ] ], foot_r: [ [ 'x', - 16 ] ], reach: { l: [ 0.15, 1, 0.44, 1, - 0.2, - 0.6 ], r: [ - 0.15, 1, 0.44, - 1, - 0.2, - 0.6 ] } } },
+			{ t: 1.4, pose: { pelvis: [ 0, - 0.15, - 0.12 ], spine_01: [ [ 'x', - 26 ] ], spine_02: [ [ 'x', - 10 ] ], head: [ [ 'x', 20 ] ], thigh_l: [ [ 'x', - 46 ] ], calf_l: [ [ 'x', 62 ] ], foot_l: [ [ 'x', - 16 ] ], thigh_r: [ [ 'x', - 38 ] ], calf_r: [ [ 'x', 54 ] ], foot_r: [ [ 'x', - 16 ] ], reach: { l: [ 0.15, 0.95, 0.4, 1, - 0.2, - 0.6 ], r: [ - 0.15, 0.95, 0.4, - 1, - 0.2, - 0.6 ] } } },
+			{ t: 2.8, pose: { pelvis: [ 0, - 0.12, - 0.08 ], spine_01: [ [ 'x', - 18 ] ], spine_02: [ [ 'x', - 8 ] ], head: [ [ 'x', 14 ] ], thigh_l: [ [ 'x', - 40 ] ], calf_l: [ [ 'x', 56 ] ], foot_l: [ [ 'x', - 16 ] ], thigh_r: [ [ 'x', - 32 ] ], calf_r: [ [ 'x', 48 ] ], foot_r: [ [ 'x', - 16 ] ], reach: { l: [ 0.15, 1, 0.44, 1, - 0.2, - 0.6 ], r: [ - 0.15, 1, 0.44, - 1, - 0.2, - 0.6 ] } } },
+		] },
 	},
 
 	spaces: {
@@ -314,6 +321,7 @@ export default {
 		boarding: { clip: 'Board_Low', slot: 'full', blendIn: 0.1, blendOut: 0.2, rootMotion: true },
 		// out of the water onto a float / a low deck (Player's swim pull-up, Game.avatarAction 'climbUp')
 		climbUp: { clip: 'Climb_Pull', slot: 'full', blendIn: 0.06, blendOut: 0.25 },
+		keelPull: { clip: 'Keel_Lean', slot: 'full', loop: true, blendIn: 0.3, blendOut: 0.3 }, // wave 22B: righting an upturned hull
 		// wave 18E emotes (src/features/emotes) and the way-of-life clips for callers (residents play them as GLB clips directly)
 		bow: { clip: 'Emote_Bow', slot: 'full', blendIn: 0.2, blendOut: 0.3 },
 		salute: { clip: 'Emote_Salute', slot: 'full', blendIn: 0.15, blendOut: 0.3 },
