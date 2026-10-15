@@ -65,6 +65,9 @@ const CSS = /* css */`
 .mm-head { display: flex; align-items: center; gap: var(--tw-4); margin-bottom: var(--tw-4); }
 .mm-mark { width: calc(44 * var(--tw-u)); height: calc(44 * var(--tw-u)); flex: none; filter: drop-shadow(0 4px 14px rgba(0, 0, 0, 0.45)); }
 .mm-title { font-size: clamp(22px, 2.6vw, 34px); font-weight: 600; letter-spacing: 0.32em; line-height: 1.05; text-shadow: 0 2px 24px rgba(0, 0, 0, 0.5); }
+/* (wave 24F) one wordmark everywhere: the loader's jade gradient (ui.css .tw-wordmark) and its coral / cream / jade rule */
+.mm-rule { height: 3px; margin: var(--tw-2) 0 0; border-radius: 3px; opacity: 0.9; width: calc(180 * var(--tw-u));
+	background: linear-gradient(90deg, #e8735a 0 33%, #f1e3c6 33% 66%, #3a9a74 66% 100%); }
 .mm-tag { margin-top: var(--tw-1); color: var(--tw-ink-3); font-size: var(--tw-fs-sm); letter-spacing: 0.04em; }
 .mm-body { display: grid; grid-template-columns: 1.25fr 1fr; gap: var(--tw-5); min-height: 0; }
 @media (max-width: 640px) { .mm-body { grid-template-columns: 1fr; } .mm-card { padding: var(--tw-4); } }
@@ -332,7 +335,8 @@ export class MainMenu {
 		return `<header class="mm-head">
 			${ brandMark( 'mm-mark' ) }
 			<div>
-				<div class="mm-title">HYPTILE ISLAND</div>
+				<div class="mm-title tw-wordmark">HYPTILE ISLAND</div>
+				<div class="mm-rule" aria-hidden="true"></div>
 				<div class="mm-tag">A small island, a rod, a boat and the whole bay to fish.</div>
 			</div>
 		</header>`;

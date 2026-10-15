@@ -2411,7 +2411,8 @@ export class UI {
 		el.innerHTML = `
 			<div class="tw-start-inner">
 				${ brandMark( 'tw-start-mark' ) }
-				<div class="tw-start-title">HYPTILE ISLAND</div>
+				<div class="tw-start-title tw-wordmark">HYPTILE ISLAND</div>
+				<div class="tw-start-rule" aria-hidden="true"></div>
 				<button type="button" class="tw-start-cta"><span class="tw-start-pulse" aria-hidden="true"></span><span class="tw-start-click">${ icon( 'mouse' ) }</span><span class="tw-start-click">Click to explore</span><span class="tw-start-tap">Tap to explore</span></button>
 				<div class="tw-start-keys">
 					<span><span class="tw-wasd"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></span>Move</span>
@@ -3394,6 +3395,31 @@ export class UI {
 
 		this._overUI = false;
 		callHook( this.onPhotoMode, on );
+
+	}
+
+	// (wave 24F) the frame-rate overlay (top left) is off by default: Settings > Performance > Frame rate overlay, or
+	// ?stats in the address, turns it on; the choice is remembered
+	showStats( on, remember = true ) {
+
+		on = !! on;
+		this._statsOn = on;
+		this.root.classList.toggle( 'is-stats', on );
+		if ( remember ) {
+
+			try {
+
+				localStorage.setItem( 'tidewater.ui.stats', on ? '1' : '0' );
+
+			} catch { /* storage unavailable */ }
+
+		}
+
+	}
+
+	get statsShown() {
+
+		return !! this._statsOn;
 
 	}
 

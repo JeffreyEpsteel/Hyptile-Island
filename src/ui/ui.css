@@ -351,11 +351,13 @@ body {
 	to { transform: translateX(560%); }
 }
 
+/* (wave 24F) a 6 s slot of the 48 s cycle: in by 0.6 s, out between 5.8 and 6.5 s, so the next tip's fade-in overlaps the
+   last 0.5 s (a cross-fade; the old timing left the label standing over nothing for 1.5 s of every slot) */
 @keyframes tw-tip {
 	0% { opacity: 0; transform: translateY(4px); }
-	1.6% { opacity: 1; transform: translateY(0); }
-	11% { opacity: 1; transform: translateY(0); }
-	12.5% { opacity: 0; transform: translateY(-3px); }
+	1.25% { opacity: 1; transform: translateY(0); }
+	12.1% { opacity: 1; transform: translateY(0); }
+	13.5% { opacity: 0; transform: translateY(-3px); }
 	100% { opacity: 0; transform: translateY(-3px); }
 }
 
@@ -406,6 +408,66 @@ body {
 
 .tw-root [hidden] {
 	display: none !important;
+}
+
+/* (wave 24F) every scroller in the UI shares one slim scrollbar: the browser's grey bar on a glass panel read as a
+   web page, not a game */
+.tw-root * {
+	scrollbar-width: thin;
+	scrollbar-color: rgba(170, 215, 235, 0.22) transparent;
+}
+
+.tw-root *::-webkit-scrollbar {
+	width: 10px;
+	height: 10px;
+}
+
+.tw-root *::-webkit-scrollbar-track {
+	background: transparent;
+}
+
+.tw-root *::-webkit-scrollbar-thumb {
+	border: 3px solid transparent;
+	border-radius: 10px;
+	background: rgba(170, 215, 235, 0.2) padding-box;
+}
+
+.tw-root *::-webkit-scrollbar-thumb:hover {
+	background: rgba(170, 215, 235, 0.34) padding-box;
+}
+
+/* (wave 24F) one wordmark on every screen: the loader's jade gradient. The loader, the main menu, the start overlay
+   and the pause menu share it (each keeps its own size and tracking) */
+.tw-wordmark {
+	background: linear-gradient(180deg, #ffffff 10%, #e8fff4 55%, #8fe3bd 100%);
+	-webkit-background-clip: text;
+	background-clip: text;
+	-webkit-text-fill-color: transparent;
+	color: #e8fff4;
+}
+
+/* a menu, the guide or the pause sheet is up: the HUD, the rail and the minimap step back so the sheet reads alone */
+.tw-root.is-paused .tw-hud,
+.tw-root.is-modal .tw-hud,
+.tw-root.is-paused .tw-rail,
+.tw-root.is-modal .tw-rail,
+.tw-root.is-paused .gm-map,
+.tw-root.is-modal .gm-map {
+	opacity: 0.16;
+	transition: opacity var(--tw-slow) var(--tw-ease);
+}
+
+.tw-root.is-paused .tw-rail,
+.tw-root.is-modal .tw-rail {
+	pointer-events: none;
+}
+
+/* the opening glide and its title card (src/world/start Intro; Guide.js sets the class): the scene plays clean */
+.tw-root.is-intro .tw-hud,
+.tw-root.is-intro .tw-rail,
+.tw-root.is-intro .gm-map {
+	opacity: 0;
+	transition: opacity var(--tw-slow) var(--tw-ease);
 }
 
 .tw-interactive {
@@ -551,8 +613,10 @@ body {
 	opacity: 0.5;
 }
 
+/* (wave 24F) the frame-rate readout is a developer's overlay: off unless Settings > Performance > "Frame rate overlay"
+   (or ?stats in the address) turns it on. UI.setStats( on ) sets the class. */
 .tw-stats {
-	display: grid;
+	display: none;
 	grid-template-columns: auto auto;
 	grid-template-areas:
 		'main spark'
@@ -566,6 +630,8 @@ body {
 	backdrop-filter: blur(12px) saturate(1.5);
 	--tw-level: var(--tw-aqua);
 }
+
+.tw-root.is-stats .tw-stats { display: grid; }
 
 .tw-stats[data-level='warn'] { --tw-level: var(--tw-sun); }
 .tw-stats[data-level='bad'] { --tw-level: var(--tw-coral); }
@@ -2477,7 +2543,17 @@ body {
 	font-weight: 600;
 	letter-spacing: 0.42em;
 	line-height: 1.05;
-	text-shadow: 0 2px 30px rgba(0, 0, 0, 0.5);
+	filter: drop-shadow(0 2px 30px rgba(0, 0, 0, 0.5));
+}
+
+/* the coral / cream / jade rule under the wordmark, as on the loader */
+.tw-start-rule {
+	width: min(calc(220 * var(--tw-u)), 40vw);
+	height: 3px;
+	margin: calc(-2 * var(--tw-u)) 0 0;
+	border-radius: 3px;
+	opacity: 0.9;
+	background: linear-gradient(90deg, #e8735a 0 33%, #f1e3c6 33% 66%, #3a9a74 66% 100%);
 }
 
 .tw-start-cta {

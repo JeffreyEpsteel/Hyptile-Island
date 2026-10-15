@@ -19,6 +19,10 @@ import { controlKeyLabel } from '../ui/UI.js';
 
 const KEY = 'tidewater.guide';
 export const MAX_LINES = 5;
+// (wave 24F) the first-start intro shows this many pages (the goal, fishing, where to go) and lets the player play;
+// the rest wait for F1 > Replay the guide, where every page shows. A sixteen-page lecture before the first cast read
+// as a beginner's game.
+export const INTRO_PAGES = 3;
 
 const CSS = /* css */`
 .gm-guide { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none; opacity: 0; visibility: hidden;
@@ -239,6 +243,15 @@ export function compassWord( x, z, tx, tz ) {
 
 }
 
+// the opening glide / title card is on screen (or armed to start)
+export function introPlaying( app ) {
+
+	const st = app && app.features && typeof app.features.get === 'function' ? app.features.get( 'start' ) : null;
+	const intro = st && st.intro;
+	return !! ( intro && ( intro.active || intro.pending ) );
+
+}
+
 export class Guide {
 
 	constructor( ui, game, minimap = null ) {
@@ -292,7 +305,8 @@ export class Guide {
 
 		this.open = false;
 		this.step = 0;
-		this._wait = this.seen.intro ? - 1 : 0.8; // seconds after the start overlay before the intro
+		this.count = PAGES.length; // pages in the run being shown (INTRO_PAGES at the first start, all on replay)
+		this._wait = this.seen.intro ? - 1 : 0.8; // seconds after the start overlay (and the title card) before the intro
 		this._coachT = 0;
 		this._queue = []; // [ { id, html, own } ]: own = a fishing tip (seen per browser); the others are their sender's
 		this._whereT = 0;
@@ -373,8 +387,8 @@ export class Guide {
 		this.title.textContent = t( `guide.${ p.id }.title` );
 		this.body.innerHTML = pageHTML( p, { a11y: this.a11y, touch: this.touch } );
 		this.body.scrollTop = 0;
-		this.dots.forEach( ( d, j ) => d.classList.toggle( 'is-on', j === i ) );
-		this.nextBtn.textContent = i === PAGES.length - 1 ? t( 'guide.done', 'Let\'s go' ) : t( 'guide.next', 'Next' );
+		this.dots.forEach( ( d, j ) => { d.classList.toggle( 'is-on', j === i ); d.hidden = j >= this.count; } );
+		this.nextBtn.textContent = i === this.count - 1 ? t( 'guide.done', 'Let\'s go' ) : t( 'guide.next', 'Next' );
 		this.skipBtn.textContent = t( 'guide.skip', 'Skip' );
 		this.hint.textContent = t( 'guide.hint', 'Enter · Esc to skip' );
 		if ( this.minimap ) this.minimap.highlight( p.where ? [ 'joe', 'marta' ] : [] );
@@ -383,6 +397,7 @@ export class Guide {
 
 			this.open = true;
 			this.el.classList.add( 'is-on' );
+			if ( this.ui.root && this.ui.root.classList ) this.ui.root.classList.add( 'is-modal' ); // ui.css: the HUD steps back
 			// The opening click captures the pointer. Release it when this dialog
 			// appears so Skip/Next receive clicks at their actual screen positions.
 			try { if ( document.pointerLockElement ) document.exitPointerLock?.(); } catch { /* unavailable */ }
@@ -393,7 +408,7 @@ export class Guide {
 
 	next() {
 
-		if ( this.step < PAGES.length - 1 ) this.show( this.step + 1 );
+		if ( this.step < this.count - 1 ) this.show( this.step + 1 );
 		else this.close();
 
 	}
@@ -403,6 +418,7 @@ export class Guide {
 		if ( ! this.open ) return;
 		this.open = false;
 		this.el.classList.remove( 'is-on' );
+		if ( this.ui.root && this.ui.root.classList ) this.ui.root.classList.remove( 'is-modal' );
 		if ( this.minimap ) this.minimap.highlight( [] );
 		this.seen.intro = true;
 		this._save();
@@ -416,6 +432,7 @@ export class Guide {
 		this._queue.length = 0;
 		this._hideCoach();
 		if ( this.ui.toggleHelp ) this.ui.toggleHelp( false );
+		this.count = PAGES.length;
 		this.show( 0 );
 
 	}
@@ -462,11 +479,25 @@ export class Guide {
 
 		}
 
-		// the intro, once the start overlay is gone
-		if ( this._wait >= 0 && ! ui._start ) {
+		// the intro, once the start overlay is gone and the opening glide with its title card (src/world/start Intro) has
+		// played out: the two used to stack on the same first frame. While the card plays the HUD is away (ui.css is-intro).
+		const intro = introPlaying( app );
+		if ( ui.root && ui.root.classList && intro !== this._introShown ) {
+
+			this._introShown = intro;
+			ui.root.classList.toggle( 'is-intro', intro );
+
+		}
+
+		if ( this._wait >= 0 && ! ui._start && ! intro ) {
 
 			this._wait -= dt;
-			if ( this._wait < 0 ) this.show( 0 );
+			if ( this._wait < 0 ) {
+
+				this.count = INTRO_PAGES;
+				this.show( 0 );
+
+			}
 
 		}
 

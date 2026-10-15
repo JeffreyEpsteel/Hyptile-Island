@@ -353,6 +353,12 @@ export class AppUI {
 		live.addInfo( { label: t( 'set.frame_rate', 'Frame rate' ), get: () => `${ ( app.fps || 0 ).toFixed( 0 ) } fps` } );
 		live.addInfo( { label: t( 'set.cpu_per_frame', 'CPU per frame' ), get: () => `${ ( app.cpuMs || 0 ).toFixed( 2 ) } ms` } );
 		live.addInfo( { label: t( 'set.render_size', 'Render size' ), get: () => `${ app.sceneRenderer.width } × ${ app.sceneRenderer.height }` } );
+		// (wave 24F) the top-left frame-rate overlay is a developer's readout: off for a new player, on by this switch or ?stats
+		let statsSaved = null;
+		try { statsSaved = localStorage.getItem( 'tidewater.ui.stats' ); } catch { /* storage unavailable */ }
+		s.statsOn = !! ( app.qs && app.qs.has && app.qs.has( 'stats' ) ) || statsSaved === '1';
+		if ( ui.showStats ) ui.showStats( s.statsOn, false );
+		live.addToggle( { label: 'Frame rate overlay', object: s, key: 'statsOn', tooltip: 'The frame rate and frame time at the top left of the screen.', onChange: ( v ) => { if ( ui.showStats ) ui.showStats( v ); } } );
 		const quality = perf.addFolder( t( 'fld.quality', 'Quality' ), { icon: 'layers' } );
 		const applyAA = ( n ) => {
 
@@ -488,6 +494,12 @@ export class AppUI {
 		if ( startKeys ) startKeys.insertAdjacentHTML( 'beforeend', '<span><kbd>Esc</kbd>Menu</span>' );
 
 		this.applyMode( app.rules );
+
+		// (wave 24F) the first visit opens on the Game tab outside the sandbox: the Ocean tab's sea-state sliders are
+		// "Sandbox only" there, so a campaign player's first look at Settings was a page of dimmed controls
+		let savedTab = null;
+		try { savedTab = localStorage.getItem( 'tidewater.ui.tab' ); } catch { /* storage unavailable */ }
+		if ( ! savedTab && app.rules && ! app.rules.worldControls && ui.getTab( 'game' ) ) ui.selectTab( 'game', false );
 
 		// the key caps of the controls sheet and the start overlay follow the bindings; the panel, the sheet and the start
 		// overlay are translated (and kept translated while they are rebuilt) when the language is not English

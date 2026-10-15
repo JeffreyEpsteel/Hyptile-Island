@@ -37,6 +37,9 @@ const CSS = /* css */`
 	transform: translateY(calc(8 * var(--tw-u))); transition: transform 500ms var(--tw-ease); }
 .pm.is-on .pm-card { transform: none; }
 .pm-title { font-size: calc(20 * var(--tw-u)); font-weight: 600; letter-spacing: 0.24em; text-shadow: 0 2px 24px rgba(0, 0, 0, 0.5); }
+/* (wave 24F) the wordmark treatment shared with the loader, the main menu and the start overlay (ui.css .tw-wordmark) */
+.pm-rule { height: 2px; margin: var(--tw-1) 0 var(--tw-3); border-radius: 2px; opacity: 0.85;
+	background: linear-gradient(90deg, #e8735a 0 33%, #f1e3c6 33% 66%, #3a9a74 66% 100%); }
 .pm-sub { margin: 0 0 var(--tw-3); color: var(--tw-ink-3); font-size: var(--tw-fs-sm); }
 .pm-sub b { color: var(--tw-aqua); font-weight: 600; }
 .pm-card .tw-btn { justify-content: space-between; }
@@ -170,6 +173,7 @@ export class PauseMenu {
 		el.hidden = false;
 		void el.offsetWidth;
 		el.classList.add( 'is-on' );
+		if ( this.ui && this.ui.root ) this.ui.root.classList.add( 'is-paused' ); // ui.css: the HUD and the rail step back
 		try {
 
 			if ( document.pointerLockElement ) document.exitPointerLock?.();
@@ -191,6 +195,7 @@ export class PauseMenu {
 		clearTimeout( this._saveT );
 		const el = this.el;
 		el.classList.remove( 'is-on' );
+		if ( this.ui && this.ui.root ) this.ui.root.classList.remove( 'is-paused' );
 		window.removeEventListener( 'keydown', this._onKey, { capture: true } );
 		const a = document.activeElement;
 		if ( a && el.contains( a ) ) a.blur();
@@ -210,8 +215,9 @@ export class PauseMenu {
 		const note = online ? t( 'pause.note.online', 'The island keeps running while this is open.' ) : app.rules.autosave ? t( 'pause.note.autosave', 'The game is saved every minute and when you leave the page.' ) : '';
 		this.el.innerHTML = `
 			<div class="pm-card tw-glass" role="dialog" aria-modal="true" aria-label="${ esc( online ? t( 'pause.menu', 'Menu' ) : t( 'pause.paused', 'Paused' ) ) }">
-				<div class="pm-title">${ esc( online ? t( 'pause.title.menu', 'MENU' ) : t( 'pause.title.paused', 'PAUSED' ) ) }</div>
+				<div class="pm-title tw-wordmark">${ esc( online ? t( 'pause.title.menu', 'MENU' ) : t( 'pause.title.paused', 'PAUSED' ) ) }</div>
 				<div class="pm-sub">${ sub }</div>
+				<div class="pm-rule" aria-hidden="true"></div>
 				<button type="button" class="tw-btn tw-btn-primary" data-resume><span>${ icon( 'play' ) }${ esc( t( 'pause.resume', 'Resume' ) ) }</span><kbd>Esc</kbd></button>
 				${ online ? '' : `<button type="button" class="tw-btn tw-btn-default" data-save><span>${ icon( 'check' ) }<i data-save-text style="font-style:normal">${ esc( t( 'pause.save', 'Save game' ) ) }</i></span></button>
 				<button type="button" class="tw-btn tw-btn-default" data-load><span>${ icon( 'refresh' ) }${ esc( t( 'pause.load', 'Load' ) ) }</span></button>
