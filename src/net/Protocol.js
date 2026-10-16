@@ -88,6 +88,8 @@
 import { CHARACTERS, DEFAULT_CHARACTER } from '../game/Characters.js';
 import { BOATS } from '../game/Boats.js';
 
+// the money every new player starts with (campaign, multiplayer and the universe's new captains; user, 2026-10-16)
+export const START_MONEY = 100000;
 export const PROTOCOL_VERSION = 2;
 export const MIN_PROTOCOL_VERSION = 1; // 2.1 clients still play the island and crews; the universe needs 2
 export const SEND_HZ = 15;

@@ -26,7 +26,7 @@ import { join, resolve } from 'node:path';
 import { createHash, randomInt, timingSafeEqual } from 'node:crypto';
 import {
 	CLOCK_START, CLOCK_SPEED, CHAT_KEEP, MAX_MARKET, WORLD_EVENT_RULES,
-	sanitizeCaptainName, captainKey, sanitizeToken, cleanText,
+	sanitizeCaptainName, captainKey, sanitizeToken, cleanText, START_MONEY,
 } from '../src/net/Protocol.js';
 import { fencePrice } from '../src/features/hijack/Fence.js';
 
@@ -367,7 +367,7 @@ export class Universe {
 			if ( times.length >= ( this.newPerHour ?? NEW_CAPTAINS_PER_HOUR ) ) return { ok: false, code: 'rate', text: 'Too many new captains from your address; try again later' };
 			times.push( t );
 			this.newCaptains.set( remote, times );
-			rec = st.captains[ key ] = { name: clean, hash, createdAt: t, lastSeen: t, money: 0, xp: 0, lastSaveAt: 0 };
+			rec = st.captains[ key ] = { name: clean, hash, createdAt: t, lastSeen: t, money: START_MONEY, xp: 0, lastSaveAt: 0 }; // (a new captain's purse: Protocol START_MONEY)
 			isNew = true;
 			this.dirty = true;
 			this.log( `universe: new captain "${ clean }" from ${ remote }` );

@@ -82,7 +82,7 @@ import { DEFAULT_MODE, DAY_SPEED, SANDBOX_ONLY, isMode, isOnlineSession, rules a
 import { NetClient, defaultServerUrl } from './net/NetClient.js';
 import { RemotePlayers } from './net/RemotePlayers.js';
 import { ChatInput } from './net/ChatInput.js';
-import { clockTimeOfDay } from './net/Protocol.js';
+import { clockTimeOfDay, START_MONEY } from './net/Protocol.js';
 import { WakeSim } from './ocean/WakeSim.js';
 import { Vegetation } from './world/Vegetation.js';
 import { SoundScape } from './audio/SoundScape.js';
@@ -652,8 +652,10 @@ fn terrainWetness( xz: vec2f, h: f32 ) -> vec2f {
 			st.featuresProvider = null;
 			try {
 
-				st.useSlot( choice.slot | 0, mode );
+				const existed = st.useSlot( choice.slot | 0, mode );
 				if ( choice.newGame ) st.reset();
+				// a new campaign or multiplayer game starts with START_MONEY (net/Protocol.js; the sandbox is free play)
+				if ( ( choice.newGame || ! existed ) && mode !== 'sandbox' ) st.money = START_MONEY;
 				if ( typeof choice.name === 'string' ) st.name = choice.name.trim().slice( 0, 24 ); // (no name given: the slot's own stays)
 				if ( typeof choice.server === 'string' && choice.server.trim() ) this.serverOverride = choice.server.trim();
 				st.save(); // (no world snapshot yet: the stored one is read below)
