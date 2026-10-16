@@ -113,3 +113,6 @@ Wave history in one line each (details: docs/PLAN.md and git log):
 - Open A-class rows (docs/A-CLASS.md): HUD collisions at 800 px, camera inside the avatar at the fish stand, subtitles stacking 3 deep (Roid two lines at once), helicopter / engineer readouts look like debug boxes, flat green Meridian minimap, blown-out car gauges at night, warbird full throttle from the Meridian line ditches in 8 s, bare warbird cockpits, runway light bands every 20 m, two tabs autosaving one slot, Longreach price vs a first session, music vocals check by ear, a real-phone pass, avatar hand grips, car proportions.
 - Usage at the end: weekly ~90 %. Workers all finished; nothing running.
 
+
+- Resolved (adedbd4): phone memory at Meridian is 360.0 / 363.4 MB with the 22A command line (--mobile --real-sizes --quality=low --size=852x393). The 563 MB reading was a run without --mobile (desktop Low tier). Always quote --mobile --real-sizes for phone numbers.
+
