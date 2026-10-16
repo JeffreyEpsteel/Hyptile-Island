@@ -117,3 +117,13 @@ Not closed from 25B's list: the nine `ui_*` cues are not auditioned or measured 
 are at most 0.5 in the sfx category and quieter than the listed action cues by construction; 25D's measured mix (Mix.js
 CUE_LEVELS, group "action", about -28) can adopt them. The cast ring and the level-up are checked in the harness only, not in
 the running game (the pane and Dawn captures do not show the DOM HUD over the world).
+
+## Vehicles (wave 25E, 2026-10-16)
+
+| # | Gap | What shipped | State |
+|---|-----|--------------|-------|
+| 7.1 | Car bodies were boxes (one loft, flat lamps) | Lofted shells with wheel arches, a crowned roof, black window trim; lamps / grilles / plates / shut lines projected onto the shell; spoked wheels; a far LOD past 38 m (24 m phones); per-cell PBR (chrome, rubber, glass) and a clear-coat paint. tools/cars/build_cars.py, CarRender.js | closed (captures: tools/cars/capture.mjs --only=lineup,lineback) |
+| 7.2 | Mirrors were flat metal | One rear view at the roof (384 x 160, every other frame, desktop) feeds the rear-view and door mirrors, each aimed at it; phones keep the sky reflection. CarMirrors.js | closed once root applies tools/helicopter/apply-patches.mjs (App hook) |
+| 7.3 | Driver / pilot were tube limbs | The player's avatar seated with IK on the wheel, collective, cyclic and pedals; head folded away behind the first-person eye | closed once root applies the patch (App avatar visibility + ikTargets) |
+| 7.4 | Van / bus clusters below the view | The seat's starting look tips down to the cluster (CarData lookDown) | closed |
+| 7.5 | Helicopter: dotted canopy rain, primitive airframe, assisted-only flight | Beads that run back as streaks with the airflow; a modelled fuselage / boom / fins / skids / blades; realistic flight (assist optional), aerobatics, tricks, crashes | closed; the stunt score has no persistent board yet (P3) |
