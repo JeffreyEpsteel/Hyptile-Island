@@ -42,6 +42,13 @@ const CSS = /* css */`
 	background: linear-gradient(90deg, #e8735a 0 33%, #f1e3c6 33% 66%, #3a9a74 66% 100%); }
 .pm-sub { margin: 0 0 var(--tw-3); color: var(--tw-ink-3); font-size: var(--tw-fs-sm); }
 .pm-sub b { color: var(--tw-aqua); font-weight: 600; }
+/* (wave 27B) the stunt board under the sub line */
+.pm-stats { margin: 0 0 var(--tw-3); padding: var(--tw-2) var(--tw-3); border-radius: var(--tw-r-md, 10px); background: rgba(0, 0, 0, 0.18); font-size: var(--tw-fs-sm); color: var(--tw-ink-3); }
+.pm-stats-h { display: flex; justify-content: space-between; gap: 12px; color: var(--tw-ink-2); font-weight: 600; }
+.pm-stats-h b { color: var(--tw-aqua); font-weight: 600; }
+.pm-stats-g { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 14px; margin-top: 4px; }
+.pm-stats-g div { display: flex; justify-content: space-between; gap: 8px; }
+.pm-stats-g b { color: var(--tw-ink-2); font-weight: 600; }
 .pm-card .tw-btn { justify-content: space-between; }
 .pm-card .tw-btn .tw-ico { width: calc(16 * var(--tw-u)); height: calc(16 * var(--tw-u)); flex: none; }
 .pm-card .tw-btn > span { display: inline-flex; align-items: center; gap: var(--tw-2); }
@@ -217,6 +224,7 @@ export class PauseMenu {
 			<div class="pm-card tw-glass" role="dialog" aria-modal="true" aria-label="${ esc( online ? t( 'pause.menu', 'Menu' ) : t( 'pause.paused', 'Paused' ) ) }">
 				<div class="pm-title tw-wordmark">${ esc( online ? t( 'pause.title.menu', 'MENU' ) : t( 'pause.title.paused', 'PAUSED' ) ) }</div>
 				<div class="pm-sub">${ sub }</div>
+				${ statsBlock( app ) }
 				<div class="pm-rule" aria-hidden="true"></div>
 				<button type="button" class="tw-btn tw-btn-primary" data-resume><span>${ icon( 'play' ) }${ esc( t( 'pause.resume', 'Resume' ) ) }</span><kbd>Esc</kbd></button>
 				${ online ? '' : `<button type="button" class="tw-btn tw-btn-default" data-save><span>${ icon( 'check' ) }<i data-save-text style="font-style:normal">${ esc( t( 'pause.save', 'Save game' ) ) }</i></span></button>
@@ -338,6 +346,19 @@ export class PauseMenu {
 		}
 
 	}
+
+}
+
+// wave 27B: the stats a feature offers (app.features.get( 'helicopter' ).pauseStats(): its stunt board) as a small block; none until there is one
+function statsBlock( app ) {
+
+	let s = null;
+	try { const h = app.features && app.features.get && app.features.get( 'helicopter' ); s = h && h.pauseStats ? h.pauseStats() : null; } catch ( e ) { s = null; }
+	if ( ! s ) return '';
+	const n = ( v ) => Number( v ).toLocaleString( 'en-US' );
+	const rows = s.tricks.map( ( r ) => `<div><span>${ esc( r.label ) }</span><b>${ n( r.points ) }</b></div>` ).join( '' );
+	return `<div class="pm-stats"><div class="pm-stats-h"><span>${ esc( t( 'pause.stunts', 'Helicopter stunts' ) ) }</span><b>${ esc( s.rank ) }</b></div>
+		<div class="pm-stats-g"><div><span>${ esc( t( 'pause.stunts.best', 'Best combo' ) ) }</span><b>${ n( s.best ) }</b></div>${ rows }</div></div>`;
 
 }
 

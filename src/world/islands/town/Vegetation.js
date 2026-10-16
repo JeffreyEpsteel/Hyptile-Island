@@ -19,6 +19,8 @@ import { isVegetated } from '../../terrain/TerrainTiles.js';
 const TOWN = I.pads[ 0 ];
 const LOOKOUT = I.pads[ 2 ];
 const STRIP = airstripRects();
+// [ u0, u1, v0, v1 ]: along the runway from the desk (along -162) past the last stand (+20), out 8 m from the graded edge
+const LINE_CLEAR = [ I.airstrip.u - 176, I.airstrip.u + 40, I.airstrip.v - I.airstrip.width / 2 - 6 - 12, I.airstrip.v - I.airstrip.width / 2 - 6 ];
 // the planted street palms, island coordinates: the quay street's water side, the market street east of the square
 const STREET_PALMS = [ [ - 150, - 66 ], [ - 150, - 44 ], [ - 150, - 24 ], [ - 150, 38 ], [ - 150, 52 ], [ - 150, 64 ], [ - 100, 2.6 ], [ - 100, 13.4 ], [ - 88, 2.6 ], [ - 88, 13.4 ] ];
 
@@ -30,6 +32,8 @@ export function townClear( tile, x, z, r = 0, { trees = true, lookout = true } =
 	// the lookout's top (the stand-ins keep clear of its shell through the colliders)
 	if ( lookout && rectOut( u, v, LOOKOUT[ 0 ], LOOKOUT[ 1 ], LOOKOUT[ 2 ], LOOKOUT[ 3 ] ) < 3 + r ) return false;
 	for ( const R of STRIP ) if ( rectOut( u, v, R[ 0 ], R[ 1 ], R[ 2 ], R[ 3 ] ) < ( trees ? 10 : 1.5 ) ) return false;
+	// the warbirds' dispersal line and its tent (dogfight/Site.js, wave 27B): the airframes' strip beside the shoulder
+	if ( rectOut( u, v, LINE_CLEAR[ 0 ], LINE_CLEAR[ 1 ], LINE_CLEAR[ 2 ], LINE_CLEAR[ 3 ] ) < ( trees ? 3 : 0.5 ) ) return false;
 	if ( trees ) {
 
 		// the take-off and landing approaches stay clear of trees for 120 m past each end
