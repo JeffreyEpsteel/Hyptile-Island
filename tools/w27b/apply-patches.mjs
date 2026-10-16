@@ -16,6 +16,10 @@ const NL = String.fromCharCode( 10 );
 const lines = ( ...a ) => a.join( NL );
 
 export const PATCHES = [
+	// the English strings (the i18n test wants each call-site fallback in en.js)
+	{ file: 'src/i18n/en.js', anchor: "	'pause.credits': 'Credits',",
+	replace: lines( "	'pause.credits': 'Credits',", "	'pause.stunts': 'Helicopter stunts',", "	'pause.stunts.best': 'Best combo',",
+		"	'touch.df.stick': 'Stick',", "	'touch.df.throttle': 'Throttle',", "	'touch.df.fire': 'Fire',", "	'touch.df.arm': 'Arm',", "	'touch.df.bail': 'Bail out',", "	'touch.df.seat': 'Seat'," ) },
 	// the phone's warbird cluster test joins the chain
 	{ file: 'package.json', anchor: 'node test/feature-cars-touch.mjs && node test/feature-netsync-w22.mjs', replace: 'node test/feature-cars-touch.mjs && node test/feature-dogfight-touch.mjs && node test/feature-netsync-w22.mjs' },
 	// the pause menu's stats: a feature with a pauseStats() (the helicopter's stunt board, features/helicopter/Leaderboard.js)
