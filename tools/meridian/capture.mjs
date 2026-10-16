@@ -26,7 +26,12 @@ export const VIEWS = {
 	meridianDowntownNoon: { time: 12, weather: 'clear', place: { kind: 'fly', pose: { x: C.x + 287, y: 5.4, z: C.z + 250, yaw: 0.38, pitch: 0.28 } } },
 	meridianHarbour: { time: 15, weather: 'clear', place: { kind: 'fly', pose: { x: C.x + 700, y: 9, z: C.z + 60, yaw: 1.45, pitch: - 0.06 } } },
 	meridianNight: { time: 22.5, weather: 'clear', place: { kind: 'fly', pose: { x: C.x + 1000, y: 40, z: C.z + 260, yaw: 1.3, pitch: 0.02 } } },
-	meridianStreetNight: { time: 22.5, weather: 'clear', place: { kind: 'fly', pose: { x: C.x - 67, y: 6, z: C.z + 300, yaw: 0, pitch: 0.08 } } },
+	meridianStreetNight: { time: 22.5, weather: 'clear', place: { kind: 'fly', pose: { x: C.x - 67, y: 7.7, z: C.z + 300, yaw: 0, pitch: 0.08 } } }, // (wave 27C: the eye 1.7 m over the road; it was on it)
+	// wave 27C: the night on the ground: a signalled avenue with shops (the downtown noon view's pose), the harbour apron, the airstrip
+	meridianAvenueNight: { time: 22.5, weather: 'clear', place: { kind: 'fly', pose: { x: C.x + 287, y: 5.4, z: C.z + 250, yaw: 0.38, pitch: 0.12 } } },
+	meridianShopsNight: { time: 22.5, weather: 'clear', place: { kind: 'fly', pose: { x: - 2352, y: 5.2, z: - 95, yaw: 3.14, pitch: 0.06 } } },
+	meridianApronNight: { time: 22.5, weather: 'clear', place: { kind: 'fly', pose: { x: - 2168, y: 4.6, z: - 395, yaw: 3.14, pitch: 0.04 } } },
+	meridianStripNight: { time: 22.5, weather: 'clear', place: { kind: 'fly', pose: { x: - 2390, y: 4.6, z: - 893, yaw: - 1.5708, pitch: 0.03 } } },
 	meridianAerial: { time: 14, weather: 'clear', place: { kind: 'fly', pose: { x: C.x + 820, y: 420, z: C.z + 820, yaw: 0.785, pitch: - 0.42 } } },
 	// for the frame-cost comparison (--perf): Tidemark's town from a similar distance and height
 	tidemarkCompare: { time: 12, weather: 'clear', place: { kind: 'fly', pose: { x: 1430, y: 30, z: - 20, yaw: - 1.75, pitch: - 0.08 } } },

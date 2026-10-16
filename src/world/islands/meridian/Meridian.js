@@ -13,6 +13,7 @@ import { meridianLandGeometry } from '../MeridianMesh.js';
 import { MERIDIAN, cityPlan, footprint, signalState, signalOffset, SIGNAL_CYCLE, RIVER_REL, DOCKS_DECK } from './CityPlan.js';
 import { Acc, buildingInto, createFacadeMaterial, tiersOf, STYLE } from './Facades.js';
 import { buildStreets } from './Streets.js';
+import { buildNightPools, createPoolMesh } from './NightLight.js';
 import { registerMeridian } from './World.js';
 import { towerForm, resolveTower } from './Skyline.js';
 import { STUMP } from './SkylineMesh.js';
@@ -181,6 +182,24 @@ export class Meridian {
 		streets.castShadow = false;
 		this.group.add( streets );
 
+		// ---- (wave 27C) the night light on the ground: lamp pools, flood pools, the shop fronts' spill, the runway's edge lights
+		// (baked into one static additive mesh; the real LocalLights are only the few nearest the camera)
+		const shops = [];
+		for ( const b of this.plan.buildings ) {
+
+			if ( ! b.sign || b.kind === 'tower' ) continue;
+			const f = footprint( b ), fs = Math.round( Math.sin( b.yaw ) ), fc = Math.round( Math.cos( b.yaw ) );
+			const seed = ( ( b.x * 0.137 + b.z * 0.071 ) % 1 + 1 ) % 1;
+			if ( fc > 0 ) shops.push( { px: f.x0, pz: f.z1, qx: f.x1, qz: f.z1, nx: 0, nz: 1, seed } );
+			else if ( fc < 0 ) shops.push( { px: f.x1, pz: f.z0, qx: f.x0, qz: f.z0, nx: 0, nz: - 1, seed } );
+			else if ( fs > 0 ) shops.push( { px: f.x1, pz: f.z1, qx: f.x1, qz: f.z0, nx: 1, nz: 0, seed } );
+			else shops.push( { px: f.x0, pz: f.z0, qx: f.x0, qz: f.z1, nx: - 1, nz: 0, seed } );
+
+		}
+
+		const pools = createPoolMesh( buildNightPools( { lamps: st.lamps, floods: st.floods, edges: st.runwayPools, shops, y: ( x, z ) => this.roadHeight( x, z ), phone: this.phone } ), this.center );
+		this.group.add( pools );
+
 		// ---- the signal heads' lenses (their own material: the light follows signalState)
 		const la = new Acc();
 		this.signalNodes = new Map();
@@ -246,7 +265,7 @@ export class Meridian {
 		if ( stn ) L( stn.plan.x, stn.plan.z + stn.plan.d / 2 + 6, 6, cool, 12, 30 );
 		// the street lamps: every other one a real light (LocalLights draws the 16 nearest the camera, from dusk: the rest of
 		// the city keeps its lamp heads' glow alone); under the head, 2.2 m out over the road
-		const lampCol = new Color( 0.92, 0.95, 1.0 );
+		const lampCol = new Color( 1.0, 0.86, 0.62 ); // (wave 27C: warm like the lamp heads and the baked pools)
 		st.lamps.forEach( ( l, i ) => {
 
 			if ( i % ( this.phone ? 4 : 2 ) ) return;
@@ -275,7 +294,7 @@ export class Meridian {
 
 		}
 
-		this.parts = { nearHills, nearCity, far, river, streets, lenses };
+		this.parts = { nearHills, nearCity, far, river, streets, lenses, pools };
 		const tris = ( m ) => ( m && m.geometry && m.geometry.index ? m.geometry.index.count / 3 : 0 );
 		let near = 0, farT = 0;
 		for ( const c of this.chunks.values() ) { near += tris( c.near ); farT += tris( c.far ); }
@@ -285,7 +304,7 @@ export class Meridian {
 			lamps: st.lamps.length, signals: st.signals.length, trees: st.trees.length, benches: st.benches.length, lights: this.lights.length,
 			kit: 0, tile: T.timings,
 		};
-		this.release = new NearRelease( { roots: [ nearHills, nearCity, river, streets, lenses, ...[ ...this.chunks.values() ].map( ( c ) => c.near ) ] } );
+		this.release = new NearRelease( { roots: [ nearHills, nearCity, river, streets, lenses, pools, ...[ ...this.chunks.values() ].map( ( c ) => c.near ) ] } );
 
 	}
 
@@ -592,6 +611,9 @@ export class Meridian {
 		const streets = ! known || edge < STREETS_DIST * ( this.phone ? 0.6 : 1 );
 		if ( P.streets.visible !== streets ) P.streets.visible = streets;
 		if ( P.lenses.visible !== streets ) P.lenses.visible = streets;
+		// (the baked night light: not drawn by day; the shader's own ramp starts at night 0.05)
+		const poolsOn = streets && ( G.night ? G.night.value : 1 ) > 0.04;
+		if ( P.pools.visible !== poolsOn ) P.pools.visible = poolsOn;
 		const kit = ! known || edge < KIT_DIST * ( this.phone ? 0.6 : 1 );
 		for ( const m of this.kitMeshes ) if ( m.visible !== kit ) m.visible = kit;
 		const near = this.phone ? NEAR_CHUNK_PHONE : NEAR_CHUNK;

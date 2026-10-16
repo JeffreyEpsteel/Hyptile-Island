@@ -455,18 +455,53 @@ export function buildStreets( { tile, plan = cityPlan(), acc = new Acc() } = {} 
 	{
 
 		const R = plan.airstrip, hl = R.length / 2, hw = R.width / 2, y = R.y + 0.05;
-		const flatQ = ( x0, x1, z0, z1, yy, col, code ) => acc.quad( [ x0, yy, z0 ], [ x0, yy, z1 ], [ x1, yy, z1 ], [ x1, yy, z0 ], [ 0, 1, 0 ], [ [ x0, z0 ], [ x0, z1 ], [ x1, z1 ], [ x1, z0 ] ], col, A( code ) );
+		const flatQ = ( x0, x1, z0, z1, yy, col, code, lit = false ) => acc.quad( [ x0, yy, z0 ], [ x0, yy, z1 ], [ x1, yy, z1 ], [ x1, yy, z0 ], [ 0, 1, 0 ], [ [ x0, z0 ], [ x0, z1 ], [ x1, z1 ], [ x1, z0 ] ], col, lit ? [ code, 3, 9, 0 ] : A( code ) ); // (lit: bay 9 = the runway's markings glow a little at night)
 		for ( let k = 0; k < 8; k ++ ) flatQ( R.x - hl + k * R.length / 8, R.x - hl + ( k + 1 ) * R.length / 8, R.z - hw, R.z + hw, y, RUNWAY, STYLE.asphalt );
-		for ( let s = - hl + 40; s < hl - 40; s += 30 ) flatQ( R.x + s, R.x + s + 15, R.z - 0.45, R.z + 0.45, y + 0.015, WHITE, STYLE.paint );
+		for ( let s = - hl + 40; s < hl - 40; s += 30 ) flatQ( R.x + s, R.x + s + 15, R.z - 0.45, R.z + 0.45, y + 0.015, WHITE, STYLE.paint, true );
 		for ( const e of [ - 1, 1 ] ) {
 
-			for ( let o = - hw + 3; o < hw - 2; o += 3.4 ) flatQ( R.x + e * ( hl - 4 ) - 15, R.x + e * ( hl - 4 ) + 15, R.z + o, R.z + o + 1.8, y + 0.015, WHITE, STYLE.paint ); // (the piano keys)
-			flatQ( R.x - hl + 2, R.x + hl - 2, R.z + e * ( hw - 1 ) - 0.3, R.z + e * ( hw - 1 ) + 0.3, y + 0.015, WHITE, STYLE.paint );
+			for ( let o = - hw + 3; o < hw - 2; o += 3.4 ) flatQ( R.x + e * ( hl - 4 ) - 15, R.x + e * ( hl - 4 ) + 15, R.z + o, R.z + o + 1.8, y + 0.015, WHITE, STYLE.paint, true ); // (the piano keys)
+			flatQ( R.x - hl + 2, R.x + hl - 2, R.z + e * ( hw - 1 ) - 0.3, R.z + e * ( hw - 1 ) + 0.3, y + 0.015, WHITE, STYLE.paint, true );
 
 		}
 
 		out.runwayLights = [];
+		out.runwayPools = []; // (wave 27C: a pool every 20 m along both edges, so the margins read as one lit strip)
+		for ( let s = - hl; s <= hl; s += 20 ) for ( const e of [ - 1, 0, 1 ] ) out.runwayPools.push( { x: R.x + s, z: R.z + e * ( hw - 2 ), y: R.y } );
 		for ( let s = - hl; s <= hl; s += 40 ) for ( const e of [ - 1, 1 ] ) out.runwayLights.push( { x: R.x + s, z: R.z + e * ( hw + 1.5 ), y: R.y } );
+		// (wave 27C) the edge lights themselves: a low LED lens every 40 m (white, green at the west threshold, red at the east end),
+		// and a lit threshold bar across each end; the airstrip's night pools are drawn from these (NightLight.js)
+		const LENS = { white: C( 0xfff0c8 ), green: C( 0x35e07a ), red: C( 0xff3b2a ) };
+		for ( const L of out.runwayLights ) {
+
+			const end = L.x <= R.x - hl + 1 ? LENS.green : L.x >= R.x + hl - 1 ? LENS.red : LENS.white;
+			acc.box( L.x - 0.2, L.x + 0.2, L.z - 0.2, L.z + 0.2, y, y + 0.32, y, C( 0x3a3b3d ), A( STYLE.metal ), { top: false } );
+			acc.box( L.x - 0.14, L.x + 0.14, L.z - 0.14, L.z + 0.14, y + 0.3, y + 0.42, y, end, A( STYLE.led ) );
+
+		}
+
+		for ( const [ e, col ] of [ [ - 1, LENS.green ], [ 1, LENS.red ] ] ) for ( let o = - hw + 1.5; o <= hw - 1; o += 3 ) acc.box( R.x + e * ( hl - 0.6 ) - 0.2, R.x + e * ( hl - 0.6 ) + 0.2, R.z + o - 0.15, R.z + o + 0.15, y + 0.02, y + 0.1, y, col, A( STYLE.led ) );
+
+	}
+
+	// ---- (wave 27C) flood masts: the harbour apron's water edge, the airstrip's pad and hangar apron. A pole and a lamp head
+	// (an LED panel: dim by day, bright at night); the pools they throw are baked in NightLight.js
+	out.floods = [];
+	{
+
+		const mast = ( x, z, height = 9, r = 15 ) => {
+
+			const y = H( x, z );
+			acc.cylinder( x, z, 0.2, 0.12, y, y + height, 8, C( 0x55595c ), A( STYLE.metal ), { top: false } );
+			acc.box( x - 0.8, x + 0.8, z - 0.3, z + 0.3, y + height, y + height + 0.3, y, C( 0xf4f0e0 ), A( STYLE.led ) );
+			out.floods.push( { x, z, r } );
+
+		};
+		const A0 = P.apron, qw = plan.docks.find( ( d ) => d.id === 'quay-west' ), u = ( qw ? qw.a.x : A0.x + A0.w / 2 ) - 6.5; // (the water's edge is ~3 m west of the quay line)
+		for ( let z = A0.z - A0.d / 2 + 22; z < A0.z + A0.d / 2 - 12; z += 38 ) mast( u, z, 9, 17 );
+		const R = plan.airstrip, pad = R.pad, hg = R.hangar;
+		for ( const [ dx, dz ] of [ [ - 17, - 15 ], [ 17, - 15 ], [ - 17, 15 ], [ 17, 15 ] ] ) mast( pad.x + dx, pad.z + dz, 10, 18 );
+		if ( hg ) for ( const k of [ - 1, 0, 1 ] ) mast( hg.x + k * 38, hg.z - 30, 10, 20 );
 
 	}
 

@@ -2,6 +2,7 @@ import { BufferGeometry, Float32BufferAttribute, Color } from '../../../engine/i
 import { standard } from '../../../materials/Materials.js';
 import { ShaderModule } from '../../../engine/gpu/Shader.js';
 import { towerInto } from './SkylineMesh.js';
+import { MERIDIAN } from './CityPlan.js';
 
 // Meridian's buildings (wave 21A): one material for every facade in the city and the geometry that feeds it. No textures:
 // the windows are drawn by the material from the facade coordinates (uv = metres along the wall, metres above the
@@ -337,7 +338,7 @@ export function buildingInto( acc, b, { detail = true, stage = 0, cut = null } =
 	const col = styleColor( b ), seed = seedOf( b );
 	const st = stage;
 	const aux = [ code, fh, bay, st + seed * 0.9 ];
-	const front = [ code, - fh, bay, st + seed * 0.9 ];
+	const front = [ code, - ( fh + ( b.sign ? 100 : 0 ) ), bay, st + seed * 0.9 ]; // (wave 27C: a shop's front carries 100 more: its ground floor glows at night)
 	// the side facing the street (yaw: the front faces ( sin yaw, cos yaw ))
 	const fs = Math.round( Math.sin( b.yaw ) ), fc = Math.round( Math.cos( b.yaw ) );
 	const frontSide = fc > 0 ? 's' : fc < 0 ? 'n' : fs > 0 ? 'e' : 'w';
@@ -455,7 +456,8 @@ const FACADE_WGSL = /* wgsl */`
 	let style = facadeAux.x;
 	let fhRaw = facadeAux.y;
 	let isFront = fhRaw < 0.0;
-	let fh = max( abs( fhRaw ), 0.5 );
+	let shopFlag = abs( fhRaw ) > 50.0;
+	let fh = max( abs( fhRaw ) - select( 0.0, 100.0, shopFlag ), 0.5 );
 	let bay = max( facadeAux.z, 0.2 );
 	let stage = floor( facadeAux.w );
 	let seed = fract( facadeAux.w );
@@ -553,7 +555,7 @@ const FACADE_WGSL = /* wgsl */`
 		else { wx0 = 0.12; wx1 = 0.88; wy0 = 0.55; wy1 = 0.92; frameK = 0.8; lit = 0.4; } // (road paint: as before)
 		let towerStyle = style > 17.5 && style < 25.5;
 		// the shop front: the ground floor of the front face is display glass between pilasters, a door in the middle
-		let shopGround = isFront && v < 3.6 && v > 0.0 && ( ( style > 7.5 && style < 8.5 ) || ( style > 16.5 && style < 17.5 ) );
+		let shopGround = isFront && v < 3.6 && v > 0.0 && ( ( style > 7.5 && style < 8.5 ) || ( style > 16.5 && style < 17.5 ) || shopFlag );
 		let fx = uv.x / bayW;
 		let fy = v / floorH;
 		var lx = fract( fx ); var ly = fract( fy );
@@ -600,7 +602,16 @@ const FACADE_WGSL = /* wgsl */`
 		let litAvg = share * area * ( 1.0 - min( marks * 0.28, 0.84 ) );
 		let glow = mix( on * inWin, litAvg, blur );
 		// (the far average dimmer than the sum of its windows: a lit pane is a point of light, not a glowing wall)
-		emis = warm * glow * nightK * mix( 1.6, 0.3, blur );
+		// (wave 27C) each pane its own brightness (curtains, a lamp off in the corner); a shop's glass reads as an interior:
+		// a bright ceiling, shelves, and a tint per shop (warm, cream, cool, neon coral); the exposure is far above physical
+		// (a pane at 1.6 clipped to a white rectangle), so the near windows sit lower and keep their colour
+		var paneK = mix( 0.62, 1.0, gpHash( cell + vec3f( 4.0, 1.0, 8.0 ) ) );
+		if ( shopGround ) {
+			let tint = gpHash( vec3f( cell.x, 3.0, cell.z ) );
+			warm = select( select( select( vec3f( 1.0, 0.6, 0.38 ), vec3f( 0.7, 0.88, 1.0 ), tint < 0.9 ), vec3f( 1.0, 0.88, 0.7 ), tint < 0.62 ), vec3f( 1.0, 0.76, 0.46 ), tint < 0.34 );
+			paneK = mix( 0.5, 1.0, smoothstep( 0.08, 0.95, ly ) ) * select( 0.74, 1.0, fract( ly * 5.0 ) > 0.42 ) * mix( 0.8, 1.15, gpHash( vec3f( cell.x, 9.0, cell.z ) ) ) * 1.25;
+		}
+		emis = warm * glow * nightK * mix( 0.62 * paneK, 0.3, blur );
 		if ( marks > 1.5 && ! towerStyle ) {
 			let fire = step( gpHash( cell + vec3f( 5.0 ) ), 0.3 ) * ( 0.7 + 0.3 * sin( frame.time * 9.0 + hw * 40.0 ) );
 			emis = vec3f( 1.0, 0.42, 0.1 ) * mix( fire * inWin, 0.3 * area, blur ) * 2.2;
@@ -614,6 +625,10 @@ const FACADE_WGSL = /* wgsl */`
 		// (the night is exposed far brighter than physical: pale walls would glow under the moon; the city reads by its windows)
 		col *= mix( 1.0, 0.4, nightK ) * ( 1.0 - 0.35 * nightK * win );
 		s.specularIntensity *= 1.0 - 0.7 * nightK * win;
+		// (wave 27C) the city's glow on its own walls: lamp light and the haze bounce warm off the street, strongest at street
+		// level and gone ten floors up, so the canyon reads as lit rather than black between its windows
+		let cityK = 1.0 - smoothstep( 450.0, 1050.0, length( P.xz - vec2f( ${ MERIDIAN.center.x.toFixed( 1 ) }, ${ MERIDIAN.center.z.toFixed( 1 ) } ) ) );
+		emis += col * vec3f( 1.0, 0.72, 0.46 ) * ( 0.04 * exp( - max( v, 0.0 ) / 8.0 ) + 0.004 ) * nightK * cityK * ( 1.0 - win );
 	} else if ( style < 91.5 && style > 90.5 ) {
 		// flat roofs: gravel / tar
 		col *= mix( 0.82, 1.08, gpFbm( P * 0.6 ) );
@@ -668,8 +683,16 @@ const FACADE_WGSL = /* wgsl */`
 		// road paint: worn
 		col *= mix( 0.75, 1.0, gpNoise( P * 1.3 ) );
 		rough = 0.6;
+		// (wave 27C) the runway's markings (bay 9): they glow a little in the dark, as an airfield's inset lights would
+		if ( bay > 8.0 ) { emis = col * 1.3 * nightK; }
 	} else {
 		col *= mix( 0.9, 1.05, gpNoise( P * 0.9 ) );
+	}
+	if ( style > 96.5 && style < 99.5 ) {
+		// (wave 27C) the ground by night: a faint sodium haze over the city (the lamps' pools are NightLight.js's), the road a
+		// little glossier where it is dry-polished by tyres
+		let cityG = 1.0 - smoothstep( 450.0, 1050.0, length( P.xz - vec2f( ${ MERIDIAN.center.x.toFixed( 1 ) }, ${ MERIDIAN.center.z.toFixed( 1 ) } ) ) );
+		emis += vec3f( 1.0, 0.74, 0.48 ) * ( 0.010 + col.r * 0.05 ) * nightK * cityG;
 	}
 	s.albedo = col;
 	s.roughness = rough;
