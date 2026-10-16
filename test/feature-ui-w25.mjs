@@ -213,5 +213,10 @@ ok( ! ui.includes( 'class="tw-start-keys"' ) && ui.includes( 'class="tw-start-ct
 ok( hud.includes( 'showLevelUp( level )' ) && hud.includes( 's.lastLevelUp' ) && hud.includes( '! this.catchOpen' ), 'the HUD shows the level reached once the catch card is gone' );
 ok( hud.includes( "this.ui.sound( 'levelup' )" ) || hud.includes( "this.ui.sound( 'levelup' )" ) || hud.includes( "ui.sound( 'levelup' )" ), 'with its own sound' );
 
+// wave 27: the HUD at 561-900 px (A-CLASS 2.1)
+ok( /@media \(min-width: 561px\) and \(max-width: 900px\) \{[^@]*\.tw-root \.tw-toasts \{ top: calc\(var\(--tw-edge\) \+ var\(--tw-safe-t\) \+ 64/.test( css ), 'ui.css: under 900 px the toasts sit under the top row' );
+ok( /\.tw-mode-text \{ min-width: 0; overflow: hidden; text-overflow: ellipsis/.test( css ), 'ui.css: the mode pill ends in an ellipsis before the purse' );
+ok( /min-width: 561px\) and \(max-width: 900px\) \{[^@]*\.gm-fight \{ left: calc\(\(100vw - 270/.test( hud ) && /\.gm-purse \{ max-width: calc\(330/.test( hud ), 'GameHUD: the purse wraps and the fight panel centres left of the minimap under 900 px' );
+
 console.log( fails ? `\n${ fails } failed` : '\nall ok' );
 process.exit( fails ? 1 : 0 );

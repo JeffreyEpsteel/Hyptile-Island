@@ -3451,3 +3451,19 @@ body {
 .tw-root .tw-mode,
 .tw-root .wx-chip { height: calc(30 * var(--tw-u)); margin-left: 0; gap: calc(7 * var(--tw-u)); }
 .tw-root .gm-purse { gap: var(--tw-3); }
+
+/* ---- (wave 27) the HUD at 800 px and under: nothing overlaps (A-CLASS 2.1)
+   Top row: the wordmark and the mode pill on the left (the pill ends in an ellipsis before it can reach the purse), the purse on the right
+   (game/GameHUD.js wraps it at 330 units). Toasts drop to the row under them and keep clear of the weather pill's column; the interaction
+   prompt centres in the space left of the minimap and wraps instead of running under it. */
+@media (min-width: 561px) and (max-width: 900px) {
+
+	.tw-root .tw-tl { max-width: calc(100vw - 2 * var(--tw-edge) - 346 * var(--tw-u)); }
+	.tw-root .tw-brand { max-width: 100%; }
+	.tw-root .tw-mode { min-width: 0; flex: 0 1 auto; }
+	.tw-root .tw-mode-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+	.tw-root .tw-toasts { top: calc(var(--tw-edge) + var(--tw-safe-t) + 64 * var(--tw-u)); max-width: min(calc(100vw - 320 * var(--tw-u)), calc(520 * var(--tw-u))); }
+	.tw-root[data-panel='open'] .tw-toasts { max-width: min(calc(100vw - var(--tw-panel-w) - 4 * var(--tw-4)), calc(520 * var(--tw-u))); }
+	.tw-root:not(.is-touch) .tw-prompt { left: calc((100vw - 270 * var(--tw-u)) / 2); max-width: calc(100vw - 302 * var(--tw-u)); white-space: normal; border-radius: calc(20 * var(--tw-u)); }
+
+}

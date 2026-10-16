@@ -225,6 +225,12 @@ const CSS = /* css */`
 	.gm-catch-stats { gap: 6px; }
 	.gm-stat { min-width: 0; padding: 8px 10px; }
 }
+/* (wave 27) under 900 px (phones in landscape, small windows): the purse wraps instead of running under the mode pill, and the fight panel
+   and the prompt centre in the space left of the minimap (its zone is 270 units: the rail's gap, the disc, an edge) */
+@media (min-width: 561px) and (max-width: 900px) {
+.tw-root .gm-purse { max-width: calc(330 * var(--tw-u)); flex-wrap: wrap; row-gap: calc(2 * var(--tw-u)); justify-content: flex-end; }
+.tw-root:not(.is-touch) .gm-fight { left: calc((100vw - 270 * var(--tw-u)) / 2); width: min(calc(360 * var(--tw-u)), calc(100vw - 302 * var(--tw-u))); }
+}
 `;
 
 const h = ( tag, cls, html ) => {

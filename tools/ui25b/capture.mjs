@@ -14,7 +14,7 @@ const tag = arg( 'tag', 'after' );
 const SCENES = [
 	[ 'hud', 'scene=hud&bg=beach' ], [ 'cast-30', 'scene=cast&p=0.3&bg=beach' ], [ 'cast-full', 'scene=cast&p=1&bg=beach' ], [ 'levelup', 'scene=levelup&bg=beach', 1100 ],
 	[ 'stand', 'scene=stand&bg=beach' ], [ 'shop', 'scene=shop&bg=beach' ], [ 'inv', 'scene=inv&bg=beach' ], [ 'tavern', 'scene=tavern&bg=beach' ], [ 'tavern-dice', 'scene=tavern&tab=dice&bg=beach' ],
-	[ 'navy', 'scene=navy&bg=beach' ], [ 'navy-press', 'scene=navy&mode=press&bg=beach' ], [ 'toasts', 'scene=toasts&bg=beach' ], [ 'markers', 'scene=markers' ], [ 'worldmap', 'scene=worldmap' ],
+	[ 'navy', 'scene=navy&bg=beach' ], [ 'navy-press', 'scene=navy&mode=press&bg=beach' ], [ 'toasts', 'scene=toasts&bg=beach' ], [ 'combo', 'scene=combo&bg=beach' ], [ 'combo-touch', 'scene=combo&bg=beach&touch=1' ], [ 'markers', 'scene=markers' ], [ 'worldmap', 'scene=worldmap' ],
 	[ 'menu', 'scene=menu' ], [ 'menu-online', 'scene=menu-online' ], [ 'menu-online-closed', 'scene=menu-online&adv=0' ], [ 'menu-online-adv', 'scene=menu-online&adv=1' ], [ 'start', 'scene=start&bg=beach' ], [ 'settings', 'scene=hud&bg=beach&panel=1' ],
 ];
 const only = arg( 'only' ) ? arg( 'only' ).split( ',' ) : null;

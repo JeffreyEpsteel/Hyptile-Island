@@ -50,6 +50,7 @@ frame( {} );
 ui.togglePanel( false );
 await new Promise( ( r ) => setTimeout( r, 50 ) );
 
+if ( q.get( 'touch' ) ) ui.root.classList.add( 'is-touch', 'is-coarse' ); // a phone: the touch HUD layout
 if ( scene === 'hud' ) { ui.toast( 'Welcome aboard', 60000 ); }
 if ( scene === 'cast' ) { frame( { casting: true, power: Number( q.get( 'p' ) || 0.62 ) } ); }
 if ( scene === 'levelup' ) {
@@ -83,6 +84,16 @@ if ( scene === 'navy' ) {
 		chandlerRows: () => [ { id: 'cannon', label: 'Better cannon', price: 900, ok: true, note: 'Long nines for a respected captain' }, { id: 'chain', label: 'Chain shot x10', price: 210, ok: false, note: 'Standing 50 needed' } ] };
 	const p = new NavyPanel( navy );
 	p.open( q.get( 'mode' ) || 'office' );
+
+}
+
+if ( scene === 'combo' ) {
+
+	// wave 27: everything at once, as in play (A-CLASS 2.1): a long mode pill, the boat's purse gauges, a toast, the fight panel and a prompt
+	ui.setMode( q.get( 'mode' ) || 'Seaplane · airborne · chase view' );
+	frame( { fuel: { litres: 31, tank: 40 }, sonar: { depth: 12, fish: [ 0.3, 0.6 ] }, stamina: 0.7, fight: { tension: 0.5, band: [ 0.4, 0.7 ], stamina: 0.6, distance: 1.4, surge: 0.8 } } );
+	ui.setPrompt( 'E', q.get( 'prompt' ) || 'Take the helm · V camera · Leave helm' );
+	ui.toast( 'Sold 4 fish for $184 at the fish market in town', 60000 );
 
 }
 
