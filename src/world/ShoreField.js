@@ -82,13 +82,14 @@ function valueNoise( x, z ) {
 
 }
 
-// the share of the swell reaching a stretch of shore, 0.42 .. 1 (wave 25A): two octaves of noise over ~110 m and ~40 m,
+// the share of the swell reaching a stretch of shore, 0.3 .. 0.78 (wave 25A; the consumers saturate at 0.71: the best
+// sections keep the full surf, the calm ones about 40 % of it): two octaves of noise over ~110 m and ~40 m,
 // pushed toward the ends so most of a beach has clear sets and calmer gaps rather than a mild average
 export function shoreVariation( x, z ) {
 
 	const n = valueNoise( x / 110 + 17.3, z / 110 - 4.1 ) * 0.68 + valueNoise( x / 41 - 9.7, z / 41 + 31.2 ) * 0.32;
 	const t = Math.min( 1, Math.max( 0, ( n - 0.3 ) / 0.42 ) );
-	return 0.42 + 0.58 * t * t * ( 3 - 2 * t );
+	return 0.3 + 0.48 * t * t * ( 3 - 2 * t );
 
 }
 
@@ -263,7 +264,7 @@ export function computeShoreField( terrain, { res = 512, swellDir = [ 0, - 1 ], 
 		// swell's energy drifts along the shore over ~40-110 m (sandbars, holes, a rip's gap), so the band breaks into
 		// stretches of bigger and smaller surf
 		const x = origin + ( i + 0.5 ) * h, z = origin + ( j + 0.5 ) * h;
-		const exposure = Math.min( 1, Math.max( 0.02, ( align * 1.4 + 0.1 ) * shoreVariation( x, z ) ) );
+		const exposure = Math.max( 0.02, Math.min( 1, align * 1.4 + 0.1 ) * shoreVariation( x, z ) );
 		// direction scaled by exposure (length = exposure), alpha = shoreline arrival time
 		data[ k * 4 ] = isFinite( t ) ? t : 1e5;
 		data[ k * 4 + 1 ] = dx * exposure;

@@ -170,7 +170,7 @@ export const PATCHES = [
 	// A-CLASS 5.4: the sand the swash has just left is a mirror film (the sky in it at the water's edge), and the foam left on
 	// the sand is lace, not a pale wash over the whole wet band (its floor was 30 % everywhere the residue reached)
 	{ file: 'src/world/Terrain.js', anchor: '\t\trough = mix( rough, mix( mix( 0.45, 0.2, band * band ), 0.14, wet ), wetK );',
-		replace: '\t\trough = mix( rough, mix( mix( 0.45, 0.18, band * band ), 0.07, wet ), wetK ); // (wave 25A: a mirror film where fresh)' },
+		replace: '\t\trough = mix( rough, mix( mix( 0.45, 0.2, band * band ), 0.07, wet ), wetK ); // (wave 25A: a mirror film where fresh)' },
 	{ file: 'src/world/Terrain.js', anchor: '.x ) * 0.7 + 0.3; }',
 		replace: '.x ) * 0.9 + 0.1; } // (wave 25A: lace, not a wash)' },
 	// the wave's test joins npm test (next to the shadow test)
