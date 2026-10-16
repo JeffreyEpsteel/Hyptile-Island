@@ -273,14 +273,31 @@ export function addRoof( kit, frame, { hx, hz, y0, h, ridge = 0.35, lift = 0.45,
 
 // ---------------------------------------------------------------- strings, lanterns, bunting, hammock
 
-// points of a sagging line between a and b (Vector3)
-export function sag( a, b, depth, n = 10 ) {
+// the drop of a hanging line at t (0..1) below the straight chord: a catenary (cosh) normalised so the middle hangs `depth`
+// (a slack rope is a cosh, not the parabola the first version used: it falls steeper at the ends and flatter between)
+const CAT_K = 1.7, CAT_D = Math.cosh( CAT_K ) - 1;
+export function sagDrop( depth, t ) {
 
+	return depth * ( 1 - ( Math.cosh( CAT_K * ( 2 * t - 1 ) ) - 1 ) / CAT_D );
+
+}
+
+// the height of the line at t between a and b (Vector3) with the middle hanging `depth` below the chord
+export function sagY( a, b, depth, t ) {
+
+	return a.y + ( b.y - a.y ) * t - sagDrop( depth, t );
+
+}
+
+// points of a sagging line between a and b (Vector3); n defaults to a point every ~0.3 m (never straight-looking chords)
+export function sag( a, b, depth, n = 0 ) {
+
+	if ( ! n ) n = Math.max( 16, Math.min( 64, Math.ceil( a.distanceTo( b ) / 0.3 ) ) );
 	const out = [];
 	for ( let i = 0; i <= n; i ++ ) {
 
 		const t = i / n;
-		out.push( new Vector3().lerpVectors( a, b, t ).setY( a.y + ( b.y - a.y ) * t - depth * 4 * t * ( 1 - t ) ) );
+		out.push( new Vector3().lerpVectors( a, b, t ).setY( sagY( a, b, depth, t ) ) );
 
 	}
 
@@ -295,18 +312,23 @@ export function addCord( kit, pts, r = 0.012, color = PALETTE.rope, bucket = 'so
 
 }
 
-// a round paper lantern hanging with its top at `top` (Vector3); returns its centre
+// a round paper lantern hanging with its top at `top` (Vector3); returns its centre. Gored paper: darker ribs run pole to pole
+// and a few rings round it, the panels between them glow (aux.w GLOW lights them from dusk), a brighter belly, a wire hanger, a
+// tassel below. (Was a plain shaded ball: it read as a flat disc by day and a flat sprite at night.)
 const LANTERN_COLORS = [ PALETTE.coral, PALETTE.cream, PALETTE.jadeLight ];
 export function addLantern( kit, top, size = 0.22, colorIndex = 0 ) {
 
 	const c = new Vector3( top.x, top.y - 0.06 - size * 1.05, top.z );
-	const body = sphere( size, 12, 8 );
+	const body = sphere( size, 16, 10 );
 	body.applyMatrix4( mat4( c.x, c.y, c.z, 0, 0, 0, 1, 1.12, 1 ) );
-	// faint ribs: darken rings by latitude
 	const col = lin( LANTERN_COLORS[ colorIndex % 3 ] );
 	paint( body, ( p ) => {
 
-		const k = 0.88 + 0.12 * Math.abs( Math.cos( ( p.y - c.y ) / size * 9 ) );
+		const lon = Math.atan2( p.z - c.z, p.x - c.x ), lat = ( p.y - c.y ) / size;
+		// ribs: 8 meridians and 3 rings, thin dark lines; between them the paper is brightest at the belly
+		const rib = Math.max( Math.pow( Math.abs( Math.cos( lon * 4 ) ), 24 ), Math.pow( Math.abs( Math.cos( lat * 6.2 ) ), 30 ) );
+		const belly = 0.92 + 0.14 * ( 1 - Math.abs( lat ) );
+		const k = belly * ( 1 - 0.55 * rib );
 		return [ { r: col.r * k, g: col.g * k, b: col.b * k }, [ 0.7, 0, PAT.cloth, GLOW ] ];
 
 	} );
@@ -319,7 +341,10 @@ export function addLantern( kit, top, size = 0.22, colorIndex = 0 ) {
 
 	}
 
+	// the wire hanger: two short legs up from the cap to the string, a ring at the top
 	kit.add( 'solid', rod( new Vector3( c.x, c.y + size * 1.12, c.z ), top, 0.006, 3 ), { color: PALETTE.ink, rough: 0.6 } );
+	kit.add( 'solid', rod( new Vector3( c.x - size * 0.3, c.y + size * 1.1, c.z ), new Vector3( c.x, top.y, c.z ), 0.004, 3 ), { color: PALETTE.ink, rough: 0.6 } );
+	kit.add( 'solid', rod( new Vector3( c.x + size * 0.3, c.y + size * 1.1, c.z ), new Vector3( c.x, top.y, c.z ), 0.004, 3 ), { color: PALETTE.ink, rough: 0.6 } );
 	// a short tassel below
 	kit.add( 'cloth', rod( new Vector3( c.x, c.y - size * 1.12, c.z ), new Vector3( c.x, c.y - size * 1.12 - 0.16, c.z ), 0.012, 4, 0.004 ), { color: PALETTE.coralDeep, rough: 0.9, anim: 0.6 } );
 	return c;
@@ -329,13 +354,13 @@ export function addLantern( kit, top, size = 0.22, colorIndex = 0 ) {
 // a lantern string from a to b: the cord and `n` lanterns along it; returns the lantern centres
 export function addLanternString( kit, a, b, { depth = 0.5, n = 5, size = 0.2, offset = 0 } = {} ) {
 
-	const pts = sag( a, b, depth, 16 );
+	const pts = sag( a, b, depth );
 	addCord( kit, pts, 0.008, PALETTE.ink );
 	const out = [];
 	for ( let i = 0; i < n; i ++ ) {
 
 		const t = ( i + 1 ) / ( n + 1 );
-		const p = new Vector3().lerpVectors( a, b, t ).setY( a.y + ( b.y - a.y ) * t - depth * 4 * t * ( 1 - t ) );
+		const p = new Vector3().lerpVectors( a, b, t ).setY( sagY( a, b, depth, t ) );
 		out.push( addLantern( kit, p, size * ( i % 2 ? 0.85 : 1 ), i + offset ) );
 
 	}
@@ -348,7 +373,7 @@ export function addLanternString( kit, a, b, { depth = 0.5, n = 5, size = 0.2, o
 const BUNTING_COLORS = [ PALETTE.coral, PALETTE.cream, PALETTE.jade, PALETTE.gold ];
 export function addBunting( kit, a, b, { depth = 0.35, spacing = 0.42, size = 0.3, offset = 0 } = {} ) {
 
-	const pts = sag( a, b, depth, 16 );
+	const pts = sag( a, b, depth );
 	addCord( kit, pts, 0.007 );
 	const len = a.distanceTo( b );
 	const n = Math.max( 2, Math.floor( len / spacing ) );
@@ -356,7 +381,7 @@ export function addBunting( kit, a, b, { depth = 0.35, spacing = 0.42, size = 0.
 	for ( let i = 1; i < n; i ++ ) {
 
 		const t = i / n;
-		const p = new Vector3().lerpVectors( a, b, t ).setY( a.y + ( b.y - a.y ) * t - depth * 4 * t * ( 1 - t ) );
+		const p = new Vector3().lerpVectors( a, b, t ).setY( sagY( a, b, depth, t ) );
 		const half = along.clone().multiplyScalar( size * 0.42 );
 		const tip = p.clone().add( new Vector3( 0, - size, 0 ) );
 		const g = triangles( [ [ p.clone().sub( half ), p.clone().add( half ), tip ] ], ( q ) => Math.min( 1, ( p.y - q.y ) / size ) );

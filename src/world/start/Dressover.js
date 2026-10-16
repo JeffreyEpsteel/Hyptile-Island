@@ -2,7 +2,7 @@ import { Group, Mesh, Vector3, Matrix4 } from '../../engine/index.js';
 import { mat4, box, cylinder, sphere } from '../boat/GeoKit.js';
 import { PAT } from '../../game/GameMaterials.js';
 import { PIER } from '../Pier.js';
-import { Kit, PALETTE as P, addRoof, addFish, fishParts, triangles, paint, lin } from './Shapes.js';
+import { Kit, PALETTE as P, addRoof, addFish, fishParts, triangles, paint, lin, addLantern, addLanternString } from './Shapes.js';
 import { landingMaterial } from './Landing.js';
 
 // Dress-over of the Tidewater landmarks you see from the new start, without touching Village.js / Pier.js:
@@ -41,6 +41,7 @@ export class Dressover {
 
 			// ---- nobori banners beside the steps, on the sand (landward of the arch)
 			const z0 = info.stepFoot ? info.stepFoot.z + 0.6 : az - 1.6;
+			const poles = [];
 			for ( const s of [ - 1, 1 ] ) {
 
 				let x = X + s * 2.4, z = z0;
@@ -48,6 +49,17 @@ export class Dressover {
 				if ( this._blocked( x, g( x, z ), z ) ) continue;
 				this._nobori( kit, x, g( x, z ), z, s );
 				this.parts.push( 'banner' );
+				poles.push( new Vector3( x, g( x, z ) + 4.85, z ) );
+
+			}
+
+			// (wave 25F) a string of paper lanterns from pole to pole over the steps, on a catenary (they glow from dusk with the
+			// landing's: the same material), and one under each corner of the arch's roof
+			if ( poles.length === 2 && poles[ 0 ].distanceTo( poles[ 1 ] ) > 3 ) {
+
+				addLanternString( kit, poles[ 0 ], poles[ 1 ], { depth: 0.75, n: 5, size: 0.17, offset: 2 } );
+				this.parts.push( 'lanterns' );
+				for ( const s of [ - 1, 1 ] ) addLantern( kit, new Vector3( X + s * ( half + 0.15 ), by + 0.26, az + 0.45 ), 0.15, s < 0 ? 1 : 0 );
 
 			}
 
