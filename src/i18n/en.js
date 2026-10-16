@@ -120,6 +120,8 @@ export default {
 	'set.grade': 'Time of day grade',
 	'set.mute_m': 'Mute (M)',
 	'set.master': 'Master',
+	'set.heli_assist': 'Helicopter flight assist',
+	'set.heli_assist.tip': 'The helicopter holds its own hover and levels itself (no torque, no vortex ring, no flips). Off: realistic flight with the collective, cyclic and pedals. K in the cockpit switches too.',
 	'set.music': 'Music',
 	'set.music.tip': 'Background music: the menu, the islands, taverns, the open sea and fights. Sits under the effects and the voices.',
 	'set.effects': 'Effects',
