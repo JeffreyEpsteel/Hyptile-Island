@@ -59,12 +59,8 @@ patch( 'package.json', [
 	{
 		name: 'test script',
 		done: ( s ) => s.includes( 'node test/feature-voices.mjs' ),
-		apply: ( s ) => {
-
-			const m = /("test": "[^"\n]*)"/.exec( s );
-			return m ? s.replace( m[ 0 ], m[ 1 ] + ' && node test/feature-voices.mjs"' ) : null;
-
-		},
+		// inserted after the sfx test (not at the end of the list, where other workers' patches anchor)
+		apply: ( s ) => ( s.includes( ' && node test/feature-sfx.mjs' ) ? s.replace( ' && node test/feature-sfx.mjs', ' && node test/feature-sfx.mjs && node test/feature-voices.mjs' ) : null ),
 	},
 ] );
 
