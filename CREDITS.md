@@ -437,3 +437,5 @@ the navy, the press gang, townsfolk, the crew, Meridian's police and the radio) 
 from the account's voice list) and the effect samples (`public/audio/sfx11`: engines, cannon, musket, pistol, sail, rope, rain on canvas,
 thunder, gulls, crowd, splashes) with ElevenLabs sound effects (`eleven_text_to_sound_v2`), both under the project owner's account.
 The lines are original writing for this game; sources and timings: `tools/voices`.
+
+Music: generated with ElevenLabs Music v2.5 for the project owner (`public/audio/music`: six original tracks, model `eleven_music_v2_5`, encoded by `tools/music/encode.mjs`).

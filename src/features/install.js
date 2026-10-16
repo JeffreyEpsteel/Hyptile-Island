@@ -45,6 +45,7 @@ import * as cars from './cars/index.js';
 import * as citywreck from './citywreck/index.js';
 import * as capsize from './capsize/index.js';
 import * as voices from './voices/index.js';
+import * as music from './music/index.js';
 
 export const MODULES = [
 	[ 'start', start ], // Jade Landing + intro (first: later modules see its colliders)
@@ -83,6 +84,7 @@ export const MODULES = [
 	[ 'navy', navy ], // wave 19B: Tidemark's frigate and cutters, hails, navy bounties and standing, sea events
 	[ 'cars', cars ], // wave 21B: Meridian's traffic, parked cars, police; every car drivable (E at a door)
 	[ 'voices', voices ], // wave 26B: ElevenLabs voices for the characters and sampled effects over the weakest synth cues (after sfx, navy, cars, crew)
+	[ 'music', music ], // wave 26C: the music director (six ElevenLabs Music tracks by context; after voices, navy, cars, interiors, night, harbour; ?noMusic)
 	[ 'citywreck', citywreck ], // wave 21C: Meridian's destructible buildings (finds app.meridian / app.ports.meridian itself)
 	[ 'inverted', inverted ], // the upside-down sky layer (off until ?inverted or the Inverted Isles)
 	[ 'life', life ],

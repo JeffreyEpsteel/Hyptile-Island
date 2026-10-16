@@ -121,7 +121,7 @@ export default {
 	'set.mute_m': 'Mute (M)',
 	'set.master': 'Master',
 	'set.music': 'Music',
-	'set.music.tip': 'Reserved: the island has no music yet.',
+	'set.music.tip': 'Background music: the menu, the islands, taverns, the open sea and fights. Sits under the effects and the voices.',
 	'set.effects': 'Effects',
 	'set.effects.tip': 'Engine, hull, footsteps, splashes, rod, reel and the coins.',
 	'set.ambience': 'Ambience',

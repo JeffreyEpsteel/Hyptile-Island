@@ -288,7 +288,7 @@ export class AppUI {
 			const pct = ( v ) => `${ Math.round( v * 100 ) }%`;
 			audioF.addToggle( { label: t( 'set.mute_m', 'Mute (M)' ), object: s, key: 'muted', onChange: ( v ) => au.setMuted( v ) } );
 			audioF.addSlider( { label: t( 'set.master', 'Master' ), object: s, key: 'volMaster', min: 0, max: 1, step: 0.01, format: pct, onChange: ( v ) => au.setVolume( 'master', v ) } );
-			audioF.addSlider( { label: t( 'set.music', 'Music' ), object: s, key: 'volMusic', min: 0, max: 1, step: 0.01, format: pct, tooltip: t( 'set.music.tip', 'Reserved: the island has no music yet.' ), onChange: ( v ) => au.setVolume( 'music', v ) } );
+			audioF.addSlider( { label: t( 'set.music', 'Music' ), object: s, key: 'volMusic', min: 0, max: 1, step: 0.01, format: pct, tooltip: t( 'set.music.tip', 'Background music: the menu, the islands, taverns, the open sea and fights. Sits under the effects and the voices.' ), onChange: ( v ) => au.setVolume( 'music', v ) } );
 			audioF.addSlider( { label: t( 'set.effects', 'Effects' ), object: s, key: 'volSfx', min: 0, max: 1, step: 0.01, format: pct, tooltip: t( 'set.effects.tip', 'Engine, hull, footsteps, splashes, rod, reel and the coins.' ), onChange: ( v ) => au.setVolume( 'sfx', v ) } );
 			audioF.addSlider( { label: t( 'set.ambience', 'Ambience' ), object: s, key: 'volAmbience', min: 0, max: 1, step: 0.01, format: pct, tooltip: t( 'set.ambience.tip', 'Surf, wind, trees, crickets, birds, the reef and the whale.' ), onChange: ( v ) => au.setVolume( 'ambience', v ) } );
 
