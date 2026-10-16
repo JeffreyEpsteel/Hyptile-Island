@@ -9,8 +9,9 @@ const helmOf = ( b ) => ( b && b.model.helmPoint ) || { x: HOUSE.helmX, z: HOUSE
 // third-person spring arm: the camera hangs off a pivot above the feet that lags behind the body
 // (wave 24F) lagY: the pivot follows a jump / a stair step more slowly than the run, so the view does not bounce;
 // sprint: the arm eases out this much farther at full sprint (with CameraFeel's wider fov: a sense of speed);
-// probe: the arm stops this far short of a wall or a hull between the pivot and the camera (Colliders.raycast)
-const ARM = { dist: 4.2, min: 1.6, max: 9, height: 1.45, side: 0.35, lag: 9, lagY: 4.5, sprint: 0.7, probe: 0.25 };
+// probe: (superseded in wave 25C by the sphere cast, CameraRig.sweepArm / ARM_CAST.radius; kept for callers that read it)
+// focus: the camera's sphere is cast from this height above the feet (the head) to where the arm wants the camera; nearest: m from it at least
+const ARM = { dist: 4.2, min: 1.6, max: 9, height: 1.45, side: 0.35, lag: 9, lagY: 4.5, sprint: 0.7, probe: 0.25, focus: 1.35, nearest: 0.5 };
 
 const EYE = 1.62;
 const SWIM_EYE = EYE * 0.1; // eyes above the body's float point while swimming
@@ -479,28 +480,33 @@ export class Player {
 		else this.camera.quaternion.setFromEuler( _e.set( this.pitch, this.yaw, 0 ) );
 		const back = _fwd.set( 0, 0, 1 ).applyQuaternion( this.camera.quaternion );
 		const side = _right.set( 1, 0, 0 ).applyQuaternion( this.camera.quaternion );
-		// the arm: a sphere cast from the pivot (shifted over the shoulder, as the camera is) along the arm against the world's solid
-		// boxes, the trunks and posts, the roofs of the houses you can enter, your boat's cabin and what a provider adds (the ships'
-		// hulls), then the ground in many small steps (wave 25C; the old ray went through trees and hulls and ignored low things)
-		let dist = this._armLen;
+		// the arm (wave 25C): the ground first (probed every ~0.35 m and bisected), then a sphere cast from the player's head to where
+		// the camera wants to be, against the world's solid boxes, the trunks and posts, the roofs (the houses' and the porch eaves),
+		// your boat's cabin and what a provider adds (the ships' hulls). The old ray ran from the lagging pivot along the arm and went
+		// through trees, hulls and the roofs over a porch. The camera snaps in at an obstacle (never a frame inside it) and eases out.
 		const sideLen = this._sideCast( this.armPivot, side, ARM.side );
 		const ox = this.armPivot.x + side.x * sideLen, oy = this.armPivot.y + side.y * sideLen, oz = this.armPivot.z + side.z * sideLen;
+		let dist = this._groundArm( ox, oy, oz, back, this._armLen );
+		if ( this.indoor ) dist = this.indoor.arm( this.armPivot, back, dist ); // (wave 19E) the closer arm that stays in the room
+		const cx = ox + back.x * dist, cy = oy + back.y * dist, cz = oz + back.z * dist;
+		const so = this.stepOff, hy = this.position.y + ( so.active ? so.y : 0 ) + ( this.mode === 'swim' ? 0.3 : ARM.focus );
+		const hx = this.position.x + ( so.active ? so.x : 0 ), hz = this.position.z + ( so.active ? so.z : 0 );
+		let vx = cx - hx, vy = cy - hy, vz = cz - hz;
+		const len = Math.hypot( vx, vy, vz ) || 1e-6;
+		vx /= len; vy /= len; vz /= len;
 		const world = this._castWorld || ( this._castWorld = { colliders: null, boat: null, blockers: null, feetY: 0 } );
 		world.colliders = this.colliders;
 		world.boat = this.mode === 'deck' || this.mode === 'seat' || this.mode === 'boat' ? this.boat : null;
 		world.blockers = this.cameraBlockers;
 		world.feetY = this.position.y;
-		const hit = sweepArm( world, ox, oy, oz, back.x, back.y, back.z, dist, ARM_CAST.radius );
-		if ( hit < dist ) dist = Math.max( ARM.min * 0.35, hit - 0.04 );
-		dist = this._groundArm( ox, oy, oz, back, dist );
-		// snaps in at an obstacle (never a frame inside it), eases out when it is gone
-		if ( this._armCur === null || this._armCur > dist ) this._armCur = dist;
-		else this._armCur += ( dist - this._armCur ) * ( 1 - Math.exp( - dt * 4.5 ) );
-		if ( Math.abs( dist - this._armCur ) < 1e-3 ) this._armCur = dist;
-		dist = this._armCur;
-
-		if ( this.indoor ) dist = this.indoor.arm( this.armPivot, back, dist ); // (wave 19E) the closer arm that stays in the room
-		this.camera.position.copy( this.armPivot ).addScaledVector( back, dist ).addScaledVector( side, sideLen );
+		const hit = sweepArm( world, hx, hy, hz, vx, vy, vz, len, ARM_CAST.radius );
+		let k = hit < len ? Math.max( 0, ( hit - 0.04 ) / len ) : 1;
+		k = Math.max( k, Math.min( 1, ARM.nearest / len ) ); // never closer than this to the head
+		if ( this._armCur === null || this._armCur > k ) this._armCur = k;
+		else this._armCur += ( k - this._armCur ) * ( 1 - Math.exp( - dt * 4.5 ) );
+		if ( Math.abs( k - this._armCur ) < 1e-3 ) this._armCur = k;
+		k = this._armCur;
+		this.camera.position.set( hx + vx * len * k, hy + vy * len * k, hz + vz * len * k );
 		this._camY = this.camera.position.y;
 
 	}

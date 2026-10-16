@@ -6,6 +6,7 @@
 //   src/core/Input.js    padLook: the gamepad's share of the look (consumeLook() returns padX / padY / pad beside x / y)
 //   src/core/Gamepad.js  fills padLook (the look still goes to input.look as before: nothing else changes)
 //   src/features/naval/Naval.js  the ships' hull outlines stop the third-person arm (Player.addCameraBlocker)
+//   src/world/Village.js  each house's roof (porch eave included) is a box the arm cannot enter (src/world/Roofs.js)
 //   package.json         test/camera-rig.mjs joins npm test
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -41,6 +42,13 @@ export const PATCHES = [
 			'\t\tif ( ! this._camBlock && this.app && this.app.player && this.app.player.addCameraBlocker ) this._camBlock = this.app.player.addCameraBlocker( hullCameraBlocker( this, placeShape ) );' ) },
 	{ file: 'src/features/naval/Naval.js', anchor: lines( '\t\tfor ( const off of this._offs ) off();', '\t\tthis._offs.length = 0;', '\t\tthis._clearWorld();', '\t\tthis.balls.dispose();' ),
 		replace: lines( '\t\tfor ( const off of this._offs ) off();', '\t\tthis._offs.length = 0;', '\t\tif ( this._camBlock ) { this._camBlock(); this._camBlock = null; }', '\t\tthis._clearWorld();', '\t\tthis.balls.dispose();' ) },
+	// ---- Village: the houses' roofs and porch eaves are only drawn (the body collider ends under them): register each as a box the
+	// camera's arm cannot enter (src/world/Roofs.js; the porch is at the front, local +z)
+	{ file: 'src/world/Village.js', anchor: "import { buildBoardwalk } from './village/Boardwalk.js';",
+		replace: lines( "import { buildBoardwalk } from './village/Boardwalk.js';", "import { registerRoof } from './Roofs.js';" ) },
+	{ file: 'src/world/Village.js', anchor: "			this.buildings.push( { name: s.name, x: s.x, z: s.z, floorY: res.floorY, roofTop: res.roofTop, stilts: s.foundation === 'stilts', footprint: res.footprint } );",
+		replace: lines( "			this.buildings.push( { name: s.name, x: s.x, z: s.z, floorY: res.floorY, roofTop: res.roofTop, stilts: s.foundation === 'stilts', footprint: res.footprint } );",
+			"			registerRoof( 'village:' + s.name, { x: s.x, z: s.z, yaw: s.yaw || 0, w: s.w + 0.9, d: s.d + 0.9 + ( res.porchDepth || 0 ), cz: ( res.porchDepth || 0 ) / 2, y0: res.eaveY - 0.15, y1: res.roofTop } ); // (wave 25C)" ) },
 	// ---- the wave's test joins npm test
 	{ file: 'package.json', anchor: '"test": "node test/game-logic.mjs && ', replace: '"test": "node test/camera-rig.mjs && node test/game-logic.mjs && ' },
 ];

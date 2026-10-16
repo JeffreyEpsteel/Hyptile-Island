@@ -372,7 +372,7 @@ export default {
 	// lean into turns (rad of roll per (m/s x rad/s)), capped; eased at `rate` 1/s
 	// wave 25C: pitch = the lean from the velocity change along the facing (rad per m/s^2, capped forward / back: a start leans
 	// into the push, a stop sits back), side = the roll a strafing push adds; both eased at `rate` 1/s
-	lean: { k: 0.045, max: 0.2, rate: 6, pitch: { k: 0.0042, fwd: 0.15, back: 0.12, rate: 10, side: 0.0032, sideMax: 0.09 } },
+	lean: { k: 0.045, max: 0.2, rate: 6, pitch: { k: 0.0085, fwd: 0.17, back: 0.13, rate: 10, side: 0.0055, sideMax: 0.1 } },
 	// inertial blend after a cut (s) when nothing else says
 	inertial: 0.25,
 

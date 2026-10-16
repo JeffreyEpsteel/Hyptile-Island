@@ -10,6 +10,7 @@ import { AnimGraph } from '../src/player/anim/AnimGraph.js';
 import DEF from '../src/player/anim/AnimDef.js';
 import { LookSlew, LOOK, sweepArm, rayPrism, hullCameraBlocker, StepSmoother, STEP } from '../src/player/CameraRig.js';
 import { registerShell, clearShells } from '../src/world/interiors/Shells.js';
+import { registerRoof, clearRoofs } from '../src/world/Roofs.js';
 import { placeShape, shapeFromDims } from '../src/world/boat/HullShape.js';
 import { CameraFeel } from '../src/game/CameraFeel.js';
 
@@ -115,6 +116,15 @@ const DT = 1 / 60;
 	const side = cast( [ 8, 3.2, 30 ], [ - 1, 0, 0 ], 10, 0.22 );
 	check( side > 4 && side < 7, `roofs: an arm at roof height from the side stops at the slab (${ side.toFixed( 2 ) } m)` );
 	clearShells();
+
+	// registered roofs (a porch eave over a front door is only drawn): a box from the eave to the ridge, the porch at local +z
+	clearRoofs();
+	registerRoof( 'porch-hut', { x: 0, z: 60, yaw: 0, w: 6, d: 5.4, cz: 1.5, y0: 2.8, y1: 4.5 } );
+	check( cast( [ 0, 1.6, 62 ], [ 0, 1, 0 ], 5, 0.22 ) < 1.4, 'roofs: under a registered porch eave an arm that rises is stopped below it' );
+	check( cast( [ 0, 1.6, 66 ], [ 0, 1, 0 ], 5, 0.22 ) === 5, 'roofs: beyond the porch (z 66, the roof ends at 64.2) nothing is above' );
+	check( cast( [ 0, 1.6, 59.5 ], [ 0, 1, 0 ], 5, 0.22 ) < 1.4 && cast( [ 0, 1.6, 58 ], [ 0, 1, 0 ], 5, 0.22 ) === 5, 'roofs: the box spans z 58.8..64.2 (centre offset by the porch): covered at 59.5, open at 58' );
+	clearRoofs();
+	check( cast( [ 0, 1.6, 62 ], [ 0, 1, 0 ], 5, 0.22 ) === 5, 'roofs: clearRoofs takes them away' );
 
 	// the ships' hulls: a fake naval with one 20 x 6 hull, 30 m ahead, keel -1.2, sheer +2
 	const shape = shapeFromDims( 20, 6 );
@@ -301,6 +311,16 @@ const step = ( n = 1 ) => { for ( let i = 0; i < n; i ++ ) { player.update( DT )
 	lab( 'a trunk 3 m behind the pivot', () => colliders.addCylinder( - 19.65, 3.0, 0.3, 0, 8, { tag: 'trunk' } ), 3.0, 1.5 );
 	lab( 'a barrel (top 0.4 m) behind', () => colliders.addCylinder( - 19.65, 2.0, 0.4, 0, 0.4, { tag: 'barrel' } ), 5.2, 3.9 );
 	lab( 'a roof box overhead is no wall', () => colliders.addBox( V( - 20, 9, 3 ), V( 6, 0.3, 6 ), 0, { tag: 'roof' } ), 5.2, 3.9 );
+
+	// a roof over the player (a porch): the camera stays under it, not on top
+	registerRoof( 'roof-test', { x: - 20, z: 0, yaw: 0, w: 14, d: 14, cz: 0, y0: 3.6, y1: 5.2 } );
+	player.position.set( - 20, 1, 0 ); player.yaw = 0; player.pitch = - 0.6; player.armInit = false;
+	step( 60 );
+	check( camera.position.y < 3.45, `arm: under a roof (eave at 3.6 m) the camera stays under it (y ${ camera.position.y.toFixed( 2 ) })` );
+	clearRoofs();
+	player.pitch = - 0.6; step( 60 );
+	check( camera.position.y > 4.0, `arm: and without the roof it rises (y ${ camera.position.y.toFixed( 2 ) })` );
+	player.pitch = - 0.05;
 
 	// out from behind a wall: the arm eases back out, it does not pop
 	colliders.addBox( V( - 20, 3, 2.2 ), V( 4, 3, 0.2 ), 0, { tag: 'wall' } );

@@ -1,4 +1,5 @@
 import { shells } from '../world/interiors/Shells.js';
+import { roofs } from '../world/Roofs.js';
 
 // The pieces of the on-foot camera that are not the walk itself (wave 25C). Pure maths, no GPU: test/camera-rig.mjs.
 //
@@ -224,35 +225,42 @@ const _roof = { n: 4, x: new Float64Array( 4 ), z: new Float64Array( 4 ), nx: ne
 const CORNERS = [ [ 1, 1 ], [ - 1, 1 ], [ - 1, - 1 ], [ 1, - 1 ] ];
 const NORMALS = [ [ 0, 1 ], [ - 1, 0 ], [ 0, - 1 ], [ 1, 0 ] ];
 
-// the roofs of the enterable houses: their hollow colliders stop at the eaves, so the arm went up through the roof
+// the roofs: the enterable houses' (their hollow colliders stop at the eaves) and the ones buildings register (world/Roofs.js: the
+// porch eave over a front door is only drawn)
+function castRoof( s, cz, hw, hd, y0, y1, ox, oy, oz, dx, dy, dz, r, best ) {
+
+	const rr = Math.hypot( hw, hd ) + Math.abs( cz ) + r + best;
+	if ( Math.abs( s.x - ox ) > rr || Math.abs( s.z - oz ) > rr ) return best;
+	const sn = Math.sin( s.yaw || 0 ), cs = Math.cos( s.yaw || 0 );
+	for ( let i = 0; i < 4; i ++ ) {
+
+		const lx = CORNERS[ i ][ 0 ] * hw, lz = cz + CORNERS[ i ][ 1 ] * hd;
+		_roof.x[ i ] = s.x + lx * cs + lz * sn;
+		_roof.z[ i ] = s.z - lx * sn + lz * cs;
+		_roof.nx[ i ] = NORMALS[ i ][ 0 ] * cs + NORMALS[ i ][ 1 ] * sn;
+		_roof.nz[ i ] = - NORMALS[ i ][ 0 ] * sn + NORMALS[ i ][ 1 ] * cs;
+
+	}
+
+	const t = rayPrism( _roof, y0, y1, ox, oy, oz, dx, dy, dz, best, r );
+	return t < best ? t : best;
+
+}
+
 function castRoofs( ox, oy, oz, dx, dy, dz, len, r, best ) {
 
 	const map = shells();
-	if ( ! map || ! map.size ) return best;
-	for ( const s of map.values() ) {
+	if ( map && map.size ) for ( const s of map.values() ) {
 
 		if ( ! Number.isFinite( s.top ) || ! Number.isFinite( s.floorY ) ) continue;
 		const eave = s.floorY + ( s.h || 2.4 ) * ( s.stories || 1 ) - 0.1;
 		if ( s.top < eave + 0.2 ) continue;
-		const hw = s.w / 2 + 0.35, hd = s.d / 2 + 0.35;
-		const rr = Math.hypot( hw, hd ) + r + len;
-		if ( Math.abs( s.x - ox ) > rr || Math.abs( s.z - oz ) > rr ) continue;
-		const sn = Math.sin( s.yaw || 0 ), cs = Math.cos( s.yaw || 0 );
-		for ( let i = 0; i < 4; i ++ ) {
-
-			const lx = CORNERS[ i ][ 0 ] * hw, lz = CORNERS[ i ][ 1 ] * hd;
-			_roof.x[ i ] = s.x + lx * cs + lz * sn;
-			_roof.z[ i ] = s.z - lx * sn + lz * cs;
-			_roof.nx[ i ] = NORMALS[ i ][ 0 ] * cs + NORMALS[ i ][ 1 ] * sn;
-			_roof.nz[ i ] = - NORMALS[ i ][ 0 ] * sn + NORMALS[ i ][ 1 ] * cs;
-
-		}
-
-		const t = rayPrism( _roof, eave, s.top, ox, oy, oz, dx, dy, dz, best, r );
-		if ( t < best ) best = t;
+		best = castRoof( s, 0, s.w / 2 + 0.35, s.d / 2 + 0.35, eave, s.top, ox, oy, oz, dx, dy, dz, r, best );
 
 	}
 
+	const rm = roofs();
+	if ( rm && rm.size ) for ( const s of rm.values() ) best = castRoof( s, s.cz || 0, s.w / 2, s.d / 2, s.y0, s.y1, ox, oy, oz, dx, dy, dz, r, best );
 	return best;
 
 }
