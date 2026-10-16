@@ -1173,10 +1173,10 @@ fn terrainWetness( xz: vec2f, h: f32 ) -> vec2f {
 		if ( ! this.paused && this.features ) this.features.update( dt );
 		// the character: shown in third person (and from the free camera), hidden behind the first-person eye
 		const p = this.player;
-		this.avatar.visible = this.freeCam || ( ! this.features?.get?.( 'cars' )?.hidesDriver?.() && ( p.mode === 'boat' ? p.camMode === 'third' : p.view === 'third' ) );
+		this.avatar.visible = this.freeCam || ( p.mode === 'plane' && !! p.vehicle?.showsDriver?.() ) || ( ! this.features?.get?.( 'cars' )?.hidesDriver?.() && ( p.mode === 'boat' ? p.camMode === 'third' : p.view === 'third' ) );
 		const pose = p.pose( this._pose || ( this._pose = {} ) );
 		// hands on the helm / rod, feet on the ground: contact IK targets for this frame
-		this.avatar.setIKTargets( contactTargets( this._ikTargets || ( this._ikTargets = {} ), { player: p, rod: this.game && this.game.rod, boat: this.boatCtl, action: pose.action } ) );
+		this.avatar.setIKTargets( ( p.mode === 'plane' && p.vehicle?.ikTargets?.( this._vehicleIK || ( this._vehicleIK = {} ) ) ) || contactTargets( this._ikTargets || ( this._ikTargets = {} ), { player: p, rod: this.game && this.game.rod, boat: this.boatCtl, action: pose.action } ) );
 		this.avatar.update( dt * ( this.features && this.features.get && this.features.get( 'melee' ) && this.features.get( 'melee' ).timeScale != null ? this.features.get( 'melee' ).timeScale : 1 ), pose ); // (hitstop and the parry's slow-motion reach the player's own avatar)
 		if ( this.remotePlayers ) this.remotePlayers.update( dt );
 		if ( this.net ) this.net.send( this.netState() );
@@ -1244,6 +1244,7 @@ fn terrainWetness( xz: vec2f, h: f32 ) -> vec2f {
 		this.underwater.updateCamera( this.camera );
 		this.shadows.render( this.scene, this.engine.meshRenderer, this.shadows.update( this.camera, G.sunDir.value ) );
 		this.sceneRenderer.render();
+		this.features?.get?.( 'cars' )?.renderMirrors?.( this.engine.meshRenderer, this.scene ); // (wave 25E: the car mirrors' rear view)
 		if ( this.post.flare ) this.post.flare.kernel.dispatch( 1 );
 		this.post.render();
 		this.post.endFrame();

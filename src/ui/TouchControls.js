@@ -80,11 +80,11 @@ const BUTTONS = {
 	run: { label: 'Run' },
 	shot: { label: 'Round' }, // the next cannon shot kind (Digit1..3, as on a keyboard)
 	letGo: { label: 'Let go', code: 'Space' }, // wave 22B: off the upturned hull into the water
-	heliRise: { label: 'Rise', code: 'ShiftLeft', hold: true },
-	heliDescend: { label: 'Descend', code: 'KeyC', hold: true },
-	heliHover: { label: 'Hover / brake', code: 'Space', hold: true },
-	heliLeft: { label: 'Slide left', code: 'Comma', hold: true },
-	heliRight: { label: 'Slide right', code: 'Period', hold: true },
+	heliRise: { label: 'Rise / collective +', code: 'ShiftLeft', hold: true },
+	heliDescend: { label: 'Descend / collective -', code: 'KeyC', hold: true },
+	heliHover: { label: 'Hover / level', code: 'Space', hold: true },
+	heliLeft: { label: 'Slide / yaw left', code: 'Comma', hold: true },
+	heliRight: { label: 'Slide / yaw right', code: 'Period', hold: true },
 };
 export const HELICOPTER_BUTTONS = [ 'heliRise', 'heliDescend', 'heliHover', 'heliLeft', 'heliRight' ];
 export function helicopterButtons( s = {} ) {

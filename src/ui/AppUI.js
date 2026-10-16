@@ -245,6 +245,9 @@ export class AppUI {
 		// (the Access tab has the same switch: both go through the accessibility model, which saves it)
 		s.reduceMotion = a11y.get( 'reduceMotion' );
 		view.addToggle( { label: t( 'set.reduce_boat_motion', 'Reduce boat motion' ), object: s, key: 'reduceMotion', tooltip: t( 'set.reduce_boat_motion.tip', 'Steadier boat cameras (less roll and pitch at the helm) and no camera shake on strikes.' ), onChange: ( v ) => a11y.set( 'reduceMotion', v ) } );
+		// wave 25E: the rescue helicopter flies realistically unless the player asks for the assisted hover
+		s.helicopterAssist = !! app.settings.helicopterAssist;
+		view.addToggle( { label: t( 'set.heli_assist', 'Helicopter flight assist' ), object: s, key: 'helicopterAssist', tooltip: t( 'set.heli_assist.tip', 'The helicopter holds its own hover and levels itself (no torque, no vortex ring, no flips). Off: realistic flight with the collective, cyclic and pedals. K in the cockpit switches too.' ), onChange: ( v ) => { app.settings.helicopterAssist = v; app.features?.get?.( 'helicopter' )?.setAssist?.( v ); } } );
 		// (wave 25C) off: the boat / plane / car chase camera stays where you put it (Home or the middle mouse button re-centres it)
 		s.cameraFollowsHeading = a11y.get( 'cameraFollowsHeading' );
 		view.addToggle( { label: t( 'set.camera_follows', 'Camera follows the heading' ), object: s, key: 'cameraFollowsHeading', tooltip: t( 'set.camera_follows.tip', 'The chase camera of boats, planes, helicopters and cars swings back behind the vehicle when you leave it alone. Off: it stays where you put it (Home or the middle mouse button centres it).' ), onChange: ( v ) => a11y.set( 'cameraFollowsHeading', v ) } );
