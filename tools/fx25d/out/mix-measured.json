@@ -1,0 +1,1207 @@
+{
+ "measuredWithTrims": {
+  "cloth_swish": {
+   "kind": "cue",
+   "gain": 0.023829847041728445,
+   "lufs": -59.899997890494646,
+   "peak": -39.88996800058152,
+   "dur": 0.24180000000000001
+  },
+  "gear_clink": {
+   "kind": "cue",
+   "gain": 0.019184037234045475,
+   "lufs": -61.94619798343852,
+   "peak": -33.73403825575116,
+   "dur": 0.18
+  },
+  "breath": {
+   "kind": "cue",
+   "gain": 0.038744718848307026,
+   "lufs": -49.99796226704919,
+   "peak": -34.17593301452454,
+   "dur": 0.42399999999999993
+  },
+  "wade_splash": {
+   "kind": "cue",
+   "gain": 0.07380571417238105,
+   "lufs": -46.21710118203984,
+   "peak": -26.379564092058907,
+   "dur": 0.88
+  },
+  "market": {
+   "kind": "bed",
+   "gain": 0.06934737009050633,
+   "lufs": -39.98548757585144,
+   "top": -39.48956847996539,
+   "peak": -30.11887024790081
+  },
+  "tavern": {
+   "kind": "bed",
+   "gain": 0.07412647495510165,
+   "lufs": -38.1194751426388,
+   "top": -37.30976423897923,
+   "peak": -27.741725735901394
+  },
+  "cliffs": {
+   "kind": "bed",
+   "gain": 0.06639284128816912,
+   "lufs": -36.068239030553315,
+   "top": -32.863337000946764,
+   "peak": -21.831160108243928
+  },
+  "falls": {
+   "kind": "bed",
+   "gain": 0.051282991138986204,
+   "lufs": -37.99962310791433,
+   "top": -37.74661222176822,
+   "peak": -27.00146946533126
+  },
+  "strip": {
+   "kind": "bed",
+   "gain": 0.06515833892261497,
+   "lufs": -45.80456040437855,
+   "top": -45.11392376451857,
+   "peak": -32.843389368755254
+  },
+  "engine": {
+   "kind": "bed",
+   "gain": 0.03925937236522621,
+   "lufs": -37.990697879146246,
+   "top": -35.070371218138206,
+   "peak": -25.05432907964698
+  },
+  "spout": {
+   "kind": "bed",
+   "gain": 0.08491218262308721,
+   "lufs": -34.14764283699742,
+   "top": -33.1179058666735,
+   "peak": -22.913605421461725
+  },
+  "shipfire": {
+   "kind": "bed",
+   "gain": 0.08854377448471464,
+   "lufs": -35.9061167239052,
+   "top": -33.76123688132148,
+   "peak": -25.410325272485387
+  },
+  "bilge": {
+   "kind": "bed",
+   "gain": 0.057163821538897416,
+   "lufs": -41.0940921724621,
+   "top": -35.849352831380465,
+   "peak": -27.4019221567902
+  },
+  "hearth": {
+   "kind": "bed",
+   "gain": 0.028452470560622767,
+   "lufs": -46.000825069539296,
+   "top": -43.693468588886105,
+   "peak": -34.86200936344109
+  },
+  "market_home": {
+   "kind": "bed",
+   "gain": 0.0714693747441541,
+   "lufs": -40.07242763016132,
+   "top": -39.27491176284573,
+   "peak": -29.20058369504683
+  },
+  "market_bw": {
+   "kind": "bed",
+   "gain": 0.07518445149183538,
+   "lufs": -37.88549673551579,
+   "top": -37.28167319890477,
+   "peak": -26.592816373475337
+  },
+  "rigging_strain": {
+   "kind": "file",
+   "gain": 0.21784683286206077,
+   "lufs": -39.989508118816964,
+   "top": -22.38451367103975,
+   "peak": -11.158638448839302,
+   "dur": 2.4827083333333335
+  },
+  "hull_groan": {
+   "kind": "file",
+   "gain": 0.23719090929744177,
+   "lufs": -39.96771607004211,
+   "top": -23.259186632743603,
+   "peak": -11.650417620049001,
+   "dur": 4.514020833333333
+  },
+  "sail_luff": {
+   "kind": "file",
+   "gain": 0.05693281916736392,
+   "lufs": -37.97943061942109,
+   "top": -37.48257135700468,
+   "peak": -21.71024800114735,
+   "dur": 1.8
+  },
+  "chute_creak": {
+   "kind": "cue",
+   "gain": 0.6294627058970836,
+   "lufs": -41.82510178188082,
+   "peak": -26.758279972782635,
+   "dur": 0.9
+  },
+  "gust": {
+   "kind": "cue",
+   "gain": 0.33140777234089674,
+   "lufs": -37.55141895400257,
+   "peak": -25.382222964643265,
+   "dur": 2.9000000000000004
+  },
+  "gull": {
+   "kind": "cue",
+   "gain": 0.2654422221154942,
+   "lufs": -31.905314936539035,
+   "peak": -18.13466600141078,
+   "dur": 1.6600000000000001
+  },
+  "parrot": {
+   "kind": "cue",
+   "gain": 0.18576761454858629,
+   "lufs": -31.52413400461559,
+   "peak": -18.359247701845327,
+   "dur": 0.9
+  },
+  "frigate": {
+   "kind": "cue",
+   "gain": 0.24102383442974307,
+   "lufs": -34.00412630422859,
+   "peak": -19.538277548342386,
+   "dur": 0.7
+  },
+  "dog_bark": {
+   "kind": "cue",
+   "gain": 0.465748269977215,
+   "lufs": -30.057349947816256,
+   "peak": -12.062985316152497,
+   "dur": 0.8846589294926182
+  },
+  "hammer": {
+   "kind": "cue",
+   "gain": 0.40559256661976345,
+   "lufs": -32.033900285696106,
+   "peak": -10.118647120568562,
+   "dur": 0.2
+  },
+  "chapel_bell": {
+   "kind": "cue",
+   "gain": 0.12281248229300322,
+   "lufs": -27.99687574515745,
+   "peak": -18.68339453626562,
+   "dur": 4.5
+  },
+  "drum": {
+   "kind": "cue",
+   "gain": 0.19498445997580455,
+   "lufs": -27.9508909539929,
+   "peak": -14.751941635544359,
+   "dur": 0.5
+  },
+  "tavern_shout": {
+   "kind": "cue",
+   "gain": 0.3716191109616918,
+   "lufs": -34.58739256391867,
+   "peak": -19.60218218117919,
+   "dur": 1.6
+  },
+  "dice_rattle": {
+   "kind": "cue",
+   "gain": 0.295367488003639,
+   "lufs": -39.9011709022911,
+   "peak": -21.178078989094146,
+   "dur": 1
+  },
+  "snore": {
+   "kind": "cue",
+   "gain": 0.0885237883842255,
+   "lufs": -37.97717514000629,
+   "peak": -27.33983100284693,
+   "dur": 2.2
+  },
+  "bran_workshop": {
+   "kind": "file",
+   "gain": 0.09647591933214679,
+   "lufs": -33.95349657623566,
+   "top": -33.95349657623566,
+   "peak": -21.652131335966725,
+   "dur": 10.56
+  },
+  "iona_workshop": {
+   "kind": "file",
+   "gain": 0.0869799043438641,
+   "lufs": -33.95058675890542,
+   "top": -33.95058675890542,
+   "peak": -22.00960025104669,
+   "dur": 9.84
+  },
+  "clown_prank": {
+   "kind": "file",
+   "gain": 0.22528050203785724,
+   "lufs": -26.022804086165127,
+   "top": -26.022804086165127,
+   "peak": -14.800366129702066,
+   "dur": 1.7
+  },
+  "blade_swing": {
+   "kind": "cue",
+   "gain": 0.7854129180113743,
+   "lufs": -28.477838139003165,
+   "peak": -9.672710703456938,
+   "dur": 0.25
+  },
+  "axe_swing": {
+   "kind": "cue",
+   "gain": 0.9661871637698505,
+   "lufs": -28.290556854628417,
+   "peak": -10.29448232867174,
+   "dur": 0.35
+  },
+  "pin_swing": {
+   "kind": "cue",
+   "gain": 1.0793225490772727,
+   "lufs": -30.387160641354257,
+   "peak": -11.297140237488124,
+   "dur": 0.2
+  },
+  "harpoon_jab": {
+   "kind": "cue",
+   "gain": 0.9081367490617249,
+   "lufs": -29.917468849008955,
+   "peak": -13.013604059532106,
+   "dur": 0.3
+  },
+  "blade_hit": {
+   "kind": "cue",
+   "gain": 0.7817897767646486,
+   "lufs": -22.088148142593433,
+   "peak": 1.9340997833957927,
+   "dur": 0.3
+  },
+  "axe_hit": {
+   "kind": "cue",
+   "gain": 0.5485832075161522,
+   "lufs": -20.988404122346193,
+   "peak": -4.52184522144271,
+   "dur": 0.3
+  },
+  "pin_hit": {
+   "kind": "cue",
+   "gain": 0.8976147634415708,
+   "lufs": -23.057259532212377,
+   "peak": -0.9251368347849843,
+   "dur": 0.18
+  },
+  "harpoon_strike": {
+   "kind": "cue",
+   "gain": 0.7296086714847279,
+   "lufs": -21.954374283194547,
+   "peak": -5.99529548100505,
+   "dur": 0.65
+  },
+  "bullet_hit": {
+   "kind": "cue",
+   "gain": 1.1971573889813276,
+   "lufs": -23.950020150044505,
+   "peak": -4.731723343704336,
+   "dur": 0.42
+  },
+  "fire_crackle": {
+   "kind": "cue",
+   "gain": 0.8978680417359958,
+   "lufs": -42.745537211946214,
+   "peak": -12.97901467929568,
+   "dur": 0.62
+  },
+  "bucket_slosh": {
+   "kind": "cue",
+   "gain": 0.4548972974014778,
+   "lufs": -27.808594029688525,
+   "peak": -10.299008039945285,
+   "dur": 0.45
+  },
+  "pump_stroke": {
+   "kind": "cue",
+   "gain": 0.7909540431338442,
+   "lufs": -27.543659327097934,
+   "peak": -7.857088141124059,
+   "dur": 0.55
+  },
+  "door": {
+   "kind": "cue",
+   "gain": 0.5347505628802474,
+   "lufs": -27.970990260871083,
+   "peak": -10.806833937867303,
+   "dur": 0.85
+  },
+  "board_creak": {
+   "kind": "cue",
+   "gain": 0.5458332546355699,
+   "lufs": -43.914251108958396,
+   "peak": -28.66328128011386,
+   "dur": 0.45
+  },
+  "sword_clack": {
+   "kind": "cue",
+   "gain": 0.8303142844392869,
+   "lufs": -23.899526240504986,
+   "peak": -0.9612658603262513,
+   "dur": 0.2
+  },
+  "black_flag": {
+   "kind": "cue",
+   "gain": 0.4258361330653324,
+   "lufs": -24.015251047677307,
+   "peak": -11.715086489624941,
+   "dur": 1.2
+  },
+  "claim": {
+   "kind": "cue",
+   "gain": 0.2912342912366654,
+   "lufs": -22.01692728411095,
+   "peak": -12.394141461811298,
+   "dur": 3
+  },
+  "canopy_snap": {
+   "kind": "cue",
+   "gain": 0.3589219346450052,
+   "lufs": -22.091083828228175,
+   "peak": -3.8180543843866603,
+   "dur": 1.1
+  },
+  "thwack": {
+   "kind": "file",
+   "gain": 0.5285547584060768,
+   "lufs": -25.994865142344917,
+   "top": -25.994865142344917,
+   "peak": -2.709062733431727,
+   "dur": 0.3
+  },
+  "thud": {
+   "kind": "file",
+   "gain": 0.17502092991596424,
+   "lufs": -27.970641811082412,
+   "top": -27.970641811082412,
+   "peak": -15.928496466916421,
+   "dur": 0.35
+  },
+  "line_creak": {
+   "kind": "file",
+   "gain": 0.16942207806960127,
+   "lufs": -37.98780390104478,
+   "top": -37.98780390104478,
+   "peak": -21.587924090916207,
+   "dur": 0.34839583333333335
+  },
+  "splinter": {
+   "kind": "file",
+   "gain": 0.9842150166499053,
+   "lufs": -21.970450501733584,
+   "top": -21.970450501733584,
+   "peak": -0.711473460070316,
+   "dur": 0.9
+  },
+  "cannon_reload": {
+   "kind": "file",
+   "gain": 0.41028910719309186,
+   "lufs": -24.031685066094635,
+   "top": -24.031685066094635,
+   "peak": -7.720546105772554,
+   "dur": 2.0125
+  },
+  "battery_fire": {
+   "kind": "cue",
+   "gain": 0.5128613839913648,
+   "lufs": -13.967724842148375,
+   "peak": -1.4813349515068315,
+   "dur": 2.9
+  },
+  "powder_blast": {
+   "kind": "cue",
+   "gain": 0.38018939632056115,
+   "lufs": -12.115398347592535,
+   "peak": -2.52729122508691,
+   "dur": 4.3
+  },
+  "fort_bell": {
+   "kind": "cue",
+   "gain": 0.2946066253909544,
+   "lufs": -19.9705235376121,
+   "peak": -11.307642213509565,
+   "dur": 4.940151740113324
+  },
+  "watch_call": {
+   "kind": "cue",
+   "gain": 1.34661209048499,
+   "lufs": -22.048159228942662,
+   "peak": -3.5743278157127123,
+   "dur": 2.2
+  },
+  "swivel_bark": {
+   "kind": "cue",
+   "gain": 1.362758582086535,
+   "lufs": -14.975228145238507,
+   "peak": 4.363855831132733,
+   "dur": 1.2
+  },
+  "fire_whoomph": {
+   "kind": "cue",
+   "gain": 0.8092635634079189,
+   "lufs": -19.781784435857272,
+   "peak": -6.27481248677011,
+   "dur": 0.8
+  },
+  "flood_rush": {
+   "kind": "cue",
+   "gain": 0.7380571417238105,
+   "lufs": -22.263420855855532,
+   "peak": -9.800960282201263,
+   "dur": 2
+  },
+  "mast_crack": {
+   "kind": "cue",
+   "gain": 0.8709635899560807,
+   "lufs": -14.989075150379715,
+   "peak": -1.6035793989063274,
+   "dur": 2.5
+  },
+  "bosun_call": {
+   "kind": "cue",
+   "gain": 0.09448496129366736,
+   "lufs": -24.038279524410537,
+   "peak": -23.266818729195155,
+   "dur": 1.45
+  },
+  "heave_to": {
+   "kind": "cue",
+   "gain": 0.830651637812439,
+   "lufs": -23.943377501760427,
+   "peak": -7.826897103698607,
+   "dur": 1.3
+  },
+  "quarters_drum": {
+   "kind": "cue",
+   "gain": 0.4027738472776895,
+   "lufs": -19.971142469965763,
+   "peak": -7.935169207775673,
+   "dur": 2.7874999999999996
+  },
+  "distant_gun": {
+   "kind": "cue",
+   "gain": 0.22092380241165274,
+   "lufs": -20.009144424892856,
+   "peak": -11.756884327925746,
+   "dur": 3.4
+  },
+  "heartbeat": {
+   "kind": "cue",
+   "gain": 0.3350410646258468,
+   "lufs": -25.986247606953924,
+   "peak": -13.665900448773469,
+   "dur": 0.7
+  }
+ },
+ "rows": [
+  {
+   "name": "gear_clink",
+   "group": "foley",
+   "kind": "cue",
+   "raw": -59.6,
+   "target": -62,
+   "trim": -2.4,
+   "now": -61.9,
+   "peak": -33.7
+  },
+  {
+   "name": "cloth_swish",
+   "group": "foley",
+   "kind": "cue",
+   "raw": -57.9,
+   "target": -60,
+   "trim": -2.1,
+   "now": -59.9,
+   "peak": -39.9
+  },
+  {
+   "name": "breath",
+   "group": "foley",
+   "kind": "cue",
+   "raw": -48.7,
+   "target": -50,
+   "trim": -1.3,
+   "now": -50,
+   "peak": -34.2
+  },
+  {
+   "name": "wade_splash",
+   "group": "foley",
+   "kind": "cue",
+   "raw": -45.5,
+   "target": -46,
+   "trim": -0.5,
+   "now": -46.2,
+   "peak": -26.4
+  },
+  {
+   "name": "strip",
+   "group": "bed",
+   "kind": "bed",
+   "raw": -48.1,
+   "target": -46,
+   "trim": 2.1,
+   "now": -45.8,
+   "peak": -32.8
+  },
+  {
+   "name": "hearth",
+   "group": "bed",
+   "kind": "bed",
+   "raw": -31,
+   "target": -46,
+   "trim": -15,
+   "now": -46,
+   "peak": -34.9
+  },
+  {
+   "name": "bilge",
+   "group": "bed",
+   "kind": "bed",
+   "raw": -26.7,
+   "target": -42,
+   "trim": -15.3,
+   "now": -41.1,
+   "peak": -27.4
+  },
+  {
+   "name": "chute_creak",
+   "group": "bed",
+   "kind": "cue",
+   "raw": -43.8,
+   "target": -42,
+   "trim": 1.8,
+   "now": -41.8,
+   "peak": -26.8
+  },
+  {
+   "name": "market",
+   "group": "bed",
+   "kind": "bed",
+   "raw": -30.8,
+   "target": -40,
+   "trim": -9.2,
+   "now": -40,
+   "peak": -30.1
+  },
+  {
+   "name": "market_home",
+   "group": "bed",
+   "kind": "bed",
+   "raw": -33.1,
+   "target": -40,
+   "trim": -6.9,
+   "now": -40.1,
+   "peak": -29.2
+  },
+  {
+   "name": "rigging_strain",
+   "group": "bed",
+   "kind": "file",
+   "raw": -31.2,
+   "target": -40,
+   "trim": -8.8,
+   "now": -40,
+   "peak": -11.2
+  },
+  {
+   "name": "hull_groan",
+   "group": "bed",
+   "kind": "file",
+   "raw": -30.6,
+   "target": -40,
+   "trim": -9.4,
+   "now": -40,
+   "peak": -11.7
+  },
+  {
+   "name": "tavern",
+   "group": "bed",
+   "kind": "bed",
+   "raw": -27.2,
+   "target": -38,
+   "trim": -10.8,
+   "now": -38.1,
+   "peak": -27.7
+  },
+  {
+   "name": "falls",
+   "group": "bed",
+   "kind": "bed",
+   "raw": -23.9,
+   "target": -38,
+   "trim": -14.1,
+   "now": -38,
+   "peak": -27
+  },
+  {
+   "name": "engine",
+   "group": "bed",
+   "kind": "bed",
+   "raw": -27.6,
+   "target": -38,
+   "trim": -10.4,
+   "now": -38,
+   "peak": -25.1
+  },
+  {
+   "name": "market_bw",
+   "group": "bed",
+   "kind": "bed",
+   "raw": -32.5,
+   "target": -38,
+   "trim": -5.5,
+   "now": -37.9,
+   "peak": -26.6
+  },
+  {
+   "name": "sail_luff",
+   "group": "bed",
+   "kind": "file",
+   "raw": -18.3,
+   "target": -38,
+   "trim": -19.7,
+   "now": -38,
+   "peak": -21.7
+  },
+  {
+   "name": "cliffs",
+   "group": "bed",
+   "kind": "bed",
+   "raw": -23,
+   "target": -36,
+   "trim": -13,
+   "now": -36.1,
+   "peak": -21.8
+  },
+  {
+   "name": "shipfire",
+   "group": "bed",
+   "kind": "bed",
+   "raw": -25.9,
+   "target": -36,
+   "trim": -10.1,
+   "now": -35.9,
+   "peak": -25.4
+  },
+  {
+   "name": "gust",
+   "group": "bed",
+   "kind": "cue",
+   "raw": -33.2,
+   "target": -36,
+   "trim": -2.8,
+   "now": -37.6,
+   "peak": -25.4
+  },
+  {
+   "name": "spout",
+   "group": "bed",
+   "kind": "bed",
+   "raw": -18.7,
+   "target": -34,
+   "trim": -15.3,
+   "now": -34.1,
+   "peak": -22.9
+  },
+  {
+   "name": "dice_rattle",
+   "group": "life",
+   "kind": "cue",
+   "raw": -34.5,
+   "target": -40,
+   "trim": -5.5,
+   "now": -39.9,
+   "peak": -21.2
+  },
+  {
+   "name": "snore",
+   "group": "life",
+   "kind": "cue",
+   "raw": -24.9,
+   "target": -38,
+   "trim": -13.1,
+   "now": -38,
+   "peak": -27.3
+  },
+  {
+   "name": "frigate",
+   "group": "life",
+   "kind": "cue",
+   "raw": -29.6,
+   "target": -34,
+   "trim": -4.4,
+   "now": -34,
+   "peak": -19.5
+  },
+  {
+   "name": "tavern_shout",
+   "group": "life",
+   "kind": "cue",
+   "raw": -29.1,
+   "target": -34,
+   "trim": -4.9,
+   "now": -34.6,
+   "peak": -19.6
+  },
+  {
+   "name": "bran_workshop",
+   "group": "life",
+   "kind": "file",
+   "raw": -15.1,
+   "target": -34,
+   "trim": -18.9,
+   "now": -34,
+   "peak": -21.7
+  },
+  {
+   "name": "iona_workshop",
+   "group": "life",
+   "kind": "file",
+   "raw": -14.2,
+   "target": -34,
+   "trim": -19.8,
+   "now": -34,
+   "peak": -22
+  },
+  {
+   "name": "gull",
+   "group": "life",
+   "kind": "cue",
+   "raw": -26.4,
+   "target": -32,
+   "trim": -5.6,
+   "now": -31.9,
+   "peak": -18.1
+  },
+  {
+   "name": "parrot",
+   "group": "life",
+   "kind": "cue",
+   "raw": -22.9,
+   "target": -32,
+   "trim": -9.1,
+   "now": -31.5,
+   "peak": -18.4
+  },
+  {
+   "name": "hammer",
+   "group": "life",
+   "kind": "cue",
+   "raw": -26.1,
+   "target": -32,
+   "trim": -5.9,
+   "now": -32,
+   "peak": -10.1
+  },
+  {
+   "name": "dog_bark",
+   "group": "life",
+   "kind": "cue",
+   "raw": -27.9,
+   "target": -30,
+   "trim": -2.1,
+   "now": -30.1,
+   "peak": -12.1
+  },
+  {
+   "name": "chapel_bell",
+   "group": "life",
+   "kind": "cue",
+   "raw": -10.7,
+   "target": -28,
+   "trim": -17.3,
+   "now": -28,
+   "peak": -18.7
+  },
+  {
+   "name": "drum",
+   "group": "life",
+   "kind": "cue",
+   "raw": -13.8,
+   "target": -28,
+   "trim": -14.2,
+   "now": -28,
+   "peak": -14.8
+  },
+  {
+   "name": "clown_prank",
+   "group": "life",
+   "kind": "file",
+   "raw": -13.5,
+   "target": -26,
+   "trim": -12.5,
+   "now": -26,
+   "peak": -14.8
+  },
+  {
+   "name": "board_creak",
+   "group": "action",
+   "kind": "cue",
+   "raw": -46.6,
+   "target": -44,
+   "trim": 2.6,
+   "now": -43.9,
+   "peak": -28.7
+  },
+  {
+   "name": "fire_crackle",
+   "group": "action",
+   "kind": "cue",
+   "raw": -48.7,
+   "target": -42,
+   "trim": 6.7,
+   "now": -42.7,
+   "peak": -13
+  },
+  {
+   "name": "line_creak",
+   "group": "action",
+   "kind": "file",
+   "raw": -28.6,
+   "target": -38,
+   "trim": -9.4,
+   "now": -38,
+   "peak": -21.6
+  },
+  {
+   "name": "pin_swing",
+   "group": "action",
+   "kind": "cue",
+   "raw": -35.5,
+   "target": -30,
+   "trim": 5.5,
+   "now": -30.4,
+   "peak": -11.3
+  },
+  {
+   "name": "harpoon_jab",
+   "group": "action",
+   "kind": "cue",
+   "raw": -33.5,
+   "target": -30,
+   "trim": 3.5,
+   "now": -29.9,
+   "peak": -13
+  },
+  {
+   "name": "blade_swing",
+   "group": "action",
+   "kind": "cue",
+   "raw": -29.5,
+   "target": -28,
+   "trim": 1.5,
+   "now": -28.5,
+   "peak": -9.7
+  },
+  {
+   "name": "axe_swing",
+   "group": "action",
+   "kind": "cue",
+   "raw": -30.5,
+   "target": -28,
+   "trim": 2.5,
+   "now": -28.3,
+   "peak": -10.3
+  },
+  {
+   "name": "bucket_slosh",
+   "group": "action",
+   "kind": "cue",
+   "raw": -24.7,
+   "target": -28,
+   "trim": -3.3,
+   "now": -27.8,
+   "peak": -10.3
+  },
+  {
+   "name": "pump_stroke",
+   "group": "action",
+   "kind": "cue",
+   "raw": -29.9,
+   "target": -28,
+   "trim": 1.9,
+   "now": -27.5,
+   "peak": -7.9
+  },
+  {
+   "name": "door",
+   "group": "action",
+   "kind": "cue",
+   "raw": -27,
+   "target": -28,
+   "trim": -1,
+   "now": -28,
+   "peak": -10.8
+  },
+  {
+   "name": "thud",
+   "group": "action",
+   "kind": "file",
+   "raw": -14.8,
+   "target": -28,
+   "trim": -13.2,
+   "now": -28,
+   "peak": -15.9
+  },
+  {
+   "name": "thwack",
+   "group": "action",
+   "kind": "file",
+   "raw": -22.4,
+   "target": -26,
+   "trim": -3.6,
+   "now": -26,
+   "peak": -2.7
+  },
+  {
+   "name": "bullet_hit",
+   "group": "action",
+   "kind": "cue",
+   "raw": -30,
+   "target": -24,
+   "trim": 6,
+   "now": -24,
+   "peak": -4.7
+  },
+  {
+   "name": "sword_clack",
+   "group": "action",
+   "kind": "cue",
+   "raw": -23.2,
+   "target": -24,
+   "trim": -0.8,
+   "now": -23.9,
+   "peak": -1
+  },
+  {
+   "name": "black_flag",
+   "group": "action",
+   "kind": "cue",
+   "raw": -17.5,
+   "target": -24,
+   "trim": -6.5,
+   "now": -24,
+   "peak": -11.7
+  },
+  {
+   "name": "cannon_reload",
+   "group": "action",
+   "kind": "file",
+   "raw": -18.2,
+   "target": -24,
+   "trim": -5.8,
+   "now": -24,
+   "peak": -7.7
+  },
+  {
+   "name": "pin_hit",
+   "group": "action",
+   "kind": "cue",
+   "raw": -24.1,
+   "target": -23,
+   "trim": 1.1,
+   "now": -23.1,
+   "peak": -0.9
+  },
+  {
+   "name": "blade_hit",
+   "group": "action",
+   "kind": "cue",
+   "raw": -21.9,
+   "target": -22,
+   "trim": -0.1,
+   "now": -22.1,
+   "peak": 1.9
+  },
+  {
+   "name": "harpoon_strike",
+   "group": "action",
+   "kind": "cue",
+   "raw": -21.2,
+   "target": -22,
+   "trim": -0.8,
+   "now": -22,
+   "peak": -6
+  },
+  {
+   "name": "claim",
+   "group": "action",
+   "kind": "cue",
+   "raw": -12.2,
+   "target": -22,
+   "trim": -9.8,
+   "now": -22,
+   "peak": -12.4
+  },
+  {
+   "name": "canopy_snap",
+   "group": "action",
+   "kind": "cue",
+   "raw": -13.2,
+   "target": -22,
+   "trim": -8.8,
+   "now": -22.1,
+   "peak": -3.8
+  },
+  {
+   "name": "splinter",
+   "group": "action",
+   "kind": "file",
+   "raw": -23.8,
+   "target": -22,
+   "trim": 1.8,
+   "now": -22,
+   "peak": -0.7
+  },
+  {
+   "name": "axe_hit",
+   "group": "action",
+   "kind": "cue",
+   "raw": -16.7,
+   "target": -21,
+   "trim": -4.3,
+   "now": -21,
+   "peak": -4.5
+  },
+  {
+   "name": "heartbeat",
+   "group": "alert",
+   "kind": "cue",
+   "raw": -19.6,
+   "target": -26,
+   "trim": -6.4,
+   "now": -26,
+   "peak": -13.7
+  },
+  {
+   "name": "bosun_call",
+   "group": "alert",
+   "kind": "cue",
+   "raw": -8.7,
+   "target": -24,
+   "trim": -15.3,
+   "now": -24,
+   "peak": -23.3
+  },
+  {
+   "name": "heave_to",
+   "group": "alert",
+   "kind": "cue",
+   "raw": -23.7,
+   "target": -24,
+   "trim": -0.3,
+   "now": -23.9,
+   "peak": -7.8
+  },
+  {
+   "name": "watch_call",
+   "group": "alert",
+   "kind": "cue",
+   "raw": -25.5,
+   "target": -22,
+   "trim": 3.5,
+   "now": -22,
+   "peak": -3.6
+  },
+  {
+   "name": "flood_rush",
+   "group": "alert",
+   "kind": "cue",
+   "raw": -21.6,
+   "target": -22,
+   "trim": -0.4,
+   "now": -22.3,
+   "peak": -9.8
+  },
+  {
+   "name": "fort_bell",
+   "group": "alert",
+   "kind": "cue",
+   "raw": -10.3,
+   "target": -20,
+   "trim": -9.7,
+   "now": -20,
+   "peak": -11.3
+  },
+  {
+   "name": "fire_whoomph",
+   "group": "alert",
+   "kind": "cue",
+   "raw": -19.9,
+   "target": -20,
+   "trim": -0.1,
+   "now": -19.8,
+   "peak": -6.3
+  },
+  {
+   "name": "quarters_drum",
+   "group": "alert",
+   "kind": "cue",
+   "raw": -14.6,
+   "target": -20,
+   "trim": -5.4,
+   "now": -20,
+   "peak": -7.9
+  },
+  {
+   "name": "distant_gun",
+   "group": "alert",
+   "kind": "cue",
+   "raw": -7.8,
+   "target": -20,
+   "trim": -12.2,
+   "now": -20,
+   "peak": -11.8
+  },
+  {
+   "name": "swivel_bark",
+   "group": "alert",
+   "kind": "cue",
+   "raw": -19.1,
+   "target": -15,
+   "trim": 4.1,
+   "now": -15,
+   "peak": 4.4
+  },
+  {
+   "name": "mast_crack",
+   "group": "alert",
+   "kind": "cue",
+   "raw": -13.8,
+   "target": -15,
+   "trim": -1.2,
+   "now": -15,
+   "peak": -1.6
+  },
+  {
+   "name": "battery_fire",
+   "group": "alert",
+   "kind": "cue",
+   "raw": -8.2,
+   "target": -14,
+   "trim": -5.8,
+   "now": -14,
+   "peak": -1.5
+  },
+  {
+   "name": "powder_blast",
+   "group": "alert",
+   "kind": "cue",
+   "raw": -3.7,
+   "target": -12,
+   "trim": -8.3,
+   "now": -12.1,
+   "peak": -2.5
+  }
+ ]
+}

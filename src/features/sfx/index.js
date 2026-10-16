@@ -5,11 +5,16 @@ import { FolkSfx, isWorking } from './FolkSfx.js';
 import { SynthPlayer, CUES, VOICE_CAP, voiceLimit } from './Synth.js';
 import { VOICES, VOICE_NAMES } from './Voices.js';
 import { EventSounds, INVENTORY, LOOPS } from './EventSounds.js';
-import { PlaceBeds, bedWeights, sources, marketCrowd, bellStrikes } from './Places.js';
+import { PlaceBeds, BEDS, bedWeights, sources, marketCrowd, bellStrikes } from './Places.js';
 import { Cues, cueFor, wheelLevels } from './Cues.js';
+import { Foley, FOLEY, wadeLevel } from './Foley.js';
+import { applyMix } from './Mix.js';
 
 // (wave 20B) the voices of waves 13-19's actions join the synthesised cues
 for ( const k of VOICE_NAMES ) if ( ! CUES[ k ] ) CUES[ k ] = VOICES[ k ];
+// (wave 25D) the foley cues join them, then the measured mix trims set every cue's, bed's and file's level (Mix.js)
+for ( const k of Object.keys( FOLEY ) ) if ( ! CUES[ k ] ) CUES[ k ] = FOLEY[ k ];
+applyMix( { CUES, FILES, LOOPS, BEDS } );
 
 // Dynamic audio, driven by the game state every frame (NAVAL_BRIEF B2 / WORLD_TRADE_PIRATES_BRIEF A6). A feature
 // module that only listens: it changes no game state and draws nothing.
@@ -26,6 +31,10 @@ for ( const k of VOICE_NAMES ) if ( ! CUES[ k ] ) CUES[ k ] = VOICES[ k ];
 //               the hour, gulls over the quay, the windsock and a plane running up on the apron, boatyard hammering by day;
 //               Blackwater's drums and rowdy Rum Hole at night, parrots and frigatebirds, surf on the cliffs; the Inverted
 //               Isles' upward waterfalls. Beds fade by distance like the surf bed (Places.js).
+//   Foley       (wave 25D, synthesised) cloth brushing each stride, the tackle's clink, a sprint's breath and the winded and
+//               recovery breaths, splashes through the shallows by speed and depth (Foley.js)
+//   Mix         (wave 25D) every synthesised cue, bed and file has a group (bed, foley, event, alert) and a loudness target;
+//               tools/fx25d/mix.mjs measures them headless and writes MixTrims.js, which applyMix() applies (Mix.js)
 //   Cues        (wave 13C, synthesised) shore batteries firing, a powder store exploding, the fort bell and the watch's call,
 //               the black flag and the claim, the practice fight's wooden swords, the parachute's canopy snap and lines, the
 //               Kestrel's wheels rolling and braking; each with its own rate limit (Cues.js)
@@ -49,6 +58,7 @@ for ( const k of VOICE_NAMES ) if ( ! CUES[ k ] ) CUES[ k ] = VOICES[ k ];
 // Hooks it takes by itself: it chains app.boatCtl.onSlam (never replaces it).
 
 export { SfxPlayer, FILES, FishingSfx, ShipSfx, FolkSfx, isSailBoat, isWorking, SAIL_BOATS, SynthPlayer, CUES, PlaceBeds, Cues, bedWeights, sources, marketCrowd, bellStrikes, cueFor, wheelLevels };
+export { Foley, FOLEY, wadeLevel };
 export { VOICES, VOICE_CAP, voiceLimit, EventSounds, INVENTORY, LOOPS };
 
 export class Sfx {
@@ -66,6 +76,7 @@ export class Sfx {
 		this.places = new PlaceBeds( this );
 		this.cues = new Cues( this );
 		this.events = new EventSounds( this );
+		this.foley = new Foley( this );
 		if ( ! this.player.occlude ) this.player.occlude = ( at ) => this.events.occlusion( at );
 		this.failed = new Set();
 		this.off = [];
@@ -84,7 +95,7 @@ export class Sfx {
 
 		dt = Math.min( Math.max( Number.isFinite( dt ) ? dt : 0, 0 ), 0.25 );
 		this.time += dt;
-		for ( const k of [ 'fishing', 'ship', 'folk', 'places', 'cues', 'events' ] ) {
+		for ( const k of [ 'fishing', 'ship', 'folk', 'places', 'cues', 'events', 'foley' ] ) {
 
 			try {
 
@@ -109,6 +120,7 @@ export class Sfx {
 		this.places.reset();
 		this.cues.reset();
 		this.events.reset();
+		this.foley.reset();
 		this.ship.stress = 0;
 		this.ship.lastHp = null;
 
@@ -124,6 +136,7 @@ export class Sfx {
 		this.places.dispose();
 		this.cues.dispose();
 		this.events.dispose();
+		this.foley.dispose();
 		this.synth.stopAll();
 		this.player.dispose();
 

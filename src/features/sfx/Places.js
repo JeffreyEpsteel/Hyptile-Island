@@ -350,7 +350,7 @@ function engineBed( ctx, out ) {
 }
 
 // bed -> { source (key in sources()), peak (linear gain at level 1), cat, rowdy?, build }
-const BEDS = {
+export const BEDS = {
 	market: { src: 'market', peak: 0.2, build: ( c, o ) => crowdBed( c, o, false ) },
 	tavern: { src: 'tavern', peak: 0.26, build: ( c, o ) => crowdBed( c, o, true ) },
 	cliffs: { src: 'cliffs', peak: 0.3, build: cliffBed, wide: true },

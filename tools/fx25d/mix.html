@@ -1,0 +1,136 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>mix measure</title>
+<script type="module">
+// Offline loudness of every synthesised cue, bed and sampled file of the sfx feature (wave 25D). Run by tools/fx25d/mix.mjs.
+const sfx = await import( '/src/features/sfx/index.js' );
+const { CUES, LOOPS, FILES } = sfx;
+const places = await import( '/src/features/sfx/Places.js' );
+const { CUE_LEVELS } = await import( '/src/features/sfx/Mix.js' );
+const SR = 48000;
+
+// K-weighting (BS.1770 stage 1 shelf + stage 2 high-pass) through the offline graph
+function kChain( ctx, input ) {
+
+	const shelf = ctx.createBiquadFilter();
+	shelf.type = 'highshelf'; shelf.frequency.value = 1681.97; shelf.gain.value = 3.9998;
+	const hp = ctx.createBiquadFilter();
+	hp.type = 'highpass'; hp.frequency.value = 38.13; hp.Q.value = 0.5003;
+	input.connect( shelf ); shelf.connect( hp ); hp.connect( ctx.destination );
+
+}
+
+function momentary( data, from = 0 ) {
+
+	const win = Math.round( 0.4 * SR ), hop = Math.round( 0.1 * SR ), out = [];
+	for ( let s = Math.round( from * SR ); s + win <= data.length; s += hop ) {
+
+		let sum = 0;
+		for ( let i = s; i < s + win; i ++ ) sum += data[ i ] * data[ i ];
+		const ms = sum / win;
+		// mono duplicated on two channels: +3.01 dB against the mono measurement
+		out.push( ms > 1e-12 ? - 0.691 + 10 * Math.log10( ms ) + 3.0103 : - 100 );
+
+	}
+
+	return out;
+
+}
+
+const median = ( a ) => { const s = [ ...a ].sort( ( x, y ) => x - y ); return s[ Math.floor( s.length / 2 ) ]; };
+const peakDb = ( d ) => { let p = 0; for ( let i = 0; i < d.length; i ++ ) p = Math.max( p, Math.abs( d[ i ] ) ); return p > 0 ? 20 * Math.log10( p ) : - 100; };
+
+async function renderCue( info, opts ) {
+
+	const ctx0 = new OfflineAudioContext( 1, SR * 9, SR );
+	const out = ctx0.createGain();
+	out.gain.value = info.gain * ( Number.isFinite( opts.gain ) ? opts.gain : 1 );
+	kChain( ctx0, out );
+	const dur = info.build( ctx0, out, 0.01, opts );
+	const buf = await ctx0.startRendering();
+	const d = buf.getChannelData( 0 );
+	const m = momentary( d );
+	return { max: Math.max( ...m ), peak: peakDb( d ), dur };
+
+}
+
+async function renderBed( info ) {
+
+	const secs = 14;
+	const ctx0 = new OfflineAudioContext( 1, SR * secs, SR );
+	const out = ctx0.createGain();
+	out.gain.value = info.peak;
+	kChain( ctx0, out );
+	info.build( ctx0, out );
+	const buf = await ctx0.startRendering();
+	const d = buf.getChannelData( 0 );
+	const m = momentary( d, 2 );
+	return { max: median( m ), top: Math.max( ...m ), peak: peakDb( d ) };
+
+}
+
+async function renderFile( name, info ) {
+
+	const res = await fetch( `/public/audio/sfx/${ name }.ogg` );
+	if ( ! res.ok ) return null;
+	const ab = await res.arrayBuffer();
+	const tmp = new OfflineAudioContext( 1, 1, SR );
+	const src = await tmp.decodeAudioData( ab );
+	const ctx0 = new OfflineAudioContext( 1, Math.min( SR * 12, Math.ceil( src.duration * SR ) + SR ), SR );
+	const s = ctx0.createBufferSource();
+	s.buffer = src;
+	const out = ctx0.createGain();
+	out.gain.value = info.gain;
+	s.connect( out );
+	kChain( ctx0, out );
+	s.start( 0 );
+	const buf = await ctx0.startRendering();
+	const d = buf.getChannelData( 0 );
+	const m = momentary( d );
+	const sustained = /strain|groan|luff/.test( name );
+	return { max: sustained ? median( m.filter( ( v ) => v > - 90 ) ) : Math.max( ...m ), top: Math.max( ...m ), peak: peakDb( d ), dur: src.duration };
+
+}
+
+const results = {};
+const only = new URLSearchParams( location.search ).get( 'only' );
+for ( const [ name, e ] of Object.entries( CUE_LEVELS ) ) {
+
+	if ( only && ! only.split( ',' ).includes( name ) ) continue;
+	try {
+
+		if ( e.kind === 'cue' ) {
+
+			const info = CUES[ name ];
+			if ( ! info ) { results[ name ] = { error: 'no cue' }; continue; }
+			const runs = [];
+			for ( let i = 0; i < 5; i ++ ) runs.push( await renderCue( info, { ...( e.ref || {} ) } ) );
+			results[ name ] = { kind: 'cue', gain: info.gain, lufs: median( runs.map( ( r ) => r.max ) ), peak: Math.max( ...runs.map( ( r ) => r.peak ) ), dur: runs[ 0 ].dur };
+
+		} else if ( e.kind === 'bed' ) {
+
+			const info = LOOPS[ name ] || places.BEDS[ name ];
+			if ( ! info ) { results[ name ] = { error: 'no bed' }; continue; }
+			const r = await renderBed( info );
+			results[ name ] = { kind: 'bed', gain: info.peak, lufs: r.max, top: r.top, peak: r.peak };
+
+		} else {
+
+			const info = FILES[ name ];
+			if ( ! info ) { results[ name ] = { error: 'no file' }; continue; }
+			const r = await renderFile( name, info );
+			results[ name ] = r ? { kind: 'file', gain: info.gain, lufs: r.max, top: r.top, peak: r.peak, dur: r.dur } : { error: 'file not found' };
+
+		}
+
+	} catch ( err ) {
+
+		results[ name ] = { error: String( ( err && err.message ) || err ) };
+
+	}
+
+}
+
+await fetch( '/__result', { method: 'POST', body: JSON.stringify( results ) } );
+document.title = 'done';
+</script>

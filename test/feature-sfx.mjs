@@ -290,7 +290,7 @@ const quatY = ( deg ) => ( { x: 0, y: Math.sin( deg * Math.PI / 360 ), z: 0, w: 
 	run( w, 40 );
 	const rig = count( w, 'rigging_strain' );
 	ok( rig >= 3, `aboard a sail boat in wind the rigging strains (${ rig } in 40 s)` );
-	ok( last( w, 'rigging_strain' ).gain > 0.2, 'at a real level' );
+	ok( last( w, 'rigging_strain' ).gain > 0.08, 'at a real level (wave 25D: the mix trims it to -40 LUFS, src/features/sfx/Mix.js)' );
 	ok( count( w, 'sail_luff' ) === 0, 'running downwind: no luffing' );
 
 	// head to wind: luffing
@@ -355,7 +355,7 @@ const quatY = ( deg ) => ( { x: 0, y: Math.sin( deg * Math.PI / 360 ), z: 0, w: 
 	run( w, 20 );
 	ok( count( w, 'hull_groan' ) >= 1, 'slams make it groan' );
 	const loud = Math.max( ...w.sfx.player.played.filter( ( p ) => p.name === 'hull_groan' ).map( ( p ) => p.gain ) );
-	ok( loud > 0.4, 'louder under heavy slamming' );
+	ok( loud > 0.15, 'louder under heavy slamming' );
 
 	// damage: splinters, scaled by the hit; a hurt hull groans soon
 	reset( w );
@@ -436,7 +436,7 @@ const quatY = ( deg ) => ( { x: 0, y: Math.sin( deg * Math.PI / 360 ), z: 0, w: 
 	const first = [ 'bran_workshop', 'iona_workshop' ].filter( ( n ) => count( w, n ) === 1 );
 	ok( first.length === 1, 'a working resident in range speaks a workshop line' );
 	const wl = last( w, first[ 0 ] );
-	ok( wl.at.x === 10 && wl.gain > 0.1 && wl.gain < 0.85, `positionally, with distance gain (${ wl.gain.toFixed( 2 ) } at ${ wl.dist.toFixed( 1 ) } m)` );
+	ok( wl.at.x === 10 && wl.gain > 0.005 && wl.gain < 0.85, `positionally, with distance gain (${ wl.gain.toFixed( 2 ) } at ${ wl.dist.toFixed( 1 ) } m)` );
 	ok( w.sfx.folk.nextT > 35, 'the next one is 40+ s away' );
 	w.sfx.folk.nextT = 0;
 	run( w, 3 );
