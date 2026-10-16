@@ -3567,6 +3567,7 @@ export class UI {
 		this._start = true;
 		this.root.classList.add( 'is-starting' );
 		el.hidden = false;
+		el.classList.remove( 'is-leaving' );
 		void el.offsetWidth;
 		el.classList.add( 'is-on' );
 
@@ -3587,14 +3588,16 @@ export class UI {
 				this._start = false;
 				this._startPromise = null;
 				this.root.classList.remove( 'is-starting' );
+				// (wave 27C) a quick fade, then hidden: the intro's title card waits for `hidden`, so the overlay's wordmark and the card's never share a frame
+				el.classList.add( 'is-leaving' );
 				el.classList.remove( 'is-on' );
 				const a = document.activeElement;
 				if ( a && el.contains( a ) ) a.blur();
 				setTimeout( () => {
 
-					if ( ! this._start ) el.hidden = true;
+					if ( ! this._start ) { el.hidden = true; el.classList.remove( 'is-leaving' ); }
 
-				}, 700 );
+				}, 240 );
 				this._overUI = false;
 				this._activity();
 				callHook( onStart );

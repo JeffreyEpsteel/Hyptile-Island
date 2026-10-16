@@ -2668,6 +2668,14 @@ body {
 	pointer-events: none;
 }
 
+/* (wave 27C) dismissed: gone in 200 ms so the intro's title card never overlaps the wordmark */
+.tw-start.is-leaving {
+	transition-duration: 200ms;
+}
+.tw-start.is-leaving .tw-start-inner {
+	transition-duration: 200ms;
+}
+
 .tw-start-inner {
 	display: flex;
 	flex-direction: column;

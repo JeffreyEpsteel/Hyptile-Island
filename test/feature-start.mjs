@@ -214,7 +214,7 @@ ok( minClear > 1, `the glide stays above the ground and the sea (${ minClear.toF
 
 	globalThis.localStorage = store();
 	const cam = { position: new Vector3( 1, 2, 3 ), quaternion: new Quaternion(), updateMatrixWorld() {} };
-	const ui = { _start: true };
+	const ui = { _start: true, startEl: { hidden: false } };
 	const app = { camera: cam, input: { enabled: true, keys: new Set( [ 'KeyW' ] ) }, ui: { ui }, menuOpen: false, mode: 'campaign' };
 	const intro = new Intro( app );
 	ok( intro.request( { mode: 'campaign', slot: 0 } ) && intro.pending, 'requested on a first campaign start' );
@@ -222,7 +222,10 @@ ok( minClear > 1, `the glide stays above the ground and the sea (${ minClear.toF
 	const player = () => { cam.position.copy( endPos ); cam.quaternion.copy( endQuat ); }; // what Player.update does each frame
 	player(); intro.update( 1 / 60 );
 	ok( cam.position.distanceTo( L.intro.path[ 0 ] ) < 1e-6 && intro.pending, 'holds the sea view while the start overlay is up' );
-	ui._start = false;
+	ui._start = false; // (dismissed: the overlay is still fading out for 240 ms)
+	player(); intro.update( 1 / 60 );
+	ok( intro.pending && ! intro.active && ! intro.card, 'wave 27C: the title card waits until the start overlay is hidden (never both at once)' );
+	ui.startEl.hidden = true;
 	player(); intro.update( 1 / 60 );
 	ok( intro.active && ! app.input.enabled && app.input.keys.size === 0, 'plays once the overlay is gone; input is off' );
 	let frames = 0;

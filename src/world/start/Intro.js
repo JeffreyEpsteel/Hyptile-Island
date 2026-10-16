@@ -141,7 +141,8 @@ export class Intro {
 	_blocked() {
 
 		const app = this.app, ui = app.ui && app.ui.ui;
-		return !! ( app.menuOpen || ( ui && ui._start ) );
+		// (wave 27C) also while the start overlay is still fading out: the card and the overlay's wordmark never share a frame
+		return !! ( app.menuOpen || ( ui && ( ui._start || ( ui.startEl && ui.startEl.hidden === false ) ) ) );
 
 	}
 
