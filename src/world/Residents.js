@@ -699,7 +699,21 @@ export class Resident {
 		else if ( this.state === 'go' ) { clip = this._clip( CLIPS.walk ); speed = walkClipSpeed( this.commute ); }
 		else if ( this.state === 'talk' ) clip = this.gesture || this._clip( 'Chat_Gesture' );
 		else if ( this.gesture ) { clip = this.gesture; loop = LOOP_CLIPS.has( clip ); fade = 0.2; }
-		if ( m.current !== clip ) m.play( clip, { fade, loop, speed } );
+		if ( m.current !== clip ) {
+
+			// (wave 25F) a resident standing about starts its loop part-way in (its own phase), so two neighbours are never in step
+			let from = 0;
+			if ( loop && clip === this.base && this.state !== 'walk' && this.state !== 'go' && m.clipDuration ) {
+
+				if ( this._phase === undefined ) { let h = 7; for ( const ch of String( this.id ) ) h = ( h * 31 + ch.charCodeAt( 0 ) ) >>> 0; this._phase = ( h % 97 ) / 97; }
+				from = this._phase * m.clipDuration( clip );
+
+			}
+
+			m.play( clip, { fade, loop, speed, from } );
+
+		}
+
 		m.update( dt );
 
 	}

@@ -8,7 +8,8 @@ import { PORTS as TRADE_PORTS } from '../trade/goods.js';
 //   portSize( port ) / populationFor( port )        a port's size (trade PORTS size, else by island radius)
 //   findLandSpot( ground, cx, cz, rMin, rMax, rand, taken )   a free spot on dry land near (cx, cz)
 //   const d = new Director( { places, shelf } );     places: { [ portId ]: { homes, plaza, patio, tavern, mouth } }
-//   d.tick( residents.list, hour, dt )                assigns tasks when an activity changes, advances work loops
+//   d.tick( residents.list, hour, dt )                assigns tasks when an activity changes, advances work loops (a resident met for the
+//                                                     first time is put at its task at once: the day is under way when the player arrives)
 //   d.activityOf( r ) / d.atWork( id )                what someone is doing now
 //   d.alarm( residents.list, port, seconds, near? )   everyone of the port runs home and stays in (a raid, cannon fire)
 //
@@ -187,6 +188,7 @@ export class Director {
 			const sched = scheduleOf( r.data );
 			const act = activityAt( sched, hour );
 			let i = this.info.get( r.id );
+			const first = ! i; // (wave 25F) a resident the director meets now: the day is already under way
 			if ( ! i ) {
 
 				i = { act: null, station: 0, dwell: 0 };
@@ -235,6 +237,9 @@ export class Director {
 				i.station = this._firstStation( r );
 				i.dwell = 0;
 				r.setTask( this.taskFor( r, act, i ) );
+				// (wave 25F) met for the first time (a town entered mid-day, a load): already at the place the day puts them, not
+				// walking out from where they were made (Resident.farTick: someone on the way just gets there)
+				if ( first && r.farTick ) r.farTick();
 				continue;
 
 			}
