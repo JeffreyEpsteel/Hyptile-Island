@@ -96,3 +96,10 @@ Wave history in one line each (details: docs/PLAN.md and git log):
 - Still running at the limit: 25E (vehicles + realistic helicopter, uncommitted edits in src/features/cars/**), 26A (WW2 fighters + 2-4 seat bombers), 26C (music director for public/audio/music/*.mp3, ElevenLabs Music v2.5), the flaky-test fixer. Resume them with SendMessage or re-brief from docs/briefs/w25.md / w26.md.
 - Music: six tracks in public/audio/music (untracked until 26C commits); ElevenLabs flow 'Hyptile Island soundtrack'.
 
+
+## Update 2026-10-16 (later): blocker resolved, waves 25 + 26 released
+
+- The takeoff regression was d96ba34 (25A surf sets put a crest at the propeller); fixed in d952634 (water-strike margin 0.3 m). The flaky police test was a test bug (954fff9).
+- Released db545f1: waves 25A-F (load time, shadows, LOD, shore, one UI language, feedback and mix, camera and free vehicle camera, life details, realistic cars, avatar driver / pilot, live mirrors, realistic helicopter with aerobatics), 26A (three fighters + three crewed warbirds, consent-armed PvP), 26B (69 ElevenLabs v4 voice lines, sampled effects), 26C (ElevenLabs Music soundtrack + music director), the multiplayer keep-alive.
+- Next: a fresh A-class audit (docs/A-CLASS.md rows left: helicopter stunt leaderboard, avatar hand grips, car proportions, cockpit interiors of warbirds, Tidemark warbird line in tall grass, Inverted Isles domes, phone touch for dogfights, music vocals check by ear, real-phone pass).
+
