@@ -79,6 +79,9 @@ export function textureBytes( d ) {
 
 }
 
+const _objIds = new WeakMap(); // GPU.objId
+let _nextObjId = 1;
+
 export const GPU = {
 
 	device: null,
@@ -380,7 +383,7 @@ export const GPU = {
 	_pending: new Set(),
 	syncCompiles: [], // labels of pipelines needed before their async compile finished (diagnostics)
 	// compile progress for the loader and the error card: started = the pipeline(s) compiling NOW (a hang names its culprit)
-	pipelineStats: { requested: 0, done: 0, failed: 0, timedOut: 0, last: '', started: '', startedAt: 0, active: new Set() },
+	pipelineStats: { requested: 0, done: 0, failed: 0, timedOut: 0, shared: 0, last: '', started: '', startedAt: 0, active: new Set() },
 	// Bound desktop compilation too: hundreds of simultaneous requests can spend
 	// their whole timeout waiting on the driver when two game tabs start together.
 	// How many compiles run at once and how long one may take
@@ -409,12 +412,51 @@ export const GPU = {
 
 	},
 
+	// One pipeline for every request with the same key (wave 25A): kernels and full-screen passes built twice from the
+	// same source and bind group layouts (double-buffered targets, per-level kernels whose code is identical) compiled
+	// twice. key: the module and layouts by identity (GPU.objId) plus the fixed-function state; desc() builds the
+	// descriptor on a miss. A failed handle is not shared.
+	sharedPipeline( kind, key, desc ) {
+
+		let h = this._shared.get( key );
+		if ( h && ! h.failed ) { this.pipelineStats.shared ++; return h; }
+		h = this._async( typeof desc === 'function' ? desc() : desc, kind );
+		this._shared.set( key, h );
+		return h;
+
+	},
+
+	_shared: new Map(),
+
+	// a small integer per object (modules, layouts) for the share keys
+	objId( o ) {
+
+		if ( ! o ) return 0;
+		let id = _objIds.get( o );
+		if ( ! id ) _objIds.set( o, id = _nextObjId ++ );
+		return id;
+
+	},
+
+	// a pipeline a draw is waiting for goes to the head of the compile queue (wave 25A): the view the player looks
+	// at compiles first, the rest of the world behind it
+	prioritize( h ) {
+
+		if ( ! h || h.pipeline || h.failed || h.urgent ) return;
+		h.urgent = true;
+		const q = this._queue;
+		const i = q.findIndex( ( e ) => e.h === h );
+		if ( i > 0 ) q.unshift( q.splice( i, 1 )[ 0 ] );
+
+	},
+
 	_async( desc, kind ) {
 
 		const h = { pipeline: null, label: desc.label, desc, kind, failed: false, index: this.pipelineStats.requested };
 		this.pipelineStats.requested ++;
 		let resolve;
 		const p = new Promise( ( r ) => { resolve = r; } ).finally( () => this._pending.delete( p ) );
+		p.handle = h;
 		this._pending.add( p );
 		this._queue.push( { h, resolve } );
 		// started after the current task: a kernel dispatched right after it was made (a one-off bake) compiles once,
@@ -526,10 +568,20 @@ export const GPU = {
 
 	},
 
-	// resolves when every pipeline requested so far has compiled
-	async pipelinesReady() {
+	// resolves when every pipeline requested so far has compiled; filter( handle ): only those (e.g. not the mesh ones)
+	async pipelinesReady( filter = null ) {
 
-		while ( this._pending.size ) await Promise.all( [ ...this._pending ] );
+		const left = () => filter ? [ ...this._pending ].filter( ( p ) => filter( p.handle ) ) : [ ...this._pending ];
+		for ( let l = left(); l.length; l = left() ) await Promise.all( l );
+
+	},
+
+	// every queued compile that matches filter( handle ) moves to the head of the queue (keeping their order)
+	prioritizeWhere( filter ) {
+
+		const q = this._queue, head = q.filter( ( e ) => filter( e.h ) );
+		if ( ! head.length ) return;
+		this._queue = head.concat( q.filter( ( e ) => ! filter( e.h ) ) );
 
 	},
 

@@ -31,11 +31,14 @@ export class ComputeKernel {
 		this.bindings = c.bindings;
 		this.group0 = c.group0;
 		const module = createShaderModule( c.code, label );
-		this.handle = GPU.computePipeline( {
+		// kernels with the same source and layouts (a double-buffered pair, the same pass on another target) share one
+		// pipeline: their own bind groups carry the difference
+		const key = `c|${ GPU.objId( module ) }|${ GPU.objId( c.group0.layout ) }.${ GPU.objId( c.bindings.layout ) }|${ entryPoint }`;
+		this.handle = GPU.sharedPipeline( 'compute', key, () => ( {
 			label,
 			layout: GPU.device.createPipelineLayout( { bindGroupLayouts: [ c.group0.layout, c.bindings.layout ] } ),
 			compute: { module, entryPoint },
-		} );
+		} ) );
 		this.timestampWrites = null; // set by the profiler
 
 	}

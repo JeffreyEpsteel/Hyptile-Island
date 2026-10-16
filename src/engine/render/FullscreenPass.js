@@ -42,19 +42,27 @@ export class FullscreenPass {
 		this.source = c.code;
 		this.bindings = c.bindings;
 		const module = createShaderModule( c.code, label );
-		const desc = {
-			label,
-			layout: GPU.device.createPipelineLayout( { bindGroupLayouts: [ c.group0.layout, c.bindings.layout ] } ),
-			vertex: { module, entryPoint: 'vs' },
-			fragment: { module, entryPoint: 'fs', targets: colorFormats.map( ( format, i ) => ( {
-				format,
-				blend: blendState( blends ? blends[ i ] : i === 0 ? blend : 'none' ),
-				writeMask: writeMasks ? writeMasks[ i ] : GPUColorWrite.ALL,
-			} ) ) },
-			primitive: { topology: 'triangle-list' },
-		};
-		if ( depthFormat ) desc.depthStencil = { format: depthFormat, depthCompare, depthWriteEnabled: depthWrite };
-		this.handle = GPU.renderPipeline( desc );
+		const targets = colorFormats.map( ( format, i ) => ( {
+			format,
+			blend: blendState( blends ? blends[ i ] : i === 0 ? blend : 'none' ),
+			writeMask: writeMasks ? writeMasks[ i ] : GPUColorWrite.ALL,
+		} ) );
+		const depthStencil = depthFormat ? { format: depthFormat, depthCompare, depthWriteEnabled: depthWrite } : undefined;
+		// passes with the same source, layouts and targets (the bloom chain's levels, a pass per buffer) share one pipeline
+		const key = `f|${ GPU.objId( module ) }|${ GPU.objId( c.group0.layout ) }.${ GPU.objId( c.bindings.layout ) }|${ JSON.stringify( [ targets, depthStencil ] ) }`;
+		this.handle = GPU.sharedPipeline( 'render', key, () => {
+
+			const desc = {
+				label,
+				layout: GPU.device.createPipelineLayout( { bindGroupLayouts: [ c.group0.layout, c.bindings.layout ] } ),
+				vertex: { module, entryPoint: 'vs' },
+				fragment: { module, entryPoint: 'fs', targets },
+				primitive: { topology: 'triangle-list' },
+			};
+			if ( depthStencil ) desc.depthStencil = depthStencil;
+			return desc;
+
+		} );
 		this.timestampWrites = null;
 
 	}
