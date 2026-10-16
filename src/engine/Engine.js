@@ -83,13 +83,16 @@ export class Engine {
 
 			this.clock.update( t );
 			let dt = this.clock.getDelta();
-			if ( dt > 0.1 ) dt = 0.1;
+			// a hidden online session (keepAlive) runs on a throttled timer: catch up in steps of at most 0.1 s, up to 1 s
+			const steps = this.clock.runHidden && dt > 0.1 ? Math.min( 10, Math.ceil( Math.min( dt, 1 ) / 0.1 ) ) : 1;
+			if ( steps > 1 ) dt = Math.min( dt, 1 ) / steps;
+			else if ( dt > 0.1 ) dt = 0.1;
 			this.frame ++;
 			// an exception must not end the loop silently (a frozen picture and no console on a phone): it goes to
 			// onFrameError (main.js: the error card) and the next frame is still requested
 			try {
 
-				update( dt, this.clock.getElapsed() );
+				for ( let i = 0; i < steps; i ++ ) update( dt, this.clock.getElapsed() );
 				this.frameErrors = 0;
 
 			} catch ( e ) {
@@ -107,17 +110,34 @@ export class Engine {
 
 			}
 
-			this._raf = requestAnimationFrame( loop );
+			next();
 
 		};
 
-		this._raf = requestAnimationFrame( loop );
+		// keepAlive() (App: an online session) keeps the world running when the tab is hidden or covered: a multiplayer game
+		// must not freeze the player's boat (or a host's AI ships) for everyone else on alt-tab. Single player still holds.
+		const next = () => {
+
+			const keep = typeof document !== 'undefined' && !! ( this.keepAlive && this.keepAlive() );
+			this.clock.runHidden = keep && document.visibilityState === 'hidden';
+			if ( this.clock.runHidden ) { this._timer = setTimeout( () => loop( performance.now() ), 50 ); return; }
+			if ( ! keep ) { this._raf = requestAnimationFrame( loop ); return; }
+			// visible but maybe occluded (Chrome then never fires rAF): a timer takes over after 120 ms
+			let done = false;
+			const id = requestAnimationFrame( ( t ) => { if ( done ) return; done = true; clearTimeout( this._timer ); loop( t ); } );
+			this._raf = id;
+			this._timer = setTimeout( () => { if ( done ) return; done = true; cancelAnimationFrame( id ); loop( performance.now() ); }, 120 );
+
+		};
+
+		next();
 
 	}
 
 	stop() {
 
 		cancelAnimationFrame( this._raf );
+		clearTimeout( this._timer );
 
 	}
 

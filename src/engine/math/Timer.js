@@ -53,7 +53,7 @@ export class Timer {
 
 	update( timestamp ) {
 
-		if ( this._pageVisibilityHandler !== null && this._document.hidden === true ) {
+		if ( this._pageVisibilityHandler !== null && this._document.hidden === true && ! this.runHidden ) { // (runHidden: Engine keepAlive)
 
 			this._delta = 0;
 
