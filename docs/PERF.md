@@ -404,3 +404,18 @@ on flat roads, flags only while on). The puppets sit a median 0.34 m (p90 0.96 m
 | Medium, downtown | - | 201 (was 202); CPU 12.40 ms (was 12.34) |
 
 At most two falls animate at once; phones get fewer chunks and simpler dust. Headless Dawn, same harness as wave 22A.
+
+# Phone memory at Meridian, re-measured (2026-10-16, HEAD 9a084f7)
+
+The 563 / 566 MB read in wave 27C was a harness-flag difference, not a regression. Clean `git archive` of HEAD, the exact
+wave 22A line (`--perf=meridianDowntown,meridianDrive --mobile --real-sizes --quality=low --size=852x393`, Vulkan, RTX 5070 Ti):
+
+| run | downtown | drive | after init |
+|---|---|---|---|
+| 22A (phone) | 366.2 | 369.3 | |
+| HEAD, 22A line (`--mobile`) | **360.0** | **363.4** | 393.8 (396.8 after the phone tier) |
+| HEAD, same line without `--mobile` | 576.8 | 580.8 | desktop Low tier, not the phone one |
+
+Waves 25-27 (cars, warbirds, interiors, music, voices, night lights) cost nothing net on a phone: 6 MB under 22A, 27 MB under
+the 387 MB budget, so no cut was made. Phone numbers need `--mobile` (it keeps the phone Quality and `PHONE_BUDGET`; `--quality`
+alone selects the desktop Low tier, ~215 MB more). Always quote the line with `--mobile --real-sizes`.
