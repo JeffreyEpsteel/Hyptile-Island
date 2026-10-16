@@ -62,6 +62,9 @@
 //   (weapons); world event cityStages (host -> all); hostRequest cityHit / citySnap
 //   (capsize, wave 22B) boatCapsized { boat, x, z, aboard, lost } rightingStarted { helpers, rough } boatRighted { boat, x, z, t, helpers }
 //   rightingSlipped { heel, letGo }; world events capsize / capsizeHelp   (death, wave 22B) breathLow { left } breathOut
+//   (dogfight, wave 26A) warbirdBought { airframe, price } warbirdTookOff / warbirdLanded { airframe } warbirdLost { airframe, how }
+//   airKill { victim, by, crew, airframe } gunsArmed { armed } crewBoarded { airframe, seat, owner }; playerDied { cause: 'dogfight' };
+//   world events dfHit (a claim, to the host) dfDmg (the host's verdict) dfKill dfSeat dfCrew dfBomb
 //
 // Mode rules (Sandbox / Campaign / Multiplayer): features.mode is app.mode or 'campaign'; features.sandbox.
 // Money and the save stay in GameState: features.state is app.game.state (money, earn, spend, career...).

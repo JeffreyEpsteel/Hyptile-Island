@@ -701,6 +701,8 @@ export class NetSync {
 	// App.netState() passes its state here; a guest sends mode 'ride' at the seat
 	decorateState( s ) {
 
+		// wave 26A: the warbird's state first (df / dc / chute), so the extras' cap never drops the combat state
+		try { this.features?.get?.( 'dogfight' )?.decorateState?.( s ); } catch ( e ) { /* optional */ }
 		// other features' per-player fields (the seaplane's out.plane...) ride along: the server passes them through
 		const plane = this.features && this.features.get ? this.features.get( 'seaplane' ) : null;
 		if ( plane && typeof plane.decorateState === 'function' ) {
