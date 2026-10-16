@@ -69,6 +69,10 @@ export const PATCHES = [
 			'		// (wave 25C) off: the boat / plane / car chase camera stays where you put it (Home or the middle mouse button re-centres it)',
 			"		s.cameraFollowsHeading = a11y.get( 'cameraFollowsHeading' );",
 			"		view.addToggle( { label: t( 'set.camera_follows', 'Camera follows the heading' ), object: s, key: 'cameraFollowsHeading', tooltip: t( 'set.camera_follows.tip', 'The chase camera of boats, planes, helicopters and cars swings back behind the vehicle when you leave it alone. Off: it stays where you put it (Home or the middle mouse button centres it).' ), onChange: ( v ) => a11y.set( 'cameraFollowsHeading', v ) } );" ) },
+	{ file: 'src/i18n/en.js', anchor: "	'set.reduce_boat_motion.tip': 'Steadier boat cameras (less roll and pitch at the helm) and no camera shake on strikes.',",
+		replace: lines( "	'set.reduce_boat_motion.tip': 'Steadier boat cameras (less roll and pitch at the helm) and no camera shake on strikes.',",
+			"	'set.camera_follows': 'Camera follows the heading',",
+			"	'set.camera_follows.tip': 'The chase camera of boats, planes, helicopters and cars swings back behind the vehicle when you leave it alone. Off: it stays where you put it (Home or the middle mouse button centres it).'," ) },
 	// ---- the wave's test joins npm test
 	{ file: 'package.json', anchor: '"test": "node test/game-logic.mjs && ', replace: '"test": "node test/camera-rig.mjs && node test/game-logic.mjs && ' },
 ];
