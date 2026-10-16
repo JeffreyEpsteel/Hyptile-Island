@@ -87,3 +87,12 @@ Wave history in one line each (details: docs/PLAN.md and git log):
 ## Running (update when it changes)
 
 - 25A, 25C, 25E, 26A, 26B (see above). Workers commit their own files to main; root applies their patch scripts.
+
+## OPEN BLOCKER before the next release (2026-10-16)
+
+- tools/visuals/playcheck.mjs --only=takeoff FAILS on a0b2495 (plane reaches 22 m/s but stays 1 m up after 60 s). It PASSES on ebdb47b and bf70b34 (25C's first camera commit), so the regression is later: suspects 83c69c7 (25C vehicle chase cameras), e872c95 / 8be7d51 (25E helicopter), 25A boot order (55d99e9..f474a47), 26B Samples. Bisect with git archive + playcheck --only=takeoff (about 1 min each).
+- test/feature-netsync-w22 'police chase, 0 pursuers' is flaky; a Sonnet worker was fixing it.
+- Local main is ahead of the live build 56e400a and NOT pushed: do not push until the takeoff check passes, then run npm test + npm run test:release + playcheck on a clean archive.
+- Still running at the limit: 25E (vehicles + realistic helicopter, uncommitted edits in src/features/cars/**), 26A (WW2 fighters + 2-4 seat bombers), 26C (music director for public/audio/music/*.mp3, ElevenLabs Music v2.5), the flaky-test fixer. Resume them with SendMessage or re-brief from docs/briefs/w25.md / w26.md.
+- Music: six tracks in public/audio/music (untracked until 26C commits); ElevenLabs flow 'Hyptile Island soundtrack'.
+
