@@ -14,7 +14,14 @@ export class HelicopterHUD {
 		if ( this.root.hidden ) return;
 		const v = h.view(), rotor = v.starting ? 'STARTER' : ! v.running ? 'TURBINE OFF' : v.rpm < 0.8 ? 'ROTOR STARTING' : v.hold ? 'POSITION HOLD' : v.grounded ? 'LANDED' : 'FLIGHT';
 		const touch = h.app.input?.touchMode;
-		const text = `RESCUE ${ rotor }  ·  ALT ${ v.altitude } m  ·  AGL ${ v.agl } m\n${ v.speed } km/h  ·  V/S ${ v.verticalSpeed.toFixed( 1 ) } m/s  ·  ROTOR ${ Math.round( v.rpm * 100 ) }%  ·  HULL ${ v.hp }%${ v.warnings.length ? '\n' + v.warnings.join( ' · ' ) : '' }\n` + ( touch ? 'Stick: forward/back + turn · Rise / Descend: altitude\nHover / brake: stop · Slide: sideways · View: cockpit · Cockpit: systems' : 'W/S forward/back · A/D turn · ,/. strafe · Shift rise · C descend\nSpace brake · V cockpit · O turbine · Y hold · 3 systems · E exit landed' );
+		// realistic flight (wave 25E): the collective lever's position; a live trick combo; the key reminder only for the
+		// first seconds of a flight (no standing prompts)
+		const real = ! v.assist;
+		const combo = v.combo ? `\nCOMBO x${ 1 + 0.5 * ( v.combo - 1 ) }  ·  ${ v.comboPoints } pts` : '';
+		const keys = real ? ( touch ? 'Stick: cyclic · Rise / Descend: collective lever · Slide: pedals · Hover: level' : 'Shift/C collective · W/S A/D cyclic · ,/. pedals · Space level\nV cockpit · O turbine · K assist · 3 systems · E exit landed' )
+			: ( touch ? 'Stick: forward/back + turn · Rise / Descend: altitude\nHover / brake: stop · Slide: sideways · View: cockpit · Cockpit: systems' : 'W/S forward/back · A/D turn · ,/. strafe · Shift rise · C descend\nSpace brake · V cockpit · O turbine · Y hold · K realistic · 3 systems · E exit landed' );
+		this._t = h.piloted ? ( this._t || 0 ) + 1 / 60 : 0;
+		const text = `RESCUE ${ rotor }${ real ? '  ·  COLL ' + Math.round( v.collective * 100 ) + '%' : '  ·  ASSIST' }  ·  ALT ${ v.altitude } m  ·  AGL ${ v.agl } m\n${ v.speed } km/h  ·  V/S ${ v.verticalSpeed.toFixed( 1 ) } m/s  ·  ROTOR ${ Math.round( v.rpm * 100 ) }%  ·  HULL ${ v.hp }%${ v.warnings.length ? '\n' + v.warnings.join( ' · ' ) : '' }${ combo }` + ( this._t < 14 || v.grounded ? '\n' + keys : '' );
 		if ( text !== this._last ) { this.root.textContent = text; this._last = text; }
 	}
 	dispose() { this.root?.remove(); this.root = null; }

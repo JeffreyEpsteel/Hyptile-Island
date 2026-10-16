@@ -26,7 +26,7 @@ function world( render = false ) {
 	const camera = new PerspectiveCamera( 60, 1.6, 0.1, 5000 );
 	const player = new Player( { terrain, colliders, input, query, camera, boat: null } );
 	const toasts = [], app = { terrainData: terrain, colliders, input, query, camera, player, mode: 'campaign', scene: render ? new Scene() : null, game: { toast: s => toasts.push( s ), state: { save() {} } } };
-	const features = new Features( app ), h = new Helicopter( app, features, { render } );
+	const features = new Features( app ), h = new Helicopter( app, features, { render, assist: true } ); // (wave 25E: the assisted mode's flows; test/feature-helicopter-flight.mjs flies the realistic one)
 	features.list.set( 'helicopter', { instance: h } );
 	const tick = () => { player.update( 1 / 60 ); features.update( 1 / 60 ); input.pressed.clear(); };
 	return { app, h, features, player, input, camera, colliders, toasts, tick };
@@ -72,7 +72,7 @@ function world( render = false ) {
 	check( h.audio.state.rpm > 0 && ! h.flight.engineOn, 'leaving stops turbine while rotor/audio spool down' );
 	const packet = sanitizeState( h.decorateState( { p: [ 0, 1, 0 ], yaw: 0, mode: 'walk' } ) );
 	check( packet?.helicopter?.p.length === 3 && packet.helicopter.homeSlot === 0, 'existing wire protocol preserves helicopter pose/rotor/home slot extras' );
-	const saved = h.toJSON(), h2 = new Helicopter( app, w.features, { render: false } ); h2.fromJSON( saved );
+	const saved = h.toJSON(), h2 = new Helicopter( app, w.features, { render: false, assist: true } ); h2.fromJSON( saved );
 	check( h2.flight.position.distanceTo( h.flight.position ) < 0.01 && ! h2.piloted && ! h2.flight.engineOn, 'save roundtrip retains a safely parked helicopter with cold engine' );
 	h2.fromJSON( { hp: NaN, pose: [ 1, Infinity, 2, 0 ] } ); check( Number.isFinite( h2.flight.position.y ) && h2.hp === 100, 'corrupt saved aircraft cannot inject invalid flight state' );
 	h2.dispose(); h.dispose(); check( app.scene.children.length === 0, 'dispose removes aircraft, rotors, pad geometry and registered colliders' );

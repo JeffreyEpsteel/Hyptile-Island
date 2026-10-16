@@ -1,5 +1,7 @@
 import { Vector3 } from '../../engine/index.js';
-import { RotorFlight } from './Flight.js';
+import { RotorFlight, HOVER_COLLECTIVE } from './Flight.js';
+import { TrickDetector } from './Tricks.js';
+import { G } from '../../core/Globals.js';
 import { HelicopterVisual, buildHelipad } from './Model.js';
 import { RemotePlanes } from '../seaplane/Remote.js';
 import { RotorAudio } from './Audio.js';
@@ -8,8 +10,12 @@ import { RotorSystems } from './Systems.js';
 import { HelicopterCockpit } from './Cockpit.js';
 
 export const HOME = Object.freeze( { x: 18, z: - 68, yaw: 0 } );
-export const CONTROLS = 'W/S forward/back · A/D turn · ,/. strafe · Shift rise/start · C descend · Space hover/brake · V cockpit · O turbine · U avionics · Y position hold · N nav · ; landing light · 3 systems · E exit after landing';
-export const COCKPIT_KEYS = Object.freeze( { KeyO: 'engine', KeyU: 'master', KeyY: 'hold', KeyN: 'nav', Semicolon: 'landing', Digit3: 'panel' } );
+export const CONTROLS = 'W/S forward/back · A/D turn · ,/. strafe · Shift rise/start · C descend · Space hover/brake · V cockpit · O turbine · U avionics · Y position hold · N nav · ; landing light · K realistic flight · 3 systems · E exit after landing';
+// the realistic model's keys (wave 25E): the collective is a lever that stays where you leave it
+export const CONTROLS_REAL = 'Shift / C collective up / down (hover ≈ 45%) · W/S cyclic nose down / up · A/D cyclic roll · , / . or ← / → pedals · Space level · K assist mode · V cockpit · O turbine · 3 systems · E exit after landing';
+export const COCKPIT_KEYS = Object.freeze( { KeyO: 'engine', KeyU: 'master', KeyY: 'hold', KeyN: 'nav', Semicolon: 'landing', KeyK: 'assist', Digit3: 'panel' } );
+// the collective lever's travel per second on the keys / triggers (full down to full up in ~2.5 s)
+export const COLLECTIVE_RATE = 0.8;
 const finitePose = p => Array.isArray( p ) && p.length === 4 && p.every( Number.isFinite ) && Math.abs( p[ 0 ] ) < 50000 && Math.abs( p[ 2 ] ) < 50000 && p[ 1 ] > - 100 && p[ 1 ] < 1200;
 const _door = new Vector3(), _exit = new Vector3();
 const clamp = ( v, a, b ) => Math.max( a, Math.min( b, v ) );
@@ -23,10 +29,16 @@ export class Helicopter {
 		this.stats = { flights: 0, landings: 0, hardLandings: 0 };
 		this._pads = new Map(); this.homeSlot = 0; this._slotOwner = null;
 		this.home = this._padAt( 0 ); this.homeY = this.home.y;
+		// realistic flight unless the player chose the assist (Settings, the systems tray, K); tests may pass opts.assist
+		this.assist = typeof opts.assist === 'boolean' ? opts.assist : typeof this.app.settings?.helicopterAssist === 'boolean' ? this.app.settings.helicopterAssist : false;
+		this.collective = 0; // the lever (realistic model), -1..1
+		this.tricks = new TrickDetector();
 		this.flight = new RotorFlight( {
 			groundAt: ( x, z, maxY ) => this.groundAt( x, z, maxY ),
 			waterAt: ( x, z ) => this.waterAt( x, z ),
 			collide: ( p, r, h ) => this.app.colliders?.resolveCapsule?.( p, r, h, 0.08 ) || false,
+			windAt: opts.windAt || ( ( p, t ) => this._wind( p, t ) ),
+			mode: this.assist ? 'assist' : 'real',
 		} );
 		this.flight.place( HOME.x, this.homeY, HOME.z, HOME.yaw );
 		this.systems = new RotorSystems( this.flight ); this.lights = this.systems.lights;
@@ -58,6 +70,26 @@ export class Helicopter {
 	}
 
 	_onFoot() { return [ 'walk', 'deck', 'swim' ].includes( this.app.player?.mode ); }
+	// the weather's wind (frame.windDir / windSpeed: G) at the rotor, with gusts that come and go
+	_wind( p, t ) {
+		const d = G?.windDir?.value, sp = G?.windSpeed?.value;
+		if ( ! d || ! Number.isFinite( sp ) ) return null;
+		const w = this._windV || ( this._windV = new Vector3() );
+		const gust = 1 + 0.35 * Math.sin( t * 0.43 + p.x * 0.01 ) * Math.sin( t * 0.17 + 1.3 ) + 0.15 * Math.sin( t * 1.9 + p.z * 0.02 );
+		// (a 10 m wind: stronger with height, calm on the pad)
+		const h = Math.min( 1.3, Math.max( 0.3, 0.55 + Math.log10( Math.max( 2, this.flight.agl + 2 ) ) * 0.35 ) );
+		return w.set( d.x * sp * gust * h, 0, d.y * sp * gust * h );
+	}
+	setAssist( on ) {
+		this.assist = !! on;
+		const f = this.flight;
+		f.mode = this.assist ? 'assist' : 'real';
+		f.omega.set( 0, 0, 0 );
+		// handing over in the air: the lever where a hover needs it, the attitude levelled by the assist
+		this.collective = f.grounded ? 0 : HOVER_COLLECTIVE;
+		if ( this.app.settings && typeof this.app.settings === 'object' ) this.app.settings.helicopterAssist = this.assist;
+		return this.assist;
+	}
 	blocked( ignoreOwn = false ) {
 		const app = this.app, ui = app.ui?.ui || app.ui, hud = app.game?.hud;
 		let otherPanel = false;
@@ -121,7 +153,8 @@ export class Helicopter {
 		if ( p.position && ( Math.hypot( p.position.x - _door.x, p.position.z - _door.z ) > 4 || Math.abs( p.position.y - _door.y ) > 3 ) ) return false;
 		if ( p.enterVehicle( this.vehicle ) === false ) return false;
 		this.piloted = true; this.systems.begin(); this._driven = false; this.touch.active = false;
-		this._toast( 'Coastal rescue helicopter · ' + CONTROLS, 9000 ); this._emit( 'helicopterEntered' ); return true;
+		this.collective = 0; this.tricks.acc.x = this.tricks.acc.y = this.tricks.acc.z = 0;
+		this._toast( this.assist ? 'Coastal rescue helicopter · assisted flight · ' + CONTROLS : 'Coastal rescue helicopter · realistic flight · ' + CONTROLS_REAL, 9000 ); this._emit( 'helicopterEntered' ); return true;
 	}
 
 	canExit() { return this.piloted && ( this.flight.grounded || this.flight.onWater ) && this.flight.velocity.length() < 1.5; }
@@ -152,12 +185,15 @@ export class Helicopter {
 		const inp = this.app.input, d = code => !! inp?.down?.( code );
 		if ( this.blocked() || inp?.enabled === false ) return { forward: 0, strafe: 0, yaw: 0, lift: 0, brake: true };
 		if ( this.touch.active ) return { forward: clamp( this.touch.forward || 0, - 1, 1 ), strafe: clamp( this.touch.strafe || 0, - 1, 1 ), yaw: clamp( this.touch.yaw || 0, - 1, 1 ), lift: clamp( this.touch.lift || 0, - 1, 1 ), brake: !! this.touch.brake };
-		const result = { forward: + d( 'KeyW' ) - d( 'KeyS' ), strafe: + d( 'Period' ) - d( 'Comma' ), yaw: + d( 'KeyA' ) - d( 'KeyD' ), lift: + ( d( 'ShiftLeft' ) || d( 'ShiftRight' ) ) - d( 'KeyC' ), brake: d( 'Space' ) };
+		const result = { forward: + d( 'KeyW' ) - d( 'KeyS' ), strafe: + d( 'Period' ) - d( 'Comma' ), yaw: + d( 'KeyA' ) - d( 'KeyD' ), lift: + ( d( 'ShiftLeft' ) || d( 'ShiftRight' ) ) - d( 'KeyC' ), brake: d( 'Space' ), pedal: + d( 'ArrowLeft' ) - d( 'ArrowRight' ) };
 		if ( typeof navigator !== 'undefined' && navigator.getGamepads ) {
 			const pad = Array.from( navigator.getGamepads() || [] ).find( g => g?.connected );
 			if ( pad ) {
 				const axis = n => Math.abs( pad.axes[ n ] || 0 ) > 0.16 ? pad.axes[ n ] : 0, button = n => pad.buttons[ n ]?.value || 0;
-				result.forward = result.forward || - axis( 1 ); result.strafe = result.strafe || axis( 0 ); result.yaw = result.yaw || - axis( 2 ); result.lift = result.lift || button( 7 ) - button( 6 ); result.brake ||= button( 0 ) > 0.5;
+				// assist: left stick flies, right stick turns, triggers rise / descend. Realistic: left stick is the cyclic,
+				// the right stick's x the pedals, the triggers (or the right stick's y) move the collective lever
+				result.forward = result.forward || - axis( 1 ); result.strafe = result.strafe || axis( 0 ); result.yaw = result.yaw || - axis( 2 ); result.lift = result.lift || button( 7 ) - button( 6 ) || - axis( 3 ) * 0.8; result.brake ||= button( 0 ) > 0.5;
+				result.roll = axis( 0 ); result.pedal = result.pedal || - axis( 2 ); result.pad = true;
 			}
 		}
 		return result;
@@ -170,7 +206,8 @@ export class Helicopter {
 		if ( input?.hit?.( 'Digit3' ) ) { this.act( 'panel' ); return; }
 		if ( this.cockpit.open || input?.enabled === false ) return;
 		for ( const [ key, id ] of Object.entries( COCKPIT_KEYS ) ) if ( key !== 'Digit3' && input?.hit?.( key ) ) this.act( id );
-		if ( ! this.systems.running && ! this.systems.starting && ( input?.down?.( 'ShiftLeft' ) || input?.down?.( 'ShiftRight' ) || this.touch.active && this.touch.lift > 0 ) ) this.systems.start( this.hp );
+		// (Shift cranks a cold turbine on the ground; in the air a cut turbine restarts on O only: autorotation is yours)
+		if ( ! this.systems.running && ! this.systems.starting && ( this.assist || this.flight.grounded ) && ( input?.down?.( 'ShiftLeft' ) || input?.down?.( 'ShiftRight' ) || this.touch.active && this.touch.lift > 0 ) ) this.systems.start( this.hp );
 	}
 	act( id, source = 'panel' ) {
 		if ( ! this.piloted || this.blocked( true ) || ( this.cockpit.open && source !== 'tray' && id !== 'panel' ) ) return false;
@@ -186,11 +223,30 @@ export class Helicopter {
 		} else if ( id === 'hold' ) result = s.toggleHold();
 		else if ( [ 'nav', 'landing', 'search', 'cabin' ].includes( id ) ) { s[ id ] = ! s[ id ]; result.why = id + ' light ' + ( s[ id ] ? 'selected' : 'off' ) + ( ! s.master ? ' · switch on avionics for power.' : '.' ); }
 		else if ( id === 'ack' ) { s.ack(); result.why = 'Warning acknowledged · active caution remains displayed.'; }
+		else if ( id === 'assist' ) { this.setAssist( ! this.assist ); s.hold = null; result.why = this.assist ? 'Assisted flight · the aircraft holds its hover · ' + CONTROLS : 'Realistic flight · ' + CONTROLS_REAL; }
 		else return false;
 		s.syncLights(); this.cockpit.elapsed = 1; if ( result.why ) this._toast( result.why );
 		return result.ok;
 	}
-	drive( dt ) { if ( ! this.piloted ) return; this._driven = true; this._keys(); Object.assign( this.flight.controls, this.systems.applyHold( this._input() ) ); this._step( dt ); }
+	drive( dt ) {
+		if ( ! this.piloted ) return;
+		this._driven = true; this._keys();
+		const inp = this._input();
+		if ( this.assist ) Object.assign( this.flight.controls, this.systems.applyHold( inp ), { level: false } );
+		else Object.assign( this.flight.controls, this._realControls( inp, dt ) );
+		this._step( dt );
+	}
+	// the realistic model's controls from the keys / pad / touch: the cyclic from W/S A/D (or the left stick), the pedals
+	// from , / . and the arrows (or the right stick), the collective lever moved by Shift / C (or the triggers) and left
+	// where it is; Space levels the airframe (an assist a real aircraft does not have; the player's safety net)
+	_realControls( inp, dt ) {
+		const blocked = inp.brake && ! inp.forward && ! inp.yaw && ! inp.lift && this.blocked();
+		if ( ! blocked ) this.collective = clamp( this.collective + ( inp.lift || 0 ) * COLLECTIVE_RATE * dt, - 1, 1 );
+		const pitch = clamp( inp.forward || 0, - 1, 1 ), roll = inp.pad && inp.roll ? clamp( inp.roll, - 1, 1 ) : clamp( - ( inp.yaw || 0 ), - 1, 1 );
+		const pedal = clamp( ( inp.pedal || 0 ) - ( inp.pad ? 0 : inp.strafe || 0 ), - 1, 1 );
+		// (the visual cockpit's cyclic / collective / pedals read forward / strafe / lift / yaw)
+		return { collective: this.collective, pitch, roll, pedal, level: !! inp.brake && ! blocked, forward: pitch, strafe: roll, yaw: pedal, lift: this.collective * 2 - 0.6, brake: false };
+	}
 	_validateRestoredSupport() {
 		const saved = this._pendingSupport;
 		if ( ! saved ) return;
@@ -227,6 +283,21 @@ export class Helicopter {
 				const damage = Math.max( 0, e.speed - 4 ) * 2.5; this.hp = Math.max( 0, this.hp - damage );
 				this.audio.crunch( Math.min( 1, damage / 50 ), at.x, at.y, at.z, false ); this._emit( 'helicopterDamaged', { ...at, damage } );
 			} else if ( e.type === 'ditched' ) { this.hp = 0; this._toast( 'Helicopter ditched · E to leave · recover at the home helipad.' ); this._emit( 'helicopterDitched', at ); }
+			else if ( e.type === 'crash' ) {
+				// misjudged the height (a flip too low, a hard or tilted touchdown, the rotor in the ground)
+				this.hp = 0; this.stats.crashes = ( this.stats.crashes || 0 ) + 1;
+				const lost = this.tricks.crash();
+				this.audio.crunch( 1, at.x, at.y, at.z, false );
+				this.features?.get?.( 'vfx' )?.smoke?.( 'helicopter-crash', at.x, at.y + 1, at.z );
+				this._toast( 'Crashed · ' + ( e.why === 'rotor strike' ? 'the rotor hit the ground' : e.why === 'inverted' ? 'upside down into the ground' : e.why === 'tilted' ? 'touched down on its side' : 'hit the ground too hard' ) + ( lost ? ' · combo rug-pulled (' + lost + ')' : '' ) + ' · E to leave · recover at the helipad', 6000 );
+				this._emit( 'helicopterCrashed', { ...at, why: e.why, sink: e.sink } );
+			}
+		}
+		// the aerobatics (realistic flight only)
+		if ( this.piloted && this.hp > 0 ) for ( const t of this.tricks.step( dt, f ) ) {
+			this.stats.tricks = ( this.stats.tricks || 0 ) + 1;
+			this._toast( t.name + ' +' + t.points + ( t.combo > 1 ? ' · combo x' + t.mult : '' ), 1800 );
+			this._emit( 'helicopterTrick', { trick: t.id, name: t.name, points: t.points, combo: t.combo, total: t.total } );
 		}
 		if ( f.grounded ) this.lastLanding = [ f.position.x, f.position.y, f.position.z, f.yaw ];
 		if ( this.hp <= 0 ) this.systems.stop( true );
@@ -259,7 +330,7 @@ export class Helicopter {
 		this._parkHome(); this.systems.fuel = 1; this._emit( 'helicopterRecovered' ); this._toast( 'Rescue helicopter serviced and returned to the helipad. E at the cabin to fly.' ); this._save(); return true;
 	}
 	marker() { return { x: this.flight.position.x, z: this.flight.position.z, heading: this.flight.yaw, label: 'Rescue helicopter' }; }
-	view() { return { name: 'Coastal rescue helicopter', piloted: this.piloted, hp: Math.round( this.hp ), altitude: Math.round( this.flight.position.y ), agl: Math.round( this.flight.agl ), speed: Math.round( Math.hypot( this.flight.velocity.x, this.flight.velocity.z ) * 3.6 ), verticalSpeed: this.flight.velocity.y, rpm: this.flight.rpm, grounded: this.flight.grounded, systems: this.systems.toJSON(), running: this.systems.running, starting: this.systems.starting > 0, hold: !! this.systems.hold, warnings: this.systems.warnings.slice(), home: { x: this.home.x, y: this.home.y, z: this.home.z }, controls: CONTROLS }; }
+	view() { return { name: 'Coastal rescue helicopter', assist: this.assist, collective: this.collective, combo: this.tricks.live ? this.tricks.combo : 0, comboPoints: this.tricks.live ? this.tricks.comboPoints : 0, score: this.tricks.total, rotorState: { ...this.flight.state }, piloted: this.piloted, hp: Math.round( this.hp ), altitude: Math.round( this.flight.position.y ), agl: Math.round( this.flight.agl ), speed: Math.round( Math.hypot( this.flight.velocity.x, this.flight.velocity.z ) * 3.6 ), verticalSpeed: this.flight.velocity.y, rpm: this.flight.rpm, grounded: this.flight.grounded, systems: this.systems.toJSON(), running: this.systems.running, starting: this.systems.starting > 0, hold: !! this.systems.hold, warnings: this.systems.warnings.slice(), home: { x: this.home.x, y: this.home.y, z: this.home.z }, controls: CONTROLS }; }
 	hidesDriver() { return this.piloted && this.app.player?.view === 'first'; }
 	isOpen() { return !! this.cockpit.open; }
 	close() { this.cockpit.close(); }
@@ -292,7 +363,7 @@ export class Helicopter {
 		this.remote.ingest( fresh );
 		for ( const s of list ) { const r = this.remote.peers.get( s?.id ); if ( r ) { r.lights = Number.isFinite( s.helicopter?.lights ) ? clamp( Math.round( s.helicopter.lights ), 0, 15 ) : 0; r.visual?.setLights?.( r.lights ); if ( r.visual ) r.visual.remoteRPM = clamp( s.helicopter?.rpm || 0, 0, 1 ); } }
 	}
-	toJSON() { return { v: 1, hp: this.hp, homeSlot: this.homeSlot, pose: this.flight.grounded ? [ this.flight.position.x, this.flight.position.y, this.flight.position.z, this.flight.yaw ] : this.lastLanding.slice(), stats: { ...this.stats }, systems: this.systems.toJSON() }; }
+	toJSON() { return { v: 1, hp: this.hp, homeSlot: this.homeSlot, assist: this.assist, bestCombo: this.tricks.best, pose: this.flight.grounded ? [ this.flight.position.x, this.flight.position.y, this.flight.position.z, this.flight.yaw ] : this.lastLanding.slice(), stats: { ...this.stats }, systems: this.systems.toJSON() }; }
 	fromJSON( data ) {
 		if ( ! data || typeof data !== 'object' ) return;
 		if ( this.app.player?.vehicle === this.vehicle ) this.app.player.exitVehicle?.( this.home.x + 2.4, this.home.y + 0.03, this.home.z, 0, 'walk' );
@@ -304,7 +375,9 @@ export class Helicopter {
 		// Feature restoration is ordered: citywreck may restore collapsed roofs
 		// after this method. Validate parking immediately before the first step.
 		this._pendingSupport = pose.slice();
-		for ( const k of Object.keys( this.stats ) ) if ( Number.isFinite( data.stats?.[ k ] ) ) this.stats[ k ] = Math.max( 0, Math.floor( data.stats[ k ] ) );
+		for ( const k of [ ...Object.keys( this.stats ), 'crashes', 'tricks' ] ) if ( Number.isFinite( data.stats?.[ k ] ) ) this.stats[ k ] = Math.max( 0, Math.floor( data.stats[ k ] ) );
+		if ( typeof data.assist === 'boolean' && typeof this.opts.assist !== 'boolean' ) this.setAssist( data.assist );
+		if ( Number.isFinite( data.bestCombo ) ) this.tricks.best = Math.max( 0, data.bestCombo );
 		this._syncVisual( 0 );
 	}
 	reset() {

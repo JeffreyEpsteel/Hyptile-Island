@@ -36,13 +36,16 @@ export class RotorSystems {
 		return { ok: true, why: 'Starter engaged · wait for green ROTOR before lifting.' };
 	}
 	stop( force = false ) {
-		if ( ! force && ( ! this.flight.grounded || this.flight.velocity.length() >= 2 ) ) return { ok: false, why: 'Land and stop before shutting down the turbine.' };
+		const air = ! this.flight.grounded || this.flight.velocity.length() >= 2;
+		// (realistic flight: you may cut the turbine aloft and autorotate down; the assist keeps it running)
+		if ( ! force && air && this.flight.mode !== 'real' ) return { ok: false, why: 'Land and stop before shutting down the turbine.' };
 		this.running = false; this.starting = 0; this.hold = null; this.flight.engineOn = false; this.flight.starter = false;
-		return { ok: true, why: 'Turbine stopped · rotor coasting down.' };
+		return { ok: true, why: air && ! force ? 'Turbine cut · AUTOROTATE: collective down, keep the rotor in the green, flare at the bottom · O restarts' : 'Turbine stopped · rotor coasting down.' };
 	}
 	toggleHold() {
 		const f = this.flight;
 		if ( this.hold ) { this.hold = null; return { ok: true, why: 'Hover hold released · manual controls.' }; }
+		if ( f.mode === 'real' ) return { ok: false, why: 'Hover hold belongs to the assisted flight mode (K) · realistic flight is all yours.' };
 		if ( ! this.running || f.rpm < .8 || f.grounded || f.onWater ) return { ok: false, why: 'Hover hold requires airborne flight and green rotor RPM.' };
 		this.hold = f.position.clone(); return { ok: true, why: 'Position and altitude held · move any flight control to release.' };
 	}
@@ -64,6 +67,8 @@ export class RotorSystems {
 		if ( piloted && ! this.session ) this.begin();
 		if ( ! piloted || hp <= 0 || this.flight.onWater || ! this.master || ! this.fuelPump ) { this.stop( true ); if ( ! piloted ) this.session = false; }
 		else if ( this.starting > 0 ) { this.starting = Math.max( 0, this.starting - dt ); if ( this.starting === 0 ) this.running = true; }
+		// a badly damaged turbine quits in the air (realistic flight): an autorotation follows
+		else if ( this.running && hp < 30 && this.flight.mode === 'real' && ! this.flight.grounded ) { this.running = false; this.failed = true; }
 		this.flight.engineOn = piloted && this.running && hp > 0 && ! this.flight.onWater;
 		this.flight.starter = this.starting > 0;
 		const f = this.flight; this.warnings = [];
@@ -73,6 +78,12 @@ export class RotorSystems {
 		if ( hp < 50 ) this.warnings.push( 'HULL DAMAGE' );
 		if ( this.fuel <= FUEL.low ) this.warnings.push( 'LOW FUEL' );
 		if ( piloted && ! f.grounded && ( ! f.engineOn || f.rpm < .8 ) ) this.warnings.push( 'LOW ROTOR' );
+		if ( piloted && f.mode === 'real' && ! f.grounded ) {
+			if ( f.rpm > 1.08 ) this.warnings.push( 'ROTOR OVERSPEED' );
+			if ( f.state?.vrs > 0.4 ) this.warnings.push( 'VORTEX RING' );
+			if ( f.state?.rbs > 0.25 ) this.warnings.push( 'BLADE STALL' );
+			if ( ! f.engineOn && this.session && ! this.starting ) this.warnings.push( 'ENGINE OUT' );
+		}
 		if ( ! f.grounded && f.agl < 25 && f.velocity.y < - 3.5 ) this.warnings.push( 'SINK RATE' );
 		if ( f.onWater ) this.warnings.push( 'DITCHED' );
 		if ( ! this.warnings.length ) this.acknowledged = '';

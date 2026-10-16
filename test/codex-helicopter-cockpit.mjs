@@ -43,7 +43,7 @@ function world( opts = {} ) {
 	const query = { allocate: () => 0, setPoint() {}, cpuValid: false, cpu: new Float32Array( 16 ), resultInputs: new Float32Array( 16 ), version: 0 };
 	const camera = new PerspectiveCamera( 60, 1.6, .1, 5000 ), player = new Player( { terrain, colliders, input, query, camera, boat: null } );
 	let writes = 0; const messages = [], app = { scene: new Scene(), terrainData: terrain, colliders, input, query, camera, player, localLights: new LocalLights(), game: { toast: s => messages.push( s ), state: { save() { writes ++; } } } };
-	const features = new Features( app ), h = new Helicopter( app, features, opts ); features.list.set( 'helicopter', { instance: h } ); for ( const l of h.lights ) app.localLights.add( l );
+	const features = new Features( app ), h = new Helicopter( app, features, { assist: true, ...opts } ); features.list.set( 'helicopter', { instance: h } ); for ( const l of h.lights ) app.localLights.add( l );
 	const tick = () => { player.update( 1 / 60 ); features.update( 1 / 60 ); input.pressed.clear(); };
 	const run = ( seconds, keys = [] ) => { input.keys = new Set( keys ); for ( let i = 0; i < seconds * 60; i ++ ) tick(); input.keys.clear(); };
 	player.position.copy( h.flight.toWorld( [ 1.35, 0, .65 ] ) );
