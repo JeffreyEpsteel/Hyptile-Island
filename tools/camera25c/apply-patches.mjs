@@ -49,6 +49,26 @@ export const PATCHES = [
 	{ file: 'src/world/Village.js', anchor: "			this.buildings.push( { name: s.name, x: s.x, z: s.z, floorY: res.floorY, roofTop: res.roofTop, stilts: s.foundation === 'stilts', footprint: res.footprint } );",
 		replace: lines( "			this.buildings.push( { name: s.name, x: s.x, z: s.z, floorY: res.floorY, roofTop: res.roofTop, stilts: s.foundation === 'stilts', footprint: res.footprint } );",
 			"			registerRoof( 'village:' + s.name, { x: s.x, z: s.z, yaw: s.yaw || 0, w: s.w + 0.9, d: s.d + 0.9 + ( res.porchDepth || 0 ), cz: ( res.porchDepth || 0 ) / 2, y0: res.eaveY - 0.15, y1: res.roofTop } ); // (wave 25C)" ) },
+	// ---- the vehicles' chase camera stays where the player puts it (Player.js, wave 25C): the re-centre key is Home, also the middle
+	// mouse button and the pad's right stick click; "the camera follows the heading" is a setting, off by default
+	{ file: 'src/core/Input.js', anchor: '			if ( e.button === 2 ) this._rmbMouse = true;',
+		replace: lines( '			if ( e.button === 2 ) this._rmbMouse = true;', "			if ( e.button === 1 ) { this.pressed.add( 'Home' ); e.preventDefault(); } // (wave 25C) the middle button re-centres the chase camera" ) },
+	{ file: 'src/core/Gamepad.js', anchor: "		this._key( 'KeyV', btn( this._btnOf( 'KeyV', 4 ) ) );",
+		replace: lines( "		this._key( 'KeyV', btn( this._btnOf( 'KeyV', 4 ) ) );", "		this._key( 'Home', btn( 11 ) ); // (wave 25C) the right stick's click re-centres the chase camera" ) },
+	{ file: 'src/App.js', anchor: '		this.player.reduceMotion = !! this.settings.reduceMotion;',
+		replace: lines( '		this.player.reduceMotion = !! this.settings.reduceMotion;', '		this.player.followHeading = !! this.settings.cameraFollowsHeading; // (wave 25C) the chase cameras swing back behind the vehicle' ) },
+	{ file: 'src/ui/Accessibility.js', anchor: lines( '	reduceMotion: false,', '	cameraShake: 1,' ),
+		replace: lines( '	reduceMotion: false,', '	cameraFollowsHeading: false,', '	cameraShake: 1,' ) },
+	{ file: 'src/ui/Accessibility.js', anchor: lines( '	reduceMotion: { bool: true },', '	cameraShake: { min: 0, max: 1 },' ),
+		replace: lines( '	reduceMotion: { bool: true },', '	cameraFollowsHeading: { bool: true },', '	cameraShake: { min: 0, max: 1 },' ) },
+	{ file: 'src/ui/Accessibility.js', anchor: lines( "			case 'cameraShake':", '				if ( app && app.settings ) app.settings.cameraShake = o.cameraShake;', '				break;' ),
+		replace: lines( "			case 'cameraFollowsHeading':", '				if ( app && app.settings ) app.settings.cameraFollowsHeading = o.cameraFollowsHeading;', '				if ( app && app.player ) app.player.followHeading = o.cameraFollowsHeading;', '				break;',
+			"			case 'cameraShake':", '				if ( app && app.settings ) app.settings.cameraShake = o.cameraShake;', '				break;' ) },
+	{ file: 'src/ui/AppUI.js', anchor: "		view.addToggle( { label: t( 'set.reduce_boat_motion', 'Reduce boat motion' ), object: s, key: 'reduceMotion', tooltip: t( 'set.reduce_boat_motion.tip', 'Steadier boat cameras (less roll and pitch at the helm) and no camera shake on strikes.' ), onChange: ( v ) => a11y.set( 'reduceMotion', v ) } );",
+		replace: lines( "		view.addToggle( { label: t( 'set.reduce_boat_motion', 'Reduce boat motion' ), object: s, key: 'reduceMotion', tooltip: t( 'set.reduce_boat_motion.tip', 'Steadier boat cameras (less roll and pitch at the helm) and no camera shake on strikes.' ), onChange: ( v ) => a11y.set( 'reduceMotion', v ) } );",
+			'		// (wave 25C) off: the boat / plane / car chase camera stays where you put it (Home or the middle mouse button re-centres it)',
+			"		s.cameraFollowsHeading = a11y.get( 'cameraFollowsHeading' );",
+			"		view.addToggle( { label: t( 'set.camera_follows', 'Camera follows the heading' ), object: s, key: 'cameraFollowsHeading', tooltip: t( 'set.camera_follows.tip', 'The chase camera of boats, planes, helicopters and cars swings back behind the vehicle when you leave it alone. Off: it stays where you put it (Home or the middle mouse button centres it).' ), onChange: ( v ) => a11y.set( 'cameraFollowsHeading', v ) } );" ) },
 	// ---- the wave's test joins npm test
 	{ file: 'package.json', anchor: '"test": "node test/game-logic.mjs && ', replace: '"test": "node test/camera-rig.mjs && node test/game-logic.mjs && ' },
 ];

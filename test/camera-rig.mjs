@@ -490,5 +490,141 @@ const step = ( n = 1 ) => { for ( let i = 0; i < n; i ++ ) { player.update( DT )
 
 }
 
+// ------------------------------------------------------------------------------------------------ the vehicles' chase camera
+{
+
+	// the camera stays where the player puts it, relative to the vehicle; no swing back by itself; Home re-centres; the zoom is per vehicle
+	const wrap = ( a ) => Math.atan2( Math.sin( a ), Math.cos( a ) );
+	const yawQ = ( y ) => new E.Quaternion().setFromAxisAngle( V( 0, 1, 0 ), y );
+	const mkVeh = ( kind, chase ) => {
+
+		const v = {
+			kind, chase, pos: V( 0, 80, 0 ), yaw: 0, spd: 30, seat: [ 0, 0, 0 ], eye: [ 0, 1, 0 ], focus: [ 0, 2, 0 ],
+			quaternion: yawQ( 0 ),
+			toWorld( l, out ) { return out.set( l.x ?? l[ 0 ], l.y ?? l[ 1 ], l.z ?? l[ 2 ] ).applyQuaternion( this.quaternion ).add( this.pos ); },
+			speed() { return this.spd; }, heading() { return this.yaw; }, drive() {}, exit() { return true; }, prompt() { return null; },
+			steer( y ) { this.yaw = y; this.quaternion.copy( yawQ( y ) ); },
+		};
+		return v;
+
+	};
+
+	setWater( - 50 );
+	terrain.heightAt = () => - 20;
+	player.cameraBlockers.length = 0;
+	player.followHeading = false;
+	player.mode = 'walk';
+	player.setView( 'third' );
+	const relYaw = ( v ) => wrap( Math.atan2( camera.position.x - v.pos.x, camera.position.z - v.pos.z ) - ( v.yaw + Math.PI ) );
+	const fly = ( v, sec, { speed = 30, turn = 0 } = {} ) => { for ( let i = 0; i < sec * 60; i ++ ) { v.steer( v.yaw + turn * DT ); v.pos.x += Math.sin( v.yaw ) * speed * DT; v.pos.z += Math.cos( v.yaw ) * speed * DT; step(); } };
+
+	const A = mkVeh( 'plane', 17 );
+	player.enterVehicle( A );
+	fly( A, 1 );
+	check( Math.abs( relYaw( A ) ) < 0.08, `chase: boarding puts the camera behind the plane (${ relYaw( A ).toFixed( 3 ) } rad)` );
+	// put it 60 degrees round to the right (the mouse: 350 counts x 0.003)
+	input.look.x = - 350;
+	step( 90 );
+	const put = relYaw( A ), kept = player.camRel;
+	check( Math.abs( put - 1.05 ) < 0.12, `chase: a 350-count flick puts it ${ ( put * 57.3 ).toFixed( 0 ) } degrees round (1.05 rad asked)` );
+	fly( A, 12 );
+	// (the camera position trails the plane a little at 30 m/s, which tilts the measured angle by ~0.1 rad: the orbit's own angle is exact)
+	check( Math.abs( player.camRel - kept ) < 1e-9 && Math.abs( relYaw( A ) - put ) < 0.2, `chase: 12 s of straight flight at 30 m/s and it is where it was put (orbit ${ player.camRel.toFixed( 3 ) } = ${ kept.toFixed( 3 ) }, seen ${ relYaw( A ).toFixed( 3 ) }): no drift back` );
+	fly( A, 3, { turn: Math.PI / 6 } );
+	check( Math.abs( player.camRel - kept ) < 1e-9 && Math.abs( relYaw( A ) - put ) < 0.25, `chase: she turns 90 degrees and it turns with her, relative offset kept (${ relYaw( A ).toFixed( 3 ) })` );
+	fly( A, 5, { speed: 0 } );
+	check( Math.abs( relYaw( A ) - put ) < 0.05, 'chase: and sat still it does not move either' );
+	// a full circle with the mouse comes back round (no limit on the yaw)
+	const rel0 = player.camRel;
+	for ( let i = 0; i < 40; i ++ ) { input.look.x = - ( 2 * Math.PI / 0.003 ) / 40; step(); }
+	step( 40 );
+	check( Math.abs( wrap( player.camRel - rel0 ) ) < 0.03, `chase: a full 360 round with the mouse comes back to where it was (${ wrap( player.camRel - rel0 ).toFixed( 4 ) } rad off)` );
+	// pitch: wide, from under to straight above
+	for ( let i = 0; i < 30; i ++ ) { input.look.y = 80; step(); }
+	const up = player.orbitPitch;
+	for ( let i = 0; i < 60; i ++ ) { input.look.y = - 80; step(); }
+	check( up > 1.4 && player.orbitPitch < - 1.15, `chase: pitch runs from ${ up.toFixed( 2 ) } (over) to ${ player.orbitPitch.toFixed( 2 ) } rad (under)` );
+	player.orbitPitch = 0.14;
+	step( 30 );
+	// follow the heading: the setting on, it eases back behind her
+	player.followHeading = true;
+	fly( A, 10 );
+	check( Math.abs( relYaw( A ) ) < 0.1, `chase: "camera follows the heading" on: it comes back behind her (${ relYaw( A ).toFixed( 3 ) } rad)` );
+	player.followHeading = false;
+	// Home re-centres
+	input.look.x = - 300;
+	step( 60 );
+	check( Math.abs( relYaw( A ) ) > 0.5, 'chase: put round again' );
+	input.pressed.add( 'Home' );
+	step( 90 );
+	check( Math.abs( relYaw( A ) ) < 0.08 && Math.abs( player.orbitPitch - 0.14 ) < 1e-6, `chase: Home puts it back behind (${ relYaw( A ).toFixed( 3 ) } rad, pitch ${ player.orbitPitch.toFixed( 2 ) })` );
+	// the slew: a flick is spread over frames
+	const r0 = player.camRel;
+	input.look.x = - 200;
+	step( 1 );
+	const d1 = Math.abs( player.camRel - r0 );
+	step( 40 );
+	check( d1 < 200 * 0.003 * 0.6 && Math.abs( Math.abs( player.camRel - r0 ) - 0.6 ) < 0.01, `chase: the flick goes through the slew (${ d1.toFixed( 2 ) } rad in the first frame of ${ ( 200 * 0.003 ).toFixed( 2 ) })` );
+	// zoom: the wheel, kept per vehicle
+	input.wheel = - 6;
+	step( 2 );
+	const zA = player.planeDist;
+	check( zA < 17, `chase: the wheel zooms in (${ zA.toFixed( 1 ) } m of 17)` );
+	player.exitVehicle( 0, 80, 0, 0, 'walk' );
+	const B = mkVeh( 'helicopter', 16 );
+	player.enterVehicle( B );
+	check( Math.abs( player.planeDist - 16 ) < 1e-9, `chase: another vehicle starts at its own distance (${ player.planeDist } m)` );
+	input.wheel = 5;
+	step( 2 );
+	const zB = player.planeDist;
+	player.exitVehicle( 0, 80, 0, 0, 'walk' );
+	player.enterVehicle( A );
+	check( Math.abs( player.planeDist - zA ) < 1e-9, `chase: the first one is back where it was zoomed (${ player.planeDist.toFixed( 1 ) } m = ${ zA.toFixed( 1 ) })` );
+	player.exitVehicle( 0, 80, 0, 0, 'walk' );
+	player.enterVehicle( B );
+	check( Math.abs( player.planeDist - zB ) < 1e-9 && zB > 16, `chase: and the second at its own (${ player.planeDist.toFixed( 1 ) } m)` );
+	check( player.camRel === 0, 'chase: boarding starts behind the vehicle' );
+	player.exitVehicle( 0, 80, 0, 0, 'walk' );
+
+	// the boat
+	let by = 0;
+	const bq = yawQ( 0 ), bpos = V( 0, 0, 100 );
+	const fboat = {
+		position: bpos, quaternion: bq, speed: 6, driven: true, enabled: true, capsized: false,
+		model: { id: 'testboat', helmEye: V( 0, 1.8, 0 ), exitPoints: [], boardPoint: V( 0, 0.9, 0 ), lines: { deckY: 0.9 }, dimensions: {}, helmPoint: { x: 0, z: 0 } },
+		getYaw() { return by; }, toWorld( v, out ) { return out.copy( v ).applyQuaternion( bq ).add( bpos ); }, setInput() {},
+	};
+	player.boat = fboat;
+	player.takeHelm();
+	player.camMode = 'third'; player.view = 'third';
+	const sail = ( sec, turn = 0 ) => { for ( let i = 0; i < sec * 60; i ++ ) { by += turn * DT; bq.copy( yawQ( by ) ); bpos.x += Math.sin( by ) * 6 * DT; bpos.z += Math.cos( by ) * 6 * DT; step(); } };
+	const relB = () => wrap( Math.atan2( camera.position.x - bpos.x, camera.position.z - bpos.z ) - ( by + Math.PI ) );
+	sail( 2 );
+	check( Math.abs( relB() ) < 0.1, `boat: boarding puts the camera astern (${ relB().toFixed( 3 ) } rad)` );
+	input.look.x = 400;
+	step( 90 );
+	const bput = relB(), bkept = player.camRel;
+	check( Math.abs( bput + 1.2 ) < 0.15, `boat: the mouse puts it ${ ( bput * 57.3 ).toFixed( 0 ) } degrees round (-1.2 rad asked)` );
+	sail( 15 );
+	check( Math.abs( player.camRel - bkept ) < 1e-9 && Math.abs( relB() - bput ) < 0.15, `boat: 15 s under way at 6 m/s and it has not swung back (orbit ${ player.camRel.toFixed( 3 ) } = ${ bkept.toFixed( 3 ) }, seen ${ relB().toFixed( 3 ) })` );
+	sail( 4, Math.PI / 8 );
+	check( Math.abs( relB() - bput ) < 0.2, `boat: she turns 90 degrees, the camera keeps its place relative to her (${ relB().toFixed( 3 ) })` );
+	player.followHeading = true;
+	sail( 20 );
+	check( Math.abs( relB() ) < 0.15, `boat: "camera follows the heading" on: it swings astern again (${ relB().toFixed( 3 ) } rad)` );
+	player.followHeading = false;
+	input.look.x = 300; step( 60 );
+	input.pressed.add( 'Home' ); step( 90 );
+	check( Math.abs( relB() ) < 0.1, `boat: Home centres it (${ relB().toFixed( 3 ) } rad)` );
+	input.wheel = - 5; step( 2 );
+	const zb = player.orbitDist;
+	check( zb < 13, `boat: the wheel zooms (${ zb.toFixed( 1 ) } m of 13)` );
+	player.mode = 'walk'; player.boat = fboat;
+	player.takeHelm();
+	check( Math.abs( player.orbitDist - zb ) < 1e-9, `boat: the next time at the helm the zoom is kept (${ player.orbitDist.toFixed( 1 ) } m)` );
+	player.mode = 'walk';
+
+}
+
 console.log( fails ? `\n${ fails } FAILED` : '\nall camera / movement checks pass' );
 process.exit( fails ? 1 : 0 );

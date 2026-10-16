@@ -37,6 +37,30 @@ function loadView() {
 
 }
 
+// (wave 25C) the chase cameras' distance, kept per vehicle (boat model, car type, airframe, the chute): the wheel zooms, the next
+// time you board that vehicle the arm is where you left it. Remembered between sessions.
+const ZOOM_KEY = 'hyptile-island.camzoom';
+function loadZoom() {
+
+	try {
+
+		const o = JSON.parse( localStorage.getItem( ZOOM_KEY ) || '{}' );
+		const m = new Map();
+		for ( const k of Object.keys( o ) ) if ( Number.isFinite( o[ k ] ) && o[ k ] > 1 && o[ k ] < 200 ) m.set( k, o[ k ] );
+		return m;
+
+	} catch ( e ) {
+
+		return new Map();
+
+	}
+
+}
+
+const wrapPi = ( a ) => Math.atan2( Math.sin( a ), Math.cos( a ) );
+// the chase orbit's pitch range (rad above the horizon): looking up from under, straight down from over
+const ORBIT = { pitchMin: - 1.2, pitchMax: 1.45, boatPitch: 0.22, planePitch: 0.14, boatMin: 6, boatMax: 40, planeMin: 8, planeMax: 60 };
+
 const _v = new THREE.Vector3();
 const _rideQ = new THREE.Quaternion();
 // the deck height at the helm: the ships' wheel stands on a raised quarterdeck (ShipBoatModel helmDeckHeight)
@@ -147,6 +171,14 @@ export class Player {
 		this.orbitYaw = 0;
 		this.orbitPitch = 0.22;
 		this.orbitDist = 13;
+		// (wave 25C) the chase camera is the player's: it sits where it was put, relative to the vehicle (camRel: the orbit's yaw from
+		// directly behind, rad), and never swings back by itself unless `followHeading` is on (settings: camera follows the heading).
+		// Home / the middle mouse button / the right stick's click re-centre it; the wheel's zoom is kept per vehicle (zoom)
+		this.camRel = 0;
+		this.followHeading = false;
+		this.zoom = loadZoom();
+		this._zoomKey = null;
+		this._vehHeading = 0;
 		this.helmYaw = 0;
 		this.helmPitch = - 0.05;
 		this.camPos = new THREE.Vector3();
@@ -185,6 +217,43 @@ export class Player {
 
 	}
 
+	// the zoom of the vehicle being driven: remembered per key (a boat model, a car type, an airframe)
+	_zoomGet( key, fallback ) {
+
+		return ( this.zoom || ( this.zoom = loadZoom() ) ).get( key ) ?? fallback;
+
+	}
+
+	_zoomSet( key, v ) {
+
+		if ( ! this.zoom ) this.zoom = loadZoom();
+		if ( this.zoom.get( key ) === v ) return;
+		this.zoom.set( key, v );
+		try {
+
+			localStorage.setItem( ZOOM_KEY, JSON.stringify( Object.fromEntries( this.zoom ) ) );
+
+		} catch ( e ) { /* storage blocked: kept for this session */ }
+
+	}
+
+	// the orbit's yaw from directly behind the vehicle: what was set since the last frame (orbitYaw written by something else) wins
+	_orbitRel( behind ) {
+
+		if ( ! Number.isFinite( this.camRel ) || this.orbitYaw !== this._orbitSet ) this.camRel = wrapPi( this.orbitYaw - behind );
+		return this.camRel;
+
+	}
+
+	// back behind the vehicle at the default height (Home, the middle mouse button, the pad's right stick click)
+	recentreCamera() {
+
+		this.camRel = 0;
+		this.orbitPitch = this.mode === 'boat' ? ORBIT.boatPitch : ORBIT.planePitch;
+		this._camRecentred = true;
+
+	}
+
 	// the feet as the body and the camera see them: the physical feet plus the step's easing offset
 	visualFeet() {
 
@@ -210,7 +279,7 @@ export class Player {
 	// the look input of this frame (counts, in the units of the old consumeLook): slewed, the pad rate-independent
 	_lookIn( dt ) {
 
-		return this.lookSlew.step( dt, this.input.consumeLook() );
+		return ( this.lookSlew || ( this.lookSlew = new LookSlew() ) ).step( dt, this.input.consumeLook() );
 
 	}
 
@@ -1323,6 +1392,9 @@ export class Player {
 		this.helmYaw = 0;
 		this.helmPitch = - 0.05;
 		this.orbitYaw = this.boat.getYaw() + Math.PI;
+		this.camRel = 0;
+		this._zoomKey = 'boat:' + ( this.boat.model && this.boat.model.id || 'boat' );
+		this.orbitDist = THREE.MathUtils.clamp( this._zoomGet( this._zoomKey, 13 ), ORBIT.boatMin, ORBIT.boatMax );
 		this.camInit = false;
 		if ( this.audio ) this.audio.engineStart();
 
@@ -1656,8 +1728,11 @@ export class Player {
 		this.helmYaw = 0;
 		this.helmPitch = - 0.08; // the cockpit eye looks a touch down: the water ahead over the glare shield, the panel below
 		this.orbitYaw = ( v.heading ? v.heading() : 0 ) + Math.PI;
-		this.orbitPitch = 0.14;
-		this.planeDist = v.chase || 17;
+		this.camRel = 0;
+		this.orbitPitch = ORBIT.planePitch;
+		this._zoomKey = 'veh:' + ( v.kind || 'plane' ) + ':' + ( v.chase || 17 );
+		this.planeDist = THREE.MathUtils.clamp( this._zoomGet( this._zoomKey, v.chase || 17 ), ORBIT.planeMin, ORBIT.planeMax );
+		this._vehHeading = this.orbitYaw - Math.PI;
 		this.camInit = false;
 		this.armInit = false;
 		this._camY = null;
@@ -1687,7 +1762,7 @@ export class Player {
 	updatePlane( dt ) {
 
 		const inp = this.input, v = this.vehicle;
-		const look = inp.consumeLook();
+		const look = this._lookIn( dt );
 		const wheel = inp.consumeWheel();
 		if ( inp.hit( 'KeyV' ) ) this.setView( this.view === 'third' ? 'first' : 'third' );
 		if ( inp.hit( 'KeyE' ) && v.exit && v.exit() !== false && this.mode !== 'plane' ) return;
@@ -1711,24 +1786,26 @@ export class Player {
 
 		}
 
-		// chase camera: swings in behind the heading (faster with speed), mouse orbits, the wheel sets the distance
-		this.orbitYaw -= look.x * 0.003;
-		this.orbitPitch = THREE.MathUtils.clamp( this.orbitPitch + look.y * 0.003, - 0.35, 1.2 );
-		this.planeDist = THREE.MathUtils.clamp( ( this.planeDist || 17 ) * ( 1 + wheel * 0.08 ), 8, 60 );
+		// chase camera (wave 25C): it stays where the player put it, relative to the vehicle (it turns with her, it does not swing back
+		// by itself); the mouse / right stick orbit it all the way round and from under to straight above, the wheel zooms (kept per
+		// vehicle), Home / the middle mouse button re-centre. With `followHeading` on it eases behind her again when you leave it alone.
 		const fwd = _fwd.set( 0, 0, 1 ).applyQuaternion( v.quaternion );
+		if ( fwd.x * fwd.x + fwd.z * fwd.z > 0.04 ) this._vehHeading = Math.atan2( fwd.x, fwd.z ); // (nose near vertical: the last heading)
+		this._orbitRel( this._vehHeading + Math.PI );
+		if ( inp.hit( 'Home' ) ) this.recentreCamera();
+		this.camRel = wrapPi( this.camRel - look.x * 0.003 );
+		this.orbitPitch = THREE.MathUtils.clamp( this.orbitPitch + look.y * 0.003, ORBIT.pitchMin, ORBIT.pitchMax );
+		const zoomed = THREE.MathUtils.clamp( ( this.planeDist || 17 ) * ( 1 + wheel * 0.08 ), ORBIT.planeMin, ORBIT.planeMax );
+		if ( zoomed !== this.planeDist ) { this.planeDist = zoomed; if ( this._zoomKey ) this._zoomSet( this._zoomKey, zoomed ); }
 		const speed = v.speed ? v.speed() : 0;
-		if ( Math.abs( look.x ) < 0.5 && speed > 1 ) {
-
-			let d = Math.atan2( fwd.x, fwd.z ) + Math.PI - this.orbitYaw;
-			d = Math.atan2( Math.sin( d ), Math.cos( d ) );
-			this.orbitYaw += d * ( 1 - Math.exp( - dt * Math.min( 3, 0.6 + speed * 0.08 ) ) );
-
-		}
+		if ( this.followHeading && Math.abs( look.x ) < 0.5 && speed > 1 ) this.camRel *= Math.exp( - dt * Math.min( 3, 0.6 + speed * 0.08 ) );
+		this.orbitYaw = this._vehHeading + Math.PI + this.camRel;
+		this._orbitSet = this.orbitYaw;
 
 		const f = v.focus || [ 0, 2.2, 0 ];
 		const target = v.toWorld( f, _v2 );
-		// the arm follows a third of the plane's pitch: in a climb or a dive the horizon stays on screen
-		const pitch = this.orbitPitch - ( Math.abs( look.y ) < 0.5 ? Math.asin( THREE.MathUtils.clamp( fwd.y, - 1, 1 ) ) * 0.35 : 0 );
+		// (followHeading only) the arm follows a third of the plane's pitch: in a climb or a dive the horizon stays on screen
+		const pitch = this.orbitPitch - ( this.followHeading && Math.abs( look.y ) < 0.5 ? Math.asin( THREE.MathUtils.clamp( fwd.y, - 1, 1 ) ) * 0.35 : 0 );
 		const want = _v.set( Math.sin( this.orbitYaw ) * Math.cos( pitch ), Math.sin( pitch ), Math.cos( this.orbitYaw ) * Math.cos( pitch ) ).multiplyScalar( this.planeDist ).add( target );
 		const floor = Math.max( v.seaLevel ? v.seaLevel() : this.waterH, this.terrain.heightAt( want.x, want.z ) ) + 0.8;
 		want.y = Math.max( want.y, floor );
@@ -1875,7 +1952,7 @@ export class Player {
 
 		const inp = this.input;
 		const b = this.boat;
-		const look = inp.consumeLook();
+		const look = this._lookIn( dt );
 		const wheel = inp.consumeWheel();
 
 		if ( inp.hit( 'KeyV' ) ) this.setView( this.camMode === 'first' ? 'third' : 'first' );
@@ -1939,19 +2016,34 @@ export class Player {
 			const ac = typeof this.aimCamera === 'function' ? this.aimCamera( { dist: this.orbitDist } ) : null;
 			const k = ac ? ac.blend : 0;
 			const sens = 0.003 * ( 1 - 0.3 * k ); // a finer hand while laying the guns
-			this.orbitYaw -= look.x * sens;
-			// orbitPitch is the camera's elevation (the look pitch is its negative): while aiming it moves into the ranging band
-			const lo = ac ? - 0.05 + ( - ac.pitchMax + 0.05 ) * k : - 0.05;
-			const hi = ac ? 1.2 + ( - ac.pitchMin - 1.2 ) * k : 1.2;
-			this.orbitPitch = THREE.MathUtils.clamp( this.orbitPitch + look.y * sens, lo, hi );
-			if ( ! ac ) this.orbitDist = THREE.MathUtils.clamp( this.orbitDist * ( 1 + wheel * 0.08 ), 6, 40 );
-			// gently swing behind the boat when moving (not while aiming: the look is the guns' bearing)
-			if ( ! ac && b.speed > 2 && Math.abs( look.x ) < 0.5 ) {
+			// (wave 25C) the orbit sits where the player put it relative to the boat (camRel: from directly behind) and turns with her;
+			// aiming the guns the bearing is the world's (the camera does not swing with the hull). followHeading: back behind her when moving
+			const behind = b.getYaw() + Math.PI;
+			this._orbitRel( behind );
+			if ( inp.hit( 'Home' ) ) this.recentreCamera();
+			if ( ac ) {
 
-				const behind = b.getYaw() + Math.PI;
-				let d = behind - this.orbitYaw;
-				d = Math.atan2( Math.sin( d ), Math.cos( d ) );
-				this.orbitYaw += d * ( 1 - Math.exp( - dt * 0.8 ) );
+				this.orbitYaw -= look.x * sens;
+				this.camRel = wrapPi( this.orbitYaw - behind );
+
+			} else {
+
+				this.camRel = wrapPi( this.camRel - look.x * sens );
+				if ( this.followHeading && b.speed > 2 && Math.abs( look.x ) < 0.5 ) this.camRel *= Math.exp( - dt * 0.8 );
+				this.orbitYaw = behind + this.camRel;
+
+			}
+
+			this._orbitSet = this.orbitYaw;
+
+			// orbitPitch is the camera's elevation (the look pitch is its negative): while aiming it moves into the ranging band
+			const lo = ac ? ORBIT.pitchMin + ( - ac.pitchMax - ORBIT.pitchMin ) * k : ORBIT.pitchMin;
+			const hi = ac ? ORBIT.pitchMax + ( - ac.pitchMin - ORBIT.pitchMax ) * k : ORBIT.pitchMax;
+			this.orbitPitch = THREE.MathUtils.clamp( this.orbitPitch + look.y * sens, lo, hi );
+			if ( ! ac ) {
+
+				const zoomed = THREE.MathUtils.clamp( this.orbitDist * ( 1 + wheel * 0.08 ), ORBIT.boatMin, ORBIT.boatMax );
+				if ( zoomed !== this.orbitDist ) { this.orbitDist = zoomed; if ( this._zoomKey ) this._zoomSet( this._zoomKey, zoomed ); }
 
 			}
 
