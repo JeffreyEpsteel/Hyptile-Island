@@ -16,6 +16,7 @@
 // a feature may call the API and emit the matching event (cannonFired, cannonballImpact...) and it shows once.
 
 import { VfxPool, LOOK, ORIENT, FLOOR } from './VfxPool.js';
+import { FISH_RECIPES, FISH_TYPES } from './FishRecipes.js';
 import { SPRITE } from '../../fx/VfxAtlas.js';
 import { Vector3 } from '../../engine/math/Vector3.js';
 import { Color } from '../../engine/math/Color.js';
@@ -29,7 +30,7 @@ const MAX_SINKS = 6;
 const G = 9.81;
 const SPRAY_DROPLET = 0, SPRAY_SPRAY = 3; // Spray.js kinds
 
-const TYPES = [ 'splash', 'spray', 'smoke', 'splinters', 'flash', 'debris', 'dust', 'bubbles', 'explosion' ];
+const TYPES = [ 'splash', 'spray', 'smoke', 'splinters', 'flash', 'debris', 'dust', 'bubbles', 'explosion', ...FISH_TYPES ];
 const T = Object.fromEntries( TYPES.map( ( t, i ) => [ t, i ] ) );
 
 // albedos (linear) and emissive radiances (scene units: the sun is ~11, a sunlit white wall ~3.5)
@@ -858,6 +859,10 @@ export class VfxSystem {
 	}
 
 }
+
+// (wave 25D) the fishing-scale recipes (FishRecipes.js): plop, ripple, glint, drips, flick
+VfxSystem.prototype.T = T;
+for ( const k of Object.keys( FISH_RECIPES ) ) VfxSystem.prototype[ k ] = FISH_RECIPES[ k ];
 
 // a stable 0..1 hash of an id (string or number)
 function hashId( id ) {

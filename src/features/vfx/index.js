@@ -1,4 +1,5 @@
 import { VfxSystem, BUDGET, DEDUP_T, DEDUP_R } from './VfxSystem.js';
+import { FishingFx } from './FishingFx.js';
 import { VfxPool, motionAt, LOOK, ORIENT, FLOOR, STRIDE } from './VfxPool.js';
 import { G } from '../../core/Globals.js';
 
@@ -14,6 +15,9 @@ import { G } from '../../core/Globals.js';
 //   vfx.splinters( x, y, z, strength )               vfx.debris( x, y, z, strength, kind = 'wood' | 'stone' | 'dirt' | 'metal' | 'straw' )
 //   vfx.dust( x, y, z, strength )                    vfx.explosion( x, y, z, strength, kind? )   vfx.muzzle( x, y, z, dx, dy, dz, strength )
 //   vfx.fire( id, x, y, z, strength, vx?, vz? ) / vfx.stopFire( id )   a persistent fire (call again to move it)
+//   vfx.plop / ripple / glint / drips / flick       (wave 25D) fishing-scale: the bobber landing, a nibble's ring, the rod tip's flash,
+//                                                   drips off a hanging fish, drops thrown off the line (FishRecipes.js); FishingFx.js
+//                                                   drives them from app.game's rod, bite and fight
 //   vfx.bubbles( x, y, z, strength )                 vfx.sinking( id, x, z, size )
 //   vfx.lights                                       flash and fire point lights (installFeatures hands them to LocalLights)
 //
@@ -24,10 +28,10 @@ import { G } from '../../core/Globals.js';
 // (not replays). Naval ships (features.get( 'naval' ).ships) burn under 35 % hull and bubble as they sink.
 // Quality: the low budget (BUDGET.low) with ?lowFx or a render scale of 0.5 or less (the Low preset).
 
-export { VfxSystem, VfxPool, motionAt, LOOK, ORIENT, FLOOR, STRIDE, BUDGET, DEDUP_T, DEDUP_R };
+export { FishingFx, VfxSystem, VfxPool, motionAt, LOOK, ORIENT, FLOOR, STRIDE, BUDGET, DEDUP_T, DEDUP_R };
 
 const E_REF = 20000; // J: a 6-pounder ball near the muzzle; impact strength = sqrt( energy / E_REF )
-const API = [ 'splash', 'spray', 'smoke', 'splinters', 'flash', 'debris', 'dust', 'bubbles', 'explosion', 'muzzle', 'fire', 'stopFire', 'sinking' ];
+const API = [ 'plop', 'ripple', 'glint', 'drips', 'flick', 'splash', 'spray', 'smoke', 'splinters', 'flash', 'debris', 'dust', 'bubbles', 'explosion', 'muzzle', 'fire', 'stopFire', 'sinking' ];
 const num = ( v, d = 0 ) => ( Number.isFinite( v ) ? v : d );
 const clamp = ( v, a, b ) => ( v < a ? a : v > b ? b : v );
 
@@ -73,6 +77,7 @@ export class Vfx {
 		this.particles = null;
 		this._qT = 0;
 		this.off = [];
+		this.fishing = new FishingFx( this );
 		if ( renderer ) this._buildRenderer();
 		for ( const k of API ) if ( ! this[ k ] ) this[ k ] = ( ...a ) => this.sys[ k ]( ...a );
 		if ( features && features.on ) this._listen( features );
@@ -229,7 +234,7 @@ export class Vfx {
 		const b = ( Number.isFinite( e.x ) && e ) || ( app && app.game && app.game.rod && app.game.rod.bobber );
 		if ( ! b || ! Number.isFinite( b.x ) || ! Number.isFinite( b.z ) ) return;
 		if ( this.sys._onLand( b.x, b.z ) ) return;
-		const s = clamp( 0.18 + 0.05 * Math.sqrt( Math.max( 0, num( e.kg, 1 ) ) ), 0.15, 0.5 );
+		const s = clamp( 0.22 + 0.08 * Math.sqrt( Math.max( 0, num( e.kg, 1 ) ) ), 0.2, 0.7 );
 		this.sys.splash( b.x, this.env.seaLevel(), b.z, s );
 
 	}
@@ -250,6 +255,17 @@ export class Vfx {
 		const nv = this.features && this.features.get && this.features.get( 'naval' );
 		if ( nv && Array.isArray( nv.ships ) ) this.sys.trackShips( nv.ships );
 		this.sys.update( dt );
+		try {
+
+			this.fishing.update( dt );
+
+		} catch ( e ) {
+
+			if ( ! this._fishFailed ) console.warn( 'vfx fishing failed', e );
+			this._fishFailed = true;
+
+		}
+
 		if ( this.particles ) this.particles.sync();
 
 	}
