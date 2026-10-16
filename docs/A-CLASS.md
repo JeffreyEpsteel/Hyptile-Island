@@ -14,9 +14,7 @@ What wave 24F closed is at the end. Everything else is open.
 | # | Gap | Owner (file) | Priority | Screenshot |
 |---|-----|--------------|----------|------------|
 | 1.1 | The cold load spends 40-60 s at "Starting WebGPU" / "Compiling shaders" before the menu: a phone user leaves. Needs a pipeline cache, fewer variants, or a menu that opens before the world compiles. | 24D graphics (src/engine/render/**), root (src/main.js loader order) | P1 | before-loader-tip-gap.jpg |
-| 1.2 | The main menu's Multiplayer card, the Universe probe and the crew-code field expose server plumbing to a first-time player ("wss://", "Updating", "banned"). Hide behind "Play online" with one state line. | 24F (src/ui/MainMenu.js) | P2 | after-main-menu.jpg |
 | 1.3 | The title card's motion blur during the opening glide smears the lanterns to streaks (after-title-card-alone.jpg): the glide needs a lower blur strength or a disabled blur while the camera is scripted. | 24D (src/post/**) with start (src/world/start/Intro.js) | P2 | after-title-card-alone.jpg |
-| 1.4 | The start overlay ("Click to explore") shows the whole key list in a grey strip: A-class is the wordmark, one button, nothing else (the keys belong to the first guide page). | 24F (src/ui/UI.js _buildStart, ui.css .tw-start-keys) | P3 | after-start-overlay.jpg |
 | 1.5 | The guide's three pages are still text-only cards; A-class teaches with a short clip or an animated key diagram per page. | 24F (src/game/Guide.js) | P3 | after-guide-page1-hud-dimmed.jpg |
 | 1.6 | A cast into the surf (depth 0) never bites and said "Waiting for a bite" for ever (patched in tools/polish/apply-patches.mjs: the prompt now says nothing bites this close in). Root applies the patch. | root (src/game/Game.js prompt) | P1 | before-cast-windup.jpg |
 
@@ -24,12 +22,6 @@ What wave 24F closed is at the end. Everything else is open.
 
 | # | Gap | Owner (file) | Priority | Screenshot |
 |---|-----|--------------|----------|------------|
-| 2.1 | Three panel languages remain: the HUD glass (cooler, crew, journal now), the world map (its own chart chrome, grid, buttons) and the vendor / tavern / navy windows (src/features/harbour PanelKit, NavyPanel: their own type scale). One `.gm-panel` base for all of them. | 24F (src/game/HudPanels.js, src/ui/WorldMap.js), harbour (src/features/harbour/PanelKit.js), navy (src/features/navy/NavyPanel.js) | P2 | before-worldmap.jpg, after-journal.jpg |
-| 2.2 | The settings rail shows twelve icons at all times; a player cannot tell Ocean from Shore from Sky by the glyph. A-class: a single gear, tabs inside. | 24F (src/ui/UI.js rail, ui.css .tw-rail) | P2 | before-hud-idle.jpg |
-| 2.3 | The cast power meter is a 60 px hairline in the centre of the screen (before-cast-windup.jpg): too small to read while winding up. A ring around the reticle, or a bar by the avatar. | 24F (src/game/GameHUD.js castBar, ui.css) | P2 | before-cast-windup.jpg |
-| 2.4 | The "Breezy 8 m/s" wind pill and the "Campaign · Walking" mode pill sit at the top left as plain chips; the purse / cooler at the top right is a different shape. One pill family. | 24F (ui.css .tw-mode, GameHUD purse) | P3 | before-hud-idle.jpg |
-| 2.5 | The minimap's markers are flat orange discs with tiny glyphs; the world map's are different glyphs again. One icon set (src/ui/icons.js) for both. | 24F (src/game/Minimap.js is root's; src/ui/WorldMap.js, src/ui/icons.js) | P3 | before-worldmap.jpg |
-| 2.6 | Toasts and the coach tip can show at the same time as a vendor window and the prompt pill (four text sources on screen): a single notification channel with a queue. | 24F (src/ui/UI.js toasts, src/game/Guide.js coach, src/game/Tips.js) | P3 | before-cast-windup.jpg |
 
 ## 3. Camera and movement
 
@@ -48,8 +40,6 @@ What wave 24F closed is at the end. Everything else is open.
 | 4.1 | **Closed in 25D (verify in play).** The rod now throws particles: a bobber plop with crown, drops and two rings (stronger for a longer cast), a nibble's ring on each pulse, the dunk on the take, a rod-tip glint plus a thrash at the float on the strike, a bigger thrash per run of a heavy fish, drops shed off the cranked line, a wake behind the float, drips off the fish hanging on the line, and a fan off the tip on a cast or a snap (src/features/vfx/FishRecipes.js, FishingFx.js; captures tools/fx25d/out/plop-*.png, strike-0.2s.png, glint-0.06s.png). The catch card's flourish (light fan, ring, sparks, a glint across the stat tiles) is the patch in tools/fx25d/apply-patches.mjs, **root applies it**. | vfx, 25B (src/game/GameHUD.js via the patch) | P2 | tools/fx25d/out/plop-0.12s.png |
 | 4.2 | **Closed in 25D (synthesised, not auditioned by ear).** Cloth brushing each stride (louder with speed, softer crouched), tackle clinks every few strides (more with the rod out), a sprint's in / out breaths, recovery breaths after a long sprint and winded breaths at low stamina, wading splashes that grow with speed and depth, a landing's cloth and gear (src/features/sfx/Foley.js; test/feature-feedback-w25.mjs). | sfx | P2 | - |
 | 4.3 | **Measured in 25D, still owed a listen.** Every synthesised cue, bed and sampled file of the sfx feature (70 sounds) is rendered offline in headless Chrome, K-weighted and logged (tools/fx25d/mix.mjs -> tools/fx25d/out/mix-measured.json); five groups (foley -56, bed -40, life -32, action -24, alert -17 LUFS, per-sound targets in src/features/sfx/Mix.js) and the trim that lands each on its target are applied at start-up (MixTrims.js). Before: the synthesised beds sat at -19..-33 LUFS (the cliffs -23, the water spout -19) over the SoundScape's surf at -31 and a bosun's call at -8.7; after: beds -34..-46, alerts -12..-26. Root's SoundScape MIX rows are untouched; the pass is by numbers, not by ear on headphones. | sfx | P2 | tools/fx25d/out/mix-measured.json |
-| 4.4 | UI sounds: menus, tabs, toggles, the guide's Next and the pause sheet are silent. A tiny click / confirm / back set. | 24F (src/features/sfx/Cues.js, src/ui/UI.js hooks) | P2 | after-pause.jpg |
-| 4.5 | The guide's coach tips and the toasts fade in / out with the same 240 ms ease; A-class gives the catch card and the level-up a distinct motion. | 24F (ui.css, src/game/GameHUD.js) | P3 | - |
 
 ## 5. World, graphics, life (other workers' areas, as seen from the player's seat)
 
@@ -95,3 +85,34 @@ What wave 24F closed is at the end. Everything else is open.
 - Movement weight: 9 from rest, 12 in motion, 18 to stop (was 14 both ways).
 - Tests: test/feature-ui-w24.mjs (36 checks). Root patch script: tools/polish/apply-patches.mjs (Game.js surf prompt,
   package.json test entry).
+
+## What wave 25B closed (one UI language; commits on main, 2026-10-16)
+
+Captures are from tools/ui25b (headless Chrome over a harness page, `node tools/ui25b/capture.mjs`), before = HEAD at the
+start of the wave (tools/ui25b/out/b-*.png), after = this wave (a-*.png). The Minimap.js icon patch and the package.json test
+entry are root's: `node tools/ui25b/apply-patches.mjs`.
+
+- 1.2 The Multiplayer card reads "Play online" with no server words; its step shows one state line ("Online · 3 captains
+  aboard"), the captain name and one button. The server address, the crew code and the Universe / Island switch sit behind
+  "Use another server" (open only when the address is not the shared universe). b-menu-online.png, a-menu-online-closed.png.
+- 1.4 The start overlay is the wordmark, the rule and one button (the keys are the guide's first pages and F1). b-start.png, a-start.png.
+- 2.1 One `.gm-panel` shell in ui.css for the inventory / fish stand / yard (GameHUD), the roster and journal, the tavern and
+  bench (`.hb-panel`) and the navy office (`.nv-panel`): same width rule, title, eyebrow, row, tab, aqua / ghost button and
+  `.gm-act` row. The world map's chrome (controls, tracked card, close, legend) uses the same glass and pill tokens.
+  b-navy.png / a-navy.png, b-tavern.png / a-tavern.png, a-worldmap.png.
+- 2.2 The rail is one gear (and the controls button); the tabs live inside the panel it opens. b-hud.png, a-hud.png.
+- 2.3 The cast meter is a 64 px ring round the reticle (aqua to sun, pulses when full). b-cast-full.png, a-cast-full.png.
+- 2.4 One pill family (30 high, glass, 12.5 type) for the mode, weather and purse pills. b-hud.png, a-hud.png.
+- 2.5 One marker set: `MARKER_ICONS` in ui/icons.js (2.2 stroke, one hand) and one dark disc with a ring in the kind's colour for
+  the minimap, the chart and its legend (Minimap.js takes the set through the root patch). b-markers.png, a-markers.png.
+- 2.6 One notification channel: two toasts at a time, the rest queue (stale after 14 s, held while a window or the catch card
+  is open), and the coach tip waits for the channel to be quiet and comes back after a toast. a-toasts.png.
+- 4.4 Interface sounds: click, tab, toggle, confirm, back, open, close, notify, level-up (synth cues in sfx/Cues.js, played
+  through the sfx category so master and mute apply; one delegated listener in ui/UI.js and AppUI).
+- 4.5 Distinct motion: a toast pops down with an overshoot, the coach tip slides in from the side, the catch card keeps its
+  rise and stamp, and a level-up opens two gold rings with a number (GameHUD `showLevelUp`). a-levelup.png.
+
+Not closed from 25B's list: the nine `ui_*` cues are not auditioned or measured (no audio in the headless tools). Their gains
+are at most 0.5 in the sfx category and quieter than the listed action cues by construction; 25D's measured mix (Mix.js
+CUE_LEVELS, group "action", about -28) can adopt them. The cast ring and the level-up are checked in the harness only, not in
+the running game (the pane and Dawn captures do not show the DOM HUD over the world).
