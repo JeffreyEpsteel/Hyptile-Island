@@ -6,6 +6,7 @@ import { Texture, StorageBuffer, capImage } from '../gpu/Texture.js';
 import { generateMipmaps } from '../gpu/Mipmaps.js';
 import { Material } from './Material.js';
 import { decodeImage } from '../loaders/GLTF.js';
+import { CapsuleShadows } from './CapsuleShadows.js';
 
 // Skinned, animated models (glTF skins) on the GPU.
 //
@@ -124,8 +125,9 @@ ${ surface }
 		surface: code,
 		side: doubleSided ? 'double' : 'front',
 		alphaTest: alphaMode === 'MASK' || alphaMode === 'BLEND' ? alphaCutoff : 0,
-		// CHARACTER_RIM: the golden hour rim light of render/wgsl/lighting.js (wave 18F; a caller may pass 0)
-		defines: { HAS_ALBEDO: T.chAlbedo ? 1 : 0, HAS_ORM: T.chOrm ? 1 : 0, HAS_NORMAL: T.chNormal ? 1 : 0, CHARACTER_RIM: 1, ...defines },
+		// CHARACTER_RIM: the golden hour rim light of render/wgsl/lighting.js (wave 18F; a caller may pass 0); SKINNED: the
+		// figures take no capsule shadows from their own capsules (render/CapsuleShadows.js)
+		defines: { HAS_ALBEDO: T.chAlbedo ? 1 : 0, HAS_ORM: T.chOrm ? 1 : 0, HAS_NORMAL: T.chNormal ? 1 : 0, CHARACTER_RIM: 1, SKINNED: 1, ...defines },
 	} );
 
 }
@@ -248,6 +250,7 @@ export class SkinnedModel {
 		this._tmp = new Float32Array( 4 );
 		this.group = new Group();
 		this.group.name = 'SkinnedModel';
+		CapsuleShadows.register( this ); // (the capsule shadows of the figures near the camera)
 		this.meshes = [];
 		this.materials = [];
 		this.onClipEnd = null;
@@ -928,6 +931,7 @@ export class SkinnedModel {
 
 	dispose() {
 
+		CapsuleShadows.unregister( this );
 		this.jointBuffer.destroy();
 		for ( const b of this.morphBuffers || [] ) b.destroy();
 		for ( const m of this.meshes ) if ( ! m.geometry.__shared && m.geometry.dispose ) m.geometry.dispose(); // (shared geometry belongs to the gltf cache)

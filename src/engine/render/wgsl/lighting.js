@@ -97,7 +97,17 @@ export const ShadowUniforms = new UniformBlock( 'SunShadow', {
 	// per cascade seam blending (SoftCSMShadowNode): x, y = the cascade's view distance range (m), z / w =
 	// blend band (m) centred on its near / far seam
 	blend: [ 'vec4f[4]', [ new Vector4(), new Vector4(), new Vector4(), new Vector4() ] ],
+	// capsule shadows of the figures nearest the camera (render/CapsuleShadows.js, wave 25A): per figure a bounding
+	// sphere (xyz, radius with the reach of its shadow) and CAPSULES_PER_FIGURE capsules as two vec4 each
+	// (a.xyz + radius, b.xyz); a radius of 0 is an unused slot
+	capFigures: [ 'u32', 0 ],
+	capPad0: [ 'u32', 0 ], capPad1: [ 'u32', 0 ], capPad2: [ 'u32', 0 ],
+	capBounds: [ 'vec4f[4]', Array.from( { length: 4 }, () => new Vector4() ) ],
+	capsules: [ 'vec4f[64]', Array.from( { length: 64 }, () => new Vector4() ) ],
 } );
+
+export const CAPSULE_FIGURES = 4;
+export const CAPSULES_PER_FIGURE = 8;
 
 let _shadowMap = null;
 // the renderer's cascade texture array (depth32float), set by Shadows.js
@@ -316,6 +326,52 @@ fn sunShadowHard( P: vec3f ) -> f32 {
 	if ( c < 0 ) { return 1.0; }
 	return sunShadowCascadeHard( P, c );
 }
+
+// ---- capsule shadows of the nearby figures (render/CapsuleShadows.js). Returns x = ambient visibility (sphere occlusion
+// of the capsule point nearest P, cosine weighted), y = sun visibility of the contact shadow (the capsule point nearest the
+// ray toward the sun, a penumbra growing with the distance along the ray, faded out past a metre: the cascades draw the
+// long shadow). 1 = nothing in the way.
+fn characterOcclusion( P: vec3f, N: vec3f, L: vec3f ) -> vec2f {
+	var amb = 1.0;
+	var sun = 1.0;
+	let figures = min( shadowParams.capFigures, 4u );
+	for ( var f = 0u; f < figures; f++ ) {
+		let bs = shadowParams.capBounds[ f ];
+		let toB = P - bs.xyz;
+		if ( dot( toB, toB ) > bs.w * bs.w ) { continue; }
+		for ( var k = 0u; k < 8u; k++ ) {
+			let i = ( f * 8u + k ) * 2u;
+			let A = shadowParams.capsules[ i ];
+			let r = A.w;
+			if ( r <= 0.0 ) { continue; }
+			let B = shadowParams.capsules[ i + 1u ].xyz;
+			let u = B - A.xyz;
+			let uu = max( dot( u, u ), 1e-8 );
+			// ambient: the capsule point nearest P as a sphere
+			let C = A.xyz + u * clamp( dot( P - A.xyz, u ) / uu, 0.0, 1.0 );
+			let D = C - P;
+			let d2 = max( dot( D, D ), r * r * 1.02 );
+			let cosT = dot( N, D ) * inverseSqrt( d2 );
+			// (a sphere 1.7 x the capsule: the skylight is blocked by the leg, the foot and the shade of the body round them)
+			let ra2 = r * r * 2.9;
+			amb *= 1.0 - sat( cosT * 0.85 + 0.15 ) * sat( ra2 / d2 ) * 0.8;
+			// sun: the capsule point nearest the ray P + t L
+			let w = A.xyz - P;
+			let b = dot( u, L );
+			let den = uu - b * b;
+			let s = select( 0.0, clamp( ( b * dot( L, w ) - dot( u, w ) ) / den, 0.0, 1.0 ), den > 1e-6 );
+			let Q = A.xyz + u * s;
+			let t = dot( Q - P, L );
+			if ( t > 0.0 ) {
+				let miss = length( P + L * t - Q ) - r;
+				let pen = 0.012 + t * 0.07; // penumbra (m): sharp at the contact, wider up the ray
+				let v = smoothstep( - pen, pen, miss );
+				sun = min( sun, mix( v, 1.0, smoothstep( 0.5, 1.2, t ) ) );
+			}
+		}
+	}
+	return vec2f( amb, sun );
+}
 `,
 } );
 
@@ -460,6 +516,12 @@ fn shadeSurface( s: Surface, P: vec3f, V: vec3f, pixel: vec2f ) -> vec3f {
 	// ---- sun / moon
 	let L = frame.sunDir;
 	let dotNL = sat( dot( N, L ) );
+#if !STUDIO_LIGHTING && !SKINNED && !IS_WATER
+	// the capsule shadows of the figures nearby (x ambient, y the sun's contact shadow; CapsuleShadows.js)
+	let charOcc = characterOcclusion( P, N, L );
+#else
+	let charOcc = vec2f( 1.0 );
+#endif
 #if STUDIO_LIGHTING
 	let lightColor = frame.sunColor;
 #else
@@ -467,6 +529,8 @@ fn shadeSurface( s: Surface, P: vec3f, V: vec3f, pixel: vec2f ) -> vec3f {
 	// (clouds, hill shadow, caustics) and the shadow filters only run for the rest, and the filters
 	// only where the hooks left light (their derivatives are taken ahead: lightDPdx / lightDPdy)
 	var lightColor = vec3f( 0.0 );
+	// the sun's visibility here (1 = lit): the ground bounce below fades with it
+	var sunVis = 1.0;
 	if ( dotNL > 0.0 || any( s.translucency > vec3f( 0.0 ) ) ) {
 		lightColor = frame.sunColor * hookDirectModulation( P, N );
 #if MATERIAL_SUN_MODULATION
@@ -483,7 +547,8 @@ fn shadeSurface( s: Surface, P: vec3f, V: vec3f, pixel: vec2f ) -> vec3f {
 			shadow = sunShadow( hookShadowPosition( P, geomN, pixel ), geomN, pixel );
 #endif
 		}
-		lightColor *= shadow;
+		sunVis = min( shadow, charOcc.y );
+		lightColor *= sunVis;
 	}
 #endif
 	let irradiance = dotNL * lightColor;
@@ -543,14 +608,17 @@ fn shadeSurface( s: Surface, P: vec3f, V: vec3f, pixel: vec2f ) -> vec3f {
 #if STUDIO_LIGHTING
 	acc.indirectDiffuse += diffuseMS * envIrr * INV_PI;
 #else
-	acc.indirectDiffuse += diffuseMS * envIrr * INV_PI + hookBounce( P, N ) * diffuseColor;
+	// wave 25A: the bounce map knows the terrain's own sun shadow only; a point in the shade of a roof, a palm or a sail most
+	// likely stands over shaded ground too, so its bounce drops with its own shadow (a figure under a palm read as lit: the
+	// sand's bounce lit its legs and body as strongly as the sun had)
+	acc.indirectDiffuse += diffuseMS * envIrr * INV_PI + hookBounce( P, N ) * diffuseColor * mix( 0.3, 1.0, sunVis );
 #endif
 
 	// ambient occlusion (specular occlusion after Lagarde)
 	let dotNV = sat( dot( N, V ) );
 	let specAO = sat( pow( dotNV + s.ao, exp2( -16.0 * rough - 1.0 ) ) - 1.0 + s.ao );
-	acc.indirectDiffuse *= s.ao;
-	acc.indirectSpecular *= specAO;
+	acc.indirectDiffuse *= s.ao * charOcc.x;
+	acc.indirectSpecular *= specAO * mix( 1.0, charOcc.x, 0.6 );
 #if STUDIO_LIGHTING
 	let amb = vec3f( 1.0 );
 #else

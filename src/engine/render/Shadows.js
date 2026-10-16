@@ -2,6 +2,7 @@ import { Texture } from '../gpu/Texture.js';
 import { ShadowUniforms, setShadowMap } from './wgsl/lighting.js';
 import { createViewUniforms, setFrameCamera } from './Frame.js';
 import { Matrix4, Vector3, Vector4 } from '../math/index.js';
+import { CapsuleShadows } from './CapsuleShadows.js';
 
 // Cascaded sun shadow maps (replaces three's CSMShadowNode + SunShadowFilter).
 //
@@ -169,6 +170,7 @@ export class SunShadows {
 	update( camera, sunDir ) {
 
 		this.frame ++;
+		CapsuleShadows.update( camera ); // the figures' capsules for this frame's lit passes (also with the maps off)
 		ShadowUniforms.fields.enabled.value = this.enabled && sunDir.y > - 0.05 ? 1 : 0;
 		if ( ! this.enabled ) return [];
 		camera.updateMatrixWorld();
