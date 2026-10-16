@@ -1,12 +1,15 @@
 // The cars' looks: every car of a kind is an instance (public/models/cars/<kind>.glb, tools/cars/build_cars.py), so the
-// whole city's traffic costs a few draws per kind on screen: the body's paint (tinted per car), its trim and its lamps in
-// three damage variants (whole; dented; crumpled, made here by pushing the shell in, more at the ends), and the four
-// wheels (one instanced wheel per kind, steered and spun). The lamps glow at night (headlights, tail lights, the taxi
-// sign) and the police beacons flash in a chase (uniforms of the kind's lamp material). Without a scene nothing loads.
+// whole city's traffic costs a few draws per kind on screen: the body's paint (tinted per car, a clear coat), its trim
+// (chrome, rubber, black plastic, glass read from the atlas cell: CELL_PBR) and its lamps in three damage variants (whole;
+// dented; crumpled, made here by pushing the shell in, more at the ends), and the four wheels (one instanced wheel per kind,
+// steered and spun). Beyond LOD_FAR from the view a car draws its far LOD instead (the GLB's BodyLod / WheelLod_FL: a
+// coarser shell with the glass opaque, the lamps, grille and plates only; no dents). The lamps glow at night (headlights,
+// tail lights, the taxi sign) and the police beacons flash in a chase (uniforms of the kind's lamp material). Without a
+// scene nothing loads.
 //
 //   const r = new CarRender( scene, { base } );   await r.ready;
-//   r.draw( records, { night, beacon } )   record: { kind, x, y, z, quat: { x, y, z, w }, bump, color (hex), stage 0..4,
-//                                                    lights, steer, spin, hidden }
+//   r.draw( records, { night, beacon, view } )   record: { kind, x, y, z, quat: { x, y, z, w }, bump, color (hex), stage 0..4,
+//                                                    lights, steer, spin, hidden }   view: the camera position ({ x, y, z })
 //   r.dispose()
 
 import { InstancedMesh, Matrix4, Quaternion, Vector3, Color, BufferGeometry, BufferAttribute, BoxGeometry } from '../../engine/index.js';
@@ -38,8 +41,41 @@ const LAMP_SURFACE = /* wgsl */`
 	s.emissive += s.albedo * ( mat.glow * ( 1.0 - beacon ) + beacon * ( flash * 7.0 + mat.glow * 0.4 ) );
 `;
 
+// roughness / metalness per atlas cell (tools/cars/build_cars.py CELLS, in its order): glass, chrome, black plastic, tyre,
+// rim, the lamps, the plate, the grille ... the gloss black, the mirror glass, rubber
+export const CELL_PBR = [
+	[ 0.05, 0 ], [ 0.1, 1 ], [ 0.55, 0 ], [ 0.92, 0 ], [ 0.26, 0.9 ], [ 0.12, 0 ], [ 0.16, 0 ], [ 0.16, 0 ], [ 0.16, 0 ], [ 0.16, 0 ],
+	[ 0.3, 0 ], [ 0.4, 0 ], [ 0.42, 0.15 ], [ 0.45, 0.35 ], [ 0.38, 0 ], [ 0.32, 0.15 ], [ 0.8, 0 ], [ 0.32, 0.15 ], [ 0.85, 0 ], [ 0.05, 0 ],
+	[ 0.12, 0 ], [ 0.35, 0.8 ], [ 0.3, 0 ], [ 0.9, 0 ], [ 0.82, 0 ], [ 0.45, 0.85 ], [ 0.5, 0.55 ], [ 0.16, 0 ], [ 0.42, 0.6 ], [ 0.1, 0 ],
+	[ 0.03, 1 ], [ 0.95, 0 ], [ 0.36, 0.1 ], [ 0.4, 0.2 ],
+];
+const CELL_SURFACE = /* wgsl */`
+	{
+		let cc = vec2i( i32( floor( in.uv.x * 8.0 ) ), i32( floor( ( 1.0 - in.uv.y ) * 8.0 ) ) );
+		let ci = clamp( cc.y * 8 + cc.x, 0, 63 );
+		var pbr = array<vec2f, ${ CELL_PBR.length }>( ${ CELL_PBR.map( ( [ r, m ] ) => `vec2f( ${ r.toFixed( 3 ) }, ${ m.toFixed( 3 ) } )` ).join( ', ' ) } );
+		if ( ci < ${ CELL_PBR.length } ) { s.roughness = pbr[ ci ].x; s.metalness = pbr[ ci ].y; }
+		// glass and gloss black (the far LOD's windows, the trim) carry a clear coat's sharp reflection
+		if ( ci == 0 || ci == 19 || ci == 29 ) { s.clearcoat = 1.0; s.clearcoatRoughness = 0.03; }
+	}
+`;
+// the paint: a clear coat over a lightly metallic base (the instance colour tints it)
+const PAINT_SURFACE = /* wgsl */`
+	s.clearcoat = 1.0; s.clearcoatRoughness = 0.05;
+`;
+// the windows: tinted, more reflective at grazing angles (the interior reads through them face on)
+const GLASS_SURFACE = /* wgsl */`
+	let gv = abs( dot( normalize( in.V ), s.normal ) );
+	let gf = pow( 1.0 - gv, 3.0 );
+	s.alpha = clamp( 0.24 + gf * 0.62, 0.0, 0.9 );
+	s.roughness = 0.03; s.metalness = 0.0; s.clearcoat = 1.0; s.clearcoatRoughness = 0.02;
+`;
+
 const CAPS = { sedan: 140, taxi: 60, police: 24, pickup: 70, van: 70, sports: 30, bus: 8 };
 const PARTS = [ 'CarPaint', 'CarTrim', 'CarLamp', 'CarGlass', 'CarCabin' ];
+// the far LOD's parts (one variant: dents do not read at that range) and the switch distance (m; phones nearer)
+const LOD_PARTS = [ 'Lod1Paint', 'Lod1Trim', 'Lod1Lamp' ];
+export const LOD_FAR = 38, LOD_FAR_PHONE = 24;
 const DENT = [ 0, 0.07, 0.17 ]; // m: how far the shell is pushed in per variant
 
 const _m = new Matrix4(), _mw = new Matrix4(), _mb = new Matrix4(), _q = new Quaternion(), _qw = new Quaternion(), _p = new Vector3(), _s = new Vector3( 1, 1, 1 ), _c = new Color();
@@ -247,8 +283,9 @@ export class CarRender {
 			shadows: false,
 			materials: ( info ) => {
 
-				if ( /CarLamp/.test( info.name ) ) return { uniforms: { glow: [ 'f32', 0 ], beaconA: [ 'f32', 0 ], beaconB: [ 'f32', 0 ] }, surface: LAMP_SURFACE, roughness: 0.25 };
-				if ( /CarPaint/.test( info.name ) ) return { roughness: 0.32, metalness: 0.2, color: new Color( 1, 1, 1 ), side: 'double' };
+				if ( /CarLamp/.test( info.name ) ) return { uniforms: { glow: [ 'f32', 0 ], beaconA: [ 'f32', 0 ], beaconB: [ 'f32', 0 ] }, surface: CELL_SURFACE + LAMP_SURFACE, roughness: 0.25 };
+				if ( /CarPaint/.test( info.name ) ) return { roughness: 0.36, metalness: 0.25, color: new Color( 1, 1, 1 ), side: 'double', surface: PAINT_SURFACE };
+				if ( /CarTrim|CarWheel/.test( info.name ) ) return { surface: CELL_SURFACE };
 				return {};
 
 			},
@@ -265,7 +302,7 @@ export class CarRender {
 			extras.set( 'CarTrim', { geometry: split.trim, material: trimSrc.material } );
 			if ( split.glass.attributes.position.count ) {
 
-				const glassMat = new Material( { name: 'car-clearGlass', color: new Color( 0.45, 0.57, 0.65 ), transparent: true, opacity: 0.16, depthWrite: false, side: 'double', roughness: 0.16, metalness: 0, velocityWeight: 0 } );
+				const glassMat = new Material( { name: 'car-clearGlass', color: new Color( 0.08, 0.1, 0.12 ), transparent: true, opacity: 0.3, depthWrite: false, side: 'double', roughness: 0.03, metalness: 0, velocityWeight: 0, surface: GLASS_SURFACE } );
 				const cabinMat = new Material( { name: 'car-cabin', vertexColors: true, roughness: 0.9, side: 'double', surface: 's.emissive += s.albedo * 0.025;' } );
 				this.cabinMats.push( glassMat, cabinMat );
 				extras.set( 'CarGlass', { geometry: split.glass, material: glassMat } );
@@ -292,9 +329,10 @@ export class CarRender {
 			const src = extras.get( part ) || glb.meshes.find( ( m ) => m.name === 'car-' + part || m.material.name === 'car-' + part );
 			if ( ! src ) { set.parts.push( null ); continue; }
 			if ( part === 'CarLamp' ) this.lampMats.set( kind, src.material );
-			const variants = DENT.map( ( d, v ) => {
+			// the dented shells are made when a car of the kind is first damaged (most sessions never need them: memory)
+			const make = ( v ) => {
 
-				const geo = v === 0 ? src.geometry : dentGeometry( src.geometry, d, K );
+				const geo = v === 0 ? src.geometry : dentGeometry( src.geometry, DENT[ v ], K );
 				const im = new InstancedMesh( geo, src.material, cap );
 				im.name = `car-${ kind }-${ part }-${ v }`;
 				if ( part === 'CarGlass' ) { im.layers.set( LAYERS.TRANSPARENT ); im.renderOrder = 1; }
@@ -307,12 +345,14 @@ export class CarRender {
 				this.scene.add( im );
 				return im;
 
-			} );
+			};
+			const variants = [ make( 0 ), null, null ];
+			variants.make = make;
 			set.parts.push( variants );
 
 		}
 
-		for ( const m of glb.meshes ) if ( /CarWheel/.test( m.name ) ) wheels.push( m );
+		for ( const m of glb.meshes ) if ( m.name === 'car-CarWheel' ) wheels.push( m );
 		if ( wheels.length ) {
 
 			// one wheel geometry about its hub; the hubs' model points FL, FR, RL, RR (+X is the car's left, +Z the nose)
@@ -340,6 +380,44 @@ export class CarRender {
 
 		}
 
+		// the far LOD: the coarse shell with the near parts' materials (one pipeline each), its own wheel
+		const mat = ( k ) => set.parts[ k ] ? set.parts[ k ][ 0 ].material : null;
+		set.lod = LOD_PARTS.map( ( name, k ) => {
+
+			const src = glb.meshes.find( ( m ) => m.name === 'car-' + name );
+			if ( ! src || ! mat( k ) ) return null;
+			const im = new InstancedMesh( src.geometry, mat( k ), cap );
+			im.name = `car-${ kind }-${ name }`;
+			im.frustumCulled = false;
+			im.castShadow = this.shadows && k === 0;
+			im.receiveShadow = true;
+			im.count = 0;
+			im.visible = false;
+			im.setColorAt( 0, _c.setRGB( 1, 1, 1 ) );
+			this.scene.add( im );
+			return im;
+
+		} );
+		const lw = glb.meshes.find( ( m ) => m.name === 'car-Lod1Wheel' );
+		if ( lw && set.wheel ) {
+
+			lw.geometry.computeBoundingBox();
+			const b = lw.geometry.boundingBox, geo = lw.geometry.clone();
+			geo.translate( - ( b.min.x + b.max.x ) / 2, - ( b.min.y + b.max.y ) / 2, - ( b.min.z + b.max.z ) / 2 );
+			this.derived.push( geo );
+			const im = new InstancedMesh( geo, set.wheel.material, cap * 4 );
+			im.name = `car-${ kind }-wheels-lod`;
+			im.frustumCulled = false;
+			im.castShadow = false;
+			im.receiveShadow = true;
+			im.count = 0;
+			im.visible = false;
+			this.scene.add( im );
+			set.lodWheel = im;
+
+		}
+		set.nl = 0; set.nlw = 0;
+
 		this.sets.set( kind, set );
 		return set;
 
@@ -361,16 +439,48 @@ export class CarRender {
 
 	}
 
-	draw( list, { night = false, beacon = false, time = 0 } = {} ) {
+	draw( list, { night = false, beacon = false, time = 0, view = null, lodFar = globalThis.__phoneBudget ? LOD_FAR_PHONE : LOD_FAR } = {} ) {
 
 		this._lamps( night, beacon, time );
-		for ( const set of this.sets.values() ) { set.n[ 0 ] = set.n[ 1 ] = set.n[ 2 ] = 0; set.nw = 0; }
-		let drawn = 0;
+		for ( const set of this.sets.values() ) { set.n[ 0 ] = set.n[ 1 ] = set.n[ 2 ] = 0; set.nw = 0; set.nl = 0; set.nlw = 0; }
+		let drawn = 0, far = 0;
+		const f2 = lodFar * lodFar;
 		for ( const r of list ) {
 
 			if ( r.hidden ) continue;
 			const set = this.sets.get( r.kind );
 			if ( ! set ) continue;
+			// far away (and not the car you sit in or peek into): the coarse shell
+			if ( view && set.lod && set.lod[ 0 ] && ! r.cockpitDetailed && ( r.x - view.x ) ** 2 + ( r.z - view.z ) ** 2 + ( r.y - view.y ) ** 2 > f2 * ( r.kind === 'bus' ? 2.2 : 1 ) ) {
+
+				if ( set.nl >= set.cap ) continue;
+				const i = set.nl ++;
+				drawn ++; far ++;
+				const q = r.quat;
+				_q.set( q.x, q.y, q.z, q.w );
+				_mb.compose( _p.set( r.x, r.y + ( r.bump || 0 ), r.z ), _q, _s.set( 1, 1, 1 ) );
+				const wreck = ( r.stage || 0 ) >= 4;
+				set.lod.forEach( ( im, k ) => {
+
+					if ( ! im ) return;
+					im.setMatrixAt( i, _mb );
+					if ( k === 0 ) {
+
+						if ( wreck ) _c.setRGB( 0.06, 0.055, 0.05 );
+						else _c.setHex( r.color ?? 0xcccccc );
+						if ( ! wreck && r.stage === 3 ) _c.multiplyScalar( 0.55 );
+
+					} else if ( k === 1 ) _c.setRGB( wreck ? 0.2 : 1, wreck ? 0.2 : 1, wreck ? 0.2 : 1 );
+					else if ( wreck ) _c.setRGB( 0.1, 0.1, 0.1 );
+					else if ( r.lights ) _c.setRGB( 1, 1, 1 );
+					else _c.setRGB( 0.42, 0.42, 0.42 );
+					im.setColorAt( i, _c );
+
+				} );
+				if ( set.lodWheel && set.nlw + 4 <= set.cap * 4 ) this._wheels( set, r, set.lodWheel, 'nlw' );
+				continue;
+
+			}
 			const v = variantOf( r.stage || 0 );
 			const i = set.n[ v ];
 			if ( i >= set.cap ) continue;
@@ -384,7 +494,7 @@ export class CarRender {
 
 				const vs = set.parts[ k ];
 				if ( ! vs ) continue;
-				const im = PARTS[ k ] === 'CarLamp' ? vs[ 0 ] : vs[ v ];
+				const im = PARTS[ k ] === 'CarLamp' ? vs[ 0 ] : vs[ v ] || ( vs[ v ] = vs.make( v ) );
 				const idx = PARTS[ k ] === 'CarLamp' ? set.n[ 0 ] + set.n[ 1 ] + set.n[ 2 ] - 1 : i;
 				// Only the occupied car has a detailed local cabin; the city's other cabins stay instanced.
 				im.setMatrixAt( idx, r.cockpitDetailed && PARTS[ k ] === 'CarCabin' ? _m.copy( _mb ).scale( _s.set( 0, 0, 0 ) ) : _mb );
@@ -403,24 +513,30 @@ export class CarRender {
 			}
 
 			// the wheels: steered (front), spun, under the body
-			if ( set.wheel && set.nw + 4 <= set.cap * 4 ) {
+			if ( set.wheel && set.nw + 4 <= set.cap * 4 ) this._wheels( set, r, set.wheel, 'nw' );
 
-				for ( let w = 0; w < 4; w ++ ) {
+		}
 
-					const hp = set.wheelPos[ w ];
-					if ( ! hp ) continue;
-					_qw.setFromAxisAngle( _ay, w < 2 ? ( r.steer || 0 ) : 0 );
-					_q.setFromAxisAngle( _ax, r.spin || 0 );
-					_qw.multiply( _q );
-					_mw.compose( _p.set( hp[ 0 ], hp[ 1 ] - ( r.bump || 0 ), hp[ 2 ] ), _qw, _s.set( 1, 1, 1 ) );
-					_m.multiplyMatrices( _mb, _mw );
-					set.wheel.setMatrixAt( set.nw ++, _m );
+		for ( const set of this.sets.values() ) {
 
-				}
+			if ( set.lod ) for ( const im of set.lod ) {
+
+				if ( ! im ) continue;
+				im.count = set.nl;
+				im.visible = set.nl > 0;
+				if ( set.nl ) { im.instanceMatrix.needsUpdate = true; if ( im.instanceColor ) im.instanceColor.needsUpdate = true; }
+
+			}
+			if ( set.lodWheel ) {
+
+				set.lodWheel.count = set.nlw;
+				set.lodWheel.visible = set.nlw > 0;
+				if ( set.nlw ) set.lodWheel.instanceMatrix.needsUpdate = true;
 
 			}
 
 		}
+		this.far = far;
 
 		for ( const set of this.sets.values() ) {
 
@@ -430,6 +546,7 @@ export class CarRender {
 				if ( ! vs ) return;
 				vs.forEach( ( im, v ) => {
 
+					if ( ! im ) return;
 					const n = PARTS[ k ] === 'CarLamp' ? ( v === 0 ? total : 0 ) : set.n[ v ];
 					im.count = n;
 					im.visible = n > 0;
@@ -458,14 +575,34 @@ export class CarRender {
 
 	}
 
+	// the four wheels of a record (_mb holds its body matrix): steered (front), spun, under the body
+	_wheels( set, r, im, counter ) {
+
+		for ( let w = 0; w < 4; w ++ ) {
+
+			const hp = set.wheelPos[ w ];
+			if ( ! hp ) continue;
+			_qw.setFromAxisAngle( _ay, w < 2 ? ( r.steer || 0 ) : 0 );
+			_q.setFromAxisAngle( _ax, r.spin || 0 );
+			_qw.multiply( _q );
+			_mw.compose( _p.set( hp[ 0 ], hp[ 1 ] - ( r.bump || 0 ), hp[ 2 ] ), _qw, _s.set( 1, 1, 1 ) );
+			_m.multiplyMatrices( _mb, _mw );
+			im.setMatrixAt( set[ counter ] ++, _m );
+
+		}
+
+	}
+
 	// draws in use (instanced meshes with something to show)
 	draws() {
 
 		let n = 0;
 		for ( const set of this.sets.values() ) {
 
-			for ( const vs of set.parts ) if ( vs ) for ( const im of vs ) if ( im.visible ) n ++;
+			for ( const vs of set.parts ) if ( vs ) for ( const im of vs ) if ( im && im.visible ) n ++;
 			if ( set.wheel && set.wheel.visible ) n ++;
+			if ( set.lod ) for ( const im of set.lod ) if ( im && im.visible ) n ++;
+			if ( set.lodWheel && set.lodWheel.visible ) n ++;
 
 		}
 
@@ -477,8 +614,10 @@ export class CarRender {
 
 		for ( const set of this.sets.values() ) {
 
-			for ( const vs of set.parts ) if ( vs ) for ( const im of vs ) { this.scene.remove( im ); if ( im.geometry !== vs[ 0 ].geometry ) im.geometry.dispose && im.geometry.dispose(); }
+			for ( const vs of set.parts ) if ( vs ) for ( const im of vs ) { if ( ! im ) continue; this.scene.remove( im ); if ( im.geometry !== vs[ 0 ].geometry ) im.geometry.dispose && im.geometry.dispose(); }
 			if ( set.wheel ) { this.scene.remove( set.wheel ); set.wheel.geometry.dispose && set.wheel.geometry.dispose(); }
+			if ( set.lod ) for ( const im of set.lod ) if ( im ) this.scene.remove( im );
+			if ( set.lodWheel ) this.scene.remove( set.lodWheel );
 
 		}
 

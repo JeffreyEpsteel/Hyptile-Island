@@ -137,7 +137,9 @@ for ( const kind of kinds ) for ( const time of times ) for ( const look of look
 	// hold the speed near the target (the gauges read the simulation), steer as asked, indicators on with a steer
 	cars.opts.input = () => ( { throttle: Math.abs( rec.body?.speed || 0 ) < speed ? 0.6 : 0, brake: 0, steer, handbrake: false } );
 	app.player.setView( look === 'chase' ? 'third' : 'first' );
-	const [ yaw, pitch ] = LOOKS[ look ] || LOOKS.forward;
+	const [ yaw, pitch0 ] = LOOKS[ look ] || LOOKS.forward;
+	// (wave 25E: 'forward' is the seat's own starting look: the van and the bus tip it down to their clusters)
+	const pitch = look === 'forward' && Number.isFinite( rec.spec?.lookDown ) ? rec.spec.lookDown : pitch0;
 	for ( let i = 0; i < 200; i ++ ) {
 
 		t += 1 / 60;

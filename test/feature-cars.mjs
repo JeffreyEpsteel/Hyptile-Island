@@ -573,9 +573,13 @@ section( 'Meridian: the real plan, the budgets, the models' );
 		const gl = parseGLB( buf.buffer.slice( buf.byteOffset, buf.byteOffset + buf.byteLength ) );
 		const names = gl.nodes.map( ( n ) => n.name );
 		const mats = gl.materials.map( ( m ) => m.name );
-		const tris = gl.meshes.flat().reduce( ( s, p ) => s + ( p.indices ? p.indices.length / 3 : 0 ), 0 );
-		ok( [ 'Body', 'Wheel_FL', 'Wheel_FR', 'Wheel_RL', 'Wheel_RR' ].every( ( n ) => names.includes( n ) ) && [ 'CarPaint', 'CarTrim', 'CarLamp', 'CarWheel' ].every( ( m ) => mats.includes( m ) ) && tris < 1500 && buf.length < 100000,
-			`${ k }.glb: Body + four wheel nodes, the shared materials, low poly`, `(${ tris } tris, ${ ( buf.length / 1024 ).toFixed( 0 ) } KB)` );
+		// wave 25E: an A-class near body (a lofted shell, projected lamps / grille / shut lines, spoked wheels) and a far LOD
+		const nodeTris = ( n ) => { const nd = gl.nodes.find( ( x ) => x.name === n ); return nd && nd.mesh !== undefined ? gl.meshes[ nd.mesh ].reduce( ( s, p ) => s + ( p.indices ? p.indices.length / 3 : 0 ), 0 ) : 0; };
+		const near = [ 'Body', 'Wheel_FL', 'Wheel_FR', 'Wheel_RL', 'Wheel_RR' ].reduce( ( s, n ) => s + nodeTris( n ), 0 );
+		const far = nodeTris( 'BodyLod' ) + 4 * nodeTris( 'WheelLod_FL' );
+		ok( [ 'Body', 'Wheel_FL', 'Wheel_FR', 'Wheel_RL', 'Wheel_RR', 'BodyLod', 'WheelLod_FL' ].every( ( n ) => names.includes( n ) ) && [ 'CarPaint', 'CarTrim', 'CarLamp', 'CarWheel', 'Lod1Paint', 'Lod1Trim', 'Lod1Lamp', 'Lod1Wheel' ].every( ( m ) => mats.includes( m ) )
+			&& near < ( k === 'bus' ? 16000 : 12000 ) && far < 2600 && far < near / 4 && buf.length < 600000,
+			`${ k }.glb: Body + four wheel nodes and the far LOD, the shared materials, a near and a far budget`, `(${ near } tris near, ${ far } far, ${ ( buf.length / 1024 ).toFixed( 0 ) } KB)` );
 
 	}
 

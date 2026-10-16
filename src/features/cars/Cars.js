@@ -448,6 +448,9 @@ export class Cars {
 		v.seat = S.seat; v.eye = S.eye; v.chase = S.chase; v.focus = [ 0, Math.min( 2.2, S.hgt * 0.85 ), 0 ];
 		this._syncQuat( rec );
 		p.enterVehicle( v );
+		// (wave 25E) a cab-forward van and the bus seat you high over a low dash: the eye starts tipped down so the cluster
+		// reads from the seat (mouse look still frees it)
+		if ( Number.isFinite( S.lookDown ) ) p.helmPitch = S.lookDown;
 		// the door, and the courtesy lamp for a few seconds at night (wave 24A)
 		const sys = systemsOf( rec );
 		if ( this.night ) sys.domeT = 4;
@@ -1652,7 +1655,7 @@ export class Cars {
 		for ( const r of this.mirror.records.values() ) add( r );
 		for ( const r of this.remote.values() ) add( r );
 		for ( const l of this.remoteOwned.values() ) for ( const r of l ) add( r );
-		this.render.draw( list, { night, beacon: this.beacons(), time: this.time } );
+		this.render.draw( list, { night, beacon: this.beacons(), time: this.time, view: this.app.camera ? this.app.camera.position : null } );
 
 	}
 

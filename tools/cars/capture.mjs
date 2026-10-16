@@ -120,7 +120,14 @@ const VIEWS = {
 	chase: { time: 17, at: { x: C.x - 1.5, z: C.z + 90 }, drive: true },
 	// two sedans 8 m off the camera at dusk, lights on: the near one faces the camera (headlamps), the other faces away (tail lamps)
 	lamps: { time: 20.6, at: { x: C.x + 30, z: C.z + 40 }, pose: { x: C.x + 1.5, y: yAt( C.x, C.z + 40 ) + 1.6, z: C.z + 48, yaw: 0, pitch: - 0.08 }, pair: true },
+	// wave 25E: the seven kinds parked nose to the camera across the avenue (lineup: three-quarter front, close; lineback:
+	// from behind; linenight: lamps lit at dusk); the player stands 60 m off so the traffic is elsewhere
+	lineup: { time: 10.5, at: { x: C.x + 60, z: C.z + 120 }, pose: { x: C.x + 9, y: yAt( C.x, C.z + 40 ) + 2.2, z: C.z + 46.5, yaw: 0.85, pitch: - 0.12 }, line: 0 },
+	lineback: { time: 16, at: { x: C.x + 60, z: C.z + 120 }, pose: { x: C.x - 8, y: yAt( C.x, C.z + 40 ) + 2.0, z: C.z + 33.5, yaw: Math.PI + 0.85, pitch: - 0.12 }, line: 0 },
+	linenight: { time: 20.8, at: { x: C.x + 60, z: C.z + 120 }, pose: { x: C.x + 9, y: yAt( C.x, C.z + 40 ) + 2.2, z: C.z + 46.5, yaw: 0.85, pitch: - 0.12 }, line: 0, lit: true },
+	linefar: { time: 10.5, at: { x: C.x + 60, z: C.z + 120 }, pose: { x: C.x + 30, y: yAt( C.x, C.z + 40 ) + 4, z: C.z + 75, yaw: 0.5, pitch: - 0.1 }, line: 0 },
 };
+const LINE = [ [ 'sedan', 0x8e1b1b ], [ 'taxi', null ], [ 'police', null ], [ 'pickup', 0x1d3f7a ], [ 'van', 0xe8e8e2 ], [ 'sports', 0xd23a10 ], [ 'bus', null ] ];
 const only = arg( 'only' ) ? arg( 'only' ).split( ',' ) : Object.keys( VIEWS );
 for ( const id of only ) {
 
@@ -133,6 +140,14 @@ for ( const id of only ) {
 	// each view starts clean: no heat, no chase, no wrecks from the last one
 	cars.heat = 0; cars.level = 0; cars.graceT = 999;
 	for ( const r of [ ...cars.records ] ) if ( r.state !== 'parked' ) cars._drop( r );
+	if ( v.line !== undefined ) LINE.forEach( ( [ kind, color ], i ) => {
+
+		const x = C.x - 4 + i * 3.4 + ( kind === 'bus' ? 1.2 : 0 ), z = C.z + 40 - ( kind === 'bus' ? 3.2 : 0 );
+		const r = cars._record( kind, { x, y: yAt( x, z ), z, yaw: 0, state: 'idle', ...( color !== null ? { color } : {} ) } );
+		r.lights = !! v.lit;
+		cars.records.push( r );
+
+	} );
 	if ( v.pair ) for ( const [ dx, yaw ] of [ [ 0, 0 ], [ 3.2, Math.PI ] ] ) {
 
 		const r = cars._record( 'sedan', { x: C.x + dx, y: yAt( C.x, C.z + 40 ), z: C.z + 40, yaw, state: 'idle', color: dx ? 0x1d3f7a : 0x8e1b1b } );
