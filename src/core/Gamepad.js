@@ -220,12 +220,21 @@ export class GamepadInput {
 		// look
 		this.input.look.x += rx * Math.abs( rx ) * this.lookSpeed;
 		this.input.look.y += ry * Math.abs( ry ) * this.lookSpeed;
+		const pl = this.input.padLook; // (wave 25C) Player slews the mouse alone and applies the pad per second, with a soft start
+		if ( pl ) {
+
+			pl.x += rx * Math.abs( rx ) * this.lookSpeed;
+			pl.y += ry * Math.abs( ry ) * this.lookSpeed;
+			pl.mag = Math.max( pl.mag, Math.hypot( rx, ry ) );
+
+		}
 		// buttons (standard mapping; the remappable ones through the player's table)
 		this._key( 'Space', btn( this._btnOf( 'Space', 0 ) ) );
 		this._key( 'KeyC', btn( this._btnOf( 'KeyC', 1 ) ) );
 		this._key( 'KeyE', btn( this._btnOf( 'KeyE', 2 ) ) );
 		this._key( 'KeyR', btn( this._btnOf( 'KeyR', 3 ) ) );
 		this._key( 'KeyV', btn( this._btnOf( 'KeyV', 4 ) ) );
+		this._key( 'Home', btn( 11 ) ); // (wave 25C) the right stick's click re-centres the chase camera
 		this._key( 'ShiftLeft', btn( this._btnOf( 'ShiftLeft', 5 ) ) || Math.hypot( lx, ly ) > 0.95 );
 		this._key( 'F1', btn( 8 ) );
 		this._key( 'KeyH', btn( 9 ) );

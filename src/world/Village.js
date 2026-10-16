@@ -5,6 +5,7 @@ import { createVillageMaterials } from './village/VillageMaterials.js';
 import { VillageTextures } from './village/TextureBaker.js';
 import { buildHouse, buildBoathouse, buildMarketStall, buildShed } from './village/Buildings.js';
 import { buildBoardwalk } from './village/Boardwalk.js';
+import { registerRoof } from './Roofs.js';
 import { buildPier, PIER } from './Pier.js';
 import { G } from '../engine/render/Frame.js';
 import { TownKit, createGlowMaterial } from './village/TownKit.js';
@@ -135,6 +136,7 @@ export class Village {
 			const B = s.harbor ? this.harbor : this.town;
 			const res = buildHouse( ctx( B ), s );
 			this.buildings.push( { name: s.name, x: s.x, z: s.z, floorY: res.floorY, roofTop: res.roofTop, stilts: s.foundation === 'stilts', footprint: res.footprint } );
+			registerRoof( 'village:' + s.name, { x: s.x, z: s.z, yaw: s.yaw || 0, w: s.w + 0.9, d: s.d + 0.9 + ( res.porchDepth || 0 ), cz: ( res.porchDepth || 0 ) / 2, y0: res.eaveY - 0.15, y1: res.roofTop } ); // (wave 25C)
 			this.footprints.push( res.footprint );
 
 		}

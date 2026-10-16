@@ -102,6 +102,8 @@ export default {
 	'set.free_camera_f': 'Free camera (F)',
 	'set.reduce_boat_motion': 'Reduce boat motion',
 	'set.reduce_boat_motion.tip': 'Steadier boat cameras (less roll and pitch at the helm) and no camera shake on strikes.',
+	'set.camera_follows': 'Camera follows the heading',
+	'set.camera_follows.tip': 'The chase camera of boats, planes, helicopters and cars swings back behind the vehicle when you leave it alone. Off: it stays where you put it (Home or the middle mouse button centres it).',
 	'set.ambient_occlusion': 'Ambient occlusion',
 	'set.bounce_light': 'Bounce light',
 	'set.bounce_light.tip': 'Sunlight reflected off the ground (bright sand) onto undersides and shaded faces: pier, eaves, hulls, trunks. 0 = off.',

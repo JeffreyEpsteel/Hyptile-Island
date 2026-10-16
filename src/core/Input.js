@@ -42,6 +42,7 @@ export class Input {
 		this.keys = new Set();
 		this.pressed = new Set();
 		this.look = { x: 0, y: 0 };
+		this.padLook = { x: 0, y: 0, mag: 0 }; // (wave 25C) the gamepad's share of `look` (counts, the stick's tilt 0..1), core/Gamepad.js
 		this.wheel = 0;
 		this.locked = false;
 		this.enabled = true;
@@ -97,6 +98,7 @@ export class Input {
 			if ( this._fromTouch( e ) ) return;
 			if ( e.button === 0 ) this._setLeft( 'mouse', true );
 			if ( e.button === 2 ) this._rmbMouse = true;
+			if ( e.button === 1 ) { this.pressed.add( 'Home' ); e.preventDefault(); } // (wave 25C) the middle button re-centres the chase camera
 
 		} );
 		window.addEventListener( 'mouseup', ( e ) => {
@@ -531,9 +533,11 @@ export class Input {
 
 	consumeLook() {
 
-		const l = { x: this.look.x, y: this.invertY ? - this.look.y : this.look.y };
+		const pl = this.padLook;
+		const l = { x: this.look.x, y: this.invertY ? - this.look.y : this.look.y, padX: pl.x, padY: this.invertY ? - pl.y : pl.y, pad: pl.mag };
 		this.look.x = 0;
 		this.look.y = 0;
+		pl.x = pl.y = pl.mag = 0;
 		return l;
 
 	}

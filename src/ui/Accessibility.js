@@ -102,6 +102,7 @@ export const DEFAULTS = Object.freeze( {
 	sprintMode: 'hold',
 	guardMode: 'hold',
 	reduceMotion: false,
+	cameraFollowsHeading: false,
 	cameraShake: 1,
 	sensitivity: 1,
 	invertY: false,
@@ -119,6 +120,7 @@ const SCHEMA = {
 	sprintMode: { values: [ 'hold', 'toggle' ] },
 	guardMode: { values: [ 'hold', 'toggle' ] },
 	reduceMotion: { bool: true },
+	cameraFollowsHeading: { bool: true },
 	cameraShake: { min: 0, max: 1 },
 	sensitivity: { min: 0.2, max: 3 },
 	invertY: { bool: true },
@@ -411,6 +413,10 @@ export class Accessibility {
 			case 'reduceMotion':
 				if ( app && app.settings ) app.settings.reduceMotion = o.reduceMotion;
 				if ( app && app.player ) app.player.reduceMotion = o.reduceMotion;
+				break;
+			case 'cameraFollowsHeading':
+				if ( app && app.settings ) app.settings.cameraFollowsHeading = o.cameraFollowsHeading;
+				if ( app && app.player ) app.player.followHeading = o.cameraFollowsHeading;
 				break;
 			case 'cameraShake':
 				if ( app && app.settings ) app.settings.cameraShake = o.cameraShake;

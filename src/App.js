@@ -1167,6 +1167,7 @@ fn terrainWetness( xz: vec2f, h: f32 ) -> vec2f {
 		if ( this.freeCam ) this.fly.update( dt );
 		else this.player.update( dt );
 		this.player.reduceMotion = !! this.settings.reduceMotion;
+		this.player.followHeading = !! this.settings.cameraFollowsHeading; // (wave 25C) the chase cameras swing back behind the vehicle
 		if ( this.cameraFeel ) this.cameraFeel.update( dt );
 		if ( ! this.paused ) this.game.update( dt ); // (the menu is up in single player: the fish, the fuel and the play time wait)
 		if ( ! this.paused && this.features ) this.features.update( dt );

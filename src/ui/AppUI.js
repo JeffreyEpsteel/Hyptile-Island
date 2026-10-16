@@ -245,6 +245,9 @@ export class AppUI {
 		// (the Access tab has the same switch: both go through the accessibility model, which saves it)
 		s.reduceMotion = a11y.get( 'reduceMotion' );
 		view.addToggle( { label: t( 'set.reduce_boat_motion', 'Reduce boat motion' ), object: s, key: 'reduceMotion', tooltip: t( 'set.reduce_boat_motion.tip', 'Steadier boat cameras (less roll and pitch at the helm) and no camera shake on strikes.' ), onChange: ( v ) => a11y.set( 'reduceMotion', v ) } );
+		// (wave 25C) off: the boat / plane / car chase camera stays where you put it (Home or the middle mouse button re-centres it)
+		s.cameraFollowsHeading = a11y.get( 'cameraFollowsHeading' );
+		view.addToggle( { label: t( 'set.camera_follows', 'Camera follows the heading' ), object: s, key: 'cameraFollowsHeading', tooltip: t( 'set.camera_follows.tip', 'The chase camera of boats, planes, helicopters and cars swings back behind the vehicle when you leave it alone. Off: it stays where you put it (Home or the middle mouse button centres it).' ), onChange: ( v ) => a11y.set( 'cameraFollowsHeading', v ) } );
 
 		// ---------------------------------------------------------------- Effects
 		const fx = ui.addTab( 'effects', t( 'tab.effects', 'Effects' ), 'effects' );

@@ -161,7 +161,8 @@ import { WaterPool } from './WaterPool.js';
 import { ModelSet } from './Models.js';
 import { NavalHud, hudModel, ARROW_RANGE, NO_GUN_TEXT } from './Hud.js';
 import { CollisionWorld, predictContact, yawInertia, ramDamage } from './Collisions.js';
-import { shapeFromObject, shapeFromDims, polyDistance } from '../../world/boat/HullShape.js';
+import { shapeFromObject, shapeFromDims, polyDistance, placeShape } from '../../world/boat/HullShape.js';
+import { hullCameraBlocker } from '../../player/CameraRig.js';
 import { ShipLights } from './ShipLights.js';
 import { Planks } from './Planks.js';
 import { lookAim } from './AimAssist.js';
@@ -3512,6 +3513,8 @@ export class Naval {
 		if ( ! ( dt > 0 ) ) return;
 		dt = Math.min( dt, 0.1 );
 		this._dt = dt;
+		// (wave 25C) the ships' hull outlines stop the third-person camera arm
+		if ( ! this._camBlock && this.app && this.app.player && this.app.player.addCameraBlocker ) this._camBlock = this.app.player.addCameraBlocker( hullCameraBlocker( this, placeShape ) );
 		this._frame ++;
 		this.time += dt;
 		const act = this.active;
@@ -3695,6 +3698,7 @@ export class Naval {
 
 		for ( const off of this._offs ) off();
 		this._offs.length = 0;
+		if ( this._camBlock ) { this._camBlock(); this._camBlock = null; }
 		this._clearWorld();
 		this.balls.dispose();
 		this.fx.dispose();
