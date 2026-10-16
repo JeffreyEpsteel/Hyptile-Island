@@ -604,6 +604,7 @@ export class Ragdoll {
 // foot IK weight for a pose: on the ground in walk / deck / seat, out while airborne, swimming, at the helm, in a tumble or a
 // clip that moves the root (boarding, knockdowns), and faded out from a jog to a sprint
 const NO_FEET = { tumble: true, fall: true, knockdown: true, getUp: true, boardLow: true, disembarkLow: true, stumble: true, landSoft: true, climbUp: true, keelPull: true };
+const FACE_RATE = 12.5; // rad/s: the body never turns faster than ~700 degrees a second
 const FEET_RUN = [ 2.6, 4.2 ]; // m/s: full plant below, none above
 export function footWeight( pose, action = null ) {
 
@@ -654,6 +655,10 @@ export class Avatar {
 		this._actM = null; // the montage the pose action started
 		this._sv = { x: 0, z: 0 }; // smoothed ground velocity (world) for the strafe direction
 		this._turn = 0;
+		this._bodyYaw = null; // wave 25C: the facing the body has turned to (it follows the pose yaw, the feet step on the spot)
+		this._teleport = false;
+		this._prevF = null; this._prevS = null; // forward / strafe speed last frame (the start / stop lean)
+		this._accF = 0; this._accS = 0; // m/s^2 along / across the facing, low-passed
 		this._air = 0;
 		this._lastAir = 0;
 		this._prevYaw = null;
@@ -774,7 +779,8 @@ export class Avatar {
 
 			this._vel.subVectors( pose.position, this._lastPos ).divideScalar( dt );
 			this._vel.y = 0;
-			if ( this._vel.length() > 14 ) this._vel.set( 0, 0, 0 ); // a teleport, not a run
+			this._teleport = this._vel.length() > 14;
+			if ( this._teleport ) this._vel.set( 0, 0, 0 ); // a teleport, not a run
 
 		}
 
@@ -802,7 +808,7 @@ export class Avatar {
 		// at the wheel the feet step from the helm point to the hull's helmStand (handed over with the grips), within reach
 		const stand = pose.mode === 'boat' && this._helmW > 0 && this._ikReq && this._ikReq.stand;
 		if ( stand && stand.distanceToSquared( pose.position ) < 1 ) this.group.position.lerp( stand, smooth( this._helmW ) );
-		_yq.setFromAxisAngle( _yAxis, pose.yaw + Math.PI + this._dyaw );
+		_yq.setFromAxisAngle( _yAxis, this._faceYaw( dt, pose ) + Math.PI + this._dyaw );
 		if ( pose.frame ) this.group.quaternion.copy( pose.frame ).multiply( _yq );
 		else this.group.quaternion.copy( _yq );
 		if ( this._disp.lengthSq() > 1e-8 || Math.abs( this._dyaw ) > 1e-4 ) {
@@ -893,6 +899,30 @@ export class Avatar {
 		}
 
 		m.update( dt );
+
+	}
+
+	// (wave 25C) the facing of the body. On foot (walk, deck) the body follows the view's yaw with a short lag - quick when moving or
+	// fishing, ~0.1 s standing - so a turn on the spot is a body turning with the Turn clips stepping the feet, not a rod swung
+	// round the feet (the old pose yaw was the camera's, instant). Everywhere else, and after a teleport, it is the pose yaw.
+	_faceYaw( dt, pose ) {
+
+		const want = pose.yaw || 0;
+		const onFoot = ( pose.mode === 'walk' || pose.mode === 'deck' ) && pose.grounded !== false;
+		if ( ! onFoot || ! ( dt > 0 ) || this._bodyYaw === null || this._teleport || this._rd ) {
+
+			this._bodyYaw = want;
+			return want;
+
+		}
+
+		const d = Math.atan2( Math.sin( want - this._bodyYaw ), Math.cos( want - this._bodyYaw ) );
+		const speed = pose.speed || 0;
+		const tau = pose.action ? 0.04 : 0.11 - 0.075 * smooth( ( speed - 0.3 ) / 1.2 );
+		const step = Math.max( - FACE_RATE * dt, Math.min( FACE_RATE * dt, d * ( 1 - Math.exp( - dt / tau ) ) ) );
+		this._bodyYaw += step;
+		if ( Math.abs( d - step ) < 1e-3 ) this._bodyYaw = want;
+		return this._bodyYaw;
 
 	}
 
@@ -999,7 +1029,7 @@ export class Avatar {
 		if ( o ) o.age += dt;
 		const fresh = o && o.age <= 0.3;
 		const speed = fresh && Number.isFinite( o.speed ) ? o.speed : pose.speed || 0;
-		const yaw = pose.yaw || 0;
+		const yaw = this._bodyYaw !== null && ( pose.mode === 'walk' || pose.mode === 'deck' ) ? this._bodyYaw : pose.yaw || 0;
 		let fwd = speed, str = 0;
 		if ( fresh && ( Number.isFinite( o.strafe ) || Number.isFinite( o.forward ) ) ) {
 
@@ -1038,6 +1068,16 @@ export class Avatar {
 
 		} else if ( dt > 0 ) this._turn = 0;
 		this._prevYaw = yaw;
+		// (wave 25C) the change of the velocity along and across the facing: the graph leans the body into a start and back at a stop
+		if ( dt > 0 && this._prevF !== null && ( pose.mode === 'walk' || pose.mode === 'deck' ) ) {
+
+			const k = 1 - Math.exp( - dt * 14 );
+			this._accF += ( Math.max( - 160, Math.min( 160, ( fwd - this._prevF ) / dt ) ) - this._accF ) * k;
+			this._accS += ( Math.max( - 160, Math.min( 160, ( str - this._prevS ) / dt ) ) - this._accS ) * k;
+
+		} else if ( dt > 0 ) this._accF = this._accS = 0;
+		this._prevF = fwd; this._prevS = str;
+		c.accel = this._accF; c.accelSide = this._accS;
 		const grounded = fresh && typeof o.grounded === 'boolean' ? o.grounded : pose.grounded !== false;
 		if ( ! grounded ) this._air += dt;
 		else if ( this._air > 0 ) {

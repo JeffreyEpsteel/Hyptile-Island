@@ -66,6 +66,7 @@ export class AnimGraph {
 		this._prevR = null; this._prevT = null; this._havePrev = false;
 		this._offR = null; this._offT = null;
 		this.lean = 0;
+		this.leanPitch = 0; // wave 25C: the start / stop lean (forward while speeding up, back while braking), rad about the rig's x axis
 		this._leanOn = false;
 		this.footLock = { l: 0, r: 0 };
 		this.label = 'idle';
@@ -666,9 +667,19 @@ export class AnimGraph {
 	_lean( dt, ctx ) {
 
 		const L = this.def.lean || { k: 0, max: 0, rate: 6 };
-		const target = this._leanOn ? Math.max( - L.max, Math.min( L.max, ( ctx.turn || 0 ) * ( ctx.speed || 0 ) * L.k ) ) : 0;
+		const P = L.pitch;
+		// the turn rolls the body to the inside; a push sideways (a strafe starting / stopping) rolls it the way it is pushed
+		let roll = ( ctx.turn || 0 ) * ( ctx.speed || 0 ) * L.k;
+		if ( P && this._leanOn ) roll -= Math.max( - P.sideMax, Math.min( P.sideMax, ( ctx.accelSide || 0 ) * P.side ) );
+		let target = this._leanOn ? Math.max( - L.max, Math.min( L.max, roll ) ) : 0;
+		if ( Math.abs( target ) < 1e-3 ) target = 0; // (a decaying push is not a lean)
 		this.lean += ( target - this.lean ) * ( 1 - Math.exp( - dt * L.rate ) );
 		if ( Math.abs( this.lean ) < 2e-3 && target === 0 ) this.lean = 0; // 0.1 deg: done
+		// (wave 25C) the start / stop lean from the change of the velocity along the facing: the body leans into the push
+		let tp = P && this._leanOn ? Math.max( - P.back, Math.min( P.fwd, ( ctx.accel || 0 ) * P.k ) ) : 0;
+		if ( Math.abs( tp ) < 2e-3 ) tp = 0;
+		this.leanPitch += ( tp - this.leanPitch ) * ( 1 - Math.exp( - dt * P_RATE( P, tp, this.leanPitch ) ) );
+		if ( Math.abs( this.leanPitch ) < 1.5e-3 && tp === 0 ) this.leanPitch = 0;
 
 	}
 
@@ -676,7 +687,7 @@ export class AnimGraph {
 
 		const N = m.nodeCount, L = m.local;
 		// lean into a turn: the whole body rolls about the feet (the root origin), toward the inside of the turn
-		if ( this.lean !== 0 ) {
+		if ( this.lean !== 0 || this.leanPitch !== 0 ) {
 
 			const pi = this._pelvis ?? ( this._pelvis = m.gltf.nodes.findIndex( ( n ) => n.name === 'pelvis' ) );
 			if ( pi >= 0 ) {
@@ -684,7 +695,8 @@ export class AnimGraph {
 				let P = [ 0, 0, 0, 1 ];
 				for ( let a = m.parent[ pi ]; a >= 0; a = m.parent[ a ] ) P = qmul( Array.from( L[ a ].r ), P );
 				// turning left (+turn) leans left: the top toward +X = a negative roll about +Z
-				const k = qmul( qmul( qconj( P ), qaxis( 'z', - this.lean ) ), P );
+				const R = this.leanPitch !== 0 ? qmul( qaxis( 'x', this.leanPitch ), qaxis( 'z', - this.lean ) ) : qaxis( 'z', - this.lean );
+				const k = qmul( qmul( qconj( P ), R ), P );
 				const r = qnorm( qmul( k, Array.from( L[ pi ].r ) ) ), t = qrot( k, Array.from( L[ pi ].t ) );
 				L[ pi ].r.set( r );
 				L[ pi ].t.set( t );
@@ -793,5 +805,13 @@ export class AnimGraph {
 		return `[anim] ${ this.label } (${ this.stateName }) v=${ ( c.speed || 0 ).toFixed( 2 ) } dir=${ g ? g.dir.toFixed( 0 ) : 0 } phase=${ g ? g.phase.toFixed( 2 ) : '-' } lean=${ this.lean.toFixed( 3 ) }${ this._inert.active ? ' inertial' : '' } | ${ w }${ mt ? ' | ' + mt : '' } | overlay ${ this.model.overlay || '-' }`;
 
 	}
+
+}
+
+// the pitch lean settles faster than the roll (a start is a half second event) and lets go quickly when the push ends
+function P_RATE( P, target, cur ) {
+
+	if ( ! P ) return 6;
+	return Math.abs( target ) > Math.abs( cur ) ? P.rate : P.rate * 0.7;
 
 }

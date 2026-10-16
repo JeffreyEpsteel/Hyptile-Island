@@ -2,6 +2,7 @@ import * as THREE from '../engine/index.js';
 import { WORLD } from '../world/WorldLayout.js';
 import { HOUSE } from '../world/boat/Wheelhouse.js';
 import { BOATS } from '../game/Boats.js';
+import { LookSlew, StepSmoother, sweepArm, STEP, ARM_CAST } from './CameraRig.js';
 
 // helm seat (boat frame) of the current boat: fleet hulls carry their own, the lobster boat's is the wheelhouse
 const helmOf = ( b ) => ( b && b.model.helmPoint ) || { x: HOUSE.helmX, z: HOUSE.seatZ };
@@ -40,11 +41,13 @@ const _rideQ = new THREE.Quaternion();
 // the deck height at the helm: the ships' wheel stands on a raised quarterdeck (ShipBoatModel helmDeckHeight)
 const helmDeck = ( b ) => ( b.model.dimensions && b.model.dimensions.helmDeckHeight ) ?? b.model.lines.deckY;
 const _v2 = new THREE.Vector3();
+const _vf = new THREE.Vector3(), _vf2 = new THREE.Vector3();
 const _fwd = new THREE.Vector3();
 const _right = new THREE.Vector3();
 const _q = new THREE.Quaternion();
 const _e = new THREE.Euler( 0, 0, 0, 'YXZ' );
 const _yAxis = new THREE.Vector3( 0, 1, 0 );
+const _zAxis = new THREE.Vector3( 0, 0, 1 ), _xAxis = new THREE.Vector3( 1, 0, 0 );
 const _qa = new THREE.Quaternion(), _qb = new THREE.Quaternion(), _qc = new THREE.Quaternion();
 const _wish = new THREE.Vector3();
 // walking on the boat
@@ -107,6 +110,16 @@ export class Player {
 		this.armInit = false;
 		this._armLen = ARM.dist; // the arm length eased towards armDist (+ the sprint reach)
 		this.sprinting = false; // on foot, Shift held with stamina (CameraFeel widens the fov on it)
+		// (wave 25C) the look input slewed over ~70 ms (+ the gamepad's curve), the feet's visual offset after a step up / down or
+		// a ladder's top (the capsule steps in one frame, the body and the camera ride it), the arm's blockers (addCameraBlocker)
+		// and the swim stroke the camera sways with
+		this.lookSlew = new LookSlew();
+		this.stepOff = new StepSmoother();
+		this.cameraBlockers = [];
+		this._armCur = null; // the arm length after the sphere cast: snaps in at an obstacle, eases out
+		this.stroke = 0; // swim: the stroke phase 0..1 (1 = a stroke cue, audio.swimStroke)
+		this.crossSeq = 0; // counts the waterline crossings; waterCross = { dir: -1 under | +1 up, speed, t }
+		this.waterCross = null;
 		const start = WORLD.start || WORLD.spawn;
 		this.position = new THREE.Vector3().copy( start.position );
 		// standing on whatever is there (the boardwalk planks), not in it
@@ -168,6 +181,35 @@ export class Player {
 			if ( i >= 0 ) this.climbables.splice( i, 1 );
 
 		};
+
+	}
+
+	// the feet as the body and the camera see them: the physical feet plus the step's easing offset
+	visualFeet() {
+
+		return this.stepOff.active ? _vf.copy( this.position ).add( _vf2.set( this.stepOff.x, this.stepOff.y, this.stepOff.z ) ) : this.position;
+
+	}
+
+	// something that stops the third-person arm: fn( ox, oy, oz, dx, dy, dz, len, r ) -> distance of the first touch of a sphere of
+	// radius r along the ray, or Infinity (src/player/CameraRig.js rayPrism / hullCameraBlocker); returns its remover
+	addCameraBlocker( fn ) {
+
+		if ( typeof fn !== 'function' ) return () => {};
+		this.cameraBlockers.push( fn );
+		return () => {
+
+			const i = this.cameraBlockers.indexOf( fn );
+			if ( i >= 0 ) this.cameraBlockers.splice( i, 1 );
+
+		};
+
+	}
+
+	// the look input of this frame (counts, in the units of the old consumeLook): slewed, the pad rate-independent
+	_lookIn( dt ) {
+
+		return this.lookSlew.step( dt, this.input.consumeLook() );
 
 	}
 
@@ -235,6 +277,7 @@ export class Player {
 		this.waterMean = this.waterMean === null ? this.waterH : this.waterMean + ( this.waterH - this.waterMean ) * ( 1 - Math.exp( - dt / 4 ) );
 		this.prompt = null;
 		this.climb = null;
+		this.stepOff.update( dt );
 		this.sinceExit = ( this.sinceExit ?? Infinity ) + dt; // s since exitVehicle (the same E press must not climb straight back in)
 		// something else moved the player off the foreign deck (boarding's crossing, a respawn): let go of the hull
 		if ( this.hull && this.mode !== 'aboard' ) this.hull = null;
@@ -281,7 +324,7 @@ export class Player {
 
 		}
 
-		const look = inp.consumeLook();
+		const look = this._lookIn( dt );
 		this.yaw -= look.x * 0.0022;
 		this.pitch = THREE.MathUtils.clamp( this.pitch - look.y * 0.0022, - 1.5, 1.5 );
 		if ( inp.hit( 'KeyV' ) ) this.toggleView();
@@ -307,6 +350,7 @@ export class Player {
 		// camera. Wading out of your depth, finding your feet again or climbing out on a ladder
 		// changes the eye height: ease the view there (critically damped) instead of jumping
 		const eye = this.position.clone();
+		if ( this.stepOff.active ) eye.add( _v.set( this.stepOff.x, this.stepOff.y, this.stepOff.z ) ); // (wave 25C) a step up arrives over ~0.25 s
 		if ( this.mode === 'walk' ) eye.y += EYE + Math.sin( this.bob ) * 0.035 * ( 1 - 0.6 * this.wade );
 		else eye.y += SWIM_EYE;
 		if ( this._camY === null || this.camera.position.y !== this._camY ) {
@@ -328,13 +372,34 @@ export class Player {
 		if ( this.view === 'third' ) {
 
 			this.springArm( dt, eye, null );
+			this.swimCamera( dt );
 			return;
 
 		}
 
 		this.camera.position.copy( eye );
-		this._camY = this.camera.position.y;
 		this.camera.quaternion.setFromEuler( _e.set( this.pitch, this.yaw, 0 ) );
+		this.swimCamera( dt );
+		this._camY = this.camera.position.y;
+
+	}
+
+	// (wave 25C) swimming: the eye dips and rolls with the stroke (the phase is the stroke cue's: audio.swimStroke fires at 1),
+	// held back while treading water; the waterline crossing (waterCross) is CameraFeel's dip / fov kick
+	swimCamera( dt ) {
+
+		if ( this.mode !== 'swim' || this.reduceMotion ) return;
+		const moving = Math.min( 1, this.velocity.length() / 1.2 );
+		this._swimAmp = ( this._swimAmp || 0 ) + ( moving - ( this._swimAmp || 0 ) ) * ( 1 - Math.exp( - dt * 5 ) );
+		const a = this._swimAmp;
+		if ( a < 0.01 ) return;
+		const ph = this.stroke * Math.PI * 2;
+		// a stroke pulls the body forward (the eye dips as the arm enters), the recovery lifts it
+		const dy = - 0.022 * a * ( 1 + Math.cos( ph ) ) * 0.5 + 0.008 * a * Math.sin( ph * 2 );
+		this.camera.position.y += dy;
+		this.camera.quaternion.multiply( _qa.setFromAxisAngle( _zAxis, 0.011 * a * Math.sin( ph ) ) );
+		this.camera.quaternion.multiply( _qb.setFromAxisAngle( _xAxis, - 0.006 * a * Math.cos( ph ) ) );
+		this._camY = this.camera.position.y;
 
 	}
 
@@ -390,6 +455,7 @@ export class Player {
 
 			this.armPivot.copy( target );
 			this._armLen = this.armDist;
+			this._armCur = null;
 			this.armInit = true;
 
 		} else {
@@ -413,36 +479,78 @@ export class Player {
 		else this.camera.quaternion.setFromEuler( _e.set( this.pitch, this.yaw, 0 ) );
 		const back = _fwd.set( 0, 0, 1 ).applyQuaternion( this.camera.quaternion );
 		const side = _right.set( 1, 0, 0 ).applyQuaternion( this.camera.quaternion );
-		// the arm: shorten before it enters the ground (a few probes along it)
+		// the arm: a sphere cast from the pivot (shifted over the shoulder, as the camera is) along the arm against the world's solid
+		// boxes, the trunks and posts, the roofs of the houses you can enter, your boat's cabin and what a provider adds (the ships'
+		// hulls), then the ground in many small steps (wave 25C; the old ray went through trees and hulls and ignored low things)
 		let dist = this._armLen;
-		// ... or a wall, a hull, a hut: the solid boxes between the pivot and the camera (the ground probes miss a wall
-		// beside the player; the camera used to sit inside it)
-		if ( this.colliders && typeof this.colliders.raycast === 'function' ) {
+		const sideLen = this._sideCast( this.armPivot, side, ARM.side );
+		const ox = this.armPivot.x + side.x * sideLen, oy = this.armPivot.y + side.y * sideLen, oz = this.armPivot.z + side.z * sideLen;
+		const world = this._castWorld || ( this._castWorld = { colliders: null, boat: null, blockers: null, feetY: 0 } );
+		world.colliders = this.colliders;
+		world.boat = this.mode === 'deck' || this.mode === 'seat' || this.mode === 'boat' ? this.boat : null;
+		world.blockers = this.cameraBlockers;
+		world.feetY = this.position.y;
+		const hit = sweepArm( world, ox, oy, oz, back.x, back.y, back.z, dist, ARM_CAST.radius );
+		if ( hit < dist ) dist = Math.max( ARM.min * 0.35, hit - 0.04 );
+		dist = this._groundArm( ox, oy, oz, back, dist );
+		// snaps in at an obstacle (never a frame inside it), eases out when it is gone
+		if ( this._armCur === null || this._armCur > dist ) this._armCur = dist;
+		else this._armCur += ( dist - this._armCur ) * ( 1 - Math.exp( - dt * 4.5 ) );
+		if ( Math.abs( dist - this._armCur ) < 1e-3 ) this._armCur = dist;
+		dist = this._armCur;
 
-			const hit = this.colliders.raycast( this.armPivot, back, dist + ARM.probe );
-			if ( hit < dist + ARM.probe ) dist = Math.max( ARM.min * 0.5, hit - ARM.probe );
+		if ( this.indoor ) dist = this.indoor.arm( this.armPivot, back, dist ); // (wave 19E) the closer arm that stays in the room
+		this.camera.position.copy( this.armPivot ).addScaledVector( back, dist ).addScaledVector( side, sideLen );
+		this._camY = this.camera.position.y;
 
-		}
+	}
 
-		for ( let i = 1; i <= 6; i ++ ) {
+	// the shoulder offset: less when a wall stands beside the pivot
+	_sideCast( pivot, side, want ) {
 
-			const d = dist * i / 6;
-			const px = this.armPivot.x + back.x * d + side.x * ARM.side, pz = this.armPivot.z + back.z * d + side.z * ARM.side;
-			const py = this.armPivot.y + back.y * d + side.y * ARM.side;
+		if ( ! this.colliders ) return want;
+		const world = this._castWorld || ( this._castWorld = { colliders: null, boat: null, blockers: null, feetY: 0 } );
+		world.colliders = this.colliders;
+		world.boat = this.mode === 'deck' || this.mode === 'seat' || this.mode === 'boat' ? this.boat : null;
+		world.blockers = this.cameraBlockers;
+		world.feetY = this.position.y;
+		const t = sweepArm( world, pivot.x, pivot.y, pivot.z, side.x, side.y, side.z, want, ARM_CAST.radius * 0.8 );
+		return t < want ? Math.max( 0, t - 0.02 ) : want;
+
+	}
+
+	// the arm against the ground: the terrain and the walkable boxes under the camera, probed every ~0.35 m, then bisected to
+	// where the camera clears them by 0.35 m
+	_groundArm( ox, oy, oz, back, dist ) {
+
+		const clear = ( d ) => {
+
+			const px = ox + back.x * d, pz = oz + back.z * d, py = oy + back.y * d;
 			const g = this.terrain.heightAt( px, pz );
 			const c = this.colliders ? this.colliders.groundHeightAt( px, pz, py + 0.3 ) : - Infinity;
-			if ( py < Math.max( g, c ) + 0.35 ) {
+			return py >= Math.max( g, c ) + 0.35;
 
-				dist = Math.max( ARM.min * 0.5, d - 0.3 );
-				break;
+		};
+
+		const n = Math.min( 16, Math.max( 6, Math.ceil( dist / 0.35 ) ) );
+		let lastOk = 0;
+		for ( let i = 1; i <= n; i ++ ) {
+
+			const d = dist * i / n;
+			if ( clear( d ) ) { lastOk = d; continue; }
+			let lo = lastOk, hi = d;
+			for ( let k = 0; k < 5; k ++ ) {
+
+				const m = ( lo + hi ) / 2;
+				if ( clear( m ) ) lo = m; else hi = m;
 
 			}
 
+			return Math.max( ARM.min * 0.35, lo - 0.1 );
+
 		}
 
-		if ( this.indoor ) dist = this.indoor.arm( this.armPivot, back, dist ); // (wave 19E) the closer arm that stays in the room
-		this.camera.position.copy( this.armPivot ).addScaledVector( back, dist ).addScaledVector( side, ARM.side );
-		this._camY = this.camera.position.y;
+		return dist;
 
 	}
 
@@ -490,6 +598,7 @@ export class Player {
 		}
 
 		out.position = ( out.position || new THREE.Vector3() ).copy( this.position );
+		if ( this.stepOff.active ) out.position.add( _v.set( this.stepOff.x, this.stepOff.y, this.stepOff.z ) ); // (wave 25C) the body rides the step
 		out.yaw = this.yaw;
 		if ( this.mode === 'ride' && this.ride ) {
 
@@ -610,18 +719,33 @@ export class Player {
 
 		const p = this.position;
 		const old = p.clone();
+		const wasGrounded = this.grounded;
 		p.addScaledVector( this.velocity, dt );
 		this.colliders.resolveCapsule( p, RADIUS, HEIGHT, 0.4 );
 		const g = this.groundAt( p.x, p.z, p.y + 0.45, STEP_PAD );
+		// (wave 25C) a step is a rise or a drop beyond what the terrain's own slope gives for the way walked: the capsule still takes
+		// it in one frame, the body and the camera ease over it (StepSmoother). A short drop while walking keeps the feet on the ground
+		const walked = Math.hypot( p.x - old.x, p.z - old.z );
+		const stepMin = STEP.slack + STEP.slope * walked;
 		if ( p.y <= g ) {
 
+			const lift = g - p.y;
+			if ( wasGrounded && lift > stepMin && lift <= STEP.maxUp ) this.stepOff.step( lift );
 			p.y = g;
 			if ( this.velocity.y < 0 ) this.velocity.y = 0;
 			this.grounded = true;
 
 		} else {
 
-			this.grounded = p.y - g < 0.06;
+			const drop = p.y - g;
+			if ( wasGrounded && drop > 0.06 && drop <= STEP.maxDown && this.velocity.y <= 0.3 && this.launched <= 0 && depth < 0.9 ) {
+
+				if ( drop > stepMin ) this.stepOff.step( - drop );
+				p.y = g;
+				this.velocity.y = 0;
+				this.grounded = true;
+
+			} else this.grounded = drop < 0.06;
 
 		}
 
@@ -718,18 +842,27 @@ export class Player {
 
 		// strokes / bubbles
 		this.stepDist += this.velocity.length() * dt;
+		this.stroke = Math.min( 1, this.stepDist / 1.3 );
 		if ( this.stepDist > 1.3 ) {
 
 			this.stepDist = 0;
+			this.stroke = 0;
 			if ( this.audio ) this.audio.swimStroke();
 
 		}
 
 		const under = this.camera.position.y < surfaceY - 0.05;
-		if ( under !== this.wasUnder && this.audio ) {
+		if ( under !== this.wasUnder ) {
 
-			if ( under ) this.audio.submerge();
-			else this.audio.emerge();
+			// (wave 25C) CameraFeel reads this: a dip and a fov breath as the lens crosses the waterline
+			this.crossSeq ++;
+			this.waterCross = { dir: under ? - 1 : 1, speed: Math.abs( this.velocity.y ), t: 0 };
+			if ( this.audio ) {
+
+				if ( under ) this.audio.submerge();
+				else this.audio.emerge();
+
+			}
 
 		}
 
@@ -773,7 +906,7 @@ export class Player {
 						this.velocity.set( 0, 0, 0 );
 						if ( this.audio && this.audio.splash ) this.audio.splash( 0.4, p );
 						if ( c.enter && c.enter( this ) !== false ) return;
-						p.set( c.x, c.top, c.z );
+						{ const fx = p.x, fy = p.y, fz = p.z; p.set( c.x, c.top, c.z ); this.stepOff.carry( p.x - fx, p.y - fy, p.z - fz, 1.2 ); } // (wave 25C) no pop onto the ledge
 						this.mode = 'walk';
 						this.grounded = true;
 						return;
@@ -805,7 +938,9 @@ export class Player {
 
 								// step onto the deck
 								const deck = WORLD.pier.deckHeight;
+								const fx = p.x, fy = p.y, fz = p.z;
 								p.set( b.center.x - Math.sign( b.center.x - WORLD.pier.x ) * 1.2, deck, b.center.z );
+								this.stepOff.carry( p.x - fx, p.y - fy, p.z - fz ); // (wave 25C) no pop: the view rides up the last metre
 								this.mode = 'walk';
 								this.velocity.set( 0, 0, 0 );
 
@@ -1043,7 +1178,7 @@ export class Player {
 
 		}
 
-		const look = inp.consumeLook();
+		const look = this._lookIn( dt );
 		this.deckYaw -= look.x * 0.0022;
 		this.pitch = THREE.MathUtils.clamp( this.pitch - look.y * 0.0022, - 1.5, 1.5 );
 		if ( inp.hit( 'KeyV' ) ) this.toggleView();
@@ -1326,7 +1461,7 @@ export class Player {
 		const inp = this.input;
 		const b = this.boat;
 		const L = b.model.lines;
-		const look = inp.consumeLook();
+		const look = this._lookIn( dt );
 		this.deckYaw -= look.x * 0.0022;
 		this.pitch = THREE.MathUtils.clamp( this.pitch - look.y * 0.0022, - 1.5, 1.5 );
 		if ( inp.hit( 'KeyV' ) ) this.toggleView();
@@ -1382,6 +1517,7 @@ export class Player {
 		const g = this.deckGroundAt( p.x, p.z, p.y + DECK_STEP );
 		if ( p.y <= g ) {
 
+			if ( this.deckGrounded && g - p.y > 0.05 && g - p.y <= STEP.maxUp ) this.stepOff.step( g - p.y ); // (wave 25C) up the coaming, no pop
 			p.y = g;
 			if ( v.y < 0 ) v.y = 0;
 			this.deckGrounded = true;
@@ -1474,13 +1610,13 @@ export class Player {
 			this.deckBase( _q );
 			const saveYaw = this.yaw;
 			this.yaw = this.deckYaw;
-			this.springArm( dt, this.position, _q );
+			this.springArm( dt, this.visualFeet(), _q );
 			this.yaw = saveYaw;
 			return;
 
 		}
 
-		const eyeL = _v.set( p.x, p.y + EYE + Math.sin( this.bob ) * 0.02, p.z );
+		const eyeL = _v.set( p.x, p.y + this.stepOff.y + EYE + Math.sin( this.bob ) * 0.02, p.z );
 		b.toWorld( eyeL, this.camera.position );
 		this._camY = this.camera.position.y;
 		this.deckBase( _q );
@@ -1604,7 +1740,7 @@ export class Player {
 
 		const inp = this.input, r = this.ride;
 		this.mode = 'ride';
-		const look = inp.consumeLook();
+		const look = this._lookIn( dt );
 		this.yaw -= look.x * 0.0022;
 		this.pitch = THREE.MathUtils.clamp( this.pitch - look.y * 0.0022, - 1.5, 1.5 );
 		if ( inp.hit( 'KeyV' ) ) this.toggleView();
@@ -1670,7 +1806,7 @@ export class Player {
 	updateSeat( dt ) {
 
 		const inp = this.input, b = this.boat;
-		const look = inp.consumeLook();
+		const look = this._lookIn( dt );
 		this.deckYaw -= look.x * 0.0022;
 		this.pitch = THREE.MathUtils.clamp( this.pitch - look.y * 0.0022, - 1.5, 1.5 );
 		if ( inp.hit( 'KeyV' ) ) this.toggleView();

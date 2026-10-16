@@ -19,6 +19,11 @@ import * as THREE from '../engine/index.js';
 //   parry      a clean parry: a 110 ms hitstop and a FOV pull (no shake: the moment reads as control)
 //   meleeHurt  a blow taken on foot: a hard short shake and a small FOV punch outward
 //   dodge      the evade: a quick FOV push (no shake)
+// Water (wave 25C; the player's waterCross / crossSeq, Player.updateSwim): the lens crossing the waterline kicks the view -
+//   submerge   dunked: the view dips ~1 degree and the fov closes 2 degrees for 0.4 s (nothing is blurred: src/post/Underwater's
+//              meniscus and LensDroplets own the lens, the drips)
+//   surface    coming up: a lift of the view and the fov opens 1.8 degrees for 0.45 s
+//   (opts.scale as below; the speed of the crossing scales them when they come from the player)
 // opts.scale (0..2) scales any kick. Each kick also rumbles the gamepad (app.gamepad.rumble, core/Gamepad.js).
 // Sailing: the FOV opens a few degrees with boat speed (0 at rest, +5° flat out) for a sense of speed; a sprint on
 // foot opens it +6° the same way (wave 24F; player.sprinting, the Player's spring arm reaches out with it).
@@ -46,6 +51,8 @@ const MHEAVY_HOLD = 0.09, MHEAVY_FOV = - 2.2, MHEAVY_T = 0.24, MHEAVY_AMP = 0.01
 const PARRY_HOLD = 0.11, PARRY_FOV = - 3, PARRY_T = 0.3;
 const MHURT_AMP = 0.02, MHURT_T = 0.2, MHURT_FOV = 1.6;
 const DODGE_FOV = 2.2, DODGE_T = 0.22;
+const SUBMERGE_FOV = - 2, SUBMERGE_T = 0.4, SUBMERGE_DIP = - 0.018; // rad about the view's x axis: + looks up
+const SURFACE_FOV = 1.8, SURFACE_T = 0.45, SURFACE_DIP = 0.02;
 const RUMBLE_OF = {
 	strike: 'strike', catch: 'catch', snap: 'snap', recoil: 'cannon', hit: 'hit', broadside: 'broadside', boarding: 'boarding', explosion: 'explosion',
 	meleeHit: 'snap', meleeHeavy: 'catch', parry: 'catch', meleeHurt: 'hit',
@@ -64,6 +71,8 @@ export class CameraFeel {
 		this._shake = null; // { amp, t, dur, seed }
 		this._hold = null; // { t, pos, quat, dur }
 		this._recoil = null; // { t, amp }
+		this._dip = null; // { t, amp, dur } the waterline crossing's pitch
+		this._crossSeq = 0; // the player's crossSeq last seen
 		this._bound = null; // the feature registry whose events are followed
 		this._offs = [];
 		this._lastHp = null;
@@ -147,6 +156,16 @@ export class CameraFeel {
 				this._kicks.push( { amount: DODGE_FOV * k, t: 0, dur: DODGE_T } );
 				rumble = 0;
 				break;
+			case 'submerge':
+				this._kicks.push( { amount: SUBMERGE_FOV * k, t: 0, dur: SUBMERGE_T } );
+				if ( ! this.reduceMotion ) this._dip = { t: 0, amp: SUBMERGE_DIP * k, dur: SUBMERGE_T };
+				rumble = 0;
+				break;
+			case 'surface':
+				this._kicks.push( { amount: SURFACE_FOV * k, t: 0, dur: SURFACE_T } );
+				if ( ! this.reduceMotion ) this._dip = { t: 0, amp: SURFACE_DIP * k, dur: SURFACE_T };
+				rumble = 0;
+				break;
 			case 'explosion': {
 
 				const f = this._blastFalloff( opts );
@@ -225,7 +244,7 @@ export class CameraFeel {
 
 	get active() {
 
-		return this._kicks.length > 0 || !! this._shake || !! this._hold || !! this._recoil || this._sail > 0.01;
+		return this._kicks.length > 0 || !! this._shake || !! this._hold || !! this._recoil || !! this._dip || this._sail > 0.01;
 
 	}
 
@@ -282,6 +301,19 @@ export class CameraFeel {
 
 		// sailing: the fov opens with boat speed
 		const p = app.player, b = app.boatCtl;
+		// the lens crossed the waterline (Player.waterCross): a dip and a fov breath, bigger for a plunge than a drift
+		if ( p && Number.isFinite( p.crossSeq ) ) {
+
+			if ( p.crossSeq !== this._crossSeq ) {
+
+				const w = p.waterCross;
+				if ( w ) this.kick( w.dir < 0 ? 'submerge' : 'surface', { scale: 0.55 + Math.min( 0.9, ( w.speed || 0 ) * 0.35 ) } );
+				this._crossSeq = p.crossSeq;
+
+			}
+
+		}
+
 		const sailing = ! this.reduceMotion && p && p.mode === 'boat' && b && Number.isFinite( b.speed );
 		let sailTarget = sailing ? SAIL_FOV * smooth( 3, 12, Math.abs( b.speed ) ) : 0;
 		// ... and with a sprint on foot (the spring arm reaches out with it: a sense of speed)
@@ -333,6 +365,23 @@ export class CameraFeel {
 			else {
 
 				const a = rc.amp * ( u < 0.15 ? u / 0.15 : Math.pow( 1 - ( u - 0.15 ) / 0.85, 2 ) );
+				_e.set( a, 0, 0 );
+				cam.quaternion.multiply( _q.setFromEuler( _e ) );
+
+			}
+
+		}
+
+		// the waterline dip: the view tips and settles (about the camera's own x axis)
+		const dp = this._dip;
+		if ( dp ) {
+
+			dp.t += dt;
+			const u = dp.t / dp.dur;
+			if ( u >= 1 || this.reduceMotion ) this._dip = null;
+			else {
+
+				const a = dp.amp * ( u < 0.2 ? u / 0.2 : Math.pow( 1 - ( u - 0.2 ) / 0.8, 2 ) );
 				_e.set( a, 0, 0 );
 				cam.quaternion.multiply( _q.setFromEuler( _e ) );
 
