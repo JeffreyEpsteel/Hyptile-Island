@@ -2,7 +2,7 @@
 //   node tools/ui25b/capture.mjs [--url=http://127.0.0.1:5193] [--out=tools/ui25b/out] [--size=1280x800] [--only=hud,cast] [--tag=after]
 // Needs a vite dev server on --url (npx vite --port 5193) and Chrome or Edge installed (CHROME env overrides the path).
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 
@@ -31,3 +31,4 @@ for ( const [ name, query, ms = 4000 ] of SCENES ) {
 	console.log( r.status === 0 && existsSync( file ) ? 'ok  ' : 'FAIL', name, file );
 
 }
+rmSync( profile, { recursive: true, force: true } ); // a headless profile is tens of MB: leave nothing behind

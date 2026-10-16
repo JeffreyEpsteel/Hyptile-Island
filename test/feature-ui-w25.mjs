@@ -2,7 +2,7 @@
 // family, one marker icon set for both maps (and its root patch), the notification queue, the interface sounds and the
 // level-up / toast / coach motion.
 //   node test/feature-ui-w25.mjs
-import { readFileSync as readRaw, mkdtempSync, mkdirSync, copyFileSync } from 'node:fs';
+import { readFileSync as readRaw, mkdtempSync, mkdirSync, copyFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { execFileSync } from 'node:child_process';
@@ -68,6 +68,7 @@ ok( /\.tw-root \.gm-mk\.gm-mk > i \{[^}]*var\(--mk\)/.test( css ) && css.include
 	ok( r1.every( ( [ , m ] ) => m === 'ok' || m === 'already applied' ) && r2.every( ( [ , m ] ) => m === 'already applied' ), `every anchor of tools/ui25b/apply-patches.mjs is found once and the patch is idempotent (${ PATCHES.length } patches)` );
 	ok( mini.includes( "import { MARKER_ICONS } from '../ui/icons.js';" ) && mini.includes( 'export const ICON = { ...MARKER_ICONS };' ) && ! mini.includes( 'skull: ' ), 'the patched Minimap.js takes its icons from ui/icons.js' );
 	try { execFileSync( process.execPath, [ '--check', join( tmp, 'src', 'game', 'Minimap.js' ) ] ); ok( true, 'the patched file still parses' ); } catch ( e ) { ok( false, 'the patched file parses: ' + e.message ); }
+	rmSync( tmp, { recursive: true, force: true } );
 
 }
 
