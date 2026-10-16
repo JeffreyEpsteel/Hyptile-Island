@@ -18,6 +18,7 @@ import { mergeGeometries } from '../../engine/geometry/BufferGeometryUtils.js';
 import { LAYERS } from '../../core/SceneRenderer.js';
 import { loadStaticGLB } from '../../world/boat/StaticGLB.js';
 import { KINDS, KIND_IDS } from './CarData.js';
+import { CarBeams } from './CarBeams.js';
 
 function defaultBase() {
 
@@ -263,6 +264,7 @@ export class CarRender {
 		this.derived = [];
 		this.cabinMats = [];
 		this.lampMats = new Map();
+		this.beams = new CarBeams( scene ); // (wave 27C: the lit cars' headlight cones and tail-light wash on the road)
 		this.caps = caps;
 		this.shadows = shadows;
 		this.drawn = 0;
@@ -442,6 +444,7 @@ export class CarRender {
 	draw( list, { night = false, beacon = false, time = 0, view = null, lodFar = globalThis.__phoneBudget ? LOD_FAR_PHONE : LOD_FAR } = {} ) {
 
 		this._lamps( night, beacon, time );
+		this.beams.draw( list, { night, view } );
 		for ( const set of this.sets.values() ) { set.n[ 0 ] = set.n[ 1 ] = set.n[ 2 ] = 0; set.nw = 0; set.nl = 0; set.nlw = 0; }
 		let drawn = 0, far = 0;
 		const f2 = lodFar * lodFar;
@@ -626,6 +629,7 @@ export class CarRender {
 		for ( const m of this.cabinMats ) m.dispose();
 		this.derived.length = this.cabinMats.length = 0;
 		this.sets.clear();
+		this.beams.dispose();
 
 	}
 

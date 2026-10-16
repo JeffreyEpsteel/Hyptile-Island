@@ -311,5 +311,44 @@ if ( MP ) {
 
 }
 
+// ---------------------------------------------------------------- the night on the ground (wave 27C)
+section( 'night light (27C)' );
+{
+
+	const si = city.streetInfo;
+	ok( si.floods.length >= 8 && si.runwayPools.length > 40, 'flood masts on the apron and the airstrip; runway pools along both edges and the centre', `${ si.floods.length } floods, ${ si.runwayPools.length } runway pools` );
+	ok( si.runwayLights.length > 20, 'runway edge lights exist (they were planned and never drawn)', String( si.runwayLights.length ) );
+	const pm = city.parts.pools;
+	const aux = pm.geometry.attributes.aux.array, pos = pm.geometry.attributes.position.array;
+	const kinds = { 0: 0, 1: 0, 2: 0, 3: 0 };
+	for ( let i = 0; i < aux.length; i += 16 ) kinds[ aux[ i ] ] ++; // (one quad = 4 vertices x 4 floats)
+	ok( kinds[ 0 ] === si.lamps.length && kinds[ 1 ] === si.floods.length && kinds[ 3 ] === si.runwayPools.length, 'one baked pool per street lamp, flood and runway pool', JSON.stringify( kinds ) );
+	const signs = plan.buildings.filter( ( b ) => b.sign && b.kind !== 'tower' ).length;
+	ok( kinds[ 2 ] === signs && signs > 30, 'a spill of light in front of every lit shop', `${ kinds[ 2 ] } / ${ signs }` );
+	ok( pos.every( Number.isFinite ), 'every pool vertex is finite' );
+	ok( pm.material.blending === 'premultiplied' && pm.material.depthWrite === false && pm.material.transparent, 'additive, no depth write (the motion vectors and the water mask do not change)' );
+	ok( pos.length / 3 < 6000, 'one small mesh for the whole city', String( pos.length / 3 ) + ' vertices' );
+	const lampLights = city.lights.filter( ( l ) => l.kind === 'streetLamp' ).length;
+	ok( lampLights > 0 && lampLights <= si.lamps.length, 'the real street lights stay a subset of the lamps (LocalLights picks the nearest)', String( lampLights ) );
+
+}
+
+{
+
+	const { CarBeams } = await import( '../src/features/cars/CarBeams.js' );
+	const added = [];
+	const b = new CarBeams( { add: ( m ) => added.push( m ) }, { count: 6 } );
+	const qy = Math.PI / 4; // a car turned 90 degrees about y: forward (+z) -> +x
+	const car = ( x, lights, extra = {} ) => ( { kind: 'sedan', x, y: 3, z: 0, quat: { x: 0, y: Math.sin( qy ), z: 0, w: Math.cos( qy ) }, lights, ...extra } );
+	b.draw( [ car( 0, true ) ], { night: false, view: { x: 0, z: 0 } } );
+	ok( added.length === 1 && b.mesh.visible === false && b.n === 0, 'car beams: nothing by day' );
+	b.draw( [ car( 0, true ), car( 10, false ), car( 20, true, { stage: 4 } ), car( 30, true, { hidden: true } ), car( 400, true ) ], { night: true, view: { x: 0, z: 0 } } );
+	ok( b.n === 2 && b.mesh.visible, 'car beams: a cone and a tail wash for the one lit, whole, visible car in range', String( b.n ) );
+	ok( Math.abs( b.dir.array[ 0 ] - 1 ) < 1e-6 && Math.abs( b.dir.array[ 1 ] ) < 1e-6 && b.pos.array[ 0 ] > 2 && b.pos.array[ 4 ] < - 2, 'car beams: the cone lies ahead of the bumper (+x), the wash behind' );
+	b.draw( Array.from( { length: 9 }, ( _, i ) => car( i, true ) ), { night: true, view: null } );
+	ok( b.n === 6, 'car beams: capped at the instance count', String( b.n ) );
+
+}
+
 console.log( `\n${ passes } passed, ${ fails } failed` );
 process.exit( fails ? 1 : 0 );
