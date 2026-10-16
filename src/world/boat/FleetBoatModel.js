@@ -8,6 +8,7 @@ import { loadStaticGLB } from './StaticGLB.js';
 import { triangleCount } from './GeoKit.js';
 import { wheelGeometry } from './Wheelhouse.js';
 import { WHEEL_TURNS, steerWheel, wheelGripPoints, helmStandFor } from '../BoatModel.js';
+import { shipMaterials } from '../../features/naval/ShipLooks.js';
 
 // A fleet hull (Boats.js kind 'fleet'): the GLB visual under a SimpleHullLines body, with the
 // same public interface as the procedural BoatModel so BoatController / Player / BoatSpray /
@@ -205,6 +206,7 @@ export class FleetBoatModel {
 
 			this._glb = glb;
 			for ( const m of glb.materials ) m.underwaterLighting = 'lite';
+			shipMaterials( glb, { mirrored: !! spec.mirror } ); // (wave 24C: wind in the sails, waving flags, the wet waterline, lit windows)
 			for ( const m of glb.meshes ) this.meshes[ m.name.replace( /^boat-/, '' ) ] = m;
 			this.materials = glb.materials;
 			this.group.remove( ph );
