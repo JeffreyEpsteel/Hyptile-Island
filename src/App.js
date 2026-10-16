@@ -667,7 +667,7 @@ fn terrainWetness( xz: vec2f, h: f32 ) -> vec2f {
 				if ( choice.newGame ) st.reset();
 				// a new campaign or multiplayer game starts with START_MONEY (net/Protocol.js; the sandbox is free play)
 				if ( ( choice.newGame || ! existed ) && mode !== 'sandbox' ) st.money = START_MONEY;
-				if ( typeof choice.name === 'string' ) st.name = choice.name.trim().slice( 0, 24 ); // (no name given: the slot's own stays)
+				if ( typeof choice.name === 'string' && choice.name.trim() ) st.name = choice.name.trim().slice( 0, 24 ); // (no name given: the slot's own stays)
 				if ( typeof choice.server === 'string' && choice.server.trim() ) this.serverOverride = choice.server.trim();
 				st.save(); // (no world snapshot yet: the stored one is read below)
 
