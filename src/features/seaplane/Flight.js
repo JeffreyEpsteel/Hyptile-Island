@@ -641,13 +641,15 @@ export class Flight {
 		// the other parts in the water at speed (a wingtip dug in, the propeller, a nose-in). The water at the part itself
 		// (the probes' line through its z: the nose pitching into a trough meets lower water there, not the mean under
 		// the floats), with a margin for the probes' sampling (the Petrel's propeller rides 0.4 m over the water at the
-		// hump: against the mean of the probes a 15 cm swell "dug it in")
+		// hump: against the mean of the probes a 15 cm swell "dug it in"). The probes also hold a value for several frames,
+		// so a crest 0.2 m over the propeller at 19 m/s only spatters it: a strike needs the part 0.3 m under the water
+		// (the take-off play check, wave 25)
 		const sea = this.seaLevel();
 		for ( const [ part, x, y, z ] of this.geom.strike ) {
 
 			const pw = this.toWorldXYZ( x, y, z, _pw );
 			const there = this._waterAtSection( 0, z );
-			if ( pw.y < there - 0.15 && this.velocity.length() > 4 && ! this._struck.has( part + 'W' ) ) {
+			if ( pw.y < there - 0.3 && this.velocity.length() > 4 && ! this._struck.has( part + 'W' ) ) {
 
 				this._struck.add( part + 'W' );
 				this.events.push( { type: 'strike', part, surface: 'water', speed: this.velocity.length(), sink: this._sinkAt( pw, comW ), nose: this.noseFirst(), side: Math.sign( x ) } );
