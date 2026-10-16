@@ -1,6 +1,7 @@
 import { Vector3 } from '../../engine/index.js';
 import { RotorFlight, HOVER_COLLECTIVE } from './Flight.js';
 import { TrickDetector } from './Tricks.js';
+import { StuntBoard } from './Leaderboard.js';
 import { G } from '../../core/Globals.js';
 import { HelicopterVisual, buildHelipad } from './Model.js';
 import { RemotePlanes } from '../seaplane/Remote.js';
@@ -34,6 +35,7 @@ export class Helicopter {
 		this.assist = typeof opts.assist === 'boolean' ? opts.assist : typeof this.app.settings?.helicopterAssist === 'boolean' ? this.app.settings.helicopterAssist : false;
 		this.collective = 0; // the lever (realistic model), -1..1
 		this.tricks = new TrickDetector();
+		this.stunts = new StuntBoard(); // the saved local leaderboard of the stunt combos (Leaderboard.js, wave 27B)
 		this.flight = new RotorFlight( {
 			groundAt: ( x, z, maxY ) => this.groundAt( x, z, maxY ),
 			waterAt: ( x, z ) => this.waterAt( x, z ),
@@ -290,6 +292,7 @@ export class Helicopter {
 				// misjudged the height (a flip too low, a hard or tilted touchdown, the rotor in the ground)
 				this.hp = 0; this.stats.crashes = ( this.stats.crashes || 0 ) + 1;
 				const lost = this.tricks.crash();
+				this.stunts.endChain( true ); // the combo is rug-pulled off the board too
 				this.audio.crunch( 1, at.x, at.y, at.z, false );
 				this.features?.get?.( 'vfx' )?.smoke?.( 'helicopter-crash', at.x, at.y + 1, at.z );
 				this._toast( 'Crashed · ' + ( e.why === 'rotor strike' ? 'the rotor hit the ground' : e.why === 'inverted' ? 'upside down into the ground' : e.why === 'tilted' ? 'touched down on its side' : 'hit the ground too hard' ) + ( lost ? ' · combo rug-pulled (' + lost + ')' : '' ) + ' · E to leave · recover at the helipad', 6000 );
@@ -297,9 +300,12 @@ export class Helicopter {
 			}
 		}
 		// the aerobatics (realistic flight only)
+		if ( this.stunts.cur && ! this.tricks.live ) this.stunts.endChain( false ); // the chain's time ran out: it stays on the board
 		if ( this.piloted && this.hp > 0 ) for ( const t of this.tricks.step( dt, f ) ) {
 			this.stats.tricks = ( this.stats.tricks || 0 ) + 1;
-			this._toast( t.name + ' +' + t.points + ( t.combo > 1 ? ' · combo x' + t.mult : '' ), 1800 );
+			// the board: a trick's best and the best combos; the toast names a record, else the trick's best so far
+			const r = this.stunts.award( t, this.tricks.comboPoints );
+			this._toast( t.name + ' +' + t.points + ( t.combo > 1 ? ' · combo x' + t.mult : '' ) + ( r.chainRecord ? ' · combo record ' + this.tricks.comboPoints : r.record ? ' · new best' : r.best ? ' · best ' + r.best : '' ), 1800 );
 			this._emit( 'helicopterTrick', { trick: t.id, name: t.name, points: t.points, combo: t.combo, total: t.total } );
 		}
 		if ( f.grounded ) this.lastLanding = [ f.position.x, f.position.y, f.position.z, f.yaw ];
@@ -334,7 +340,7 @@ export class Helicopter {
 		this._parkHome(); this.systems.fuel = 1; this._emit( 'helicopterRecovered' ); this._toast( 'Rescue helicopter serviced and returned to the helipad. E at the cabin to fly.' ); this._save(); return true;
 	}
 	marker() { return { x: this.flight.position.x, z: this.flight.position.z, heading: this.flight.yaw, label: 'Rescue helicopter' }; }
-	view() { return { name: 'Coastal rescue helicopter', assist: this.assist, collective: this.collective, combo: this.tricks.live ? this.tricks.combo : 0, comboPoints: this.tricks.live ? this.tricks.comboPoints : 0, score: this.tricks.total, rotorState: { ...this.flight.state }, piloted: this.piloted, hp: Math.round( this.hp ), altitude: Math.round( this.flight.position.y ), agl: Math.round( this.flight.agl ), speed: Math.round( Math.hypot( this.flight.velocity.x, this.flight.velocity.z ) * 3.6 ), verticalSpeed: this.flight.velocity.y, rpm: this.flight.rpm, grounded: this.flight.grounded, systems: this.systems.toJSON(), running: this.systems.running, starting: this.systems.starting > 0, hold: !! this.systems.hold, warnings: this.systems.warnings.slice(), home: { x: this.home.x, y: this.home.y, z: this.home.z }, controls: CONTROLS }; }
+	view() { return { name: 'Coastal rescue helicopter', assist: this.assist, collective: this.collective, combo: this.tricks.live ? this.tricks.combo : 0, comboPoints: this.tricks.live ? this.tricks.comboPoints : 0, score: this.tricks.total, bestCombo: this.stunts.bestCombo, rank: this.stunts.title(), rotorState: { ...this.flight.state }, piloted: this.piloted, hp: Math.round( this.hp ), altitude: Math.round( this.flight.position.y ), agl: Math.round( this.flight.agl ), speed: Math.round( Math.hypot( this.flight.velocity.x, this.flight.velocity.z ) * 3.6 ), verticalSpeed: this.flight.velocity.y, rpm: this.flight.rpm, grounded: this.flight.grounded, systems: this.systems.toJSON(), running: this.systems.running, starting: this.systems.starting > 0, hold: !! this.systems.hold, warnings: this.systems.warnings.slice(), home: { x: this.home.x, y: this.home.y, z: this.home.z }, controls: CONTROLS }; }
 	hidesDriver() { return false; } // (wave 25E: the pilot is drawn in both views; the head folds away in the first person)
 	isOpen() { return !! this.cockpit.open; }
 	close() { this.cockpit.close(); }
@@ -367,7 +373,9 @@ export class Helicopter {
 		this.remote.ingest( fresh );
 		for ( const s of list ) { const r = this.remote.peers.get( s?.id ); if ( r ) { r.lights = Number.isFinite( s.helicopter?.lights ) ? clamp( Math.round( s.helicopter.lights ), 0, 15 ) : 0; r.visual?.setLights?.( r.lights ); if ( r.visual ) r.visual.remoteRPM = clamp( s.helicopter?.rpm || 0, 0, 1 ); } }
 	}
-	toJSON() { return { v: 1, hp: this.hp, homeSlot: this.homeSlot, assist: this.assist, bestCombo: this.tricks.best, pose: this.flight.grounded ? [ this.flight.position.x, this.flight.position.y, this.flight.position.z, this.flight.yaw ] : this.lastLanding.slice(), stats: { ...this.stats }, systems: this.systems.toJSON() }; }
+	// for the pause menu's stats (ui/PauseMenu.js asks every feature that has one): the stunt board, or null before a trick
+	pauseStats() { return this.stunts.pauseStats(); }
+	toJSON() { return { v: 1, hp: this.hp, homeSlot: this.homeSlot, assist: this.assist, bestCombo: this.tricks.best, stunts: this.stunts.toJSON(), pose: this.flight.grounded ? [ this.flight.position.x, this.flight.position.y, this.flight.position.z, this.flight.yaw ] : this.lastLanding.slice(), stats: { ...this.stats }, systems: this.systems.toJSON() }; }
 	fromJSON( data ) {
 		if ( ! data || typeof data !== 'object' ) return;
 		if ( this.app.player?.vehicle === this.vehicle ) this.app.player.exitVehicle?.( this.home.x + 2.4, this.home.y + 0.03, this.home.z, 0, 'walk' );
@@ -382,6 +390,8 @@ export class Helicopter {
 		for ( const k of [ ...Object.keys( this.stats ), 'crashes', 'tricks' ] ) if ( Number.isFinite( data.stats?.[ k ] ) ) this.stats[ k ] = Math.max( 0, Math.floor( data.stats[ k ] ) );
 		if ( typeof data.assist === 'boolean' && typeof this.opts.assist !== 'boolean' ) this.setAssist( data.assist );
 		if ( Number.isFinite( data.bestCombo ) ) this.tricks.best = Math.max( 0, data.bestCombo );
+		this.stunts.fromJSON( data.stunts );
+		if ( ! data.stunts ) this.stunts.seed( data.bestCombo ); // an older save knew only its best combo
 		this._syncVisual( 0 );
 	}
 	reset() {
@@ -390,7 +400,7 @@ export class Helicopter {
 		// This path must never save, emit recovery events or show service notifications.
 		this.piloted = false; this.touch.active = false; this._driven = false; this._sinceExit = 1;
 		Object.assign( this.flight.controls, { forward: 0, strafe: 0, yaw: 0, lift: 0, brake: false } );
-		this.stats = { flights: 0, landings: 0, hardLandings: 0 }; this._parkHome(); this.remote.dispose(); this.hud?.update( this );
+		this.stats = { flights: 0, landings: 0, hardLandings: 0 }; this.stunts.reset(); this._parkHome(); this.remote.dispose(); this.hud?.update( this );
 	}
 	dispose() {
 		this._offs.forEach( off => off?.() ); this.remote.dispose(); this.cockpit.dispose(); this.visual?.dispose(); this.audio.dispose(); this.hud?.dispose();

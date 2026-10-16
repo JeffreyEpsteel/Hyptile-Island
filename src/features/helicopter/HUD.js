@@ -17,7 +17,7 @@ export class HelicopterHUD {
 		// realistic flight (wave 25E): the collective lever's position; a live trick combo; the key reminder only for the
 		// first seconds of a flight (no standing prompts)
 		const real = ! v.assist;
-		const combo = v.combo ? `\nCOMBO x${ 1 + 0.5 * ( v.combo - 1 ) }  ·  ${ v.comboPoints } pts` : '';
+		const combo = v.combo ? `\nCOMBO x${ 1 + 0.5 * ( v.combo - 1 ) }  ·  ${ v.comboPoints } pts${ v.bestCombo ? '  ·  BEST ' + v.bestCombo + ' (' + v.rank + ')' : '' }` : '';
 		const keys = real ? ( touch ? 'Stick: cyclic · Rise / Descend: collective lever · Slide: pedals · Hover: level' : 'Shift/C collective · W/S A/D cyclic · ,/. pedals · Space level\nV cockpit · O turbine · K assist · 3 systems · E exit landed' )
 			: ( touch ? 'Stick: forward/back + turn · Rise / Descend: altitude\nHover / brake: stop · Slide: sideways · View: cockpit · Cockpit: systems' : 'W/S forward/back · A/D turn · ,/. strafe · Shift rise · C descend\nSpace brake · V cockpit · O turbine · Y hold · K realistic · 3 systems · E exit landed' );
 		this._t = h.piloted ? ( this._t || 0 ) + 1 / 60 : 0;

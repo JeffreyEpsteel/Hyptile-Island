@@ -10,6 +10,7 @@ import { Player } from '../src/player/Player.js';
 import { Helicopter } from '../src/features/helicopter/Helicopter.js';
 import { RotorFlight, HOVER_COLLECTIVE, ROTOR } from '../src/features/helicopter/Flight.js';
 import { TrickDetector, TRICKS } from '../src/features/helicopter/Tricks.js';
+import { StuntBoard, stuntTitle, TITLES, TOP_N } from '../src/features/helicopter/Leaderboard.js';
 
 let checks = 0;
 const check = ( c, label, extra = '' ) => { assert.ok( c, label + ' ' + extra ); checks ++; console.log( 'ok', label, extra ); };
@@ -155,11 +156,18 @@ function world() {
 	const trick = W.events.find( ( e ) => e.k === 'helicopterTrick' && e.trick === 'backflip' );
 	check( inverted && trick && trick.trick === 'backflip' && W.toasts.some( ( t ) => / Backflip \+\d+/.test( t ) ), 'a backflip flown on the keys (S, C while inverted, Space) is named and scored', `(${ trick && trick.name }, ${ ( top - f.position.y ).toFixed( 1 ) } m lost)` );
 	check( h.hp === 100 && ! f.grounded, 'and the aircraft flies on' );
+	check( h.stunts.best( 'backflip' ) === trick.points && h.stunts.bestCombo >= trick.points && h.pauseStats() && h.pauseStats().tricks.some( ( r ) => r.label === 'Backflip' ), 'the stunt board logged it (its best, the best combo, the pause menu\'s stats)', `(${ h.stunts.title() })` );
+	check( W.toasts.some( ( t ) => / Backflip \+\d+( · combo x[\d.]+)? · (new best|combo record)/.test( t ) ), 'and the toast calls the first one a record' );
 	// now misjudge the height: a front flip with the lever down, straight into the ground
 	Object.assign( h, { collective: 0 } );
 	for ( let i = 0; i < 900 && ! W.events.some( ( e ) => e.k === 'helicopterCrashed' ); i ++ ) W.tick( [ 'KeyW' ] );
 	const crash = W.events.find( ( e ) => e.k === 'helicopterCrashed' );
 	check( crash && h.hp === 0 && W.toasts.some( ( t ) => /^Crashed/.test( t ) ), 'misjudging the height is a crash', `(${ crash && crash.why })` );
+	check( h.stunts.cur === null, 'a crash closes the live chain on the board' );
+	const W4 = world(); W4.h.fromJSON( JSON.parse( JSON.stringify( h.toJSON() ) ) );
+	check( W4.h.stunts.best( 'backflip' ) === h.stunts.best( 'backflip' ) && W4.h.stunts.bestCombo === h.stunts.bestCombo && W4.h.stunts.rows().length === h.stunts.rows().length, 'the board survives a save' );
+	W4.h.reset();
+	check( W4.h.stunts.bestCombo === 0 && W4.h.pauseStats() === null, 'a new game starts with an empty board (and no stats line)' );
 	// the assist mode: K in the cockpit, and a saved choice
 	h.recall?.();
 	const W2 = world(), h2 = W2.h;
@@ -170,6 +178,33 @@ function world() {
 	const W3 = world(); W3.h.fromJSON( saved );
 	check( W3.h.assist && W3.h.flight.mode === 'assist', 'the choice survives a save' );
 	check( h2.systems.toggleHold().ok === false || h2.flight.grounded, 'hover hold stays an assist feature' );
+}
+
+// ---- the stunt board alone
+{
+	const b = new StuntBoard(), T = ( id, points, combo ) => ( { id, points, combo } );
+	check( b.bestCombo === 0 && b.pauseStats() === null && b.rows().length === 0 && stuntTitle( 0 ) === 'Paper Hands', 'an empty board: no stats, the first title' );
+	let r = b.award( T( 'backflip', 150, 1 ), 150 );
+	check( r.record && ! r.chainRecord && r.best === 150 && b.bestCombo === 150, 'a first trick is its own best' );
+	r = b.award( T( 'roll', 180, 2 ), 330 );
+	check( r.record && r.chainRecord && b.bestCombo === 330 && b.top.length === 1 && b.top[ 0 ].count === 2, 'the chain grows in one line of the board and beats the old best' );
+	b.endChain( false );
+	r = b.award( T( 'backflip', 150, 1 ), 150 );
+	check( ! r.record && r.best === 150 && b.top.length === 2 && b.bestCombo === 330, 'a later, smaller chain is another line; an equal trick is not a record' );
+	b.award( T( 'loop', 330, 2 ), 480 );
+	b.endChain( true );
+	check( b.top.length === 1 && b.bestCombo === 330 && b.best( 'loop' ) === 330 && b.rows().find( ( x ) => x.id === 'loop' ).combo === 480, 'a crash rug-pulls the chain from the board, the trick\'s own best stays' );
+	for ( let i = 0; i < 9; i ++ ) { b.award( T( 'roll', 100 + i, 1 ), 100 + i ); b.endChain( false ); }
+	check( b.top.length === TOP_N && b.top.every( ( e, i, a ) => ! i || a[ i - 1 ].points >= e.points ), `only the ${ TOP_N } best combos are kept, best first` );
+	b.award( T( 'nope', 99999, 1 ), 99999 );
+	check( b.bestCombo === 330, 'an unknown trick id is ignored' );
+	const back = new StuntBoard(); back.fromJSON( JSON.parse( JSON.stringify( b.toJSON() ) ) );
+	check( back.bestCombo === b.bestCombo && back.top.length === b.top.length && back.best( 'backflip' ) === 150 && back.rows().length === b.rows().length, 'the board round-trips through JSON' );
+	const bad = new StuntBoard(); bad.fromJSON( { tricks: { backflip: { points: - 5, n: 'x' }, ghost: { points: 9, n: 1 }, roll: { points: 1e12, combo: NaN, chain: 3, n: 2 } }, top: [ null, { points: 'a' }, { points: 40, count: 2, ids: [ 'roll', 'bogus' ] } ] } );
+	check( ! bad.tricks.backflip && ! bad.tricks.ghost && bad.best( 'roll' ) === 9999999 && bad.tricks.roll.combo === 0 && bad.top.length === 1 && bad.top[ 0 ].ids.join() === 'roll', 'a damaged save is cleaned (unknown tricks and bad numbers dropped, values capped)' );
+	const old = new StuntBoard(); old.seed( 540 );
+	check( old.bestCombo === 540 && old.title() === 'Retail Pilot' && old.pauseStats().top[ 0 ].points === 540, 'an older save\'s best combo becomes the first line' );
+	check( TITLES.every( ( t, i, a ) => ! i || a[ i - 1 ][ 0 ] < t[ 0 ] ) && stuntTitle( 99999 ) === 'Satoshi of the Skies' && stuntTitle( 1300 ) === 'Diamond Hands', 'the rank titles climb with the best combo' );
 }
 
 console.log( `\n${ checks } realistic helicopter checks passed (headless).` );
