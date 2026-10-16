@@ -63,6 +63,35 @@ class MinHeap {
 
 }
 
+// smooth value noise in [0, 1] (deterministic: the field is the same on every load and on every client)
+function hash2( i, j ) {
+
+	let n = ( i * 374761393 + j * 668265263 ) | 0;
+	n = Math.imul( n ^ ( n >>> 13 ), 1274126177 );
+	return ( ( n ^ ( n >>> 16 ) ) >>> 0 ) / 4294967296;
+
+}
+
+function valueNoise( x, z ) {
+
+	const i = Math.floor( x ), j = Math.floor( z );
+	const fx = x - i, fz = z - j;
+	const u = fx * fx * ( 3 - 2 * fx ), v = fz * fz * ( 3 - 2 * fz );
+	const a = hash2( i, j ), b = hash2( i + 1, j ), c = hash2( i, j + 1 ), d = hash2( i + 1, j + 1 );
+	return a + ( b - a ) * u + ( c - a ) * v + ( a - b - c + d ) * u * v;
+
+}
+
+// the share of the swell reaching a stretch of shore, 0.42 .. 1 (wave 25A): two octaves of noise over ~110 m and ~40 m,
+// pushed toward the ends so most of a beach has clear sets and calmer gaps rather than a mild average
+export function shoreVariation( x, z ) {
+
+	const n = valueNoise( x / 110 + 17.3, z / 110 - 4.1 ) * 0.68 + valueNoise( x / 41 - 9.7, z / 41 + 31.2 ) * 0.32;
+	const t = Math.min( 1, Math.max( 0, ( n - 0.3 ) / 0.42 ) );
+	return 0.42 + 0.58 * t * t * ( 3 - 2 * t );
+
+}
+
 export function computeShoreField( terrain, { res = 512, swellDir = [ 0, - 1 ], seaLevel = 0, maxDepth = 25, minDepth = 0.25 } = {} ) {
 
 	const size = terrain.size;
@@ -229,7 +258,12 @@ export function computeShoreField( terrain, { res = 512, swellDir = [ 0, - 1 ], 
 		const dx = gx / len, dz = gz / len;
 		// exposure: how directly the local wave direction faces the incoming swell
 		const align = ( dx * sdx + dz * sdz ) / sl;
-		const exposure = Math.min( 1, Math.max( 0.02, align * 1.4 + 0.1 ) );
+		// wave 25A: along a straight beach the exposure saturated (the wave envelope, the run-up, the surf's foam and its
+		// milky water all read sat( exposure * 1.4 )) and the surf was one even white band. Sets of sections now: the
+		// swell's energy drifts along the shore over ~40-110 m (sandbars, holes, a rip's gap), so the band breaks into
+		// stretches of bigger and smaller surf
+		const x = origin + ( i + 0.5 ) * h, z = origin + ( j + 0.5 ) * h;
+		const exposure = Math.min( 1, Math.max( 0.02, ( align * 1.4 + 0.1 ) * shoreVariation( x, z ) ) );
 		// direction scaled by exposure (length = exposure), alpha = shoreline arrival time
 		data[ k * 4 ] = isFinite( t ) ? t : 1e5;
 		data[ k * 4 + 1 ] = dx * exposure;
