@@ -4,6 +4,7 @@ import { STAND } from './FishStand.js';
 import { CHANDLERY } from './Chandlery.js';
 import { PONS_STAND } from './PonsPort.js';
 import { YARD } from './BoatYard.js';
+import { MARKER_ICONS } from '../ui/icons.js';
 
 // Minimap, lower right: the island baked once from the terrain data into a 2D canvas (depth-tinted
 // sea, reef and seagrass, sand, grass and forest by height, rock, paths, village pads, the pier,
@@ -107,26 +108,8 @@ export function ensureMapCSS() {
 
 }
 
-export const ICON = {
-	fish: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 12c3-4 7-6 11-6 3 0 5 2 7 4l-2 2 2 2c-2 2-4 4-7 4-4 0-8-2-11-6Zm12-1.2a1.2 1.2 0 1 0 0 2.4 1.2 1.2 0 0 0 0-2.4Z"/></svg>',
-	anchor: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="12" cy="5" r="2"/><path d="M12 7v13M7 11h10M4 14c1 4 4 6 8 6s7-2 8-6"/></svg>',
-	boat: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 3v9H6l6-9Zm1 2 5 7h-5V5ZM3 14h18l-3 5H6l-3-5Z"/></svg>',
-	// the world map's extra kinds (and the waypoint flag on the minimap)
-	flag: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 2h2.2v20H6zM9.4 3H20l-2.6 4.2L20 11.4H9.4z"/></svg>',
-	plane: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 1.5c.9 0 1.5 1 1.5 2.2v5.4l7.5 4.3v2.1l-7.5-2.3v4.6l2.3 1.7V21L12 20.1 8.2 21v-1.5l2.3-1.7v-4.6L3 15.5v-2.1l7.5-4.3V3.7c0-1.2.6-2.2 1.5-2.2Z"/></svg>',
-	skull: '<svg viewBox="0 0 24 24" fill="currentColor" fill-rule="evenodd"><path d="M12 2.5c-4.6 0-8 3.2-8 7.5 0 2.4 1.1 4.4 2.9 5.7v3.1c0 .7.5 1.2 1.2 1.2h1.3v-2.2h1.6V20h2v-2.2h1.6V20h1.3c.7 0 1.2-.5 1.2-1.2v-3.1C18.9 14.4 20 12.4 20 10c0-4.3-3.4-7.5-8-7.5ZM8.7 9a2 2 0 1 0 0 4 2 2 0 0 0 0-4Zm6.6 0a2 2 0 1 0 0 4 2 2 0 0 0 0-4Z"/></svg>',
-	target: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="12" cy="12" r="6.5"/><circle cx="12" cy="12" r="1.2" fill="currentColor"/><path d="M12 1.5v5M12 17.5v5M1.5 12h5M17.5 12h5"/></svg>',
-	swords: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M4 4l11 11M13 17.5l4.5-4.5M15 15l4.5 4.5M20 4 9 15M6.5 13l4.5 4.5M9 15l-4.5 4.5"/></svg>',
-	board: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="3.5" width="17" height="11" rx="1.5"/><path d="M8 14.5V21M16 14.5V21M7.5 7.5h9M7.5 10.5h5.5"/></svg>',
-	crate: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"><path d="M4 9h16v11H4zM4 9l2.2-4.5h11.6L20 9M9.5 13h5"/></svg>',
-	helm: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="12" cy="12" r="5.5"/><path d="M12 2v20M2 12h20M4.9 4.9l14.2 14.2M19.1 4.9 4.9 19.1"/></svg>',
-	arrow: '<svg viewBox="0 0 24 24"><path d="M12 2 20 21 12 16.5 4 21Z" fill="#fff" stroke="#0b1418" stroke-width="1.4" stroke-linejoin="round"/></svg>',
-	// a quest step's pin (the story feature's questPin): a scroll with an exclamation mark
-	quest: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 21 12 12 21 3 12Z"/><path d="M12 8v5M12 16.2v.1" stroke-width="2.8"/></svg>',
-	// the generic markers (the death feature's sea chest, naval's wrecks)
-	chest: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"><path d="M3.5 10.5h17V20h-17zM3.5 10.5c0-3.6 2.4-6 5-6h7c2.6 0 5 2.4 5 6M10.5 10.5v3h3v-3"/></svg>',
-	wreck: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M4.2 11.6 19.6 7.4l.8 2.9-1.9 5.7H7.4zM9.3 4.2l1.6-.4 1.6 6.1-1.6.4zM3 19.5c1.5 0 1.5-1 3-1s1.5 1 3 1 1.5-1 3-1 1.5 1 3 1 1.5-1 3-1 1.5 1 3 1v1.8c-1.5 0-1.5-1-3-1s-1.5 1-3 1-1.5-1-3-1-1.5 1-3 1-1.5-1-3-1-1.5 1-3 1z"/></svg>',
-};
+// (wave 25B) the glyph set lives in ui/icons.js so the minimap and the world map share it
+export const ICON = { ...MARKER_ICONS };
 
 // an ICON name or an svg string (anything else: the flag)
 export function iconFor( icon ) {

@@ -16,7 +16,7 @@ export const PATCHES = [
 		replace: lines( "\t\t\t\tif ( b && ! Number.isFinite( b.t ) ) return { key: 'RMB', text: 'Nothing bites this close in · reel in and cast farther out' };",
 			"\t\t\t\treturn { key: 'RMB', text: 'Waiting for a bite · right-click to reel the line in' };" ) },
 	// the wave's test joins npm test
-	{ file: 'package.json', anchor: '&& node test/life-player.mjs"', replace: '&& node test/life-player.mjs && node test/feature-ui-w24.mjs"' },
+	{ file: 'package.json', anchor: '&& node test/life-player.mjs"', replace: '&& node test/life-player.mjs && node test/feature-ui-w24.mjs"', done: 'node test/feature-ui-w24.mjs' },
 ];
 
 const once = ( s, a ) => s.indexOf( a ) >= 0 && s.indexOf( a ) === s.lastIndexOf( a );
@@ -31,7 +31,7 @@ export function apply( root, { check = false } = {} ) {
 		const s = files.get( path );
 		const eol = s.includes( CRLF ) ? CRLF : NL;
 		const p = { ...p0, anchor: p0.anchor.split( NL ).join( eol ), replace: p0.replace.split( NL ).join( eol ) };
-		if ( s.includes( p.replace ) ) { report.push( [ p.file, 'already applied' ] ); continue; }
+		if ( s.includes( p.replace ) || ( p.done && s.includes( p.done ) ) ) { report.push( [ p.file, 'already applied' ] ); continue; } // (done: later patches may append after the anchor)
 		if ( ! once( s, p.anchor ) ) { report.push( [ p.file, 'ANCHOR NOT FOUND ONCE: ' + p.anchor.slice( 0, 60 ) ] ); continue; }
 		files.set( path, s.replace( p.anchor, () => p.replace ) );
 		report.push( [ p.file, 'ok' ] );
