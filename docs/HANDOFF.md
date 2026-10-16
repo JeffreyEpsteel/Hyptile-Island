@@ -116,3 +116,6 @@ Wave history in one line each (details: docs/PLAN.md and git log):
 
 - Resolved (adedbd4): phone memory at Meridian is 360.0 / 363.4 MB with the 22A command line (--mobile --real-sizes --quality=low --size=852x393). The 563 MB reading was a run without --mobile (desktop Low tier). Always quote --mobile --real-sizes for phone numbers.
 
+
+- Released 4ac0456 + this note: subtitle queue (one speaker at a time), HUD at 561-900 px, the avatar hides when the camera arm is under 0.75 m. Usage at stop: weekly ~95 %. Nothing running. Next session: start from docs/A-CLASS.md's open rows.
+
