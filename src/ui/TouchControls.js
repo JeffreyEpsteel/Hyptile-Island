@@ -31,6 +31,13 @@ import { detectDevice, stickVector, stickKeys, lookDelta, boatThrottleKeys, snap
 //                             the cluster (away from the gas), Siren in a police car. They write cars.touch = { active, steer,
 //                             throttle, brake, handbrake, horn }; the stick, the lever and the action buttons stand down;
 //                             the right of the screen still turns the camera. carLayout( W, H, { k } ) is the geometry.
+//   warbirds (wave 27B)       only while you sit in a warbird (dogfight.touchInfo().aboard): a pitch / roll stick bottom left
+//                             (drag; it springs to centre; down = nose up) and a throttle slider beside it (the thumb sets
+//                             it, the slider follows the aircraft otherwise) at the pilot's seat; Fire (held), Arm (R) and
+//                             Bail out (tap twice) bottom right, Seat (the next free seat) in a crewed aircraft. They write
+//                             dogfight.touch = { owned, active, pitch, roll, throttle, fire }; the floating stick, the seaplane's
+//                             lever and its buttons stand down; the right of the screen still looks round (gunners aim with it).
+//                             dogfightLayout( W, H, { k } ) is the geometry: every target >= 48 px.
 //   capsize (wave 22B)        beside your upturned hull the game's prompt is the wide button ("Right her", E); on the hull it
 //                             reads "Hold to pull" (held: E down while the thumb stays) and Let go (Space) comes up beside
 //                             it (capsizeButtons). Never on screen otherwise.
@@ -186,6 +193,52 @@ export function tiltRaw( e, angle = 90 ) {
 
 }
 
+// the warbird cluster (wave 27B): boxes in px as carLayout gives them. Left thumb: the stick (pitch / roll) with the throttle
+// slider beside it; right thumb: Fire in the corner, Arm beside it, Seat above Fire, Bail out above Arm (away from the trigger).
+export const DF_IDS = [ 'stick', 'throttle', 'fire', 'arm', 'bail', 'seat' ];
+export const DF_LABELS = { stick: 'Stick', throttle: 'Throttle', fire: 'Fire', arm: 'Arm', bail: 'Bail out', seat: 'Seat' };
+export function dogfightLayout( W, H, { k = 1 } = {} ) {
+
+	k = clamp( Number( k ) || 1, 0.75, 1.4 );
+	const m = 16 * k, gap = 12 * k, top = 72;
+	const q = ( v ) => Math.max( 48, v ); // (never under 48 px, whatever the size setting)
+	// the two thumbs' blocks (stick 132 + gap + slider 56, fire 96 + gap + arm 56) shrink together on a narrow or short screen
+	const sc = Math.max( 0.5, Math.min( k, ( W - 2 * m - 3 * gap ) / 364, ( H - top - m ) / 170 ) );
+	const stick = q( 132 * sc ), fire = q( 96 * sc ), sm = q( 56 * sc ), tw = q( 56 * sc );
+	const th = clamp( Math.min( 180 * sc, H - top - m ), 96, 200 );
+	const out = {};
+	const br = ( id, ox, oy, w, h ) => { out[ id ] = { id, anchor: 'br', ox, oy, w, h, rect: { x: W - ox - w, y: H - oy - h, w, h } }; };
+	const bl = ( id, ox, oy, w, h ) => { out[ id ] = { id, anchor: 'bl', ox, oy, w, h, rect: { x: ox, y: H - oy - h, w, h } }; };
+	bl( 'stick', m, m, stick, stick );
+	bl( 'throttle', m + stick + gap, m, tw, th );
+	br( 'fire', m, m, fire, fire );
+	br( 'arm', m + fire + gap, m, sm, sm );
+	br( 'seat', m, m + fire + gap, sm, sm );
+	br( 'bail', m + fire + gap, m + sm + gap, sm, sm );
+	return out;
+
+}
+
+// the stick's value for a thumb (dx, dy) px off its centre (r: the travel): pitch + is nose up (the thumb pulled down, the S key),
+// roll + is right (the D key); a small dead zone, the circle clamped; kx / ky: the knob's offset
+export function dogfightStick( dx, dy, r, { invert = false } = {} ) {
+
+	const d = Math.hypot( dx, dy ), f = d > r ? r / d : 1;
+	const kx = dx * f, ky = dy * f;
+	const ax = clamp( kx / Math.max( 1, r ), - 1, 1 ), ay = clamp( ky / Math.max( 1, r ), - 1, 1 );
+	const dz = ( v ) => ( Math.abs( v ) < 0.08 ? 0 : ( v - Math.sign( v ) * 0.08 ) / 0.92 );
+	return { roll: dz( ax ), pitch: dz( ay ) * ( invert ? - 1 : 1 ), kx, ky };
+
+}
+
+// the throttle slider: a thumb at y px (the box's top and height), 0 at the bottom .. 1 at the top, in 5 % steps
+export function dogfightThrottle( y, top, height, pad = 14 ) {
+
+	const f = clamp( ( top + height - pad - y ) / Math.max( 1, height - 2 * pad ), 0, 1 );
+	return Math.round( f * 20 ) / 20;
+
+}
+
 const FOLD_IDLE = 5000, RAIL_IDLE = 6000; // ms without a press before the tray / the top row folds back
 const ROW_B = new Set( [ 'cast', 'fire' ] ); // the big buttons sit in the lower row, the other primaries above them
 const now = () => ( typeof performance !== 'undefined' ? performance.now() : Date.now() );
@@ -227,6 +280,35 @@ const el = ( tag, cls, html ) => {
 	return e;
 
 };
+
+// the warbird cluster's own look (it reuses .tc-car / .tc-cbtn of ui.css): added once, with the theme's variables
+let dfStyled = false;
+function dogfightStyle() {
+
+	if ( dfStyled || typeof document === 'undefined' || ! document.head || ! document.createElement ) return;
+	dfStyled = true;
+	const st = document.createElement( 'style' );
+	st.setAttribute( 'data-tc', 'dogfight' );
+	st.textContent = `
+.tc-d-fire { border-radius: 50%; font-size: calc(16px * var(--tc-k)); letter-spacing: 0.06em; background: rgba(210, 50, 38, 0.34); box-shadow: inset 0 0 0 2.5px rgba(255, 140, 120, 0.9), 0 6px 18px rgba(0, 0, 0, 0.35); }
+.tc-d-fire.is-down { background: rgba(230, 60, 44, 0.7); }
+.tc-d-arm, .tc-d-seat, .tc-d-bail { border-radius: 999px; font-size: calc(12px * var(--tc-k)); }
+.tc-d-bail { background: rgba(60, 20, 18, 0.5); box-shadow: inset 0 0 0 2px rgba(255, 150, 130, 0.6), 0 4px 14px rgba(0, 0, 0, 0.28); }
+.tc-d-stick { border-radius: 50%; padding: 0; background: rgba(8, 14, 22, 0.34); }
+.tc-d-ring { position: absolute; inset: 14%; border-radius: 50%; box-shadow: inset 0 0 0 1.5px rgba(255, 255, 255, 0.28); pointer-events: none; }
+.tc-d-stick::before, .tc-d-stick::after { content: ''; position: absolute; background: rgba(255, 255, 255, 0.22); pointer-events: none; }
+.tc-d-stick::before { left: 50%; top: 12%; bottom: 12%; width: 2px; margin-left: -1px; }
+.tc-d-stick::after { top: 50%; left: 12%; right: 12%; height: 2px; margin-top: -1px; }
+.tc-d-knob { position: absolute; left: 50%; top: 50%; width: 46px; height: 46px; margin: -23px 0 0 -23px; border-radius: 50%; background: rgba(255, 255, 255, 0.8); box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35); pointer-events: none; }
+.tc-d-stick.is-down .tc-d-knob { background: var(--tw-aqua); }
+.tc-d-throttle { border-radius: 999px; padding: 0; background: rgba(10, 18, 26, 0.5); }
+.tc-d-track { position: absolute; left: 50%; top: 14px; bottom: 14px; width: 4px; margin-left: -2px; border-radius: 2px; background: rgba(255, 255, 255, 0.32); pointer-events: none; }
+.tc-d-thumb { --f: 0; position: absolute; left: 50%; bottom: calc(14px + (100% - 28px) * var(--f)); width: 78%; height: 26px; transform: translate(-50%, 50%); border-radius: 8px; background: linear-gradient(180deg, #f4fbfc, #b9d4da); box-shadow: 0 3px 10px rgba(0, 0, 0, 0.4); pointer-events: none; }
+.tc-d-val { position: absolute; left: 0; right: 0; top: 6px; text-align: center; font: 600 11px var(--tw-font); color: var(--tw-ink-2); pointer-events: none; }
+`;
+	document.head.append( st );
+
+}
 
 export class TouchControls {
 
@@ -374,7 +456,32 @@ export class TouchControls {
 
 		this.wheelKnob = this.carBtns.wheel.querySelector( '.tc-wheel-knob' );
 		this._car = { held: new Map(), wheel: null, steer: 0, tilt: null, tiltZero: null, layout: '' };
-		root.append( this.lookEl, this.stickEl, this.leverEl, this.actions, this.tray, this.foldEl, this.top, this.photoEl, this.carEl, this.rotateEl );
+		// the warbird cluster (wave 27B): hidden until you sit in one (it shares the car cluster's look and its busy rule)
+		this.dfEl = el( 'div', 'tc-car tc-df' );
+		this.dfEl.hidden = true;
+		this.dfBtns = {};
+		for ( const id of DF_IDS ) {
+
+			const label = t( 'touch.df.' + id, DF_LABELS[ id ] );
+			const b = id === 'stick' ? el( 'div', 'tc-cbtn tc-d-stick', '<span class="tc-d-ring"></span><span class="tc-d-knob"></span>' )
+				: id === 'throttle' ? el( 'div', 'tc-cbtn tc-d-throttle', '<span class="tc-d-track"></span><span class="tc-d-thumb"></span><span class="tc-d-val"></span>' )
+					: el( 'button', 'tc-cbtn tc-d-' + id, `<span>${ label }</span>` );
+			if ( b.tagName === 'BUTTON' ) b.type = 'button';
+			b.dataset.df = id;
+			b.setAttribute( 'aria-label', label );
+			b.hidden = id === 'seat';
+			this.dfEl.append( b );
+			this.dfBtns[ id ] = b;
+
+		}
+
+		this.dfKnob = this.dfBtns.stick.querySelector( '.tc-d-knob' );
+		this.dfThumb = this.dfBtns.throttle.querySelector( '.tc-d-thumb' );
+		this.dfVal = this.dfBtns.throttle.querySelector( '.tc-d-val' );
+		this._df = { held: new Map(), stick: null, thr: null, pitch: 0, roll: 0, throttle: 0, layout: '', val: '' };
+		this._dfOn = false;
+		dogfightStyle();
+		root.append( this.lookEl, this.stickEl, this.leverEl, this.actions, this.tray, this.foldEl, this.top, this.photoEl, this.carEl, this.dfEl, this.rotateEl );
 		document.body.append( root );
 
 	}
@@ -416,6 +523,7 @@ export class TouchControls {
 
 		for ( const c of [ this.actions, this.tray, this.top, this.photoEl ] ) c.addEventListener( 'pointerdown', press, sig );
 		this.carEl.addEventListener( 'pointerdown', ( e ) => this._carDown( e ), sig );
+		this.dfEl.addEventListener( 'pointerdown', ( e ) => this._dfDown( e ), sig );
 		// the handle: a tap toggles, an upward drag opens, a downward drag closes (pointer capture, like the lever)
 		const foldDown = ( e ) => {
 
@@ -502,7 +610,7 @@ export class TouchControls {
 		this._fingerUsed = true;
 		const w = window.innerWidth || 1;
 		try { this.lookEl.setPointerCapture( e.pointerId ); } catch ( err ) { /* ignore */ }
-		if ( e.clientX < w * STICK_ZONE && ! this._stick && this._canMove() && this._mode() !== 'car' ) {
+		if ( e.clientX < w * STICK_ZONE && ! this._stick && this._canMove() && this._mode() !== 'car' && ! this._dfOn ) {
 
 			this._stick = { id: e.pointerId, cx: e.clientX, cy: e.clientY, v: null };
 			this.stickEl.classList.add( 'is-on' );
@@ -525,6 +633,16 @@ export class TouchControls {
 			e.preventDefault();
 			this._wheelAt( e.clientX );
 
+		} else if ( this._df.stick && e.pointerId === this._df.stick.id ) {
+
+			e.preventDefault();
+			this._dfStickAt( e.clientX, e.clientY );
+
+		} else if ( this._df.thr && e.pointerId === this._df.thr.id ) {
+
+			e.preventDefault();
+			this._dfThrAt( e.clientY );
+
 		} else if ( this._stick && e.pointerId === this._stick.id ) {
 
 			e.preventDefault();
@@ -537,7 +655,7 @@ export class TouchControls {
 			const dx = e.clientX - l.x, dy = e.clientY - l.y;
 			l.x = e.clientX;
 			l.y = e.clientY;
-			if ( this._mode() === 'plane' ) this._sync(); // the drag is the seaplane's stick
+			if ( this._mode() === 'plane' && ! this._dfOn ) this._sync(); // the drag is the seaplane's stick (a warbird: it looks round)
 			else if ( this.input ) {
 
 				const d = lookDelta( dx, dy, this.settings );
@@ -599,6 +717,7 @@ export class TouchControls {
 		}
 
 		this._carUp( id );
+		this._dfUp( id );
 
 	}
 
@@ -776,6 +895,7 @@ export class TouchControls {
 		this.stickEl.style.removeProperty( '--y' );
 		this.knobEl.style.transform = '';
 		this._carRelease();
+		this._dfRelease();
 		if ( this.input ) this.input.releaseTouch();
 
 	}
@@ -938,6 +1058,10 @@ export class TouchControls {
 
 				}
 
+			} else if ( mode === 'plane' && this._dfOn ) {
+
+				// a warbird: the cluster's analog stick and slider reach the aircraft through dogfight.touch, no keys
+
 			} else if ( mode === 'helicopter' ) {
 
 				// Left stick flies forward/back and yaws. Its outer sprint ring never
@@ -1025,6 +1149,18 @@ export class TouchControls {
 		const s = this.snapshot( prompt );
 		const show = s.mode === 'helicopter' ? helicopterButtons( s ) : contextButtons( s );
 		const busy = s.busy;
+		// wave 27B: in a warbird the cluster replaces the seaplane's lever and its cockpit buttons (Digit3 is a seat there)
+		const dfi = s.mode === 'plane' ? this._dogfightInfo() : null;
+		const dfOn = !! ( dfi && dfi.aboard ) && ! busy;
+		if ( dfOn !== this._dfOn ) {
+
+			this._dfOn = dfOn;
+			if ( this._stick || this._look ) { this._stick = null; this._look = null; this.stickEl.classList.remove( 'is-on', 'is-sprint' ); }
+			this._sync();
+
+		}
+
+		if ( dfi && dfi.aboard ) for ( const id of [ 'planeThrottle', 'navLights', 'landing', 'bail', 'brake', 'search', 'cockpit' ] ) show.delete( id );
 		if ( s.mode === 'helicopter' && busy && ! this._lastBusy ) this._releaseAll();
 		const t0 = now();
 		const fight = fightOn( s );
@@ -1121,8 +1257,9 @@ export class TouchControls {
 		this.leverEl.hidden = ! lever || busy;
 		this.root.dataset.mode = mode;
 		this._carUpdate( mode === 'car' && ! busy );
+		this._dfUpdate( dfOn, dfi );
 		// the plane's throttle follows the slider every frame (Shift / C held until it is there)
-		if ( mode === 'plane' || busy !== this._lastBusy ) this._sync();
+		if ( ( mode === 'plane' && ! dfOn ) || busy !== this._lastBusy ) this._sync();
 		this._lastBusy = busy;
 		if ( busy && ( this._stick || this._look ) ) {
 
@@ -1324,6 +1461,179 @@ export class TouchControls {
 		tt.brake = held.has( 'brake' ) ? 1 : 0;
 		tt.handbrake = held.has( 'hand' );
 		tt.horn = held.has( 'horn' );
+
+	}
+
+	// ---- the warbird cluster (wave 27B)
+
+	_dogfightInfo() {
+
+		const f = this._feature( 'dogfight' );
+		if ( ! f || typeof f.touchInfo !== 'function' ) return null;
+		try { return f.touchInfo(); } catch ( e ) { return null; }
+
+	}
+
+	_dfDown( e ) {
+
+		const b = e.target.closest && e.target.closest( '.tc-cbtn' );
+		if ( ! b ) return;
+		e.preventDefault();
+		e.stopPropagation();
+		this._fingerUsed = true;
+		try { b.setPointerCapture( e.pointerId ); } catch ( err ) { /* ignore */ }
+		const id = b.dataset.df, D = this._df, f = this._feature( 'dogfight' );
+		if ( this.settings.haptics && typeof navigator !== 'undefined' && navigator.vibrate ) try { navigator.vibrate( id === 'fire' ? 14 : 8 ); } catch ( err ) { /* no vibration */ }
+		b.classList.add( 'is-down' );
+		if ( id === 'stick' ) {
+
+			if ( D.stick ) return;
+			const r = b.getBoundingClientRect();
+			D.stick = { id: e.pointerId, cx: r.left + r.width / 2, cy: r.top + r.height / 2, r: Math.max( 1, r.width / 2 - 24 ) };
+			this._dfStickAt( e.clientX, e.clientY );
+			return;
+
+		}
+
+		if ( id === 'throttle' ) {
+
+			if ( D.thr ) return;
+			D.thr = { id: e.pointerId };
+			this._dfThrAt( e.clientY );
+			return;
+
+		}
+
+		D.held.set( e.pointerId, id );
+		if ( id === 'arm' ) this._key( 'KeyR', 'keydown' );
+		else if ( id === 'bail' ) this._key( 'Quote', 'keydown' );
+		else if ( id === 'seat' && f && f.cycleSeat ) f.cycleSeat();
+		this._dfWrite();
+
+	}
+
+	_dfUp( pointerId ) {
+
+		const D = this._df;
+		if ( D.stick && D.stick.id === pointerId ) {
+
+			D.stick = null;
+			D.pitch = D.roll = 0;
+			this.dfBtns.stick.classList.remove( 'is-down' );
+			this.dfKnob.style.transform = '';
+
+		}
+
+		if ( D.thr && D.thr.id === pointerId ) {
+
+			D.thr = null;
+			this.dfBtns.throttle.classList.remove( 'is-down' );
+
+		}
+
+		const id = D.held.get( pointerId );
+		if ( id !== undefined ) {
+
+			D.held.delete( pointerId );
+			if ( ! [ ...D.held.values() ].includes( id ) ) this.dfBtns[ id ].classList.remove( 'is-down' );
+			if ( id === 'arm' ) this._key( 'KeyR', 'keyup' );
+			else if ( id === 'bail' ) this._key( 'Quote', 'keyup' );
+
+		}
+
+		this._dfWrite();
+
+	}
+
+	_dfRelease() {
+
+		const D = this._df;
+		if ( ! D ) return;
+		for ( const p of [ ...D.held.keys() ] ) this._dfUp( p );
+		if ( D.stick ) this._dfUp( D.stick.id );
+		if ( D.thr ) this._dfUp( D.thr.id );
+
+	}
+
+	_dfStickAt( x, y ) {
+
+		const S = this._df.stick;
+		const v = dogfightStick( x - S.cx, y - S.cy, S.r, { invert: !! this.settings.invert } );
+		this._df.pitch = v.pitch;
+		this._df.roll = v.roll;
+		this.dfKnob.style.transform = `translate(${ v.kx.toFixed( 1 ) }px, ${ v.ky.toFixed( 1 ) }px)`;
+		this._dfWrite();
+
+	}
+
+	_dfThrAt( y ) {
+
+		const r = this.dfBtns.throttle.getBoundingClientRect();
+		this._df.throttle = dogfightThrottle( y, r.top, r.height );
+		this._dfWrite();
+
+	}
+
+	// the cluster's state into dogfight.touch (the stick and the slider only at the pilot's seat; Fire at any seat)
+	_dfWrite() {
+
+		const f = this._feature( 'dogfight' ), tt = f && f.touch;
+		if ( ! tt ) return;
+		const D = this._df, on = this._dfOn;
+		tt.owned = on;
+		tt.active = on && !! this._dfPilot;
+		tt.pitch = tt.active ? D.pitch : 0;
+		tt.roll = tt.active ? D.roll : 0;
+		tt.throttle = tt.active && D.thr ? D.throttle : null;
+		tt.fire = on && [ ...D.held.values() ].includes( 'fire' );
+
+	}
+
+	// per frame: shown only while aboard; the boxes follow the screen and the touch size; dogfight.touch written
+	_dfUpdate( on, info ) {
+
+		const D = this._df;
+		if ( this.dfEl.hidden === on ) this.dfEl.hidden = ! on;
+		if ( ! on ) {
+
+			if ( D.held.size || D.stick || D.thr ) this._dfRelease();
+			this._dfPilot = false;
+			this._dfWrite();
+			return;
+
+		}
+
+		const W = window.innerWidth || 1, H = window.innerHeight || 1, k = Number( this.settings.size ) || 1;
+		const key = W + 'x' + H + '@' + k;
+		if ( key !== D.layout ) {
+
+			D.layout = key;
+			const L = dogfightLayout( W, H, { k } );
+			for ( const id of DF_IDS ) {
+
+				const b = this.dfBtns[ id ], box = L[ id ], st = b.style;
+				st.width = box.w.toFixed( 1 ) + 'px';
+				st.height = box.h.toFixed( 1 ) + 'px';
+				st.bottom = `calc(var(--tw-safe-b) + ${ box.oy.toFixed( 1 ) }px)`;
+				if ( box.anchor === 'br' ) { st.right = `calc(var(--tw-safe-r) + ${ box.ox.toFixed( 1 ) }px)`; st.left = ''; } else { st.left = `calc(var(--tw-safe-l) + ${ box.ox.toFixed( 1 ) }px)`; st.right = ''; }
+
+			}
+
+		}
+
+		const pilot = this._dfPilot = !! ( info && info.pilot );
+		if ( this.dfBtns.stick.hidden === pilot ) this.dfBtns.stick.hidden = ! pilot;
+		if ( this.dfBtns.throttle.hidden === pilot ) this.dfBtns.throttle.hidden = ! pilot;
+		const seats = !! ( info && info.seats > 1 );
+		if ( this.dfBtns.seat.hidden === seats ) this.dfBtns.seat.hidden = ! seats;
+		if ( ! pilot ) { if ( D.stick ) this._dfUp( D.stick.id ); if ( D.thr ) this._dfUp( D.thr.id ); }
+		this.dfBtns.arm.classList.toggle( 'is-on', !! ( info && info.armed ) );
+		// the slider shows what the thumb sets, else what the aircraft has
+		const fr = D.thr ? D.throttle : clamp( info ? info.throttle : 0, 0, 1 );
+		this.dfThumb.style.setProperty( '--f', fr.toFixed( 3 ) );
+		const val = Math.round( fr * 100 ) + '%';
+		if ( val !== D.val ) { D.val = val; this.dfVal.textContent = val; }
+		this._dfWrite();
 
 	}
 

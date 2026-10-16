@@ -140,6 +140,9 @@ export class Dogfight {
 		this._smokeT = new Map();
 		this._fires = new Set();
 		this._input = { pitch: 0, roll: 0, yaw: 0, throttle: 0, brakes: 0, fire: false };
+		// the phone's cluster (ui/TouchControls.js, wave 27B): the stick (-1..1; pitch + is nose up), the throttle the thumb
+		// holds (0..1, null: untouched) and the trigger; `owned`: the cluster is on screen (the HUD's own buttons stand down)
+		this.touch = { owned: false, active: false, pitch: 0, roll: 0, throttle: null, fire: false };
 		this._rmb = false;
 		this._needle = 0;
 		this._engineSel = 0;
@@ -1192,7 +1195,7 @@ export class Dogfight {
 
 			if ( inp.hit( 'Quote' ) || inp.hit( 'KeyX' ) ) {
 
-				if ( this._t - this._bail < 1.2 || inp.hit( 'KeyX' ) ) {
+				if ( this._t - this._bail < ( this.touch.owned ? 1.8 : 1.2 ) || inp.hit( 'KeyX' ) ) {
 
 					this.bail();
 					return;
@@ -1200,7 +1203,7 @@ export class Dogfight {
 				}
 
 				this._bail = this._t;
-				this._toast( '\' again to bail out', 1200 );
+				this._toast( this.touch.owned ? 'Tap Bail out again to jump' : '\' again to bail out', 1600 );
 
 			}
 
@@ -1230,7 +1233,43 @@ export class Dogfight {
 
 		const inp = this.app.input;
 		if ( ! inp || modal ) return false;
-		return !! ( inp.mouseDown || ( inp.down && inp.down( 'Space' ) ) || this._pad().fire || ( this.hud && this.hud.touchFire ) );
+		return !! ( inp.mouseDown || ( inp.down && inp.down( 'Space' ) ) || this._pad().fire || ( this.hud && this.hud.touchFire ) || ( this.touch.fire && !! inp.touchMode ) );
+
+	}
+
+	// what the phone's cluster needs to know (TouchControls dogfight cluster): aboard at all, at the stick (the pilot's
+	// seat), the seats of the aircraft, the guns' switch and the throttle as it stands
+	touchInfo() {
+
+		const aboard = !! ( this.ac && this.mySeat >= 0 ) || !! this.ride;
+		if ( ! aboard ) return { aboard: false, pilot: false, seats: 0, seat: - 1, armed: false, throttle: 0 };
+		if ( this.ride ) {
+
+			const W = WARBIRDS[ this.ride.id ];
+			const df = this.ride.df;
+			return { aboard, pilot: W.seats[ this.ride.seat ].role === 'pilot', seats: W.crew, seat: this.ride.seat, armed: !! ( df && hot( df.ar ) ), throttle: this._input.throttle };
+
+		}
+
+		const a = this.ac;
+		return { aboard, pilot: this.mySeat === 0, seats: a.W.crew, seat: this.mySeat, armed: !! ( a.arm && a.arm.want ), throttle: this._input.throttle };
+
+	}
+
+	// the seat button: the next seat that is free (the one after mine, round the aircraft); a toast when all are taken
+	cycleSeat() {
+
+		const info = this.touchInfo();
+		if ( ! info.aboard || info.seats < 2 ) return { ok: false, text: '' };
+		for ( let k = 1; k < info.seats; k ++ ) {
+
+			const r = this.switchSeat( ( info.seat + k ) % info.seats );
+			if ( r.ok ) return r;
+
+		}
+
+		this._toast( 'Every other seat is taken', 1400 );
+		return { ok: false, text: 'taken' };
 
 	}
 
@@ -1269,14 +1308,16 @@ export class Dogfight {
 		const rollK = ( d( 'KeyD' ) ? 1 : 0 ) - ( d( 'KeyA' ) ? 1 : 0 );
 		const yawK = ( d( 'Period' ) ? 1 : 0 ) - ( d( 'Comma' ) ? 1 : 0 );
 		const ramp = ( cur, want, rate ) => cur + clamp( want - cur, - rate * dt, rate * dt );
-		const pitchW = pad.pitch || pitchK, rollW = pad.roll || rollK;
+		const tt = this.touch, tOn = ! modal && tt.active && !! ( inp && inp.touchMode ); // the phone's stick and slider
+		const pitchW = pad.pitch || pitchK || ( tOn ? tt.pitch : 0 ), rollW = pad.roll || rollK || ( tOn ? tt.roll : 0 );
 		c.pitch = ramp( c.pitch, pitchW, pitchW === 0 ? 6 : 3.2 );
 		c.roll = ramp( c.roll, rollW, rollW === 0 ? 8 : 5 );
 		// on the ground A / D steer as the rudder does
-		c.yaw = ramp( c.yaw, pad.yaw || yawK || ( ground ? rollK : 0 ), 4 );
+		c.yaw = ramp( c.yaw, pad.yaw || yawK || ( ground ? rollK || ( tOn ? tt.roll : 0 ) : 0 ), 4 );
 		const up = d( 'ShiftLeft' ) || d( 'ShiftRight' ) || pad.throttle > 0.3, down = d( 'KeyC' ) || pad.throttle < - 0.3;
 		if ( up ) c.throttle = Math.min( 1, c.throttle + dt * 0.7 );
 		if ( down ) c.throttle = Math.max( 0, c.throttle - dt * 0.7 );
+		if ( tOn && tt.throttle !== null && ! up && ! down ) c.throttle += clamp( tt.throttle - c.throttle, - dt * 1.2, dt * 1.2 );
 		// the wheel brakes: C held with the throttle closed, or B; in the air B is the dive brakes' switch
 		c.wheel = ground && ( ( down && c.throttle <= 0.01 ) || d( 'KeyB' ) || ( c.throttle < 0.02 && airspeed < 0.6 ) ) ? 1 : 0;
 		if ( ! ground && W.brakes && inp && inp.hit && ! modal && inp.hit( 'KeyB' ) ) {
@@ -2732,7 +2773,7 @@ export class Dogfight {
 		const p = this.app.player;
 		const aboard = !! ( this.ac && this.mySeat >= 0 ) || !! this.ride;
 		const fp = p && p.view === 'first';
-		const v = { visible: true, dt, flying: aboard, cockpit: fp, tags: [], marks: [], board: null, station: null, touch: !! ( this.app.input && this.app.input.touchMode ) };
+		const v = { visible: true, dt, flying: aboard, cockpit: fp, tags: [], marks: [], board: null, station: null, touch: !! ( this.app.input && this.app.input.touchMode ), cluster: !! this.touch.owned };
 		// the tags of the other aircraft (players' names with the ARMED badge; the practice AI)
 		const cam = this.app.camera && this.app.camera.position;
 		for ( const t of this._targetsAll() ) {

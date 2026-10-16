@@ -727,6 +727,50 @@ const lookAt = ( c, p ) => {
 
 }
 
+// wave 27B: the phone's cluster writes dogfight.touch (the analog stick, the slider, the trigger); the feature reads it only in touch mode
+{
+
+	const h = harness();
+	const { df } = h;
+	df.buy( 'longreach', 'tidemark' );
+	ok( df.fly( 'longreach', 0 ).ok, '[touch] aboard the bomber' );
+	let info = df.touchInfo();
+	ok( info.aboard && info.pilot && info.seats === 4 && info.seat === 0 && ! info.armed, '[touch] touchInfo: aboard, the pilot, four seats' );
+	const step = ( n ) => { for ( let i = 0; i < n; i ++ ) { h.player.vehicle.drive( 1 / 60 ); df.update( 1 / 60 ); } };
+	// off in touch mode: the cluster's values are ignored
+	Object.assign( df.touch, { active: true, throttle: 1, fire: true, owned: true } );
+	step( 60 );
+	ok( df.ac.flight.controls.throttle < 0.01 && ! df.ac.guns.shots, '[touch] not in touch mode: the cluster does nothing' );
+	h.input.touchMode = true;
+	df.touch.throttle = 0.6;
+	step( 90 );
+	ok( Math.abs( df._input.throttle - 0.6 ) < 0.02, `[touch] the slider's throttle is held (${ df._input.throttle.toFixed( 2 ) })` );
+	df.touch.throttle = null;
+	step( 30 );
+	ok( Math.abs( df._input.throttle - 0.6 ) < 0.02 && df.touchInfo().throttle === df._input.throttle, '[touch] a thumb off the slider leaves the throttle where it is' );
+	df.touch.pitch = 1; df.touch.roll = - 1;
+	step( 30 );
+	ok( df._input.pitch > 0.9 && df._input.roll < - 0.9 || df.ac.flight.grounded && df._input.pitch > 0.9, `[touch] the stick: pitch ${ df._input.pitch.toFixed( 2 ) }, roll ${ df._input.roll.toFixed( 2 ) }` );
+	df.touch.pitch = 0; df.touch.roll = 0;
+	ok( df._trigger( false ) === true, '[touch] the trigger held on the cluster fires' );
+	df.touch.fire = false;
+	ok( df._trigger( false ) === false && df._trigger( true ) === false, '[touch] and not when let go (or in a menu)' );
+	// the HUD's own buttons stand down while the cluster owns the screen
+	df.touch.active = false;
+	// the seat button: the next free seat, round the aircraft
+	const r1 = df.cycleSeat();
+	ok( r1.ok && df.mySeat === 1 && ! df.touchInfo().pilot, '[touch] Seat: the next one (the gunner), no stick there' );
+	df.cycleSeat(); df.cycleSeat();
+	const r2 = df.cycleSeat();
+	ok( r2.ok && df.mySeat === 0, '[touch] and round to the pilot again' );
+	const solo = harness();
+	solo.df.buy( 'sabrewing', 'tidemark' ); solo.df.fly( 'sabrewing', 0 );
+	ok( solo.df.touchInfo().seats === 1 && ! solo.df.cycleSeat().ok, '[touch] a fighter has one seat: Seat does nothing' );
+	solo.df.exit();
+	ok( ! solo.df.touchInfo().aboard, '[touch] on foot: not aboard' );
+
+}
+
 // the wire: a malformed state is ignored
 ok( cleanDf( { a: 'sabrewing', p: [ 0, 0, NaN ], q: [ 0, 0, 0, 1 ] } ) === null && cleanDf( { a: 'nope', p: [ 0, 0, 0 ], q: [ 0, 0, 0, 1 ] } ) === null, 'malformed df states are refused' );
 ok( gunDps( 'bulwark' ) > gunDps( 'sabrewing' ) && NET.maxRewind >= 800, 'the damage budget and the rewind window' );

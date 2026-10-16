@@ -221,8 +221,8 @@ export class DogfightHud {
 		this._marks( v.marks || [] );
 		if ( this.touchEl ) {
 
-			this.touchEl.hidden = ! ( v.flying && v.touch );
-			if ( ! v.flying || ! v.touch ) this.touchFire = false;
+			this.touchEl.hidden = ! ( v.flying && v.touch && ! v.cluster ); // (the phone's own cluster, TouchControls, replaces these two buttons)
+			if ( ! v.flying || ! v.touch || v.cluster ) this.touchFire = false;
 			if ( this.armBtn && this.armBtn.classList ) this.armBtn.classList.toggle( 'is-on', v.armed === 1 || v.armed === 3 );
 
 		}
