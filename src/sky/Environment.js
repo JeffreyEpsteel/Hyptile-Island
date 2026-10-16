@@ -93,14 +93,17 @@ export class Environment {
 			this.faceKernels.push( new ComputeKernel( {
 				label: 'Env Face ' + i,
 				modules: [ commonModule, sky.module ],
-				bindings: { outCube: { storageTexture: this.source, viewDimension: '2d-array' } },
+				bindings: {
+					outCube: { storageTexture: this.source, viewDimension: '2d-array' },
+					envFace: { storage: new StorageBuffer( { label: 'envFace' + i, count: 1, type: 'u32', data: new Uint32Array( [ i ] ) } ), access: 'read' },
+				},
 				workgroupSize: [ 8, 8, 1 ],
 				code: /* wgsl */`${ CUBE_DIR }
 @compute @workgroup_size( WG_X, WG_Y, WG_Z ) fn main( @builtin( global_invocation_id ) gid: vec3u ) {
 	if ( gid.x >= ${ size }u || gid.y >= ${ size }u ) { return; }
-	let dir = envCubeDir( ${ i }u, gid.x, gid.y, ${ size }u );
+	let dir = envCubeDir( envFace[ 0 ], gid.x, gid.y, ${ size }u );
 	// no sun or moon disk: the key light is lit directly
-	textureStore( outCube, gid.xy, ${ i }, vec4f( skyRadianceWithClouds( dir, false ), 1.0 ) );
+	textureStore( outCube, gid.xy, envFace[ 0 ], vec4f( skyRadianceWithClouds( dir, false ), 1.0 ) );
 }`,
 			} ) );
 

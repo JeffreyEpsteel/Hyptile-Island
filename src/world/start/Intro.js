@@ -188,6 +188,7 @@ export class Intro {
 		this.pending = false;
 		this.active = true;
 		this.time = 0;
+		this.app.post?.setCameraScripted?.( true ); // (the lanterns by the lens smeared into streaks: no blur on the glide)
 		const input = this.app.input;
 		if ( input ) { input.enabled = false; if ( input.keys ) input.keys.clear(); }
 		if ( typeof window !== 'undefined' ) {
@@ -212,6 +213,7 @@ export class Intro {
 
 		this.active = false;
 		this.pending = false;
+		this.app.post?.setCameraScripted?.( false );
 		if ( typeof window !== 'undefined' ) {
 
 			window.removeEventListener( 'keydown', this._onKey, true );

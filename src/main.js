@@ -10,6 +10,7 @@ import { MainMenu } from './ui/MainMenu.js';
 import { PauseMenu, MENU_FLAG } from './ui/PauseMenu.js';
 import { isMode } from './game/GameMode.js';
 import { GPU } from './engine/gpu/GPU.js';
+import { warmView, compileProgress } from './engine/Warmup.js';
 
 // ?bench (and ?bg) run in background tabs too (automation, hidden panes): rAF does not fire in a hidden page
 if ( /[?&](bench|bg)\b/.test( location.search ) ) {
@@ -112,6 +113,88 @@ function fail( title, message, { fatal = true, error = null } = {} ) {
 		crumb( { error: String( message ).slice( 0, 300 ) } );
 
 	} catch ( e ) { /* the card must never throw */ }
+
+}
+
+// wave 25A: a quiet line under the main menu while the island's shaders compile behind it (App.init deferCompile).
+// The percentage needs the total, which the last visit stored (the compile requests more pipelines as it goes).
+const PIPES_KEY = 'hyptile-island.pipelines';
+function compileChip( done ) {
+
+	const el = document.createElement( 'div' );
+	el.setAttribute( 'role', 'status' );
+	el.style.cssText = 'position:fixed;left:50%;bottom:clamp(12px,2.4vh,24px);transform:translateX(-50%);z-index:30;padding:6px 14px;border-radius:999px;' +
+		'font:500 12px/1.4 system-ui,sans-serif;letter-spacing:.04em;color:rgba(232,244,240,.82);background:rgba(4,14,24,.55);pointer-events:none;transition:opacity .6s';
+	let total = 0;
+	try { total = Number( localStorage.getItem( PIPES_KEY ) ) || 0; } catch ( e ) { /* no storage */ }
+	const paint = () => {
+
+		const p = compileProgress();
+		const all = Math.max( total, p.requested );
+		el.textContent = total ? `Preparing the island · ${ Math.min( 99, Math.floor( 100 * p.done / all ) ) }%` : 'Preparing the island…';
+
+	};
+	paint();
+	document.body.appendChild( el );
+	const iv = setInterval( paint, 400 );
+	const remove = () => {
+
+		clearInterval( iv );
+		el.style.opacity = '0';
+		setTimeout( () => el.remove(), 700 );
+
+	};
+	done.then( () => {
+
+		try { localStorage.setItem( PIPES_KEY, String( compileProgress().requested ) ); } catch ( e ) { /* no storage */ }
+		el.textContent = 'Island ready';
+		setTimeout( remove, 900 );
+
+	} );
+	return remove;
+
+}
+
+// wave 25A: the chosen spot's first frames run behind the loader until one draws everything it wants (engine/Warmup.js);
+// a view already compiled (a long look at the menu) never shows the loader
+async function firstView( app ) {
+
+	setStage( 'preparing the view' );
+	const L = document.getElementById( 'loader' );
+	const q = ( s ) => L && L.querySelector( s );
+	const fill = q( '.loader-fill' ), pct = q( '.loader-pct' ), status = q( '.loader-status' );
+	const paint = ( f, text ) => {
+
+		if ( fill ) fill.style.transform = `scaleX(${ Math.max( 0.02, f ).toFixed( 3 ) })`;
+		if ( pct ) pct.textContent = Math.floor( f * 100 ) + '%';
+		if ( status ) status.textContent = text;
+
+	};
+	let shown = false;
+	const show = setTimeout( () => {
+
+		if ( ! L ) return;
+		shown = true;
+		L.style.display = '';
+		L.classList.remove( 'tw-hidden', 'tw-error', 'is-compiling' );
+		paint( 0.05, 'Preparing the view…' );
+
+	}, 300 );
+	const r = await warmView( app, { onProgress: ( s ) => {
+
+		if ( shown && s.needed ) paint( 0.05 + 0.95 * s.ready / s.needed, `Preparing the view · ${ s.ready } / ${ s.needed }` );
+
+	} } );
+	clearTimeout( show );
+	errorLog.push( 'stage', `first view in ${ ( r.ms / 1000 ).toFixed( 1 ) } s, ${ r.frames } frames${ r.waited ? `, ${ r.waited } draws still compiling` : '' }` );
+	if ( shown && L ) {
+
+		paint( 1, 'Ready' );
+		L.classList.add( 'tw-hidden' );
+		await new Promise( ( res ) => setTimeout( res, 920 ) );
+		L.style.display = 'none';
+
+	}
 
 }
 
@@ -218,12 +301,17 @@ function startGame() {
 
 	}, 1000 );
 
+	// wave 25A: the menu path builds the world, then opens the main menu while the pipelines compile behind it
+	// (automation: ?bench, and ?nomenu / ?bg without the menu flag, compiles everything before the first frame)
+	let menuFlag = false;
+	try { menuFlag = sessionStorage.getItem( MENU_FLAG ) === '1'; } catch ( e ) { /* no session storage */ }
+	const deferCompile = ! /[?&]bench(?![A-Za-z0-9_])/.test( location.search ) && ( ! /[?&](nomenu|bg)(?![A-Za-z0-9_])/.test( location.search ) || menuFlag );
 	app.init( ( p, text, until ) => {
 
 		setStage( text );
 		ui.setLoading( p, text, until );
 
-	} ).then( async () => {
+	}, { deferCompile } ).then( async () => {
 
 		clearInterval( watch );
 		setStage( 'building the HUD' );
@@ -232,6 +320,7 @@ function startGame() {
 		await ui.hideLoader();
 		// the main menu (the mode, then the slot) before the start overlay; Esc in game opens the pause menu
 		setStage( 'main menu' );
+		const chip = app.compiled ? compileChip( app.compiled ) : null;
 		app.menu = new MainMenu( { ui, app } );
 		app.pauseMenu = new PauseMenu( { ui, app } );
 		// ?nomenu, ?bench and ?bg skip the menu so automation works (Pause > Main menu still brings it back)
@@ -260,6 +349,8 @@ function startGame() {
 			const choice = await app.menu.show( crew ? { mode: 'multiplayer', step: 'slots' } : undefined );
 			setStage( 'starting the session' );
 			app.startSession( choice );
+			if ( chip ) chip();
+			if ( app.compiled ) await firstView( app );
 
 		}
 

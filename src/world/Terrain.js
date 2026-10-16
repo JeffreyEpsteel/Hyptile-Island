@@ -579,7 +579,7 @@ const TERRAIN_SURFACE = /* wgsl */`
 		albedo = mix( albedo * ( 1.0 - swashLine * 0.3 ), ${ S( 0.9, 0.88, 0.84 ) }, swashLine * smoothstep( 0.6, 0.75, dF.z ) * 0.5 );
 		// foam residue: lacy patterns stranded on the sand
 		var residue = sat( wetFoam.y ) * landW * notRock;
-		if ( residue > 0.0 ) { residue *= smoothstep( 0.42, 0.18, terDetail( ${ rot2( 'xz', 0.4 ) } / 0.9 ).x ) * 0.7 + 0.3; }
+		if ( residue > 0.0 ) { residue *= smoothstep( 0.42, 0.18, terDetail( ${ rot2( 'xz', 0.4 ) } / 0.9 ).x ) * 0.9 + 0.1; } // (wave 25A: lace, not a wash)
 		albedo = mix( albedo, ${ S( 0.88, 0.9, 0.9 ) }, residue );
 
 		// ---- roughness
@@ -587,7 +587,7 @@ const TERRAIN_SURFACE = /* wgsl */`
 		rough = mix( rough, 0.9, pathW );
 		rough = mix( rough, rockRough, rockW );
 		// wet sand has a film of water: glossy while fresh, satin as it drains (the band: satin up top, sheen at the edge)
-		rough = mix( rough, mix( mix( 0.45, 0.2, band * band ), 0.14, wet ), wetK );
+		rough = mix( rough, mix( mix( 0.45, 0.2, band * band ), 0.07, wet ), wetK ); // (wave 25A: a mirror film where fresh)
 		rough = mix( rough, 0.7, residue );
 		rough = mix( rough, 0.75, underW );
 		rough = mix( rough, 0.94, scarpW );

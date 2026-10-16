@@ -112,7 +112,7 @@ export class App {
 
 	}
 
-	async init( onProgress = () => {} ) {
+	async init( onProgress = () => {}, { deferCompile = false } = {} ) {
 
 		const qs = this.qs;
 		// report a stage, then let the page paint it before the (synchronous) stage work starts
@@ -452,6 +452,16 @@ fn terrainWetness( xz: vec2f, h: f32 ) -> vec2f {
 		// ---- compile pipelines asynchronously (keeps the page responsive), then prime a few
 		// frames behind the loading screen so any remaining first-use stalls happen there
 		// stage weights: in the browser the pipeline compile below takes far longer than everything before it
+		// wave 25A: deferCompile (main.js, the menu path): init ends here with the world built and the pipelines compile
+		// behind the main menu; this.compiled resolves when they are all in (engine/Warmup.js holds the first view until it
+		// draws whole)
+		if ( deferCompile ) {
+
+			this.compiled = this.precompile().catch( ( e ) => console.warn( 'precompile', e ) );
+			return;
+
+		}
+
 		await progress( 0.36, 'Compiling shaders…', 0.95 );
 		await this.precompile();
 		await progress( 0.96, 'Warming up…' );
