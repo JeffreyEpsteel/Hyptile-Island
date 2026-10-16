@@ -62,6 +62,12 @@ const VIEWS = {
 	night: { time: 22.5, look: [ 0, - 0.35 ], fly: true },
 	rain: { time: 14, look: [ 0.1, - 0.12 ], rain: 0.8 },
 	outside: { time: 11, outside: true },
+	// wave 25E: the modelled exterior up close, and a backflip caught upside down (realistic flight, flown on the keys)
+	close: { time: 10.5, outside: true, cam: [ 4.2, 2.2, 5.2, 0.68, - 0.16 ] },
+	closerear: { time: 16, outside: true, cam: [ - 5, 2.6, - 7.5, Math.PI + 0.58, - 0.14 ] },
+	flip: { time: 10.5, flip: true },
+	fliprain: { time: 14, flip: true, rain: 0.8 },
+	rainfly: { time: 14, look: [ 0, - 0.12 ], fly: true, rain: 0.8 },
 };
 const only = ( arg( 'views' ) || Object.keys( VIEWS ).join( ',' ) ).split( ',' );
 for ( const id of only ) {
@@ -75,16 +81,46 @@ for ( const id of only ) {
 	const door = h.flight.toWorld( [ 1.35, 0, 0.65 ] );
 	if ( typeof app._placePlayer === 'function' ) app._placePlayer( door.x, door.y + 0.1, door.z, 0 ); else app.player.position.copy( door );
 	if ( app.setFreeCam ) app.setFreeCam( false );
+	// (the scripted climbs below are the assisted model's keys; the flip flies the realistic one)
+	h.setAssist?.( !! v.fly );
 	if ( v.outside ) {
 
 		app.setFreeCam?.( true );
-		const p = h.flight.position;
-		app.fly.setPose( app.fly.camera.position.clone().set( p.x + 9, p.y + 4, p.z + 11 ), 0.7, - 0.25 );
+		const p = h.flight.position, c = v.cam || [ 9, 4, 11, 0.7, - 0.25 ];
+		app.fly.setPose( app.fly.camera.position.clone().set( p.x + c[ 0 ], p.y + c[ 1 ], p.z + c[ 2 ] ), c[ 3 ], c[ 4 ] );
+
+	} else if ( v.flip ) {
+
+		// airborne 45 m over the pad, the rotor at speed, the lever at a hover: then S through a backflip (C while upside
+		// down), caught when the mast points at the ground
+		h.board();
+		const f = h.flight;
+		f.position.y += 45; f.grounded = false; f.agl = 45; f.rpm = 1; f.engineOn = true; h.systems.running = true; h.systems.starting = 0; h.collective = 0.45;
+		// (the chase camera: the free camera would stop the player's vehicle drive, and with it the keys)
+		app.player.setView( 'third' ); app.player.planeDist = 14;
 
 	} else { h.board(); app.player.setView( 'first' ); }
+	let flipAcc = 0;
 	for ( let i = 0; i < 330; i ++ ) {
 
-		if ( ! v.outside ) { app.player.helmYaw = v.look[ 0 ]; app.player.helmPitch = v.look[ 1 ]; }
+		if ( v.flip ) {
+
+			const f = h.flight, up = f.up(), p = f.position;
+			app.input.keys.clear();
+			if ( i > 30 ) {
+
+				flipAcc += f.omega.x / 60;
+				app.input.keys.add( flipAcc > - Math.PI * 2 * 0.97 ? 'KeyS' : 'Space' );
+				if ( up.y < - 0.2 && h.collective > - 0.6 ) app.input.keys.add( 'KeyC' );
+				if ( up.y > 0.2 && h.collective < 0.6 ) app.input.keys.add( 'ShiftLeft' );
+
+			}
+			void p;
+			// (stop the clock upside down)
+			if ( i > 30 && up.y < - 0.45 ) { app.frame( 1 / 60 ); break; }
+
+		}
+		if ( ! v.outside && ! v.flip ) { app.player.helmYaw = v.look[ 0 ]; app.player.helmPitch = v.look[ 1 ]; }
 		if ( v.fly ) {
 
 			app.input.keys.clear();
