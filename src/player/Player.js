@@ -2,7 +2,7 @@ import * as THREE from '../engine/index.js';
 import { WORLD } from '../world/WorldLayout.js';
 import { HOUSE } from '../world/boat/Wheelhouse.js';
 import { BOATS } from '../game/Boats.js';
-import { LookSlew, StepSmoother, sweepArm, STEP, ARM_CAST } from './CameraRig.js';
+import { LookSlew, StepSmoother, sweepArm, bodyHidden, STEP, ARM_CAST } from './CameraRig.js';
 
 // helm seat (boat frame) of the current boat: fleet hulls carry their own, the lobster boat's is the wheelhouse
 const helmOf = ( b ) => ( b && b.model.helmPoint ) || { x: HOUSE.helmX, z: HOUSE.seatZ };
@@ -451,6 +451,7 @@ export class Player {
 		this.camera.quaternion.setFromEuler( _e.set( this.pitch, this.yaw, 0 ) );
 		this.swimCamera( dt );
 		this._camY = this.camera.position.y;
+		this.bodyHidden = this.view === 'third' && bodyHidden( len * k, this.bodyHidden ); // the camera is almost in the head: the avatar steps aside
 
 	}
 
@@ -637,6 +638,7 @@ export class Player {
 		out.action = this.action;
 		out.frame = null;
 		out.diving = this.mode === 'swim' && ! this.floating;
+		out.hideBody = !! this.bodyHidden;
 		out.tired = this.mode === 'walk' && this.stamina < 0.2; // wave 18E: the tired / crouch / carry locomotion
 		out.crouch = this.mode === 'walk' && !! this.crouching;
 		out.carry = !! this.carrying;

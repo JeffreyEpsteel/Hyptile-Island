@@ -773,7 +773,7 @@ export class Avatar {
 	update( dt, pose ) {
 
 		const m = this.model;
-		this.group.visible = this.visible;
+		this.group.visible = this.visible && ! ( pose && pose.hideBody ); // (the camera is almost inside the head: Player.bodyHidden)
 		// ground speed of the pose position: a knockdown starts with the momentum of the walk or the run
 		if ( dt > 0 && this._havePos ) {
 

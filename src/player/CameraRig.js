@@ -13,6 +13,9 @@ import { roofs } from '../world/Roofs.js';
 //                 still steps in one frame, the body and the camera ride the offset down to zero
 //   hullCameraBlocker( naval )  a provider for src/features/naval's ships
 //
+//   bodyHidden()  the avatar steps out of the view when the camera is closer than BODY_HIDE to the head (with a little hysteresis),
+//                 so the arm pulled in against a wall or a stall never leaves the lens inside the head or the torso
+//
 // Frames: world, metres; a ray is origin ( ox, oy, oz ), unit direction ( dx, dy, dz ), length; r is the sphere's radius.
 
 export const LOOK = {
@@ -23,6 +26,14 @@ export const LOOK = {
 	padBoostAfter: 0.45,
 	padHz: 60, // the pad's look counts are per frame at this rate (core/Gamepad.js LOOK_BASE): scaled by the real frame time
 };
+
+// the avatar is hidden while the arm (camera to the head focus) is shorter than `hide`, and shown again past `show`
+export const BODY_HIDE = { hide: 0.75, show: 0.9 };
+export function bodyHidden( dist, wasHidden = false ) {
+
+	return wasHidden ? dist < BODY_HIDE.show : dist < BODY_HIDE.hide;
+
+}
 
 const clamp = ( v, a, b ) => Math.max( a, Math.min( b, v ) );
 const smooth = ( t ) => { t = clamp( t, 0, 1 ); return t * t * ( 3 - 2 * t ); };

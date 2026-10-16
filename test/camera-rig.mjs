@@ -8,7 +8,7 @@ import { Player } from '../src/player/Player.js';
 import { Avatar } from '../src/player/Avatar.js';
 import { AnimGraph } from '../src/player/anim/AnimGraph.js';
 import DEF from '../src/player/anim/AnimDef.js';
-import { LookSlew, LOOK, sweepArm, rayPrism, hullCameraBlocker, StepSmoother, STEP } from '../src/player/CameraRig.js';
+import { LookSlew, LOOK, BODY_HIDE, bodyHidden, sweepArm, rayPrism, hullCameraBlocker, StepSmoother, STEP } from '../src/player/CameraRig.js';
 import { registerShell, clearShells } from '../src/world/interiors/Shells.js';
 import { registerRoof, clearRoofs } from '../src/world/Roofs.js';
 import { placeShape, shapeFromDims } from '../src/world/boat/HullShape.js';
@@ -623,6 +623,20 @@ const step = ( n = 1 ) => { for ( let i = 0; i < n; i ++ ) { player.update( DT )
 	player.takeHelm();
 	check( Math.abs( player.orbitDist - zb ) < 1e-9, `boat: the next time at the helm the zoom is kept (${ player.orbitDist.toFixed( 1 ) } m)` );
 	player.mode = 'walk';
+
+}
+
+{
+
+	// wave 27: the avatar steps aside when the arm is pulled in against a wall or a stall (the camera inside the head)
+	check( bodyHidden( 0.5 ) && bodyHidden( BODY_HIDE.hide - 0.01 ) && ! bodyHidden( 1.2 ), 'body: hidden under the threshold, shown with the arm out' );
+	check( BODY_HIDE.hide >= 0.6 && BODY_HIDE.hide < BODY_HIDE.show, 'body: threshold at least 0.6 m with hysteresis above it' );
+	check( bodyHidden( 0.8, true ) && ! bodyHidden( 0.8, false ) && ! bodyHidden( BODY_HIDE.show + 0.01, true ), 'body: hysteresis (hidden stays hidden until the arm is out past the show distance)' );
+	const col = new Colliders();
+	col.addBox( V( 0, 1, 0.5 ), V( 2, 1, 0.1 ), 0, { tag: 'stall' } ); // a wall 0.4 m behind the player's back
+	const w = { colliders: col, boat: null, blockers: [], feetY: 0 };
+	const hit = sweepArm( w, 0, 1.35, 0, 0, 0, 1, 4.2, 0.22 );
+	check( hit < 0.75 && bodyHidden( hit ), `body: a stall at the player's back shortens the arm to ${ hit.toFixed( 2 ) } m, the avatar is hidden` );
 
 }
 
