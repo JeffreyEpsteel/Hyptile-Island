@@ -65,7 +65,7 @@ patch( 'package.json', [
 		done: ( s ) => s.includes( 'node test/feature-music.mjs' ),
 		apply: ( s ) => {
 
-			const m = /("test": "[^\n]*?)(",?\n)/.exec( s );
+			const m = /("test": "[^\n]*?)(",?\r?\n)/.exec( s );
 			return m ? s.slice( 0, m.index ) + m[ 1 ] + ' && node test/feature-music.mjs' + m[ 2 ] + s.slice( m.index + m[ 0 ].length ) : null;
 
 		},
