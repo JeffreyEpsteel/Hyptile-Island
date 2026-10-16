@@ -1,0 +1,157 @@
+{
+	"model": "eleven_text_to_sound_v2",
+	"files": {
+		"plane_engine": {
+			"file": "s11_plane_engine.ogg",
+			"secs": 2.8,
+			"bytes": 31508,
+			"loop": true,
+			"cat": "sfx",
+			"gain": 0.7,
+			"ref": 12,
+			"max": 260,
+			"about": "seaplane radial engine cruise"
+		},
+		"car_engine": {
+			"file": "s11_car_engine.ogg",
+			"secs": 0.8,
+			"bytes": 10393,
+			"loop": true,
+			"cat": "sfx",
+			"gain": 0.6,
+			"ref": 8,
+			"max": 120,
+			"about": "old petrol car engine"
+		},
+		"cannon": {
+			"file": "s11_cannon.ogg",
+			"secs": 1.99,
+			"bytes": 15860,
+			"cat": "sfx",
+			"gain": 0.95,
+			"ref": 12,
+			"max": 600,
+			"replaces": [
+				"battery_fire",
+				"distant_gun"
+			],
+			"about": "iron cannon shot"
+		},
+		"musket": {
+			"file": "s11_musket.ogg",
+			"secs": 1.36,
+			"bytes": 14101,
+			"cat": "sfx",
+			"gain": 0.8,
+			"ref": 6,
+			"max": 240,
+			"replaces": [
+				"swivel_bark"
+			],
+			"about": "flintlock musket crack"
+		},
+		"pistol": {
+			"file": "s11_pistol.ogg",
+			"secs": 1.99,
+			"bytes": 18596,
+			"cat": "sfx",
+			"gain": 0.75,
+			"ref": 5,
+			"max": 200,
+			"about": "flintlock pistol bang"
+		},
+		"sail_luff": {
+			"file": "s11_sail_luff.ogg",
+			"secs": 0.8,
+			"bytes": 9975,
+			"cat": "ambience",
+			"gain": 0.6,
+			"ref": 6,
+			"max": 80,
+			"loop": true,
+			"about": "canvas sail luffing"
+		},
+		"rope_creak": {
+			"file": "s11_rope_creak.ogg",
+			"secs": 0.85,
+			"bytes": 12884,
+			"cat": "sfx",
+			"gain": 0.6,
+			"ref": 4,
+			"max": 60,
+			"replaces": [
+				"chute_creak"
+			],
+			"about": "rope under tension"
+		},
+		"rain_canvas": {
+			"file": "s11_rain_canvas.ogg",
+			"secs": 1.8,
+			"bytes": 20089,
+			"loop": true,
+			"cat": "ambience",
+			"gain": 0.5,
+			"ref": 3,
+			"max": 40,
+			"about": "rain on a canvas tarp"
+		},
+		"thunder": {
+			"file": "s11_thunder.ogg",
+			"secs": 1,
+			"bytes": 11307,
+			"cat": "sfx",
+			"gain": 1,
+			"ref": 100,
+			"max": 4000,
+			"event": "lightningStrike",
+			"about": "thunderclap and roll"
+		},
+		"gulls": {
+			"file": "s11_gulls.ogg",
+			"secs": 2.94,
+			"bytes": 27865,
+			"cat": "ambience",
+			"gain": 0.7,
+			"ref": 10,
+			"max": 160,
+			"replaces": [
+				"gull"
+			],
+			"about": "seagulls over a harbour"
+		},
+		"crowd": {
+			"file": "s11_crowd.ogg",
+			"secs": 0.8,
+			"bytes": 10165,
+			"loop": true,
+			"cat": "ambience",
+			"gain": 0.55,
+			"ref": 8,
+			"max": 90,
+			"about": "harbour market crowd murmur"
+		},
+		"splash_big": {
+			"file": "s11_splash_big.ogg",
+			"secs": 2,
+			"bytes": 19407,
+			"cat": "sfx",
+			"gain": 0.9,
+			"ref": 8,
+			"max": 160,
+			"about": "heavy splash into the sea"
+		},
+		"splash_small": {
+			"file": "s11_splash_small.ogg",
+			"secs": 2,
+			"bytes": 20571,
+			"cat": "sfx",
+			"gain": 0.6,
+			"ref": 3,
+			"max": 50,
+			"replaces": [
+				"wade_splash"
+			],
+			"about": "small splash in shallows"
+		}
+	}
+}

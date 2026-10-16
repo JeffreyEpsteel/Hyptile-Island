@@ -1,0 +1,89 @@
+{
+	"model": "eleven_v4",
+	"batches": [
+		{ "file": "poorgoat", "who": "poorgoat", "name": "PoorGoat", "voice": "Callum", "voiceId": "N2lVS1w4EtoT3dr4eOWO", "lines": [
+			{ "id": "pg_greet", "kind": "greet", "text": "Ser! Fresh catch? My bid is generous, my spread is modest." },
+			{ "id": "pg_diamond", "kind": "greet", "text": "Diamond hands, that one. Holding a fish that long, I admire it." },
+			{ "id": "pg_gas", "kind": "greet", "text": "Gas fees on this pier are terrible, so I am only taking a tiny cut." },
+			{ "id": "pg_sold", "kind": "sold", "text": "Pleasure doing business. No rug pull, I promise." },
+			{ "id": "pg_moon", "kind": "greet", "text": "Between us, wen moon? When the fish prices go up." },
+			{ "id": "pg_bye", "kind": "bye", "text": "Hodl onto your hat out there, friend." } ] },
+		{ "file": "ethena", "who": "ethena", "name": "Ethena", "voice": "Beth", "voiceId": "zH7TN9vEZAsEway9xWev", "lines": [
+			{ "id": "et_greet", "kind": "greet", "text": "Welcome in, ser. Rope, hooks, lamp oil, everything the sea throws at you." },
+			{ "id": "et_spool", "kind": "greet", "text": "Fresh spool today. Strong enough for even the heaviest bags." },
+			{ "id": "et_airdrop", "kind": "greet", "text": "An airdrop? No, but regulars do get a small discount." },
+			{ "id": "et_buy", "kind": "sold", "text": "Good choice. That will serve you well." },
+			{ "id": "et_degens", "kind": "greet", "text": "The sea is full of degens. Stay sensible and keep your powder dry." },
+			{ "id": "et_bye", "kind": "bye", "text": "Come back soon, and do not panic sell your boat." } ] },
+		{ "file": "roid", "who": "roid", "name": "Captain Roid", "voice": "Charlie", "voiceId": "IKne3meq5aSn9XLyUdCD", "lines": [
+			{ "id": "rd_launch", "kind": "greet", "text": "Ladies and gentlemen, welcome to the biggest boat launch of the season!" },
+			{ "id": "rd_supply", "kind": "greet", "text": "Limited supply! Only a few hulls left, ser. Wen buy? Now!" },
+			{ "id": "rd_rug", "kind": "greet", "text": "Not a rug pull, I promise. It floats. Mostly." },
+			{ "id": "rd_buy", "kind": "sold", "text": "She is yours! Straight to the moon, or at least the next island." },
+			{ "id": "rd_nomics", "kind": "greet", "text": "Early buyers get the best sea views. That is boat-nomics, baby." },
+			{ "id": "rd_bye", "kind": "bye", "text": "Fair winds, captain. Diamond hands on that wheel." } ] },
+		{ "file": "agents", "who": "agent", "name": "Roid and Co. agent", "voice": "Roger", "voiceId": "CwhRBWXzGAHq8TQ4Fs17", "lines": [
+			{ "id": "ag_desk", "kind": "greet", "text": "Roid and Company harbour desk. How can I help?" },
+			{ "id": "ag_menu", "kind": "greet", "text": "Boats, salvage, ferries. No gas fees, just friendly service." },
+			{ "id": "ag_delivery", "kind": "delivery", "text": "Your delivery has arrived. Roid and Company thanks you." },
+			{ "id": "ag_airdrop", "kind": "delivery", "text": "Our airdrops arrive by boat, ser." } ] },
+		{ "file": "tavern", "who": "tavern", "name": "Tavern keeper", "voice": "Stres1", "voiceId": "PE6aDF44viaNjR24HRGu", "lines": [
+			{ "id": "tv_stool", "kind": "greet", "text": "Pull up a stool, degen. What will it be?" },
+			{ "id": "tv_dice", "kind": "greet", "text": "Dice are on the bar, if you fancy losing it all." },
+			{ "id": "tv_whale", "kind": "rumour", "text": "Listen close. A whale has been spotted, and I do not mean the swimming kind." },
+			{ "id": "tv_last", "kind": "bye", "text": "Last call! Drink up, you lot!" },
+			{ "id": "tv_dip", "kind": "greet", "text": "Somebody bought the dip. Of the soup, I mean." },
+			{ "id": "tv_mop", "kind": "greet", "text": "Another rug pull on the dance floor. Mop, please." } ] },
+		{ "file": "hale", "who": "hale", "name": "Lieutenant Hale", "voice": "Aaron", "voiceId": "ESDuPqgyZIDDVZTlIrH7", "lines": [
+			{ "id": "hl_state", "kind": "greet", "text": "Lieutenant Hale, harbour watch. State your business, ser." },
+			{ "id": "hl_weapons", "kind": "greet", "text": "Keep your weapons sheathed in town, sailor." },
+			{ "id": "hl_regs", "kind": "greet", "text": "The regulators are watching. Please act natural." },
+			{ "id": "hl_quiet", "kind": "bye", "text": "A quiet harbour. Long may it last." },
+			{ "id": "hl_rug", "kind": "greet", "text": "Yes, I heard the one about the rug pull. The harbourmaster was not amused." } ] },
+		{ "file": "navy", "who": "navy", "name": "Navy officer", "voice": "Harry", "voiceId": "SOYHLrjzK2X1ezoPC6cr", "lines": [
+			{ "id": "nv_heave", "kind": "hail", "text": "Heave to! This is the Navy! Prepare to be audited!" },
+			{ "id": "nv_colours", "kind": "hail", "text": "Ahoy there! Regulators off your starboard side! Show your colours!" },
+			{ "id": "nv_inspect", "kind": "board", "text": "Stand by to be inspected, ser!" },
+			{ "id": "nv_warn", "kind": "warn", "text": "Last warning! Heave to, or we fire!" },
+			{ "id": "nv_paper", "kind": "board", "text": "Your paperwork, please! All of it!" } ] },
+		{ "file": "press", "who": "press", "name": "Press gang", "voice": "Bobby", "voiceId": "lGMJWfnL2SVUwU7i6zQ7", "lines": [
+			{ "id": "pr_need", "kind": "press", "text": "The navy needs sailors. You will do nicely." },
+			{ "id": "pr_sign", "kind": "press", "text": "Sign here, or pay the fine. Your choice." },
+			{ "id": "pr_stake", "kind": "press", "text": "Come along quietly. Welcome to the mandatory staking program." } ] },
+		{ "file": "townA", "who": "townA", "name": "Market seller", "voice": "Sarah", "voiceId": "EXAVITQu4vr4xnSDxMaL", "lines": [
+			{ "id": "ta_bread", "kind": "market", "text": "Fresh bread! Warm bread! No gas fees!" },
+			{ "id": "ta_orange", "kind": "market", "text": "Oranges! Sweet oranges, fresh from the airdrop!" },
+			{ "id": "ta_morning", "kind": "greet", "text": "Good morning, ser! Lovely day for the harbour." } ] },
+		{ "file": "townB", "who": "townB", "name": "Townsperson", "voice": "Laura", "voiceId": "FGY2WhTYpPnrIDTdsKH5", "lines": [
+			{ "id": "tb_moon", "kind": "greet", "text": "Wen moon? Tonight, if the clouds clear." },
+			{ "id": "tb_rain", "kind": "rain", "text": "Rain again. My washing will never dry." },
+			{ "id": "tb_boats", "kind": "greet", "text": "Look at the size of those boats!" } ] },
+		{ "file": "townC", "who": "townC", "name": "Old fisher", "voice": "George", "voiceId": "JBFqnCBsd6RMkjVDRZzb", "lines": [
+			{ "id": "tc_fish", "kind": "market", "text": "Fish! Fresh fish, caught this morning!" },
+			{ "id": "tc_knees", "kind": "rain", "text": "This weather is murder on my knees, and on my nets." },
+			{ "id": "tc_evening", "kind": "greet", "text": "Evening, traveller. Stay safe from the degens." } ] },
+		{ "file": "crewK", "who": "townD", "name": "Townsperson and crew", "voice": "Kurt", "voiceId": "42MPlPHxazRyNGWpSUyy", "lines": [
+			{ "id": "td_bear", "kind": "rain", "text": "Rain, rain, rain. I swear it follows me like a bear market." },
+			{ "id": "td_boots", "kind": "greet", "text": "They say hodl. My boots say buy new boots." },
+			{ "id": "td_airdrop", "kind": "greet", "text": "An airdrop! Oh. Just a gull. Never mind." },
+			{ "id": "cw_cook", "who": "crew", "kind": "crew:cook", "text": "Soup's on! Do not let it get cold, ser." },
+			{ "id": "cw_lucky", "who": "crew", "kind": "crew:lucky", "text": "Luck is with us today, skipper. I can feel an airdrop coming." },
+			{ "id": "cw_lazy", "who": "crew", "kind": "crew:lazy", "text": "Is it break time yet? I am in a long term holding pattern." },
+			{ "id": "cw_brave", "who": "crew", "kind": "crew:brave", "text": "Let them come. Diamond hands, skipper." } ] },
+		{ "file": "crewW", "who": "crew", "name": "Crew", "voice": "Will", "voiceId": "vJuEMr9iei7RsShNLzpP", "lines": [
+			{ "id": "cw_drunkard", "kind": "crew:drunkard", "text": "Who took my rum? Oh, here it is." },
+			{ "id": "cw_sharpEyed", "kind": "crew:sharpEyed", "text": "Something on the horizon. Could be a whale, could be trouble." },
+			{ "id": "cw_seasick", "kind": "crew:seasick", "text": "Please, no more waves. I am down bad." } ] },
+		{ "file": "police", "who": "police", "name": "Meridian police", "voice": "Arron", "voiceId": "ccelEFUJJwCFsf8OvLlT", "lines": [
+			{ "id": "po_over", "kind": "chase", "text": "Pull over! This is the police!" },
+			{ "id": "po_stop", "kind": "chase", "text": "Stop the vehicle right now, ser!" },
+			{ "id": "po_arrest", "kind": "bust", "text": "You are under arrest. Step out slowly." },
+			{ "id": "po_move", "kind": "greet", "text": "Move along, citizen. Nothing to see here." },
+			{ "id": "po_rug", "kind": "chase", "text": "Speeding, reckless driving, and, I suspect, a rug pull." } ] },
+		{ "file": "radio", "who": "radio", "name": "Tidewater radio", "voice": "Bella", "voiceId": "hpp4J3VqNfWAUOO0d1Us", "lines": [
+			{ "id": "ra_intro", "kind": "intro", "text": "Tidewater radio. Weather report follows." },
+			{ "id": "ra_clear", "kind": "clear", "text": "Clear skies and fair winds ahead. Looking bullish out there." },
+			{ "id": "ra_squall", "kind": "squall", "text": "Squalls reported ahead. Secure your gear. Bearish conditions." },
+			{ "id": "ra_storm", "kind": "storm", "text": "Storm warning. All vessels make for port. This is not a drill." } ] }
+	]
+}

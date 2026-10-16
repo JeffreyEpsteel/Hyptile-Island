@@ -1,0 +1,695 @@
+{
+	"model": "eleven_v4",
+	"files": {
+		"pg_greet": {
+			"file": "pg_greet.ogg",
+			"who": "poorgoat",
+			"name": "PoorGoat",
+			"kind": "greet",
+			"text": "Ser! Fresh catch? My bid is generous, my spread is modest.",
+			"secs": 5.22,
+			"bytes": 42813,
+			"voice": "Callum"
+		},
+		"pg_diamond": {
+			"file": "pg_diamond.ogg",
+			"who": "poorgoat",
+			"name": "PoorGoat",
+			"kind": "greet",
+			"text": "Diamond hands, that one. Holding a fish that long, I admire it.",
+			"secs": 5.58,
+			"bytes": 44701,
+			"voice": "Callum"
+		},
+		"pg_gas": {
+			"file": "pg_gas.ogg",
+			"who": "poorgoat",
+			"name": "PoorGoat",
+			"kind": "greet",
+			"text": "Gas fees on this pier are terrible, so I am only taking a tiny cut.",
+			"secs": 4.62,
+			"bytes": 40068,
+			"voice": "Callum"
+		},
+		"pg_sold": {
+			"file": "pg_sold.ogg",
+			"who": "poorgoat",
+			"name": "PoorGoat",
+			"kind": "sold",
+			"text": "Pleasure doing business. No rug pull, I promise.",
+			"secs": 3.42,
+			"bytes": 29742,
+			"voice": "Callum"
+		},
+		"pg_moon": {
+			"file": "pg_moon.ogg",
+			"who": "poorgoat",
+			"name": "PoorGoat",
+			"kind": "greet",
+			"text": "Between us, wen moon? When the fish prices go up.",
+			"secs": 4.06,
+			"bytes": 32904,
+			"voice": "Callum"
+		},
+		"pg_bye": {
+			"file": "pg_bye.ogg",
+			"who": "poorgoat",
+			"name": "PoorGoat",
+			"kind": "bye",
+			"text": "Hodl onto your hat out there, friend.",
+			"secs": 2.03,
+			"bytes": 17697,
+			"voice": "Callum"
+		},
+		"et_greet": {
+			"file": "et_greet.ogg",
+			"who": "ethena",
+			"name": "Ethena",
+			"kind": "greet",
+			"text": "Welcome in, ser. Rope, hooks, lamp oil, everything the sea throws at you.",
+			"secs": 5.1,
+			"bytes": 41547,
+			"voice": "Beth"
+		},
+		"et_spool": {
+			"file": "et_spool.ogg",
+			"who": "ethena",
+			"name": "Ethena",
+			"kind": "greet",
+			"text": "Fresh spool today. Strong enough for even the heaviest bags.",
+			"secs": 3.42,
+			"bytes": 27838,
+			"voice": "Beth"
+		},
+		"et_airdrop": {
+			"file": "et_airdrop.ogg",
+			"who": "ethena",
+			"name": "Ethena",
+			"kind": "greet",
+			"text": "An airdrop? No, but regulars do get a small discount.",
+			"secs": 3.82,
+			"bytes": 32002,
+			"voice": "Beth"
+		},
+		"et_buy": {
+			"file": "et_buy.ogg",
+			"who": "ethena",
+			"name": "Ethena",
+			"kind": "sold",
+			"text": "Good choice. That will serve you well.",
+			"secs": 2.46,
+			"bytes": 21109,
+			"voice": "Beth"
+		},
+		"et_degens": {
+			"file": "et_degens.ogg",
+			"who": "ethena",
+			"name": "Ethena",
+			"kind": "greet",
+			"text": "The sea is full of degens. Stay sensible and keep your powder dry.",
+			"secs": 4.36,
+			"bytes": 36347,
+			"voice": "Beth"
+		},
+		"et_bye": {
+			"file": "et_bye.ogg",
+			"who": "ethena",
+			"name": "Ethena",
+			"kind": "bye",
+			"text": "Come back soon, and do not panic sell your boat.",
+			"secs": 2.82,
+			"bytes": 24302,
+			"voice": "Beth"
+		},
+		"rd_launch": {
+			"file": "rd_launch.ogg",
+			"who": "roid",
+			"name": "Captain Roid",
+			"kind": "greet",
+			"text": "Ladies and gentlemen, welcome to the biggest boat launch of the season!",
+			"secs": 4.26,
+			"bytes": 34946,
+			"voice": "Charlie"
+		},
+		"rd_supply": {
+			"file": "rd_supply.ogg",
+			"who": "roid",
+			"name": "Captain Roid",
+			"kind": "greet",
+			"text": "Limited supply! Only a few hulls left, ser. Wen buy? Now!",
+			"secs": 4.7,
+			"bytes": 38197,
+			"voice": "Charlie"
+		},
+		"rd_rug": {
+			"file": "rd_rug.ogg",
+			"who": "roid",
+			"name": "Captain Roid",
+			"kind": "greet",
+			"text": "Not a rug pull, I promise. It floats. Mostly.",
+			"secs": 4.22,
+			"bytes": 34607,
+			"voice": "Charlie"
+		},
+		"rd_buy": {
+			"file": "rd_buy.ogg",
+			"who": "roid",
+			"name": "Captain Roid",
+			"kind": "sold",
+			"text": "She is yours! Straight to the moon, or at least the next island.",
+			"secs": 4.22,
+			"bytes": 34825,
+			"voice": "Charlie"
+		},
+		"rd_nomics": {
+			"file": "rd_nomics.ogg",
+			"who": "roid",
+			"name": "Captain Roid",
+			"kind": "greet",
+			"text": "Early buyers get the best sea views. That is boat-nomics, baby.",
+			"secs": 4.3,
+			"bytes": 36312,
+			"voice": "Charlie"
+		},
+		"rd_bye": {
+			"file": "rd_bye.ogg",
+			"who": "roid",
+			"name": "Captain Roid",
+			"kind": "bye",
+			"text": "Fair winds, captain. Diamond hands on that wheel.",
+			"secs": 3.34,
+			"bytes": 27506,
+			"voice": "Charlie"
+		},
+		"ag_desk": {
+			"file": "ag_desk.ogg",
+			"who": "agent",
+			"name": "Roid and Co. agent",
+			"kind": "greet",
+			"text": "Roid and Company harbour desk. How can I help?",
+			"secs": 2.9,
+			"bytes": 25560,
+			"voice": "Roger"
+		},
+		"ag_menu": {
+			"file": "ag_menu.ogg",
+			"who": "agent",
+			"name": "Roid and Co. agent",
+			"kind": "greet",
+			"text": "Boats, salvage, ferries. No gas fees, just friendly service.",
+			"secs": 5.06,
+			"bytes": 42000,
+			"voice": "Roger"
+		},
+		"ag_delivery": {
+			"file": "ag_delivery.ogg",
+			"who": "agent",
+			"name": "Roid and Co. agent",
+			"kind": "delivery",
+			"text": "Your delivery has arrived. Roid and Company thanks you.",
+			"secs": 3.42,
+			"bytes": 29094,
+			"voice": "Roger"
+		},
+		"ag_airdrop": {
+			"file": "ag_airdrop.ogg",
+			"who": "agent",
+			"name": "Roid and Co. agent",
+			"kind": "delivery",
+			"text": "Our airdrops arrive by boat, ser.",
+			"secs": 3,
+			"bytes": 26243,
+			"voice": "Roger"
+		},
+		"tv_stool": {
+			"file": "tv_stool.ogg",
+			"who": "tavern",
+			"name": "Tavern keeper",
+			"kind": "greet",
+			"text": "Pull up a stool, degen. What will it be?",
+			"secs": 2.62,
+			"bytes": 22886,
+			"voice": "Stres1"
+		},
+		"tv_dice": {
+			"file": "tv_dice.ogg",
+			"who": "tavern",
+			"name": "Tavern keeper",
+			"kind": "greet",
+			"text": "Dice are on the bar, if you fancy losing it all.",
+			"secs": 3.46,
+			"bytes": 27923,
+			"voice": "Stres1"
+		},
+		"tv_whale": {
+			"file": "tv_whale.ogg",
+			"who": "tavern",
+			"name": "Tavern keeper",
+			"kind": "rumour",
+			"text": "Listen close. A whale has been spotted, and I do not mean the swimming kind.",
+			"secs": 4.74,
+			"bytes": 39801,
+			"voice": "Stres1"
+		},
+		"tv_last": {
+			"file": "tv_last.ogg",
+			"who": "tavern",
+			"name": "Tavern keeper",
+			"kind": "bye",
+			"text": "Last call! Drink up, you lot!",
+			"secs": 2.39,
+			"bytes": 21119,
+			"voice": "Stres1"
+		},
+		"tv_dip": {
+			"file": "tv_dip.ogg",
+			"who": "tavern",
+			"name": "Tavern keeper",
+			"kind": "greet",
+			"text": "Somebody bought the dip. Of the soup, I mean.",
+			"secs": 3.24,
+			"bytes": 27125,
+			"voice": "Stres1"
+		},
+		"tv_mop": {
+			"file": "tv_mop.ogg",
+			"who": "tavern",
+			"name": "Tavern keeper",
+			"kind": "greet",
+			"text": "Another rug pull on the dance floor. Mop, please.",
+			"secs": 3.72,
+			"bytes": 29990,
+			"voice": "Stres1"
+		},
+		"hl_state": {
+			"file": "hl_state.ogg",
+			"who": "hale",
+			"name": "Lieutenant Hale",
+			"kind": "greet",
+			"text": "Lieutenant Hale, harbour watch. State your business, ser.",
+			"secs": 3.74,
+			"bytes": 31019,
+			"voice": "Aaron"
+		},
+		"hl_weapons": {
+			"file": "hl_weapons.ogg",
+			"who": "hale",
+			"name": "Lieutenant Hale",
+			"kind": "greet",
+			"text": "Keep your weapons sheathed in town, sailor.",
+			"secs": 2.66,
+			"bytes": 23210,
+			"voice": "Aaron"
+		},
+		"hl_regs": {
+			"file": "hl_regs.ogg",
+			"who": "hale",
+			"name": "Lieutenant Hale",
+			"kind": "greet",
+			"text": "The regulators are watching. Please act natural.",
+			"secs": 2.86,
+			"bytes": 26334,
+			"voice": "Aaron"
+		},
+		"hl_quiet": {
+			"file": "hl_quiet.ogg",
+			"who": "hale",
+			"name": "Lieutenant Hale",
+			"kind": "bye",
+			"text": "A quiet harbour. Long may it last.",
+			"secs": 2.78,
+			"bytes": 25022,
+			"voice": "Aaron"
+		},
+		"hl_rug": {
+			"file": "hl_rug.ogg",
+			"who": "hale",
+			"name": "Lieutenant Hale",
+			"kind": "greet",
+			"text": "Yes, I heard the one about the rug pull. The harbourmaster was not amused.",
+			"secs": 4.81,
+			"bytes": 39522,
+			"voice": "Aaron"
+		},
+		"nv_heave": {
+			"file": "nv_heave.ogg",
+			"who": "navy",
+			"name": "Navy officer",
+			"kind": "hail",
+			"text": "Heave to! This is the Navy! Prepare to be audited!",
+			"secs": 3.82,
+			"bytes": 30808,
+			"voice": "Harry"
+		},
+		"nv_colours": {
+			"file": "nv_colours.ogg",
+			"who": "navy",
+			"name": "Navy officer",
+			"kind": "hail",
+			"text": "Ahoy there! Regulators off your starboard side! Show your colours!",
+			"secs": 4.38,
+			"bytes": 35211,
+			"voice": "Harry"
+		},
+		"nv_inspect": {
+			"file": "nv_inspect.ogg",
+			"who": "navy",
+			"name": "Navy officer",
+			"kind": "board",
+			"text": "Stand by to be inspected, ser!",
+			"secs": 2.18,
+			"bytes": 19479,
+			"voice": "Harry"
+		},
+		"nv_warn": {
+			"file": "nv_warn.ogg",
+			"who": "navy",
+			"name": "Navy officer",
+			"kind": "warn",
+			"text": "Last warning! Heave to, or we fire!",
+			"secs": 2.9,
+			"bytes": 24068,
+			"voice": "Harry"
+		},
+		"nv_paper": {
+			"file": "nv_paper.ogg",
+			"who": "navy",
+			"name": "Navy officer",
+			"kind": "board",
+			"text": "Your paperwork, please! All of it!",
+			"secs": 2.28,
+			"bytes": 20226,
+			"voice": "Harry"
+		},
+		"pr_need": {
+			"file": "pr_need.ogg",
+			"who": "press",
+			"name": "Press gang",
+			"kind": "press",
+			"text": "The navy needs sailors. You will do nicely.",
+			"secs": 4.02,
+			"bytes": 33442,
+			"voice": "Bobby"
+		},
+		"pr_sign": {
+			"file": "pr_sign.ogg",
+			"who": "press",
+			"name": "Press gang",
+			"kind": "press",
+			"text": "Sign here, or pay the fine. Your choice.",
+			"secs": 3.1,
+			"bytes": 27336,
+			"voice": "Bobby"
+		},
+		"pr_stake": {
+			"file": "pr_stake.ogg",
+			"who": "press",
+			"name": "Press gang",
+			"kind": "press",
+			"text": "Come along quietly. Welcome to the mandatory staking program.",
+			"secs": 5.32,
+			"bytes": 46930,
+			"voice": "Bobby"
+		},
+		"ta_bread": {
+			"file": "ta_bread.ogg",
+			"who": "townA",
+			"name": "Market seller",
+			"kind": "market",
+			"text": "Fresh bread! Warm bread! No gas fees!",
+			"secs": 3.9,
+			"bytes": 31940,
+			"voice": "Sarah"
+		},
+		"ta_orange": {
+			"file": "ta_orange.ogg",
+			"who": "townA",
+			"name": "Market seller",
+			"kind": "market",
+			"text": "Oranges! Sweet oranges, fresh from the airdrop!",
+			"secs": 4.06,
+			"bytes": 34187,
+			"voice": "Sarah"
+		},
+		"ta_morning": {
+			"file": "ta_morning.ogg",
+			"who": "townA",
+			"name": "Market seller",
+			"kind": "greet",
+			"text": "Good morning, ser! Lovely day for the harbour.",
+			"secs": 2.92,
+			"bytes": 25024,
+			"voice": "Sarah"
+		},
+		"tb_moon": {
+			"file": "tb_moon.ogg",
+			"who": "townB",
+			"name": "Townsperson",
+			"kind": "greet",
+			"text": "Wen moon? Tonight, if the clouds clear.",
+			"secs": 2.98,
+			"bytes": 25656,
+			"voice": "Laura"
+		},
+		"tb_rain": {
+			"file": "tb_rain.ogg",
+			"who": "townB",
+			"name": "Townsperson",
+			"kind": "rain",
+			"text": "Rain again. My washing will never dry.",
+			"secs": 4.06,
+			"bytes": 33205,
+			"voice": "Laura"
+		},
+		"tb_boats": {
+			"file": "tb_boats.ogg",
+			"who": "townB",
+			"name": "Townsperson",
+			"kind": "greet",
+			"text": "Look at the size of those boats!",
+			"secs": 2.28,
+			"bytes": 20495,
+			"voice": "Laura"
+		},
+		"tc_fish": {
+			"file": "tc_fish.ogg",
+			"who": "townC",
+			"name": "Old fisher",
+			"kind": "market",
+			"text": "Fish! Fresh fish, caught this morning!",
+			"secs": 2.82,
+			"bytes": 23378,
+			"voice": "George"
+		},
+		"tc_knees": {
+			"file": "tc_knees.ogg",
+			"who": "townC",
+			"name": "Old fisher",
+			"kind": "rain",
+			"text": "This weather is murder on my knees, and on my nets.",
+			"secs": 4.46,
+			"bytes": 36617,
+			"voice": "George"
+		},
+		"tc_evening": {
+			"file": "tc_evening.ogg",
+			"who": "townC",
+			"name": "Old fisher",
+			"kind": "greet",
+			"text": "Evening, traveller. Stay safe from the degens.",
+			"secs": 3,
+			"bytes": 25804,
+			"voice": "George"
+		},
+		"td_bear": {
+			"file": "td_bear.ogg",
+			"who": "townD",
+			"name": "Townsperson and crew",
+			"kind": "rain",
+			"text": "Rain, rain, rain. I swear it follows me like a bear market.",
+			"secs": 4.66,
+			"bytes": 37074,
+			"voice": "Kurt"
+		},
+		"td_boots": {
+			"file": "td_boots.ogg",
+			"who": "townD",
+			"name": "Townsperson and crew",
+			"kind": "greet",
+			"text": "They say hodl. My boots say buy new boots.",
+			"secs": 4.22,
+			"bytes": 34354,
+			"voice": "Kurt"
+		},
+		"td_airdrop": {
+			"file": "td_airdrop.ogg",
+			"who": "townD",
+			"name": "Townsperson and crew",
+			"kind": "greet",
+			"text": "An airdrop! Oh. Just a gull. Never mind.",
+			"secs": 3.5,
+			"bytes": 28288,
+			"voice": "Kurt"
+		},
+		"cw_cook": {
+			"file": "cw_cook.ogg",
+			"who": "crew",
+			"name": "Townsperson and crew",
+			"kind": "crew:cook",
+			"text": "Soup's on! Do not let it get cold, ser.",
+			"secs": 3.01,
+			"bytes": 23882,
+			"voice": "Kurt"
+		},
+		"cw_lucky": {
+			"file": "cw_lucky.ogg",
+			"who": "crew",
+			"name": "Townsperson and crew",
+			"kind": "crew:lucky",
+			"text": "Luck is with us today, skipper. I can feel an airdrop coming.",
+			"secs": 3.95,
+			"bytes": 32082,
+			"voice": "Kurt"
+		},
+		"cw_lazy": {
+			"file": "cw_lazy.ogg",
+			"who": "crew",
+			"name": "Townsperson and crew",
+			"kind": "crew:lazy",
+			"text": "Is it break time yet? I am in a long term holding pattern.",
+			"secs": 4.9,
+			"bytes": 41123,
+			"voice": "Kurt"
+		},
+		"cw_brave": {
+			"file": "cw_brave.ogg",
+			"who": "crew",
+			"name": "Townsperson and crew",
+			"kind": "crew:brave",
+			"text": "Let them come. Diamond hands, skipper.",
+			"secs": 2.57,
+			"bytes": 21723,
+			"voice": "Kurt"
+		},
+		"cw_drunkard": {
+			"file": "cw_drunkard.ogg",
+			"who": "crew",
+			"name": "Crew",
+			"kind": "crew:drunkard",
+			"text": "Who took my rum? Oh, here it is.",
+			"secs": 3.22,
+			"bytes": 23019,
+			"voice": "Will"
+		},
+		"cw_sharpEyed": {
+			"file": "cw_sharpEyed.ogg",
+			"who": "crew",
+			"name": "Crew",
+			"kind": "crew:sharpEyed",
+			"text": "Something on the horizon. Could be a whale, could be trouble.",
+			"secs": 3.82,
+			"bytes": 28197,
+			"voice": "Will"
+		},
+		"cw_seasick": {
+			"file": "cw_seasick.ogg",
+			"who": "crew",
+			"name": "Crew",
+			"kind": "crew:seasick",
+			"text": "Please, no more waves. I am down bad.",
+			"secs": 4.32,
+			"bytes": 31273,
+			"voice": "Will"
+		},
+		"po_over": {
+			"file": "po_over.ogg",
+			"who": "police",
+			"name": "Meridian police",
+			"kind": "chase",
+			"text": "Pull over! This is the police!",
+			"secs": 2.38,
+			"bytes": 18609,
+			"voice": "Arron"
+		},
+		"po_stop": {
+			"file": "po_stop.ogg",
+			"who": "police",
+			"name": "Meridian police",
+			"kind": "chase",
+			"text": "Stop the vehicle right now, ser!",
+			"secs": 2.1,
+			"bytes": 16913,
+			"voice": "Arron"
+		},
+		"po_arrest": {
+			"file": "po_arrest.ogg",
+			"who": "police",
+			"name": "Meridian police",
+			"kind": "bust",
+			"text": "You are under arrest. Step out slowly.",
+			"secs": 3.11,
+			"bytes": 23754,
+			"voice": "Arron"
+		},
+		"po_move": {
+			"file": "po_move.ogg",
+			"who": "police",
+			"name": "Meridian police",
+			"kind": "greet",
+			"text": "Move along, citizen. Nothing to see here.",
+			"secs": 2.6,
+			"bytes": 20958,
+			"voice": "Arron"
+		},
+		"po_rug": {
+			"file": "po_rug.ogg",
+			"who": "police",
+			"name": "Meridian police",
+			"kind": "chase",
+			"text": "Speeding, reckless driving, and, I suspect, a rug pull.",
+			"secs": 4.02,
+			"bytes": 32331,
+			"voice": "Arron"
+		},
+		"ra_intro": {
+			"file": "ra_intro.ogg",
+			"who": "radio",
+			"name": "Tidewater radio",
+			"kind": "intro",
+			"text": "Tidewater radio. Weather report follows.",
+			"secs": 2.93,
+			"bytes": 23203,
+			"voice": "Bella"
+		},
+		"ra_clear": {
+			"file": "ra_clear.ogg",
+			"who": "radio",
+			"name": "Tidewater radio",
+			"kind": "clear",
+			"text": "Clear skies and fair winds ahead. Looking bullish out there.",
+			"secs": 3.74,
+			"bytes": 30547,
+			"voice": "Bella"
+		},
+		"ra_squall": {
+			"file": "ra_squall.ogg",
+			"who": "radio",
+			"name": "Tidewater radio",
+			"kind": "squall",
+			"text": "Squalls reported ahead. Secure your gear. Bearish conditions.",
+			"secs": 4.22,
+			"bytes": 34690,
+			"voice": "Bella"
+		},
+		"ra_storm": {
+			"file": "ra_storm.ogg",
+			"who": "radio",
+			"name": "Tidewater radio",
+			"kind": "storm",
+			"text": "Storm warning. All vessels make for port. This is not a drill.",
+			"secs": 3.75,
+			"bytes": 31571,
+			"voice": "Bella"
+		}
+	}
+}
