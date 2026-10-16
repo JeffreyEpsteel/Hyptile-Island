@@ -19,6 +19,9 @@ export const LINE = {
 	desk: [ - 162, 26 ],
 	nose: 0.65, // rad the noses point off the runway's line, toward it
 	side: { meridian: 1 }, // Meridian: the north apron (the courtesy stands take the south one)
+	// metres the line moves toward the runway (Tidemark: onto the graded shoulder, whose edge was the old line, in the
+	// grass: world/islands/town/Vegetation.townClear also keeps the meadow off the line's strip, wave 27B)
+	inset: { tidemark: 3 },
 };
 
 export function stripOf( world = WORLD, name ) {
@@ -51,7 +54,7 @@ export function lineSlots( strip ) {
 	const h = strip.heading;
 	WARBIRD_IDS.forEach( ( id, i ) => {
 
-		const p = stripPoint( strip, LINE.along[ i ], LINE.perp[ i ] );
+		const p = stripPoint( strip, LINE.along[ i ], LINE.perp[ i ] - ( LINE.inset[ strip.name ] ?? 0 ) );
 		// the nose toward the runway and its take-off end
 		const heading = h - p.side * LINE.nose;
 		const W = WARBIRDS[ id ];
@@ -70,7 +73,7 @@ export function lineSlots( strip ) {
 export function deskAt( strip ) {
 
 	if ( ! strip ) return null;
-	const p = stripPoint( strip, LINE.desk[ 0 ], LINE.desk[ 1 ] );
+	const p = stripPoint( strip, LINE.desk[ 0 ], LINE.desk[ 1 ] - ( LINE.inset[ strip.name ] ?? 0 ) );
 	return { x: p.x, z: p.z, heading: strip.heading };
 
 }
