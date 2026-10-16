@@ -858,11 +858,23 @@ export class Player {
 		}
 
 		const under = this.camera.position.y < surfaceY - 0.05;
+		// the eye's speed against the surface: a wave washing over a floating head moves it ~0.2 m/s, a dive or a rise 1 m/s or more
+		const rel = this.camera.position.y - surfaceY;
+		const relV = this._prevRel === undefined || ! ( dt > 0 ) ? 0 : ( rel - this._prevRel ) / dt;
+		this._prevRel = rel;
+		this._crossT = ( this._crossT ?? 9 ) + dt;
 		if ( under !== this.wasUnder ) {
 
-			// (wave 25C) CameraFeel reads this: a dip and a fov breath as the lens crosses the waterline
-			this.crossSeq ++;
-			this.waterCross = { dir: under ? - 1 : 1, speed: Math.abs( this.velocity.y ), t: 0 };
+			// (wave 25C) CameraFeel reads this: a dip and a fov breath as the lens crosses the waterline (a plunge, a dive, a rise;
+			// not a wave over a floating head, nor again within 0.6 s)
+			if ( Math.abs( relV ) > 0.45 && this._crossT > 0.6 ) {
+
+				this.crossSeq ++;
+				this.waterCross = { dir: under ? - 1 : 1, speed: Math.abs( relV ), t: 0 };
+				this._crossT = 0;
+
+			}
+
 			if ( this.audio ) {
 
 				if ( under ) this.audio.submerge();

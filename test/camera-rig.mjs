@@ -399,6 +399,15 @@ const step = ( n = 1 ) => { for ( let i = 0; i < n; i ++ ) { player.update( DT )
 	check( wraps >= 1 && ph.every( ( v ) => v >= 0 && v <= 1 ), `swim: ${ wraps } stroke cues in 3 s of swimming, the phase stays within 0..1` );
 	check( maxRoll > 0.003 && maxRoll < 0.03, `swim: the camera rolls with the stroke (peak ${ ( maxRoll * 57.3 ).toFixed( 2 ) } deg)` );
 	check( player.crossSeq === seq0, 'swim: no waterline crossing while the eye stays above the water' );
+	// waves over a floating head: the water rises and falls 15 cm every ~6 s; the eye goes under now and then, but no kick
+	{
+		const before = player.crossSeq;
+		player.velocity.set( 0, 0, 0 );
+		for ( let i = 0; i < 480; i ++ ) { setWater( 0.18 * Math.sin( i * DT * 1.1 ) ); step(); }
+		setWater( 0 );
+		step( 60 );
+		check( player.crossSeq === before, `swim: waves washing over a floating head are not waterline crossings (${ player.crossSeq - before } kicks in 8 s)` );
+	}
 	// dive and surface
 	player.pitch = - 0.9;
 	input.keys.add( 'KeyW' );
