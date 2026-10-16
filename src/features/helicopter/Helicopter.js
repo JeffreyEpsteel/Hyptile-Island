@@ -8,6 +8,7 @@ import { RotorAudio } from './Audio.js';
 import { HelicopterHUD } from './HUD.js';
 import { RotorSystems } from './Systems.js';
 import { HelicopterCockpit } from './Cockpit.js';
+import { foldHead } from '../cars/SeatedBody.js';
 
 export const HOME = Object.freeze( { x: 18, z: - 68, yaw: 0 } );
 export const CONTROLS = 'W/S forward/back · A/D turn · ,/. strafe · Shift rise/start · C descend · Space hover/brake · V cockpit · O turbine · U avionics · Y position hold · N nav · ; landing light · K realistic flight · 3 systems · E exit after landing';
@@ -51,7 +52,9 @@ export class Helicopter {
 		this.cockpit = new HelicopterCockpit( this, { canvas: opts.canvas, loader: opts.cockpitLoader } );
 		const f = this.flight;
 		this.vehicle = {
-			kind: 'helicopter', quaternion: f.quaternion, seat: [ .2, .96, - .2 ], eye: [ .2, 1.96, - .05 ], focus: [ 0, 1.5, - 0.6 ], chase: 16,
+			// (wave 25E: the seat puts the player's avatar's head at the eye: its hands and feet on the controls by ikTargets)
+			kind: 'helicopter', quaternion: f.quaternion, seat: [ .2, .93, - .11 ], eye: [ .2, 1.96, - .05 ], focus: [ 0, 1.5, - 0.6 ], chase: 16,
+			ikTargets: ( out ) => this.cockpit.ikTargets ? this.cockpit.ikTargets( out ) : null, showsDriver: () => true,
 			toWorld: ( l, out ) => f.toWorld( l, out ), drive: dt => this.drive( dt ), exit: () => this.exit(),
 			prompt: () => this.canExit() ? 'Leave helicopter' : null, speed: () => f.velocity.length(), heading: () => f.yaw, seaLevel: () => this.waterAt( f.position.x, f.position.z ),
 		};
@@ -317,6 +320,7 @@ export class Helicopter {
 		this.remote.update( dt );
 		this.hud?.update( this );
 		this.cockpit.update( dt );
+		foldHead( this.app.avatar, this.piloted && this.app.player?.view === 'first' && ! this.app.freeCam, 'helicopter' );
 	}
 
 	_parkHome() {
@@ -331,7 +335,7 @@ export class Helicopter {
 	}
 	marker() { return { x: this.flight.position.x, z: this.flight.position.z, heading: this.flight.yaw, label: 'Rescue helicopter' }; }
 	view() { return { name: 'Coastal rescue helicopter', assist: this.assist, collective: this.collective, combo: this.tricks.live ? this.tricks.combo : 0, comboPoints: this.tricks.live ? this.tricks.comboPoints : 0, score: this.tricks.total, rotorState: { ...this.flight.state }, piloted: this.piloted, hp: Math.round( this.hp ), altitude: Math.round( this.flight.position.y ), agl: Math.round( this.flight.agl ), speed: Math.round( Math.hypot( this.flight.velocity.x, this.flight.velocity.z ) * 3.6 ), verticalSpeed: this.flight.velocity.y, rpm: this.flight.rpm, grounded: this.flight.grounded, systems: this.systems.toJSON(), running: this.systems.running, starting: this.systems.starting > 0, hold: !! this.systems.hold, warnings: this.systems.warnings.slice(), home: { x: this.home.x, y: this.home.y, z: this.home.z }, controls: CONTROLS }; }
-	hidesDriver() { return this.piloted && this.app.player?.view === 'first'; }
+	hidesDriver() { return false; } // (wave 25E: the pilot is drawn in both views; the head folds away in the first person)
 	isOpen() { return !! this.cockpit.open; }
 	close() { this.cockpit.close(); }
 	wantsMouse() { return this.piloted; }

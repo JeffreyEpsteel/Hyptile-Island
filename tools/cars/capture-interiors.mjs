@@ -93,10 +93,19 @@ if ( ! app.meridian ) {
 const cars = app.features.get( 'cars' ) || app.features.add( 'cars', carsModule );
 if ( cars.lights && app.localLights ) for ( const l of cars.lights ) app.localLights.add( l );
 if ( cars.cockpit?.lights && app.localLights ) for ( const l of cars.cockpit.lights ) if ( ! app.localLights.sources?.includes?.( l ) ) app.localLights.add( l );
-if ( app.avatar && ! /hidesDriver/.test( String( app.frame ) ) ) {
+// --avatar: emulate wave 25E's App patch (the seated avatar with its IK on the wheel and pedals, drawn in both views)
+if ( arg( 'avatar' ) !== null && app.avatar ) {
+
+	app.firstPersonBody = true;
+	const set = app.avatar.setIKTargets.bind( app.avatar ), ik = {};
+	app.avatar.setIKTargets = ( r ) => set( ( app.player.mode === 'plane' && app.player.vehicle?.ikTargets?.( ik ) ) || r );
+
+}
+if ( app.avatar && ( arg( 'avatar' ) !== null || ! /hidesDriver/.test( String( app.frame ) ) ) ) {
 
 	let vis = true;
-	Object.defineProperty( app.avatar, 'visible', { configurable: true, get: () => vis && ! cars.hidesDriver(), set: ( v ) => { vis = v; if ( app.avatar.group ) app.avatar.group.visible = v && ! cars.hidesDriver(); } } );
+	const seat = () => !! ( arg( 'avatar' ) !== null && app.player.mode === 'plane' && app.player.vehicle?.showsDriver?.() );
+	Object.defineProperty( app.avatar, 'visible', { configurable: true, get: () => seat() || ( vis && ! cars.hidesDriver() ), set: ( v ) => { vis = v; if ( app.avatar.group ) app.avatar.group.visible = seat() || ( v && ! cars.hidesDriver() ); } } );
 
 }
 
@@ -135,15 +144,18 @@ for ( const kind of kinds ) for ( const time of times ) for ( const look of look
 	if ( cars.cockpit ) cars.cockpit.rainOverride = rain > 0 ? rain : null;
 	let t = 0;
 	// hold the speed near the target (the gauges read the simulation), steer as asked, indicators on with a steer
-	cars.opts.input = () => ( { throttle: Math.abs( rec.body?.speed || 0 ) < speed ? 0.6 : 0, brake: 0, steer, handbrake: false } );
-	app.player.setView( look === 'chase' ? 'third' : 'first' );
+	// (the window look stops the car: the camera stands still beside the door)
+	cars.opts.input = () => look === 'window' ? { throttle: 0, brake: 0, steer, handbrake: true } : ( { throttle: Math.abs( rec.body?.speed || 0 ) < speed ? 0.6 : 0, brake: 0, steer, handbrake: false } );
+	app.player.setView( look === 'chase' || look === 'window' ? 'third' : 'first' );
 	const [ yaw, pitch0 ] = LOOKS[ look ] || LOOKS.forward;
 	// (wave 25E: 'forward' is the seat's own starting look: the van and the bus tip it down to their clusters)
 	const pitch = look === 'forward' && Number.isFinite( rec.spec?.lookDown ) ? rec.spec.lookDown : pitch0;
 	for ( let i = 0; i < 200; i ++ ) {
 
 		t += 1 / 60;
-		if ( ! peek && look !== 'chase' ) { app.player.helmYaw = yaw; app.player.helmPitch = pitch; }
+		if ( ! peek && look !== 'chase' && look !== 'window' ) { app.player.helmYaw = yaw; app.player.helmPitch = pitch; }
+		// window (wave 25E): the chase camera swung to the driver's door, close, level with the seat: the seated driver
+		if ( look === 'window' ) { app.player.orbitYaw = ( rec.body?.yaw ?? 0 ) + Math.PI * 0.5 + 0.25; app.player.orbitPitch = 0.02; app.player.planeDist = rec.kind === 'bus' ? 4.5 : 3.0; }
 		if ( i === 30 && steer && cars.cockpit?.act ) cars.cockpit.act( steer > 0 ? 'indL' : 'indR' );
 		if ( i === 30 && time === 'night' && cars.cockpit?.act && look === 'back' ) cars.cockpit.act( 'dome' );
 		app.frame( 1 / 60 );
@@ -156,7 +168,10 @@ for ( const kind of kinds ) for ( const time of times ) for ( const look of look
 	const file = join( out, `${ profile }-${ kind }-${ time }-${ look }${ rain ? '-rain' : '' }.png` );
 	await canvasPNG( GPU, file );
 	const s = cars.cockpit?.snapshot || {};
-	console.log( JSON.stringify( { file, kind, time, look, speed: s.speed?.toFixed?.( 1 ), rpm: Math.round( s.rpm || 0 ), gear: s.gear, fuel: s.fuel, temp: s.temp, detailed: !! rec.cockpitDetailed, interior: cars.cockpit?.interiorKind || null, meshes: cars.cockpit?.group?.children?.length || 0, steer: rec.body?.steer?.toFixed?.( 3 ) } ) );
+	console.log( JSON.stringify( { file, kind, time, look, speed: s.speed?.toFixed?.( 1 ), rpm: Math.round( s.rpm || 0 ), gear: s.gear, fuel: s.fuel, temp: s.temp, detailed: !! rec.cockpitDetailed, interior: cars.cockpit?.interiorKind || null, meshes: cars.cockpit?.group?.children?.length || 0, steer: rec.body?.steer?.toFixed?.( 3 ),
+		head: app.avatar?.headPosition && cars.cockpit?.group ? ( ( v ) => [ v.x, v.y, v.z ].map( ( n ) => +n.toFixed( 3 ) ) )( cars.cockpit.group.worldToLocal( app.avatar.headPosition( new ( app.camera.position.constructor )() ) ) ) : null,
+		avatar: !! app.avatar?.model, vis: app.avatar?.group?.visible, dbg: [ app.firstPersonBody, typeof app.player.vehicle?.showsDriver, cars.hidesDriver(), app.avatar.visible ], mode: app.player.mode, view: app.player.view,
+		root: app.avatar?.group && cars.cockpit?.group ? ( ( v ) => [ v.x, v.y, v.z ].map( ( n ) => +n.toFixed( 3 ) ) )( cars.cockpit.group.worldToLocal( app.avatar.group.position.clone() ) ) : null } ) );
 	cars.opts.input = null;
 
 }

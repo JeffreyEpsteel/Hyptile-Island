@@ -13,10 +13,13 @@ import { CarAudio } from './CarAudio.js';
 import { DealerPanel } from './DealerPanel.js';
 import { Mirror, encodeSnapshot } from './CarNet.js';
 import { CarCockpit } from './CarCockpit.js';
+import { foldHead } from './SeatedBody.js';
 import { drivetrain, systemsOf, stepSystems } from './CarSystems.js';
 
 const SAVE_VERSION = 1;
 const FAR = { x: 1e9, y: - 1e4, z: 1e9 };
+// the seated avatar (wave 25E): its eye this far over its root and ahead of it (the seated clip's head node and the face)
+export const SIT_EYE = [ 1.03, 0.06 ];
 const ON_FOOT = [ 'walk', 'deck', 'swim' ];
 const MAX_PHYS = 8; // loose cars simulated at once (the rest settle where they are)
 const clamp = ( v, a, b ) => ( v < a ? a : v > b ? b : v );
@@ -114,6 +117,9 @@ export class Cars {
 			},
 			drive: ( dt ) => this._drive( dt ),
 			exit: () => this.exit(),
+			// the seated avatar's hands / feet / gaze (wave 25E: App patch feeds these to Avatar.setIKTargets)
+			ikTargets: ( out ) => this.cockpit ? this.cockpit.ikTargets( out ) : null,
+			showsDriver: () => true,
 			prompt: () => ( this.drive && this.drive.body && Math.abs( this.drive.body.speed ) < 3 ? 'Get out' : null ),
 			speed: () => ( this.drive && this.drive.body ? Math.abs( this.drive.body.speed ) : 0 ),
 			heading: () => ( this.drive && this.drive.body ? this.drive.body.yaw : 0 ),
@@ -211,8 +217,9 @@ export class Cars {
 	get sandbox() { return !! ( this.features && this.features.sandbox ); }
 	get driving() { return !! this.drive; }
 
-	// the driver is not drawn in a car (the cabins are too small for the islanders; App patch: avatar.visible)
-	hidesDriver() { return !! this.drive; }
+	// wave 25E: the driver is the player's own avatar, seated at the wheel with IK on the rim and the pedals, drawn in both
+	// views (App patch: vehicle.showsDriver; the head folds away behind the first-person eye: SeatedBody.js)
+	hidesDriver() { return false; }
 
 	isOpen() { return this.panel.isOpen || this.cockpit.isOpen; }
 	close() { this.panel.close(); this.cockpit.close(); }
@@ -445,7 +452,8 @@ export class Cars {
 		this._hornPulse = 0; this._horn = this._hornWas = false;
 		this.stats.taken ++;
 		const S = rec.spec, v = this.vehicle;
-		v.seat = S.seat; v.eye = S.eye; v.chase = S.chase; v.focus = [ 0, Math.min( 2.2, S.hgt * 0.85 ), 0 ];
+		// (wave 25E: the avatar's root sits where its head lands at the eye: the islanders' big heads clear the roof)
+		v.seat = S.sit || [ S.seat[ 0 ], S.eye[ 1 ] - SIT_EYE[ 0 ], S.eye[ 2 ] - SIT_EYE[ 1 ] ]; v.eye = S.eye; v.chase = S.chase; v.focus = [ 0, Math.min( 2.2, S.hgt * 0.85 ), 0 ];
 		this._syncQuat( rec );
 		p.enterVehicle( v );
 		// (wave 25E) a cab-forward van and the bus seat you high over a low dash: the eye starts tipped down so the cluster
@@ -1531,6 +1539,8 @@ export class Cars {
 		this._lightsUpdate( night );
 		this._audioUpdate( dt );
 		this.cockpit.update( dt );
+		// the driver's own body behind the first-person eye: its head folded away (SeatedBody.js)
+		foldHead( this.app.avatar, !! this.drive && this.app.player?.view === 'first' && ! this.app.freeCam, 'cars' );
 		this._draw( pos, night );
 		this._remoteAge( dt );
 		this._flushGone();

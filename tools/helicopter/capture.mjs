@@ -50,7 +50,16 @@ const h = app.features.get( 'helicopter' );
 if ( ! h ) { console.log( 'no helicopter feature' ); process.exit( 1 ); }
 // the cockpit's fresh canvas (the feature made its own before the software canvas existed)
 if ( h.cockpit?.useSoftCanvas ) h.cockpit.useSoftCanvas();
-// (the App hides the pilot in the first person: hidesDriver)
+// --avatar=1: emulate wave 25E's App patch (the player's avatar seated at the controls with its IK, drawn in both views)
+if ( arg( 'avatar' ) !== null && app.avatar ) {
+
+	const set = app.avatar.setIKTargets.bind( app.avatar ), ik = {};
+	app.avatar.setIKTargets = ( r ) => set( ( app.player.mode === 'plane' && app.player.vehicle?.ikTargets?.( ik ) ) || r );
+	let vis = true;
+	const seat = () => !! ( app.player.mode === 'plane' && app.player.vehicle?.showsDriver?.() );
+	Object.defineProperty( app.avatar, 'visible', { configurable: true, get: () => seat() || vis, set: ( v ) => { vis = v; if ( app.avatar.group ) app.avatar.group.visible = seat() || v; } } );
+
+}
 const VIEWS = {
 	pad: { time: 11, look: [ 0, - 0.2 ] },
 	panel: { time: 11, look: [ 0.05, - 0.42 ] },
@@ -68,6 +77,9 @@ const VIEWS = {
 	flip: { time: 10.5, flip: true },
 	fliprain: { time: 14, flip: true, rain: 0.8 },
 	rainfly: { time: 14, look: [ 0, - 0.12 ], fly: true, rain: 0.8 },
+	// the pilot (the player's avatar) at the controls: from the door, and the cyclic / collective from the seat
+	pilot: { time: 10.5, look: [ 0, - 0.2 ], door: true },
+	hands: { time: 10.5, look: [ 0.15, - 0.85 ] },
 };
 const only = ( arg( 'views' ) || Object.keys( VIEWS ).join( ',' ) ).split( ',' );
 for ( const id of only ) {
@@ -121,6 +133,8 @@ for ( const id of only ) {
 
 		}
 		if ( ! v.outside && ! v.flip ) { app.player.helmYaw = v.look[ 0 ]; app.player.helmPitch = v.look[ 1 ]; }
+		if ( v.door && i === 2 ) app.player.setView( 'third' );
+		if ( v.door ) { app.player.orbitYaw = h.flight.yaw + Math.PI * 0.5 - 0.35; app.player.orbitPitch = 0.05; }
 		if ( v.fly ) {
 
 			app.input.keys.clear();

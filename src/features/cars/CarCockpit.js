@@ -193,6 +193,29 @@ export class CarCockpit {
 
 	}
 
+	// the player's own avatar seated at the wheel (wave 25E; App patch: Avatar.setIKTargets( vehicle.ikTargets() )): its
+	// palms on the rim at the wrists' empties (under the wheel node: they turn with it), its feet on the pedals (the
+	// ankles' empties ride the pedals), its eyes on the road ahead. World points; null without the modelled cabin.
+	ikTargets( out = {} ) {
+
+		const it = this.interior, g = this.group, r = this.record;
+		if ( ! it || ! g || ! r || r !== this.cars.drive ) return null;
+		g.updateMatrixWorld( true );
+		const slot = ( k ) => out[ k ] || ( out[ k ] = { position: new Vector3(), weight: 1 } );
+		for ( const [ k, n ] of [ [ 'leftHand', 'Wrist_L' ], [ 'rightHand', 'Wrist_R' ], [ 'leftFoot', 'Ankle_L' ], [ 'rightFoot', 'Ankle_R' ] ] ) {
+
+			const s = slot( k );
+			if ( ! it.point( n, s.position ) ) { s.weight = 0; continue; }
+			s.position.applyMatrix4( g.matrixWorld ); s.weight = 1;
+
+		}
+		const e = r.spec.eye, look = slot( 'look' );
+		look.position.set( e[ 0 ], e[ 1 ] - 0.4, e[ 2 ] + 25 ).applyMatrix4( g.matrixWorld ); look.weight = 0.8;
+		out.weight = 1;
+		return out;
+
+	}
+
 	_aimAt() {
 
 		const cam = this.app.camera, r = this.cars.drive, input = this.app.input;
@@ -318,9 +341,11 @@ export class CarCockpit {
 		const sweep = Math.PI / 2 - wiperAngle( s );
 		const rig = this.rainRig;
 		if ( rig ) rig.wipers.forEach( ( w ) => w && turnNode( w.node, 'z', sweep ) );
-		// the body is drawn in the first person only (the chase view's avatar is hidden in a car, so is this)
-		for ( const m of this.body ) m.visible = fp && driven;
-		if ( fp && driven ) this._limbs( r );
+		// the stand-in limbs: only where the player's own avatar is not drawn in the seat (wave 25E: it sits at the wheel
+		// with its hands and feet on the controls, App patch); the 24A tube limbs remain the fallback
+		const avatar = !! ( this.app.avatar && this.app.avatar.visible && this.app.avatar.ik );
+		for ( const m of this.body ) m.visible = fp && driven && ! avatar;
+		if ( fp && driven && ! avatar ) this._limbs( r );
 		// light: the dome (switch or the courtesy delay), else a faint dash glow at night with the engine on
 		const night = this.cars.night, dome = !! ( s.dome || s.domeT > 0 ), glowOn = night && r.engineOn !== false && driven;
 		const L = this.lights[ 0 ];

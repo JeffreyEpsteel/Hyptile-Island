@@ -301,6 +301,23 @@ export class HelicopterCockpit {
 		this.body = [ this.limbSet.mesh ];
 		it.group.traverse( m => { if ( m.isMesh && /Glove|Shoe/.test( m.name ) ) this.body.push( m ); } );
 	}
+	// the pilot's avatar on the controls: palms on the collective (left) and cyclic (right) grips, feet on the pedals, the
+	// gaze ahead (world points for Avatar.setIKTargets; null without the modelled cockpit)
+	ikTargets( out = {} ) {
+		const it = this.interior, h = this.h;
+		if ( ! it || ! h.piloted ) return null;
+		it.group.updateMatrixWorld( true );
+		const slot = ( k ) => out[ k ] || ( out[ k ] = { position: new Vector3(), weight: 1 } );
+		for ( const [ k, n ] of [ [ 'leftHand', 'Wrist_L' ], [ 'rightHand', 'Wrist_R' ], [ 'leftFoot', 'Ankle_L' ], [ 'rightFoot', 'Ankle_R' ] ] ) {
+			const sl = slot( k );
+			if ( ! it.point( n, sl.position ) ) { sl.weight = 0; continue; }
+			sl.position.applyMatrix4( it.group.matrixWorld ); sl.weight = 1;
+		}
+		const e = h.vehicle.eye, look = slot( 'look' );
+		look.position.set( e[ 0 ], e[ 1 ] - 0.5, e[ 2 ] + 25 ).applyMatrix4( it.group.matrixWorld ); look.weight = 0.7;
+		out.weight = 1;
+		return out;
+	}
 	_release() {
 		this.limbSet?.dispose(); this.limbSet = null; this.limbs = []; this.body = [];
 		if ( this.interior ) { this.interior.dispose(); this.interior = null; this.h.visual?.setDetailed?.( false ); }
@@ -312,7 +329,10 @@ export class HelicopterCockpit {
 		it.nodes.get( 'Collective' )?.quaternion.copy( v.collective.quaternion );
 		const pl = it.nodes.get( 'Pedal_L' ), pr = it.nodes.get( 'Pedal_R' );
 		if ( pl ) pl.position.copy( v.pedals[ 1 ].position ); if ( pr ) pr.position.copy( v.pedals[ 0 ].position );
-		const show = first && h.piloted;
+		// the stand-in limbs only where the player's own avatar is not drawn in the seat (wave 25E: it flies with its hands on
+		// the collective and the cyclic and its feet on the pedals by ikTargets, the App patch draws it)
+		const avatar = !! ( this.app.avatar && this.app.avatar.visible && this.app.avatar.ik );
+		const show = first && h.piloted && ! avatar;
 		for ( const m of this.body ) m.visible = show;
 		if ( show ) {
 			const e = h.vehicle.eye;
