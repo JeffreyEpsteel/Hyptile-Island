@@ -336,6 +336,7 @@ try {
 	}
 
 	section( 'the law: the host\'s police chase the wanted guest only' );
+	G.cars.graceT = 0; // (Gus was busted above: his 60 s of grace would hide his wanted level from the host's police)
 	G.cars._addHeat( 55, 'test' );
 	ok( G.cars.policeLevel() >= 3, 'Gus is wanted', `(level ${ G.cars.policeLevel() })` );
 	await until( all, () => H.cars.records.some( ( r ) => r.state === 'pursuit' ), 6, 'pursuit' );
@@ -389,6 +390,7 @@ try {
 	ok( worst <= BUDGET, 'the busiest client stays within wave 20E\'s budget', `(${ worst } B/s <= ${ BUDGET }; ${ ( sn / secs ).toFixed( 1 ) } snapshots/s, ~${ Math.round( ( H.sync.cars.stats.bytesOut - bytes0 ) / Math.max( 1, sn ) ) } JSON chars each, ${ G.cars.mirror.records.size } puppets at Gus)` );
 	ok( G.cars.driving && K.cars.driving && H.cars.remote.size === 2, 'both drivers are drawn at the host' );
 	// and in a chase: the loose cars at 4 Hz between the full snapshots
+	G.cars.graceT = 0; // (Gus was busted above: his 60 s of grace would hide his wanted level from the host's police)
 	G.cars._addHeat( 55, 'test' );
 	await until( all, () => H.cars.chasing(), 6, 'chase' );
 	await run( all, 1 );
