@@ -160,6 +160,26 @@ function modeIcon( label ) {
 
 }
 
+const TOAST_MAX = 2; // toasts on screen at once
+const TOAST_QUEUE = 8; // waiting behind them (the oldest go first)
+const TOAST_STALE = 14000; // ms: a queued toast older than this is no longer news
+
+// the sound a button makes (wave 25B): data-sound wins, then its kind
+const BACK = '.tw-help-close, .wm-close, .gm-x, .nv-close, [data-close], [data-act="close"], [data-nv="close"], [aria-label="Close"], [aria-label="Back"]';
+const TABS = '[role="tab"], .gm-tab, .hb-tab, .tw-tab, .tw-rail-btn, .tw-chip';
+const OK = '.gm-btn:not(.is-ghost), .tw-btn-primary, .tw-start-cta, .hb-btn.is-gold';
+export function soundFor( el ) {
+
+	const d = el.dataset && el.dataset.sound;
+	if ( d ) return d;
+	if ( el.matches( BACK ) ) return 'back';
+	if ( el.matches( '[role="switch"], [role="checkbox"], .tw-switch, .tw-toggle' ) ) return 'toggle';
+	if ( el.matches( TABS ) ) return 'tab';
+	if ( el.matches( OK ) ) return 'confirm';
+	return 'click';
+
+}
+
 function callHook( fn, ...args ) {
 
 	const list = Array.isArray( fn ) ? fn : [ fn ];
@@ -2079,6 +2099,10 @@ export class UI {
 		this._menu = null;
 		this._menuAnchor = null;
 		this._toasts = [];
+		this._toastQ = []; // (wave 25B) the notification queue: toasts wait here while a window is open or two are showing
+		this._toastT = 0;
+		this._snd = null;
+		this._sndT = 0;
 		this._spark = [];
 		this._sparkAcc = 0;
 		this._sparkT = 0;
@@ -2094,6 +2118,7 @@ export class UI {
 		this.onPanelToggle = null; // ( open )
 		this.onHelpToggle = null; // ( open )
 		this.onReplayGuide = null; // (): the fishing game's first-play guide
+		this.onSound = null; // ( name ): a UI sound ('click' 'tab' 'toggle' 'confirm' 'back' 'open' 'close' 'notify' 'levelup'): AppUI plays the sfx cue
 		// Opening the panel exits pointer lock so the cursor can reach it.
 		this.releasePointerOnPanel = true;
 
@@ -2323,12 +2348,14 @@ export class UI {
 
 		// collapsed state: a slim rail of tab icons
 		const rail = this.rail = h( 'nav', 'tw-rail tw-glass tw-interactive', { 'aria-label': 'Settings' } );
-		const open = h( 'button', 'tw-rail-btn tw-rail-open', { type: 'button', 'aria-label': 'Open settings', 'data-tip': 'Settings (H)', 'data-tip-side': 'left', html: icon( 'sliders' ) } );
+		const open = h( 'button', 'tw-rail-btn tw-rail-open', { type: 'button', 'aria-label': 'Open settings', 'data-tip': 'Settings (H)', 'data-tip-side': 'left', html: icon( 'gear' ) } );
 		open.addEventListener( 'click', () => this.togglePanel( true ) );
+		// (wave 25B) one gear instead of one icon per tab: the tabs live inside the panel it opens. The per-tab rail buttons
+		// are still built (Tab.railBtn, kept for the active-tab bookkeeping) but are not attached to the page.
 		this.railTabs = h( 'div', 'tw-rail-tabs' );
 		const help = h( 'button', 'tw-rail-btn', { type: 'button', 'aria-label': 'Controls', 'data-tip': 'Controls (F1)', 'data-tip-side': 'left', html: icon( 'help' ) } );
 		help.addEventListener( 'click', () => this.toggleHelp() );
-		rail.append( open, h( 'span', 'tw-rail-sep' ), this.railTabs, h( 'span', 'tw-rail-sep' ), help );
+		rail.append( open, h( 'span', 'tw-rail-sep' ), help );
 
 		this.root.append( rail, panel );
 
@@ -2413,15 +2440,9 @@ export class UI {
 				${ brandMark( 'tw-start-mark' ) }
 				<div class="tw-start-title tw-wordmark">HYPTILE ISLAND</div>
 				<div class="tw-start-rule" aria-hidden="true"></div>
-				<button type="button" class="tw-start-cta"><span class="tw-start-pulse" aria-hidden="true"></span><span class="tw-start-click">${ icon( 'mouse' ) }</span><span class="tw-start-click">Click to explore</span><span class="tw-start-tap">Tap to explore</span></button>
-				<div class="tw-start-keys">
-					<span><span class="tw-wasd"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></span>Move</span>
-					<span><kbd class="tw-kbd-ico">${ icon( 'mouse' ) }</kbd>Look</span>
-					<span><kbd>E</kbd>Interact</span>
-					<span><kbd>H</kbd>Settings</span>
-					<span><kbd>F1</kbd>All controls</span>
-				</div>
+				<button type="button" class="tw-start-cta" data-sound="confirm"><span class="tw-start-pulse" aria-hidden="true"></span><span class="tw-start-click">${ icon( 'mouse' ) }</span><span class="tw-start-click">Click to explore</span><span class="tw-start-tap">Tap to explore</span></button>
 			</div>`;
+		// (wave 25B) the wordmark, the rule and one button: the keys are the first guide page's and the controls sheet's (F1)
 		this.root.append( el );
 
 	}
@@ -2495,6 +2516,15 @@ export class UI {
 			if ( ! e.relatedTarget ) this._overUI = false;
 
 		}, { signal } );
+
+		// (wave 25B) UI sounds: one delegated listener for every button of every window under the HUD root
+		document.addEventListener( 'click', ( e ) => {
+
+			const b = e.target && e.target.closest ? e.target.closest( 'button, [role="tab"], [role="switch"], [role="checkbox"], [role="radio"], [data-sound]' ) : null;
+			if ( ! b || b.disabled || ! this.root.contains( b ) ) return;
+			this.sound( soundFor( b ) );
+
+		}, { capture: true, signal } );
 
 		document.addEventListener( 'pointerlockchange', () => {
 
@@ -2937,6 +2967,7 @@ export class UI {
 		}
 
 		this._activity();
+		this.sound( open ? 'open' : 'close' );
 		callHook( this.onPanelToggle, open );
 		return open;
 
@@ -3273,11 +3304,97 @@ export class UI {
 
 	}
 
-	// Brief notification. Returns a function that dismisses it early.
+	// ── sounds ──────────────────────────────────────────────────────────────
+
+	// A UI sound by name. Calls inside one tick collapse to the last (a click on the gear says 'open', not 'click' then
+	// 'open'); AppUI plays the sfx cue ui_<name> from onSound.
+	sound( name ) {
+
+		this._snd = name;
+		if ( this._sndT ) return;
+		this._sndT = setTimeout( () => {
+
+			const n = this._snd;
+			this._snd = null;
+			this._sndT = 0;
+			if ( n ) callHook( this.onSound, n );
+
+		}, 0 );
+
+	}
+
+	// ── notifications ───────────────────────────────────────────────────────
+	// One channel: toasts show two at a time, wait their turn in a queue (stale ones are dropped) and hold while a window
+	// is open or the catch card is up; the guide's coach tip (game/Guide.js) waits for the channel to be quiet.
+
+	// is a window over the world that a toast should not talk over?
+	_toastHeld() {
+
+		return !! ( this.root.querySelector && this.root.querySelector( '.gm-panel.is-open, .gm-catch.is-on, .gm-guide.is-on, .wm-root.is-on, .tw-help.is-on' ) );
+
+	}
+
+	// anything on screen or waiting?
+	notifyBusy() {
+
+		return this._toasts.length > 0 || this._toastQ.length > 0;
+
+	}
+
+	_pumpToasts() {
+
+		const now = performance.now();
+		this._toastQ = this._toastQ.filter( ( q ) => now - q.at < TOAST_STALE );
+		while ( this._toastQ.length && this._toasts.length < TOAST_MAX && ! this._toastHeld() ) {
+
+			const q = this._toastQ.shift();
+			q.shown = this._showToast( q.text, q.ms );
+
+		}
+
+		clearTimeout( this._toastT );
+		this._toastT = 0;
+		if ( this._toastQ.length ) this._toastT = setTimeout( () => this._pumpToasts(), 350 );
+
+	}
+
+	// Brief notification. Returns a function that dismisses it early (or drops it from the queue).
 	toast( text, ms = 2500 ) {
 
 		text = String( text ?? '' );
 		if ( ! text ) return () => {};
+
+		const live = this._toasts.find( ( t ) => t.text === text && ! t.leaving );
+		if ( ! live ) {
+
+			// the same words already waiting: keep one
+			const waiting = this._toastQ.find( ( q ) => q.text === text );
+			if ( waiting ) { waiting.ms = Math.max( waiting.ms, ms ); waiting.at = performance.now(); return () => this._dropQueued( waiting ); }
+			if ( this._toasts.length >= TOAST_MAX || this._toastHeld() ) {
+
+				const q = { text, ms, at: performance.now(), shown: null };
+				this._toastQ.push( q );
+				while ( this._toastQ.length > TOAST_QUEUE ) this._toastQ.shift();
+				if ( ! this._toastT ) this._toastT = setTimeout( () => this._pumpToasts(), 350 );
+				return () => this._dropQueued( q );
+
+			}
+
+		}
+
+		return this._showToast( text, ms );
+
+	}
+
+	_dropQueued( q ) {
+
+		const i = this._toastQ.indexOf( q );
+		if ( i >= 0 ) this._toastQ.splice( i, 1 );
+		else if ( q.shown ) q.shown();
+
+	}
+
+	_showToast( text, ms ) {
 
 		// repeated message: restart its timer instead of stacking duplicates
 		const same = this._toasts.find( ( t ) => t.text === text && ! t.leaving );
@@ -3316,12 +3433,13 @@ export class UI {
 			const i = this._toasts.indexOf( t );
 			if ( i >= 0 ) this._toasts.splice( i, 1 );
 			setTimeout( () => el.remove(), 360 );
+			if ( this._toastQ.length ) this._pumpToasts();
 
 		};
 
 		t.timer = setTimeout( t.dismiss, ms );
 		this._toasts.push( t );
-		while ( this._toasts.length > 4 ) this._toasts[ 0 ].dismiss();
+		this.sound( 'notify' );
 		return t.dismiss;
 
 	}
@@ -3359,6 +3477,7 @@ export class UI {
 		}
 
 		this._activity();
+		this.sound( open ? 'open' : 'close' );
 		callHook( this.onHelpToggle, open );
 		return open;
 
@@ -3752,6 +3871,9 @@ export class UI {
 		clearInterval( this._timer );
 		this._ac.abort();
 		for ( const t of this._toasts ) clearTimeout( t.timer );
+		clearTimeout( this._toastT );
+		clearTimeout( this._sndT );
+		this._toastQ.length = 0;
 		this._closeMenu();
 		this.root.remove();
 		this._controls.clear();

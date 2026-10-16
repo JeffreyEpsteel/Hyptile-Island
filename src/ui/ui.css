@@ -512,6 +512,154 @@ body {
 		0 12px 32px -12px rgba(0, 0, 0, 0.55);
 }
 
+/* ── one window language (wave 25B) ────────────────────────────────────────
+   Every centred window speaks this: the inventory, the fish stand and the yard (GameHUD), the roster and journal
+   (HudPanels), the tavern and bench (harbour PanelKit, .hb-*), the navy office (.nv-*). One shell, one title / eyebrow /
+   row / button / tab scale; a window only sets its width (--gm-w, in design px). The world map keeps its chart, but its
+   chrome (close, controls, tracked card, legend) uses the same pill / glass tokens (WorldMap.js). */
+.gm-panel,
+.hb-panel,
+.nv-panel {
+	position: absolute;
+	left: 50%;
+	top: 50%;
+	z-index: 6;
+	display: flex;
+	flex-direction: column;
+	box-sizing: border-box;
+	width: min(calc(var(--gm-w, 420) * var(--tw-u)), calc(100vw - 2 * var(--tw-edge)));
+	max-height: min(78vh, calc(100dvh - 2 * var(--tw-edge)));
+	padding: var(--tw-4) var(--tw-5);
+	border-radius: var(--tw-r-lg);
+	font: 500 var(--tw-fs-md) var(--tw-font);
+	color: var(--tw-ink);
+	opacity: 0;
+	pointer-events: none;
+	transform: translate(-50%, -48%);
+	transition: opacity var(--tw-med) var(--tw-ease), transform var(--tw-slow) var(--tw-ease);
+}
+
+.hb-panel { --gm-w: 560; }
+.nv-panel { --gm-w: 440; }
+
+.gm-panel.is-open,
+.hb-panel.is-open,
+.nv-panel.is-open {
+	opacity: 1;
+	pointer-events: auto;
+	transform: translate(-50%, -50%);
+}
+
+.tw-root.is-photo .gm-panel,
+.tw-root.is-photo .hb-panel,
+.tw-root.is-photo .nv-panel { display: none; }
+
+.gm-panel h2,
+.hb-head h2,
+.nv-panel h2 { margin: 0 0 var(--tw-1); font-size: calc(17 * var(--tw-u)); font-weight: 600; letter-spacing: 0; }
+
+.gm-panel p.gm-sub,
+.hb-sub,
+.nv-panel p { margin: 0 0 var(--tw-3); color: var(--tw-ink-3); font-size: var(--tw-fs-sm); line-height: 1.5; }
+
+.hb-sub b,
+.nv-panel p b { color: var(--tw-sun); font-weight: 600; }
+
+/* section eyebrow */
+.gm-panel h3,
+.hb-body h3 { margin: var(--tw-3) 0 var(--tw-1); font-size: var(--tw-fs-xs); font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; color: var(--tw-ink-3); }
+
+/* the corner close (the navy office, the tavern) */
+.gm-x,
+.nv-close {
+	position: absolute;
+	top: var(--tw-3);
+	right: var(--tw-3);
+	display: grid;
+	place-items: center;
+	width: calc(26 * var(--tw-u));
+	height: calc(26 * var(--tw-u));
+	padding: 0;
+	border: 0;
+	border-radius: 50%;
+	background: none;
+	color: var(--tw-ink-3);
+	font-size: calc(18 * var(--tw-u));
+	line-height: 1;
+	cursor: pointer;
+	transition: background var(--tw-fast), color var(--tw-fast);
+}
+
+.gm-x:hover,
+.nv-close:hover { background: var(--tw-fill-2); color: var(--tw-ink); }
+
+/* buttons: the aqua pill is the one primary; ghost is the quiet one */
+.gm-btn {
+	font: 600 var(--tw-fs-md) var(--tw-font);
+	color: #0b1418;
+	background: var(--tw-aqua);
+	border: 0;
+	border-radius: 999px;
+	padding: var(--tw-2) var(--tw-4);
+	cursor: pointer;
+	white-space: nowrap;
+	transition: filter var(--tw-fast), background var(--tw-fast);
+}
+
+.gm-btn:hover:not([disabled]) { filter: brightness(1.1); }
+.gm-btn[disabled] { opacity: 0.4; cursor: default; }
+.gm-btn.is-ghost,
+.hb-btn { color: var(--tw-ink); background: var(--tw-fill-2); }
+.gm-btn.is-ghost:hover:not([disabled]),
+.hb-btn:hover:not([disabled]) { filter: none; background: var(--tw-line-2); }
+
+.hb-btn {
+	font: 600 var(--tw-fs-md) var(--tw-font);
+	border: 0;
+	border-radius: 999px;
+	padding: var(--tw-2) var(--tw-4);
+	cursor: pointer;
+	white-space: nowrap;
+}
+
+.hb-btn[disabled] { opacity: 0.4; cursor: default; }
+.hb-btn.is-small { font-size: var(--tw-fs-sm); padding: 2px var(--tw-3); }
+.hb-btn.is-gold { color: var(--tw-sun); }
+
+/* a full-width choice row with a note under it (the navy office's answers) */
+.gm-acts { display: grid; gap: var(--tw-2); margin-top: var(--tw-3); }
+.gm-act {
+	text-align: left;
+	font: 600 var(--tw-fs-md) var(--tw-font);
+	color: var(--tw-ink);
+	background: var(--tw-fill);
+	border: 1px solid var(--tw-line);
+	border-radius: var(--tw-r-md);
+	padding: var(--tw-2) var(--tw-3);
+	cursor: pointer;
+	transition: background var(--tw-fast);
+}
+
+.gm-act:hover:not([disabled]) { background: var(--tw-fill-2); }
+.gm-act[disabled] { opacity: 0.4; cursor: default; }
+.gm-act small { display: block; font-weight: 500; color: var(--tw-ink-3); font-size: var(--tw-fs-xs); }
+
+/* tabs: a pill track (the roster, the tavern, the yard) */
+.gm-tabs,
+.hb-tabs { display: flex; gap: var(--tw-1); margin: 0 0 var(--tw-3); padding: 3px; border-radius: 999px; background: var(--tw-fill); }
+.gm-tab,
+.hb-tab { flex: 1; font: 600 var(--tw-fs-sm) var(--tw-font); color: var(--tw-ink-2); background: none; border: 0; border-radius: 999px; padding: calc(5 * var(--tw-u)) var(--tw-3); cursor: pointer;
+	transition: background var(--tw-fast), color var(--tw-fast); }
+.gm-tab:hover,
+.hb-tab:hover { color: var(--tw-ink); }
+.gm-tab.is-on,
+.hb-tab.is-on { background: var(--tw-fill-2); color: var(--tw-ink); box-shadow: inset 0 0 0 1px var(--tw-line-2); }
+
+/* rows: a hairline between, the same padding everywhere */
+.gm-row,
+.gm-shop-row,
+.hb-row { padding: var(--tw-2) 0; border-bottom: 1px solid var(--tw-line); }
+
 :where(.tw-root) kbd {
 	display: inline-flex;
 	align-items: center;
@@ -786,10 +934,12 @@ body {
 	font-size: var(--tw-fs-md);
 	font-weight: 500;
 	opacity: 0;
-	transform: translateY(calc(-8 * var(--tw-u))) scale(0.98);
+	/* (wave 25B) a toast drops in from the top edge with a small overshoot and leaves quickly upward; the coach tip slides in
+	   from the side and the catch card rises and stamps, so each kind of message moves its own way */
+	transform: translateY(calc(-18 * var(--tw-u))) scale(0.94);
 	transition:
-		opacity var(--tw-med) var(--tw-ease),
-		transform var(--tw-med) var(--tw-ease),
+		opacity 180ms var(--tw-ease),
+		transform 520ms cubic-bezier(0.34, 1.56, 0.64, 1),
 		margin var(--tw-slow) var(--tw-ease);
 }
 
@@ -801,7 +951,8 @@ body {
 .tw-toast.is-out {
 	margin-bottom: calc(-1 * var(--h, 0px) - var(--tw-2));
 	opacity: 0;
-	transform: translateY(calc(-6 * var(--tw-u))) scale(0.98);
+	transform: translateY(calc(-10 * var(--tw-u))) scale(0.97);
+	transition: opacity 200ms var(--tw-ease), transform 240ms var(--tw-ease), margin var(--tw-slow) var(--tw-ease);
 }
 
 .tw-toast.is-bump {
@@ -2761,6 +2912,7 @@ body {
 /* every panel fits the screen it is on and scrolls inside (a phone in landscape is ~390 px tall) */
 .tw-root.is-coarse .gm-panel,
 .tw-root.is-coarse .hb-panel,
+.tw-root.is-coarse .nv-panel,
 .tw-root.is-coarse .tr-panel,
 .tw-root.is-coarse .sp-panel,
 .tw-root.is-coarse .nb-panel,
@@ -2792,6 +2944,7 @@ body {
 
 	.tw-root .gm-panel,
 	.tw-root .hb-panel,
+	.tw-root .nv-panel,
 	.tw-root .tr-panel,
 	.tw-root .sp-panel,
 	.tw-root .nb-panel {
@@ -3233,30 +3386,60 @@ body {
 .tw-root.is-coarse .hb-btn,
 .tw-root.is-coarse .gm-mini,
 .tw-root.is-coarse .gm-topic,
-.tw-root.is-coarse .nv-acts button { min-height: 44px; }
+.tw-root.is-coarse .gm-act { min-height: 44px; }
 /* (no min-width on the tabs and the header buttons: a flex item with one may shrink below its label) */
 .tw-root.is-coarse .gm-mini { min-width: 44px; }
 /* the crew's posts (Off / Gunner / Angler / Cook / Lookout): full-size buttons that wrap onto a second row */
 .tw-root.is-coarse .cw-post { gap: 4px; padding: 3px; }
 .tw-root.is-coarse .cw-post button { flex: 1 0 auto; min-width: 44px; min-height: 44px; }
-.tw-root.is-coarse .nv-close { width: 44px; height: 44px; top: 4px; right: 4px; }
+.tw-root.is-coarse .gm-x { width: 44px; height: 44px; top: 4px; right: 4px; }
 /* a short landscape phone squeezed the vendor's title (it clips, so it could shrink to nothing) under the tabs: they keep their height */
 .tw-root.is-coarse .gm-panel > h2,
 .tw-root.is-coarse .gm-panel > .gm-tabs { flex-shrink: 0; }
 
-/* the navy office sat at 16 % from the top with no limit: on a phone in landscape its last rows were off the screen */
-.tw-root.is-coarse .nv-panel {
-	top: calc(8px + var(--tw-safe-t));
-	max-width: calc(100vw - 16px - var(--tw-safe-l) - var(--tw-safe-r));
-	max-height: calc(100dvh - 16px - var(--tw-safe-t) - var(--tw-safe-b));
-	overflow-y: auto;
-	overscroll-behavior: contain;
-	-webkit-overflow-scrolling: touch;
-}
-@media (max-height: 500px) {
-	.tw-root .nv-panel { top: 8px; max-height: calc(100dvh - 16px); overflow-y: auto; }
-}
-
 /* a toast is read whole: up to three lines (the forecast, a boarding's fine, a hand signing on), not cut at one */
 .tw-toast { border-radius: calc(18 * var(--tw-u)); }
 .tw-toast-text { white-space: normal; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-height: 1.35; }
+
+/* ── one marker family (wave 25B) ───────────────────────────────────────────
+   The minimap (game/Minimap.js) and the world map (ui/WorldMap.js) draw the same dark disc, a ring and the glyph from
+   ui/icons.js MARKER_ICONS in the kind's colour (--mk). The legend's chips use it too. Specificity is raised on purpose:
+   Minimap.js injects its older flat-disc rules after this file. */
+.gm-mk,
+.wm-lg > i { --mk: var(--tw-ink); }
+.gm-mk.is-joe, .gm-mk.is-pons, .gm-mk.is-trade, .wm-lg > i.is-joe, .wm-lg > i.is-pons, .wm-lg > i.is-trade { --mk: var(--tw-sun); }
+.gm-mk.is-marta, .gm-mk.is-peer, .wm-lg > i.is-marta { --mk: var(--tw-aqua); }
+.gm-mk.is-pirate, .gm-mk.is-bounty, .gm-mk.is-isle, .wm-lg > i.is-pirate, .wm-lg > i.is-bounty, .wm-lg > i.is-isle { --mk: var(--tw-coral); }
+.gm-mk.is-quest, .gm-mk.is-wp, .wm-lg > i.is-quest, .wm-lg > i.is-wp { --mk: #ffd66b; }
+.gm-mk.is-death, .gm-mk.is-camp, .wm-lg > i.is-death, .wm-lg > i.is-camp { --mk: #f0b07a; }
+.gm-mk.is-wreck, .gm-mk.is-parked, .gm-mk.is-board, .wm-lg > i.is-wreck, .wm-lg > i.is-parked, .wm-lg > i.is-board { --mk: #9fc4da; }
+.tw-root .gm-mk.gm-mk > i {
+	background: rgba(10, 18, 26, 0.88);
+	color: var(--mk);
+	box-shadow: 0 1px 3px rgba(0, 0, 0, 0.55), 0 0 0 1.5px var(--mk);
+}
+
+.tw-root .gm-mk.gm-mk > i svg { width: 66%; height: 66%; }
+
+/* ── one pill family (wave 25B) ─────────────────────────────────────────────
+   The mode pill ("Campaign · Walking"), the weather pill ("Breezy 8 m/s", features/weather/WeatherHUD.js) and the purse
+   (cash and cooler, game/GameHUD.js) are one shape: 30 high, the glass fill and hairline of .tw-glass, 12.5 type, the
+   same inner gutter. Raised specificity so the weather feature's own injected styles do not win. */
+.tw-root .tw-mode,
+.tw-root .wx-chip,
+.tw-root .gm-purse {
+	box-sizing: border-box;
+	min-height: calc(30 * var(--tw-u));
+	padding: 0 calc(13 * var(--tw-u)) 0 calc(11 * var(--tw-u));
+	border: 1px solid var(--tw-line);
+	border-radius: 999px;
+	background: linear-gradient(180deg, rgba(255, 255, 255, 0.045), rgba(255, 255, 255, 0) 40%), var(--tw-glass);
+	-webkit-backdrop-filter: blur(18px) saturate(1.6);
+	backdrop-filter: blur(18px) saturate(1.6);
+	font: 500 var(--tw-fs-md) var(--tw-font);
+	color: var(--tw-ink);
+}
+
+.tw-root .tw-mode,
+.tw-root .wx-chip { height: calc(30 * var(--tw-u)); margin-left: 0; gap: calc(7 * var(--tw-u)); }
+.tw-root .gm-purse { gap: var(--tw-3); }

@@ -71,10 +71,10 @@ const CSS = /* css */`
 .gm-guide-hint { color: var(--tw-ink-3); font-size: var(--tw-fs-xs); margin-right: var(--tw-2); }
 .gm-coach { position: absolute; right: var(--tw-edge); bottom: calc(var(--tw-edge) + 184 * var(--tw-u) + var(--tw-3)); width: min(calc(290 * var(--tw-u)), calc(100vw - 2 * var(--tw-edge)));
 	padding: var(--tw-3) var(--tw-4); border-radius: var(--tw-r-lg); color: var(--tw-ink); font: 500 var(--tw-fs-sm) var(--tw-font); line-height: 1.5;
-	pointer-events: none; opacity: 0; transform: translateY(calc(8 * var(--tw-u))); visibility: hidden; box-sizing: border-box;
-	transition: opacity 360ms var(--tw-ease), transform 480ms var(--tw-ease), visibility 0s linear 480ms, right var(--tw-slow) var(--tw-ease); }
+	pointer-events: none; opacity: 0; transform: translateX(calc(28 * var(--tw-u))); visibility: hidden; box-sizing: border-box;
+	transition: opacity 360ms var(--tw-ease), transform 640ms var(--tw-ease), visibility 0s linear 640ms, right var(--tw-slow) var(--tw-ease); }
 .tw-root[data-panel='open'] .gm-coach { right: calc(var(--tw-panel-w) + 2 * var(--tw-3)); }
-.gm-coach.is-on { opacity: 1; transform: none; visibility: visible; pointer-events: auto; cursor: pointer; transition: opacity 360ms var(--tw-ease), transform 480ms var(--tw-ease), visibility 0s, right var(--tw-slow) var(--tw-ease); }
+.gm-coach.is-on { opacity: 1; transform: none; visibility: visible; pointer-events: auto; cursor: pointer; transition: opacity 360ms var(--tw-ease), transform 640ms var(--tw-ease), visibility 0s, right var(--tw-slow) var(--tw-ease); }
 .gm-coach-eyebrow { display: block; margin-bottom: 3px; font-size: var(--tw-fs-xs); font-weight: 600; letter-spacing: 0.2em; text-transform: uppercase; color: var(--tw-aqua); }
 .gm-coach-x { position: absolute; top: calc(6 * var(--tw-u)); right: calc(8 * var(--tw-u)); color: var(--tw-ink-3); font-size: var(--tw-fs-sm); line-height: 1; }
 .gm-coach b { color: var(--tw-ink); font-weight: 600; }
@@ -463,6 +463,7 @@ export class Guide {
 	_hideCoach() {
 
 		this._current = null;
+		this._curQ = null;
 		this.coach.classList.remove( 'is-on' );
 
 	}
@@ -553,14 +554,19 @@ export class Guide {
 
 		// the coach card: one tip at a time, ~7 s each (not over the catch card or a panel)
 		const busy = g.hud && ( g.hud.catchOpen || g.hud.invOpen || g.hud.standOpen );
+		// (wave 25B) one notification channel: a toast on screen or waiting (ui.notifyBusy) has the floor; a tip showing
+		// gives way and comes back after it, a queued tip waits
+		const talking = !! ( ui.notifyBusy && ui.notifyBusy() );
 		if ( this._current ) {
 
 			this._coachT -= dt;
-			if ( this._coachT <= 0 || busy ) this._hideCoach();
+			if ( talking && this._curQ && this._coachT > 0 ) this._queue.unshift( this._curQ );
+			if ( this._coachT <= 0 || busy || talking ) this._hideCoach();
 
-		} else if ( this._queue.length && ! busy ) {
+		} else if ( this._queue.length && ! busy && ! talking ) {
 
 			const q = this._queue.shift();
+			this._curQ = q;
 			this._current = q.id;
 			if ( q.own ) {
 

@@ -20,7 +20,6 @@ const CSS = /* css */`
 	padding: var(--tw-2) var(--tw-4); border-radius: 999px; font: 500 var(--tw-fs-lg) var(--tw-font); color: var(--tw-ink); pointer-events: none;
 	transition: transform var(--tw-med) var(--tw-ease), right var(--tw-slow) var(--tw-ease); }
 .tw-root[data-panel='open'] .gm-purse { right: calc(var(--tw-panel-w) + 2 * var(--tw-3)); }
-.tw-root.is-photo .gm-panel { display: none; }
 .gm-purse.is-bump { animation: gm-bump 420ms var(--tw-ease); }
 @keyframes gm-bump { 30% { transform: scale(1.08); } }
 .gm-money { font-family: var(--tw-mono); color: var(--tw-sun); font-weight: 600; }
@@ -49,18 +48,20 @@ const CSS = /* css */`
 	color: var(--tw-sun); text-shadow: 0 0 18px rgba(var(--tw-sun-rgb), 0.8), 0 2px 4px rgba(0,0,0,0.5); opacity: 0; pointer-events: none;
 	transition: opacity 120ms, transform 200ms var(--tw-ease); }
 .gm-bite.is-on { opacity: 1; transform: translate(-50%, -50%) scale(1); }
-.gm-cast { position: absolute; left: 50%; top: 58%; transform: translateX(-50%); width: calc(140 * var(--tw-u)); height: calc(5 * var(--tw-u));
-	border-radius: 99px; background: var(--tw-fill-2); overflow: hidden; opacity: 0; transition: opacity var(--tw-fast); pointer-events: none; }
-.gm-cast.is-on { opacity: 1; }
-.gm-cast > span { display: block; height: 100%; width: 0; background: linear-gradient(90deg, var(--tw-aqua), var(--tw-sun)); }
+/* (wave 25B) the cast meter is a ring round the reticle: it fills clockwise from the top, aqua to sun, and pulses when full */
+.gm-cast { position: absolute; left: 50%; top: 50%; width: calc(64 * var(--tw-u)); height: calc(64 * var(--tw-u)); margin: calc(-32 * var(--tw-u)) 0 0 calc(-32 * var(--tw-u));
+	opacity: 0; transform: scale(0.86); transition: opacity var(--tw-fast), transform var(--tw-med) var(--tw-ease); pointer-events: none; filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.55)); }
+.gm-cast.is-on { opacity: 1; transform: none; }
+.gm-cast svg { width: 100%; height: 100%; transform: rotate(-90deg); overflow: visible; }
+.gm-cast circle { fill: none; stroke-width: 4; }
+.gm-cast .gm-cast-track { stroke: rgba(255, 255, 255, 0.22); }
+.gm-cast .gm-cast-arc { stroke: var(--tw-aqua); stroke-linecap: round; stroke-dasharray: 100; stroke-dashoffset: 100; transition: stroke 120ms linear; }
+.gm-cast.is-hot .gm-cast-arc { stroke: var(--tw-sun); }
+.gm-cast.is-full svg { animation: gm-cast-full 520ms var(--tw-ease-io) infinite; }
+@keyframes gm-cast-full { 50% { transform: rotate(-90deg) scale(1.1); } }
+@media (prefers-reduced-motion: reduce) { .gm-cast.is-full svg { animation: none; } }
 .gm-dot { position: absolute; left: 50%; top: 50%; width: 4px; height: 4px; margin: -2px; border-radius: 50%; background: rgba(255,255,255,0.7); box-shadow: 0 0 3px rgba(0,0,0,0.6); opacity: 0; pointer-events: none; }
 .gm-dot.is-on { opacity: 1; }
-.gm-panel { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -48%); width: calc(420 * var(--tw-u)); max-height: 70vh; display: flex; flex-direction: column;
-	padding: var(--tw-4) var(--tw-5); border-radius: var(--tw-r-lg); font: 500 var(--tw-fs-md) var(--tw-font); color: var(--tw-ink);
-	opacity: 0; pointer-events: none; transition: opacity var(--tw-med) var(--tw-ease), transform var(--tw-slow) var(--tw-ease); }
-.gm-panel.is-open { opacity: 1; pointer-events: auto; transform: translate(-50%, -50%); }
-.gm-panel h2 { margin: 0 0 var(--tw-1); font-size: calc(17 * var(--tw-u)); font-weight: 600; }
-.gm-panel p.gm-sub { margin: 0 0 var(--tw-3); color: var(--tw-ink-3); font-size: var(--tw-fs-sm); }
 .gm-list { overflow: auto; margin: 0 calc(-1 * var(--tw-2)); padding: 0 var(--tw-2); }
 .gm-row { display: grid; grid-template-columns: 1fr auto auto auto; gap: var(--tw-3); align-items: center; padding: var(--tw-2) 0; border-bottom: 1px solid var(--tw-line); }
 .gm-row .gm-kg, .gm-row .gm-val { font-family: var(--tw-mono); color: var(--tw-ink-2); }
@@ -68,9 +69,6 @@ const CSS = /* css */`
 .gm-row small { color: var(--tw-aqua); margin-left: var(--tw-1); }
 .gm-empty { color: var(--tw-ink-3); padding: var(--tw-4) 0; text-align: center; }
 .gm-foot { display: flex; justify-content: space-between; align-items: center; margin-top: var(--tw-3); gap: var(--tw-3); }
-.gm-btn { font: 600 var(--tw-fs-md) var(--tw-font); color: #0b1418; background: var(--tw-aqua); border: 0; border-radius: 999px; padding: var(--tw-2) var(--tw-4); cursor: pointer; }
-.gm-btn[disabled] { opacity: 0.4; cursor: default; }
-.gm-btn.is-ghost { background: var(--tw-fill-2); color: var(--tw-ink); }
 .gm-mini { font: 500 var(--tw-fs-sm) var(--tw-font); color: var(--tw-ink-2); background: var(--tw-fill); border: 1px solid var(--tw-line); border-radius: 999px; padding: 2px var(--tw-2); cursor: pointer; }
 .gm-gauge { display: none; align-items: center; gap: var(--tw-2); color: var(--tw-ink-2); font-size: var(--tw-fs-md); }
 .gm-gauge.is-on { display: flex; }
@@ -87,9 +85,6 @@ const CSS = /* css */`
 .gm-row .gm-cm { font-family: var(--tw-mono); color: var(--tw-ink-3); }
 .gm-row.has-cm { grid-template-columns: 1fr auto auto auto auto; }
 
-.gm-tabs { display: flex; gap: var(--tw-1); margin: 0 0 var(--tw-3); padding: 2px; border-radius: 999px; background: var(--tw-fill); align-self: flex-start; }
-.gm-tab { font: 500 var(--tw-fs-sm) var(--tw-font); color: var(--tw-ink-3); background: transparent; border: 0; border-radius: 999px; padding: 2px var(--tw-3); cursor: pointer; }
-.gm-tab.is-on { color: var(--tw-ink); background: var(--tw-fill-2); }
 .gm-hold-wrap { overflow: auto; margin: 0 calc(-1 * var(--tw-2)); padding: 0 var(--tw-2) var(--tw-1); }
 .gm-hold { position: relative; display: grid; grid-template-columns: repeat(var(--gm-cols, 6), 1fr); grid-auto-rows: calc(52 * var(--tw-u)); gap: 3px; }
 .gm-cell { border-radius: 6px; background: var(--tw-fill); box-shadow: inset 0 0 0 1px var(--tw-line); }
@@ -113,6 +108,23 @@ const CSS = /* css */`
 .gm-ghost.is-bad { box-shadow: inset 0 0 0 2px rgba(255, 122, 133, 0.9); background: rgba(255, 122, 133, 0.14); }
 .gm-hold-key { display: flex; flex-wrap: wrap; gap: var(--tw-1) var(--tw-3); margin-top: var(--tw-2); color: var(--tw-ink-3); font-size: var(--tw-fs-xs); }
 .gm-hold-key span::before { content: ''; display: inline-block; width: 8px; height: 8px; margin-right: 4px; border-radius: 2px; background: var(--k, transparent); vertical-align: -1px; }
+
+/* (wave 25B) level-up: its own motion, a gold ring that opens from the middle and a number that drops in with a small overshoot
+   (the catch card rises and stamps; a toast pops down from the top; the coach tip slides in from the side) */
+.gm-level { position: absolute; left: 50%; top: 30%; width: 0; height: 0; display: grid; place-items: center; pointer-events: none; visibility: hidden; }
+.gm-level.is-on { visibility: visible; }
+.gm-level-ring { position: absolute; left: calc(-70 * var(--tw-u)); top: calc(-70 * var(--tw-u)); width: calc(140 * var(--tw-u)); height: calc(140 * var(--tw-u)); border-radius: 50%; box-sizing: border-box;
+	border: 2px solid rgba(var(--tw-sun-rgb), 0.9); box-shadow: 0 0 24px rgba(var(--tw-sun-rgb), 0.45), inset 0 0 18px rgba(var(--tw-sun-rgb), 0.25); opacity: 0; transform: scale(0.3); }
+.gm-level.is-on .gm-level-ring { animation: gm-level-ring 1500ms var(--tw-ease) forwards; }
+.gm-level.is-on .gm-level-ring + .gm-level-ring { animation-delay: 140ms; border-width: 1px; }
+.gm-level-card { position: absolute; left: 0; top: 0; transform: translate(-50%, -50%); text-align: center; white-space: nowrap; opacity: 0; }
+.gm-level.is-on .gm-level-card { animation: gm-level-card 2800ms linear forwards; }
+.gm-level-eyebrow { display: block; font: 700 var(--tw-fs-xs) var(--tw-font); letter-spacing: 0.34em; text-transform: uppercase; color: var(--tw-sun); text-shadow: 0 1px 4px rgba(0, 0, 0, 0.6); }
+.gm-level-num { display: block; margin-top: calc(2 * var(--tw-u)); font: 800 calc(64 * var(--tw-u)) / 1 var(--tw-font); color: #fff4dc; text-shadow: 0 0 22px rgba(var(--tw-sun-rgb), 0.7), 0 3px 8px rgba(0, 0, 0, 0.5); }
+@keyframes gm-level-ring { 0% { opacity: 0; transform: scale(0.3); } 18% { opacity: 1; } 100% { opacity: 0; transform: scale(1.7); } }
+@keyframes gm-level-card { 0% { opacity: 0; transform: translate(-50%, -50%) scale(0.6); } 9% { opacity: 1; transform: translate(-50%, -50%) scale(1.14); } 16% { transform: translate(-50%, -50%) scale(1); }
+	80% { opacity: 1; transform: translate(-50%, -54%) scale(1); } 100% { opacity: 0; transform: translate(-50%, -62%) scale(1); } }
+@media (prefers-reduced-motion: reduce) { .gm-level.is-on .gm-level-ring { animation: none; } .gm-level.is-on .gm-level-card { animation-duration: 2800ms; } }
 
 /* catch card: full screen. The world dims and blurs; the fish lies side-on in its own studio light
    (FishPortrait, a WebGPU canvas) between the name above and the numbers below */
@@ -515,14 +527,18 @@ export class GameHUD {
 		this.marker = new MarkerGauge( this.fight ); // the marker-timing fight's bar (the Unreal species)
 
 		this.bite = h( 'div', 'gm-bite', '!' );
-		this.cast = h( 'div', 'gm-cast', '<span></span>' );
-		this.castBar = this.cast.firstChild;
+		// the cast ring: pathLength 100 so the dash offset is the percent left to fill
+		this.cast = h( 'div', 'gm-cast', '<svg viewBox="0 0 64 64" aria-hidden="true"><circle class="gm-cast-track" cx="32" cy="32" r="27"/><circle class="gm-cast-arc" cx="32" cy="32" r="27" pathLength="100"/></svg>' );
+		this.castBar = this.cast.querySelector( '.gm-cast-arc' );
 		this.dot = h( 'div', 'gm-dot' );
 		this.catchScrim = h( 'div', 'gm-catch-scrim' );
 		this.catchCard = h( 'div', 'gm-catch tw-glass' );
 		this.catchOpen = false;
 		const hud = ui.hud || ui.root;
-		hud.append( this.catchScrim, this.purse, this.fight, this.bite, this.cast, this.dot, this.catchCard );
+		this.levelEl = h( 'div', 'gm-level', `<i class="gm-level-ring"></i><i class="gm-level-ring"></i><div class="gm-level-card"><span class="gm-level-eyebrow">${ t( 'hud.levelup', 'Level up' ) }</span><span class="gm-level-num"></span></div>` );
+		this.levelEl.setAttribute( 'aria-hidden', 'true' );
+		this._pendingLevel = 0;
+		hud.append( this.catchScrim, this.purse, this.fight, this.bite, this.cast, this.dot, this.levelEl, this.catchCard );
 
 		// panels (interactive)
 		this.inv = h( 'div', 'gm-panel tw-glass tw-interactive' );
@@ -571,6 +587,8 @@ export class GameHUD {
 		}
 
 		this._last.money = s.money;
+		// a level reached (the state keeps the last one until the HUD takes it): shown once the catch card is gone
+		if ( s.lastLevelUp ) { this._pendingLevel = s.lastLevelUp; s.lastLevelUp = 0; }
 		if ( this.invOpen ) this.renderInventory();
 		if ( this.standOpen ) this._keepScroll( () => ( this.vendor && this.vendor.kind === 'shop' ? this.renderShop() : this.renderStand() ) );
 
@@ -579,6 +597,7 @@ export class GameHUD {
 	// per frame
 	update( { fight, casting, power, bite, aiming, fuel = null, sonar = null, stamina = 1 } ) {
 
+		if ( this._pendingLevel && ! this.catchOpen ) { const n = this._pendingLevel; this._pendingLevel = 0; this.showLevelUp( n ); }
 		this.stamEl.classList.toggle( 'is-on', stamina < 0.995 );
 		this.stamBar.style.width = `${ stamina * 100 }%`;
 		this.stamEl.classList.toggle( 'is-low', stamina < 0.2 );
@@ -629,8 +648,28 @@ export class GameHUD {
 
 		this.bite.classList.toggle( 'is-on', !! bite );
 		this.cast.classList.toggle( 'is-on', !! casting );
-		if ( casting ) this.castBar.style.width = `${ power * 100 }%`;
+		if ( casting ) {
+
+			this.castBar.style.strokeDashoffset = String( 100 - Math.max( 0, Math.min( 1, power ) ) * 100 );
+			this.cast.classList.toggle( 'is-hot', power > 0.7 );
+			this.cast.classList.toggle( 'is-full', power >= 0.98 );
+
+		}
 		this.dot.classList.toggle( 'is-on', !! aiming && ! this.invOpen && ! this.standOpen && ! this.rosterOpen );
+
+	}
+
+	// the level-up flourish: two rings and the number; the sound is the UI's ('levelup')
+	showLevelUp( level ) {
+
+		const el = this.levelEl;
+		el.querySelector( '.gm-level-num' ).textContent = String( level );
+		el.classList.remove( 'is-on' );
+		void el.offsetWidth;
+		el.classList.add( 'is-on' );
+		clearTimeout( this._levelT );
+		this._levelT = setTimeout( () => el.classList.remove( 'is-on' ), 3000 );
+		if ( this.ui.sound ) this.ui.sound( 'levelup' );
 
 	}
 

@@ -144,6 +144,16 @@ const CSS = /* css */`
 	box-shadow: inset 0 0 0 1px var(--tw-line); color: var(--tw-ink-2); font-size: var(--tw-fs-sm); line-height: 1.45; }
 .mm-uni b { color: var(--tw-ink); }
 .mm-uni-status { font-family: var(--tw-mono); font-size: var(--tw-fs-xs); color: var(--tw-ink-3); }
+.mm-uni-status[data-health]::before { content: ''; display: inline-block; width: 7px; height: 7px; margin-right: var(--tw-2); border-radius: 50%; background: var(--tw-ink-4); vertical-align: 1px; }
+.mm-uni-status[data-health].is-ok::before { background: var(--tw-aqua); box-shadow: 0 0 8px rgba(var(--tw-aqua-rgb), 0.8); }
+.mm-uni-status[data-health].is-warn::before { background: var(--tw-coral); }
+.mm-adv { color: var(--tw-ink-3); font-size: var(--tw-fs-sm); }
+.mm-adv summary { cursor: pointer; list-style: none; width: max-content; text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--tw-line-2); }
+.mm-adv summary::-webkit-details-marker { display: none; }
+.mm-adv summary:hover { color: var(--tw-ink); }
+.mm-adv[open] summary { margin-bottom: var(--tw-3); }
+.mm-adv-way { display: flex; flex-wrap: wrap; align-items: center; gap: var(--tw-2); margin-top: var(--tw-3); }
+.mm-adv-way .mm-seg { margin: 0; }
 .mm-uni-status.is-ok { color: var(--tw-aqua); }
 .mm-uni-status.is-warn { color: var(--tw-coral); }
 .mm-field-head { display: flex; align-items: baseline; gap: var(--tw-2); }
@@ -152,6 +162,12 @@ const CSS = /* css */`
 .mm-field-head button:hover { color: var(--tw-ink); }
 .tw-root.is-photo .mm { display: none; }
 `;
+
+// (wave 25B) the mode cards say what the player gets, not how it is wired: the Multiplayer card is "Play online" with no
+// server words (the server address, the crew code and the Universe / Island switch live behind "Use another server")
+const CARD_COPY = {
+	multiplayer: { name: 'Play online', tagline: 'Fish the same bay as other captains.', bullets: [ 'Your captain is kept for you online', 'Sail and fish alongside other players', 'One island clock for everyone' ] },
+};
 
 const MODE_KEY = 'hyptile-island.mode'; // the last mode played (localStorage)
 const NET_KEY = 'hyptile-island.netway'; // 'universe' | 'crew': the multiplayer way chosen last
@@ -381,7 +397,7 @@ export class MainMenu {
 
 		const cards = MODE_IDS.map( ( id, i ) => {
 
-			const m = MODES[ id ];
+			const m = { ...MODES[ id ], ...CARD_COPY[ id ] };
 			const n = GameState.listSlots( this.storage, this.slots, id ).filter( ( r ) => r.exists ).length;
 			return `<button type="button" class="mm-mode ${ id === this.mode ? 'is-on' : '' }" role="option" aria-selected="${ id === this.mode }" data-mode="${ id }">
 				<span class="mm-mode-ico">${ icon( m.icon ) }</span>
@@ -472,10 +488,10 @@ export class MainMenu {
 			<div class="mm-art" aria-hidden="true"></div>
 			<div class="mm-card tw-glass" role="dialog" aria-modal="true" aria-label="Hyptile Island">
 				${ this._header() }
-				<div><button type="button" class="mm-modepill" data-modes aria-label="Change the game mode">${ icon( m.icon ) }<span>${ esc( m.name ) }</span><small>change</small></button>${ online ? this._segHTML() : '' }</div>
+				<div><button type="button" class="mm-modepill" data-modes aria-label="Change the game mode">${ icon( m.icon ) }<span>${ esc( ( CARD_COPY[ this.mode ] || m ).name ) }</span><small>change</small></button>${ online ? this._segHTML() : '' }</div>
 				<div class="mm-body">
 					<section>
-						<h3>${ esc( m.name ) } islanders</h3>
+						<h3>${ esc( online ? 'Island room' : m.name + ' islanders' ) }</h3>
 						<div class="mm-slots" role="listbox" aria-label="Save slots"></div>
 					</section>
 					<section class="mm-side">
@@ -557,33 +573,37 @@ export class MainMenu {
 			<div aria-hidden="true" class="mm-art"></div>
 			<div class="mm-card tw-glass" role="dialog" aria-modal="true" aria-label="Hyptile Island">
 				${ this._header() }
-				<div><button type="button" class="mm-modepill" data-modes aria-label="Change the game mode">${ icon( m.icon ) }<span>${ esc( m.name ) }</span><small>change</small></button>${ this._segHTML() }</div>
+				<div><button type="button" class="mm-modepill" data-modes aria-label="Change the game mode">${ icon( m.icon ) }<span>${ esc( CARD_COPY.multiplayer.name ) }</span><small>change</small></button></div>
 				<div class="mm-body">
 					<section>
-						<h3>The universe</h3>
+						<h3>${ esc( CARD_COPY.multiplayer.name ) }</h3>
 						<div class="mm-uni">
-							<div>A <b>universe</b> is an island world that keeps running when nobody is on: destroyed docks stay broken until they respawn, boats stay where their captains left them, the market and the pirates carry on. The <b>shared universe</b> is always on; a friend's own server works too (type its address).</div>
-							<div>The server keeps your captain's game. Your name is yours on that server from the first join, tied to this browser (no password), so use the same browser to come back.</div>
-							<div class="mm-uni-status" data-status>${ current && current.captain ? `Playing as ${ esc( current.captain ) } on ${ esc( current.url ) }` : 'Not joined' }</div>
+							<div>Other captains fish this bay with you, and the world keeps going when you log off: boats stay where you left them and the market moves on.</div>
+							<div>Your name is yours from the first time you play, tied to this browser (no password), so come back on the same one.</div>
+							<div class="mm-uni-status" data-health aria-live="polite">${ esc( healthText( null ) ) }</div>
+							<div class="mm-uni-status" data-status ${ current && current.captain ? '' : 'hidden' }>${ current && current.captain ? `Playing as ${ esc( current.captain ) }` : '' }</div>
 						</div>
 					</section>
 					<section class="mm-side">
-						<div class="mm-field">
-							<div class="mm-field-head"><span>Server address</span><button type="button" data-last title="${ esc( last ) }" ${ last ? '' : 'hidden' }>last used</button><button type="button" data-default title="${ esc( def ) }" ${ shared || address === def ? 'hidden' : '' }>default</button></div>
-							<input type="text" class="is-mono" autocomplete="off" spellcheck="false" aria-label="Server address" data-server value="${ esc( address ) }" placeholder="${ esc( def ) }">
-							<div class="mm-uni-status" data-health aria-live="polite">${ esc( healthText( null ) ) }</div>
-						</div>
 						<label class="mm-field"><span>Captain name</span><input type="text" maxlength="24" autocomplete="off" spellcheck="false" data-name value="${ esc( name ) }" placeholder="Captain"></label>
 						<div class="mm-actions">
-							<button type="button" class="tw-btn tw-btn-primary" data-join>${ icon( 'play' ) }<span>Join the universe</span></button>
+							<button type="button" class="tw-btn tw-btn-primary" data-join>${ icon( 'play' ) }<span>Play online</span></button>
 							<div class="mm-note" data-note></div>
 						</div>
+						<details class="mm-adv" ${ shared ? '' : 'open' }>
+							<summary>Use another server</summary>
+							<div class="mm-field">
+								<div class="mm-field-head"><span>Server address</span><button type="button" data-last title="${ esc( last ) }" ${ last ? '' : 'hidden' }>last used</button><button type="button" data-default title="${ esc( def ) }" ${ shared || address === def ? 'hidden' : '' }>default</button></div>
+								<input type="text" class="is-mono" autocomplete="off" spellcheck="false" aria-label="Server address" data-server value="${ esc( address ) }" placeholder="${ esc( def ) }">
+							</div>
+							<div class="mm-adv-way">${ this._segHTML() }<span>A crew code joins a friend's island room instead.</span></div>
+						</details>
 						<div class="mm-links">
 							<button type="button" data-controls>Controls<kbd>F1</kbd></button>
 							<button type="button" data-guide>Replay the guide</button>
 							<button type="button" data-credits>Credits</button>
 							${ this.cancelable ? '<button type="button" data-cancel>Cancel<kbd>Esc</kbd></button>' : '' }
-							<span>The host's server keeps this game</span>
+							<span>Your captain is kept for you online</span>
 						</div>
 					</section>
 				</div>

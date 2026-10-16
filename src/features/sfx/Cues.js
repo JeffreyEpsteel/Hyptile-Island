@@ -17,8 +17,85 @@
 // The Albatross's second engine belongs to PlaneAudio (src/features/seaplane): see the wave 13C report for the hook.
 
 import { strongholdLayout } from '../../world/islands/stronghold/Layout.js';
-import { CUES, noiseBuf, gainNode, filterNode } from './Synth.js';
+import { CUES, noiseBuf, gainNode, filterNode, tone, burst } from './Synth.js';
 import { clamp, num, smooth } from './util.js';
+
+// ---- interface sounds (wave 25B, gap 4.4): the click, tab, toggle, confirm, back, open / close, notification and level-up
+// cues of the HUD and its windows. ui/UI.js says ui.sound( name ); AppUI calls cues.ui( name ). Short, soft and in the head
+// (no position); they sit at the 'action' loudness (about -28 LUFS momentary at unity), well under the alerts.
+export const UI_CUES = {
+	ui_click: { cat: 'sfx', gain: 0.42, ref: 1, max: 1e5, voices: 3, gap: 0.03, build( ctx, out, t ) {
+
+		tone( ctx, out, { type: 'sine', f0: 2100, f1: 1500, t, dur: 0.045, peak: 0.55, attack: 0.002 } );
+		burst( ctx, out, { t, dur: 0.02, peak: 0.12, type: 'bandpass', f: 3200, q: 1.2, attack: 0.001 } );
+		return 0.1;
+
+	} },
+	ui_tab: { cat: 'sfx', gain: 0.4, ref: 1, max: 1e5, voices: 3, gap: 0.04, build( ctx, out, t ) {
+
+		tone( ctx, out, { type: 'triangle', f0: 880, f1: 1180, t, dur: 0.075, peak: 0.5, attack: 0.003 } );
+		return 0.13;
+
+	} },
+	ui_toggle: { cat: 'sfx', gain: 0.4, ref: 1, max: 1e5, voices: 3, gap: 0.05, build( ctx, out, t ) {
+
+		tone( ctx, out, { type: 'sine', f0: 1250, t, dur: 0.05, peak: 0.5, attack: 0.002 } );
+		tone( ctx, out, { type: 'sine', f0: 1880, t: t + 0.045, dur: 0.06, peak: 0.45, attack: 0.002 } );
+		return 0.16;
+
+	} },
+	ui_confirm: { cat: 'sfx', gain: 0.45, ref: 1, max: 1e5, voices: 2, gap: 0.08, build( ctx, out, t ) {
+
+		tone( ctx, out, { type: 'triangle', f0: 659, t, dur: 0.11, peak: 0.5, attack: 0.003 } );
+		tone( ctx, out, { type: 'triangle', f0: 988, t: t + 0.08, dur: 0.2, peak: 0.55, attack: 0.003 } );
+		tone( ctx, out, { type: 'sine', f0: 1976, t: t + 0.08, dur: 0.18, peak: 0.12, attack: 0.003 } );
+		return 0.4;
+
+	} },
+	ui_back: { cat: 'sfx', gain: 0.4, ref: 1, max: 1e5, voices: 2, gap: 0.08, build( ctx, out, t ) {
+
+		tone( ctx, out, { type: 'sine', f0: 760, f1: 500, t, dur: 0.1, peak: 0.55, attack: 0.003 } );
+		return 0.16;
+
+	} },
+	ui_open: { cat: 'sfx', gain: 0.4, ref: 1, max: 1e5, voices: 2, gap: 0.1, build( ctx, out, t ) {
+
+		burst( ctx, out, { t, dur: 0.16, peak: 0.2, type: 'bandpass', f: 600, f1: 2400, q: 0.9, attack: 0.02 } );
+		tone( ctx, out, { type: 'sine', f0: 520, f1: 800, t, dur: 0.14, peak: 0.3, attack: 0.01 } );
+		return 0.22;
+
+	} },
+	ui_close: { cat: 'sfx', gain: 0.4, ref: 1, max: 1e5, voices: 2, gap: 0.1, build( ctx, out, t ) {
+
+		burst( ctx, out, { t, dur: 0.14, peak: 0.18, type: 'bandpass', f: 2200, f1: 500, q: 0.9, attack: 0.01 } );
+		tone( ctx, out, { type: 'sine', f0: 720, f1: 440, t, dur: 0.12, peak: 0.28, attack: 0.006 } );
+		return 0.2;
+
+	} },
+	ui_notify: { cat: 'sfx', gain: 0.38, ref: 1, max: 1e5, voices: 2, gap: 0.6, build( ctx, out, t ) {
+
+		tone( ctx, out, { type: 'sine', f0: 1046, t, dur: 0.4, peak: 0.45, attack: 0.004 } );
+		tone( ctx, out, { type: 'sine', f0: 1568, t: t + 0.07, dur: 0.34, peak: 0.3, attack: 0.004 } );
+		tone( ctx, out, { type: 'sine', f0: 2093, t: t + 0.07, dur: 0.2, peak: 0.08, attack: 0.004 } );
+		return 0.6;
+
+	} },
+	ui_levelup: { cat: 'sfx', gain: 0.5, ref: 1, max: 1e5, voices: 1, gap: 2, build( ctx, out, t ) {
+
+		[ 523, 659, 784, 1047 ].forEach( ( f, i ) => {
+
+			tone( ctx, out, { type: 'triangle', f0: f, t: t + i * 0.1, dur: 0.5, peak: 0.5, attack: 0.004 } );
+			tone( ctx, out, { type: 'sine', f0: f * 2, t: t + i * 0.1, dur: 0.35, peak: 0.14, attack: 0.004 } );
+
+		} );
+		burst( ctx, out, { t: t + 0.32, dur: 0.7, peak: 0.07, type: 'highpass', f: 5000, q: 0.7, attack: 0.05 } );
+		tone( ctx, out, { type: 'sine', f0: 1568, t: t + 0.42, dur: 0.9, peak: 0.3, attack: 0.01 } );
+		return 1.4;
+
+	} },
+};
+
+for ( const k of Object.keys( UI_CUES ) ) if ( ! CUES[ k ] ) CUES[ k ] = UI_CUES[ k ];
 
 const BATTERY_REACH = 45; // m: a cannonFired this close to a battery's guns is the battery's
 const POWDER_REACH = 30; // m: an explosion this close to a powder store is the store's
@@ -116,6 +193,13 @@ export class Cues {
 
 		const f = this.sfx.features;
 		return f && f.get ? f.get( name ) : null;
+
+	}
+
+	// an interface sound by name ('click' 'tab' 'toggle' 'confirm' 'back' 'open' 'close' 'notify' 'levelup'), in the head
+	ui( name ) {
+
+		return this.trigger( 'ui_' + name );
 
 	}
 

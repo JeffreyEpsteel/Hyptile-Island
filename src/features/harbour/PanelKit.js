@@ -1,5 +1,5 @@
-// A small glass window in the look of the game's HUD panels (the --tw-* tokens of ui/ui.css, .tw-glass, the
-// trade window's layout), shared by the tavern (TavernPanel.js) and the crafting bench (features/crafting).
+// A small glass window in the look of the game's HUD panels (wave 25B: the shared .gm-panel shell of ui/ui.css, with
+// .hb-panel for its width; the --tw-* tokens, .tw-glass, the trade window's layout), shared by the tavern (TavernPanel.js) and the crafting bench (features/crafting).
 // The DOM is built lazily in app.ui.ui.hud the first time a window opens; nothing happens without a document.
 //
 //   class MyPanel extends GlassPanel { render() { this.body( html ) } onClick( act, el ) {} }
@@ -7,27 +7,10 @@
 //   p.onClose: called when Escape or the Close button shuts it
 
 const CSS = /* css */`
-.hb-panel { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -48%); width: min(calc(560 * var(--tw-u)), calc(100vw - 2 * var(--tw-edge))); max-height: 84vh;
-	display: flex; flex-direction: column; padding: var(--tw-4) var(--tw-5); border-radius: var(--tw-r-lg); font: 500 var(--tw-fs-md) var(--tw-font); color: var(--tw-ink);
-	opacity: 0; pointer-events: none; transition: opacity var(--tw-med) var(--tw-ease), transform var(--tw-slow) var(--tw-ease); z-index: 6; }
-.hb-panel.is-open { opacity: 1; pointer-events: auto; transform: translate(-50%, -50%); }
-.tw-root.is-photo .hb-panel { display: none; }
 .hb-head { display: flex; justify-content: space-between; align-items: flex-start; gap: var(--tw-3); }
-.hb-head h2 { margin: 0 0 var(--tw-1); font-size: calc(17 * var(--tw-u)); font-weight: 600; }
-.hb-sub { margin: 0; color: var(--tw-ink-3); font-size: var(--tw-fs-sm); }
-.hb-sub b { color: var(--tw-sun); font-family: var(--tw-mono); font-weight: 600; }
-.hb-btn { font: 600 var(--tw-fs-md) var(--tw-font); color: var(--tw-ink); background: var(--tw-fill-2); border: 0; border-radius: 999px; padding: var(--tw-2) var(--tw-4); cursor: pointer; white-space: nowrap; }
-.hb-btn:hover:not([disabled]) { background: var(--tw-line-2); }
-.hb-btn[disabled] { opacity: 0.35; cursor: default; }
-.hb-btn.is-small { font-size: var(--tw-fs-sm); padding: 2px var(--tw-3); }
-.hb-btn.is-gold { color: var(--tw-sun); }
-.hb-tabs { display: flex; gap: var(--tw-1); margin: var(--tw-3) 0; padding: 3px; border-radius: 999px; background: var(--tw-fill); }
-.hb-tab { flex: 1; font: 600 var(--tw-fs-sm) var(--tw-font); color: var(--tw-ink-2); background: none; border: 0; border-radius: 999px; padding: calc(5 * var(--tw-u)) var(--tw-3); cursor: pointer; }
-.hb-tab:hover { color: var(--tw-ink); }
-.hb-tab.is-on { background: var(--tw-fill-2); color: var(--tw-ink); box-shadow: inset 0 0 0 1px var(--tw-line-2); }
+.hb-tabs { margin: var(--tw-3) 0; }
 .hb-body { overflow: auto; min-height: 0; margin: 0 calc(-1 * var(--tw-2)); padding: 0 var(--tw-2); }
-.hb-body h3 { margin: var(--tw-3) 0 var(--tw-1); font-size: var(--tw-fs-xs); font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; color: var(--tw-ink-3); }
-.hb-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: var(--tw-3); align-items: center; padding: calc(7 * var(--tw-u)) 0; border-bottom: 1px solid var(--tw-line); }
+.hb-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: var(--tw-3); align-items: center; }
 .hb-row b { display: block; font-weight: 600; }
 .hb-row small { display: block; color: var(--tw-ink-3); font-size: var(--tw-fs-xs); line-height: 1.35; }
 .hb-row small .is-ok { color: var(--tw-aqua); }
@@ -106,7 +89,7 @@ export class GlassPanel {
 		}
 
 		this.el = document.createElement( 'div' );
-		this.el.className = 'hb-panel tw-glass tw-interactive';
+		this.el.className = 'gm-panel hb-panel tw-glass tw-interactive';
 		this.el.addEventListener( 'click', ( e ) => {
 
 			const b = e.target.closest( '[data-act]' );

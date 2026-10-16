@@ -68,6 +68,7 @@ const PATHS = {
 	boat: '<path d="M2.5 14.5h19l-2.6 4.5H5.4z"/><path d="M6.5 14.5v-3H14l2.5 3"/><path d="M9 11.5V9"/>',
 	move: '<path d="M12 3v18M3 12h18"/><path d="m9.5 5.5 2.5-2.5 2.5 2.5M9.5 18.5l2.5 2.5 2.5-2.5M5.5 9.5 3 12l2.5 2.5M18.5 9.5 21 12l-2.5 2.5"/>',
 
+	gear: '<path d="M12 8.8a3.2 3.2 0 1 0 0 6.4 3.2 3.2 0 0 0 0-6.4z"/><path d="M19.4 13.5a7.7 7.7 0 0 0 0-3l1.9-1.5-1.8-3.1-2.3.9a7.5 7.5 0 0 0-2.6-1.5l-.4-2.5H9.7l-.4 2.5a7.5 7.5 0 0 0-2.6 1.5l-2.3-.9-1.8 3.1 1.9 1.5a7.7 7.7 0 0 0 0 3l-1.9 1.5 1.8 3.1 2.3-.9a7.5 7.5 0 0 0 2.6 1.5l.4 2.5h4.6l.4-2.5a7.5 7.5 0 0 0 2.6-1.5l2.3.9 1.8-3.1z"/>',
 	dot: '<circle cx="12" cy="12" r="3.5"/>',
 
 };
@@ -107,6 +108,30 @@ export function icon( name, className = '' ) {
 	return `<svg class="tw-ico${className ? ' ' + className : ''}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${body}</svg>`;
 
 }
+
+// Map markers (wave 25B): the one glyph family of the minimap and the world map (game/Minimap.js ICON is this set; the
+// chart's legend and the markers colour them by kind through ui.css --mk). 24 x 24, 2.2 stroke, closed shapes tinted with
+// currentColor at a quarter strength, so every glyph reads as the same hand at 12 px.
+const MK = ( body ) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ body }</svg>`;
+const T = 'fill="currentColor" fill-opacity=".25"';
+export const MARKER_ICONS = {
+	fish: MK( `<path ${ T } d="M3 12c2.7-3.8 6-5.6 9.6-5.6 3 0 5.2 1.6 7.2 4.2l1.7-1.6v6l-1.7-1.6c-2 2.6-4.2 4.2-7.2 4.2C9 17.6 5.7 15.8 3 12z"/><path d="M8.2 11.2h.01" stroke-width="3"/>` ),
+	anchor: MK( '<circle cx="12" cy="5" r="2"/><path d="M12 7v13M7 11h10M4 14c1 4 4 6 8 6s7-2 8-6"/>' ),
+	boat: MK( `<path ${ T } d="M3 14.5h18l-2.8 4.5H5.8z"/><path d="M12 3.5v9M12 5l5 7h-5"/>` ),
+	flag: MK( `<path d="M6 21V3.5"/><path ${ T } d="M6 4.5h12l-2.6 4 2.6 4H6"/>` ),
+	plane: MK( `<path ${ T } d="M12 2.5c.9 0 1.4 1 1.4 2.2v5l7.6 4.4v2l-7.6-2.3v4.2l2 1.5v1.5L12 20.2 8.6 21v-1.5l2-1.5v-4.2L3 15.6v-2l7.6-4.4v-5c0-1.2.5-2.2 1.4-2.2z"/>` ),
+	skull: MK( `<path ${ T } d="M12 3C8 3 5 5.8 5 9.6c0 2.2 1 4 2.6 5.1V18h2.2v-1.8H11V18h2v-1.8h1.2V18h2.2v-3.3C18 13.6 19 11.8 19 9.6 19 5.8 16 3 12 3z"/><path d="M9 10h.01M15 10h.01" stroke-width="3"/>` ),
+	target: MK( '<circle cx="12" cy="12" r="6.5"/><path d="M12 12h.01" stroke-width="3"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/>' ),
+	swords: MK( '<path d="M4 4l11 11M13 17.5l4.5-4.5M15 15l4.5 4.5M20 4 9 15M6.5 13l4.5 4.5M9 15l-4.5 4.5"/>' ),
+	board: MK( `<rect ${ T } x="3.5" y="3.5" width="17" height="11" rx="1.5"/><path d="M8 14.5V21M16 14.5V21M7.5 8h9M7.5 11h5.5"/>` ),
+	crate: MK( `<path ${ T } d="M4 9h16v11H4zM4 9l2.2-4.5h11.6L20 9"/><path d="M9.5 13h5"/>` ),
+	helm: MK( '<circle cx="12" cy="12" r="5.5"/><path d="M12 2v20M2 12h20M4.9 4.9l14.2 14.2M19.1 4.9 4.9 19.1"/>' ),
+	quest: MK( `<path ${ T } d="M12 3 21 12 12 21 3 12z"/><path d="M12 8v5M12 16.2h.01" stroke-width="2.6"/>` ),
+	chest: MK( `<path ${ T } d="M3.5 10.5h17V20h-17zM3.5 10.5c0-3.6 2.4-6 5-6h7c2.6 0 5 2.4 5 6"/><path d="M10.5 10.5v3h3v-3"/>` ),
+	wreck: MK( `<path ${ T } d="M4.2 11.6 19.6 7.4l.8 2.9-1.9 5.7H7.4z"/><path d="M9.5 4.2l1.6 6"/><path d="M3 20c1.5 0 1.5-1 3-1s1.5 1 3 1 1.5-1 3-1 1.5 1 3 1 1.5-1 3-1 1.5 1 3 1"/>` ),
+	// the player's own arrow keeps its white fill and dark rim (it is not a place)
+	arrow: '<svg viewBox="0 0 24 24"><path d="M12 2 20 21 12 16.5 4 21Z" fill="#fff" stroke="#0b1418" stroke-width="1.4" stroke-linejoin="round"/></svg>',
+};
 
 // Brand mark: a low sun over a swell line inside a ring. Gradient ids are
 // suffixed so several marks can coexist in one document.

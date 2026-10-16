@@ -24,11 +24,6 @@ import { t } from '../i18n/index.js';
 //   import { installHudPanels } from './HudPanels.js';  installHudPanels( GameHUD );
 
 const CSS = /* css */`
-.gm-tabs { display: flex; gap: var(--tw-1); margin: 0 0 var(--tw-3); padding: 3px; border-radius: 999px; background: var(--tw-fill); }
-.gm-tab { flex: 1; font: 600 var(--tw-fs-sm) var(--tw-font); color: var(--tw-ink-2); background: none; border: 0; border-radius: 999px; padding: calc(5 * var(--tw-u)) var(--tw-3); cursor: pointer;
-	transition: background var(--tw-fast), color var(--tw-fast); }
-.gm-tab:hover { color: var(--tw-ink); }
-.gm-tab.is-on { background: var(--tw-fill-2); color: var(--tw-ink); box-shadow: inset 0 0 0 1px var(--tw-line-2); }
 .gm-tab .gm-pip { display: inline-block; width: 6px; height: 6px; margin-left: 6px; border-radius: 50%; background: var(--tw-sun); vertical-align: middle; }
 .gm-shop-row .gm-price { font-family: var(--tw-mono); color: var(--tw-sun); font-size: var(--tw-fs-sm); white-space: nowrap; }
 .gm-shop-row .gm-price small { display: inline; color: var(--tw-ink-3); margin-left: var(--tw-1); }

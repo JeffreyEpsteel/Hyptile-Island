@@ -495,6 +495,14 @@ export class AppUI {
 
 		this.applyMode( app.rules );
 
+		// (wave 25B) the interface sounds: the UI says which, the sfx feature's cues play it (silent until audio has started)
+		ui.onSound = ( name ) => {
+
+			const sfx = app.features && app.features.get ? app.features.get( 'sfx' ) : null;
+			if ( sfx && sfx.cues && typeof sfx.cues.ui === 'function' ) sfx.cues.ui( name );
+
+		};
+
 		// (wave 24F) the first visit opens on the Game tab outside the sandbox: the Ocean tab's sea-state sliders are
 		// "Sandbox only" there, so a campaign player's first look at Settings was a page of dimmed controls
 		let savedTab = null;
