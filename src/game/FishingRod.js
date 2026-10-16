@@ -384,8 +384,18 @@ export class FishingRod {
 		}
 
 		const K = 250, C = 8; // ~2.5 Hz, lightly damped
-		this.bendVel += ( ( bendT - this.bend ) * K - this.bendVel * C ) * dt;
-		this.bend += this.bendVel * dt;
+		// (wave 27A) symplectic Euler at this stiffness is unstable from a 0.1 s step (the engine's clamp: a hitch, a shader
+		// compile, a covered window): the bend blew up, the tip flew off to 1e10 m and the line / float meshes filled the
+		// screen for good. Substeps of at most 1/60 s keep it stable at any dt; a non-finite bend resets to the target.
+		const n = dt > 1 / 60 ? Math.min( 16, Math.ceil( dt * 60 ) ) : 1, h = dt / n;
+		for ( let i = 0; i < n; i ++ ) {
+
+			this.bendVel += ( ( bendT - this.bend ) * K - this.bendVel * C ) * h;
+			this.bend += this.bendVel * h;
+
+		}
+
+		if ( ! ( Math.abs( this.bend ) < 2 ) || ! Number.isFinite( this.bendVel ) ) { this.bend = bendT; this.bendVel = 0; }
 		this.load += ( loadT - this.load ) * ( 1 - Math.exp( - dt * 6 ) );
 		// bend direction: toward the bobber (rod space, across the blank) when the line is out,
 		// otherwise down toward the reel side (negative bend = loaded back up)
