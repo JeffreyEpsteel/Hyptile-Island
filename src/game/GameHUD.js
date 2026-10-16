@@ -188,10 +188,37 @@ const CSS = /* css */`
 .gm-catch-timer > span { display: block; height: 100%; width: 100%; background: rgba(244, 234, 214, 0.55); transform-origin: 0 50%; }
 .gm-catch.is-on .gm-catch-timer > span { animation: gm-timer var(--gm-catch-ms, 9000ms) linear forwards; }
 @keyframes gm-timer { from { transform: scaleX(1); } to { transform: scaleX(0); } }
+/* wave 25D flourish: a light fan, a ring and sparks behind the fish when the card lands; a glint across the stat tiles */
+.gm-flourish { position: absolute; left: 50%; top: 52%; width: 0; height: 0; pointer-events: none; --fl: 242, 214, 150; }
+.gm-flourish.is-new { --fl: 140, 224, 210; }
+.gm-flourish.is-plain { --fl: 214, 232, 240; }
+.gm-flourish::before { content: ''; position: absolute; left: 0; top: 0; width: min(78vw, 980px); aspect-ratio: 1; margin: calc(min(78vw, 980px) / -2); border-radius: 50%; opacity: 0;
+	background: repeating-conic-gradient(from 0deg, rgba(var(--fl), 0.11) 0deg 4deg, transparent 4deg 18deg);
+	-webkit-mask-image: radial-gradient(closest-side, #000 0%, transparent 78%); mask-image: radial-gradient(closest-side, #000 0%, transparent 78%); }
+.gm-flourish::after { content: ''; position: absolute; left: 0; top: 0; width: min(36vw, 460px); aspect-ratio: 1; margin: calc(min(36vw, 460px) / -2); border-radius: 50%; opacity: 0;
+	box-shadow: 0 0 0 2px rgba(var(--fl), 0.55), 0 0 40px rgba(var(--fl), 0.35) inset; }
+.gm-catch.is-on .gm-flourish::before { animation: gm-fan 3.2s var(--tw-ease) 260ms forwards; }
+.gm-catch.is-on .gm-flourish::after { animation: gm-ring 900ms cubic-bezier(0.2, 0.7, 0.3, 1) 220ms forwards; }
+.gm-flourish i { position: absolute; left: 0; top: 0; width: var(--s); height: var(--s); margin: calc(var(--s) / -2); opacity: 0;
+	background: radial-gradient(circle, rgba(255, 255, 255, 0.95) 0%, rgba(var(--fl), 0.8) 35%, transparent 70%);
+	clip-path: polygon(50% 0, 60% 40%, 100% 50%, 60% 60%, 50% 100%, 40% 60%, 0 50%, 40% 40%); }
+.gm-catch.is-on .gm-flourish i { animation: gm-spark 1000ms cubic-bezier(0.15, 0.7, 0.3, 1) var(--d) forwards; }
+.gm-flourish.is-record i { filter: drop-shadow(0 0 6px rgba(var(--fl), 0.9)); }
+@keyframes gm-fan { 0% { opacity: 0; transform: rotate(-8deg) scale(0.6); } 25% { opacity: 1; } 100% { opacity: 0; transform: rotate(14deg) scale(1.05); } }
+@keyframes gm-ring { 0% { opacity: 0.9; transform: scale(0.25); } 100% { opacity: 0; transform: scale(1.25); } }
+@keyframes gm-spark { 0% { opacity: 0; transform: translate(0, 0) scale(0.2) rotate(0deg); } 14% { opacity: 1; }
+	100% { opacity: 0; transform: translate(var(--x), var(--y)) scale(1) rotate(120deg); } }
+.gm-stat { position: relative; overflow: hidden; }
+.gm-stat::after { content: ''; position: absolute; top: 0; bottom: 0; left: -60%; width: 40%; opacity: 0; pointer-events: none;
+	background: linear-gradient(100deg, transparent, rgba(255, 244, 214, 0.38), transparent); transform: skewX(-18deg); }
+.gm-catch.is-on .gm-stat::after { animation: gm-sweep 900ms var(--tw-ease) calc(1000ms + var(--n, 0) * 140ms) forwards; }
+.gm-stat:nth-child(2) { --n: 1; } .gm-stat:nth-child(3) { --n: 2; }
+@keyframes gm-sweep { 0% { opacity: 1; left: -60%; } 100% { opacity: 0; left: 130%; } }
 @media (prefers-reduced-motion: reduce) {
 	.gm-catch.is-on .gm-catch-top, .gm-catch.is-on .gm-catch-bottom { animation: none; opacity: 1; }
 	.gm-catch.is-on .gm-badge, .gm-catch.is-on .gm-badge.is-record { animation: none; transform: rotate(-3deg); opacity: 1; }
 	.gm-catch.is-on .gm-splash i { animation: none; }
+	.gm-catch.is-on .gm-flourish::before, .gm-catch.is-on .gm-flourish::after, .gm-catch.is-on .gm-flourish i, .gm-catch.is-on .gm-stat::after { animation: none; opacity: 0; }
 }
 @media (max-width: 640px) {
 	.gm-catch-stage { width: 96vw; }
@@ -698,6 +725,16 @@ export class GameHUD {
 
 		}
 
+		// wave 25D flourish: sparks thrown out of the fish's middle; gold for a record, aqua for a new species
+		const flk = info.record ? 'is-record' : info.newSpecies ? 'is-new' : 'is-plain';
+		let sparks = '';
+		for ( let i = 0, n = info.record ? 22 : info.newSpecies ? 16 : 9; i < n; i ++ ) {
+
+			const a = ( i / n ) * Math.PI * 2 + Math.random() * 0.4, r = 120 + Math.random() * ( info.record ? 380 : 260 );
+			sparks += `<i style="--s:${ ( 10 + Math.random() * ( info.record ? 22 : 14 ) ).toFixed( 1 ) }px;--x:${ ( Math.cos( a ) * r * 1.7 ).toFixed( 0 ) }px;--y:${ ( Math.sin( a ) * r * 0.6 - 30 ).toFixed( 0 ) }px;--d:${ ( 880 + Math.random() * 260 ).toFixed( 0 ) }ms"></i>`;
+
+		}
+
 		const c = this.catchCard;
 		c.style.setProperty( '--gm-catch-ms', `${ ms }ms` );
 		c.innerHTML = `
@@ -706,7 +743,7 @@ export class GameHUD {
 				<h2>${ f.name }</h2>
 				<div class="gm-catch-sci">${ f.sci || '' }</div>
 			</div>
-			<div class="gm-catch-stage"><canvas></canvas><div class="gm-splash">${ drops }</div></div>
+			<div class="gm-catch-stage"><canvas></canvas><div class="gm-flourish ${ flk }">${ sparks }</div><div class="gm-splash">${ drops }</div></div>
 			<div class="gm-catch-bottom">
 				<div class="gm-catch-stats">
 					<div class="gm-stat"><span>${ t( 'hud.catch.length', 'Length' ) }</span><b>${ info.cm }<small>cm</small></b><i>${ inch.toFixed( 1 ) } in</i></div>
