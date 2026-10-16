@@ -1,4 +1,5 @@
 import { t, getLang, setLang, onLang, LANGS, OFFERED } from '../i18n/index.js';
+import { SubtitleQueue } from '../features/voices/Queue.js';
 
 // Accessibility and key remapping.
 //
@@ -799,10 +800,20 @@ export class Accessibility {
 
 	}
 
-	// a caption line: `speaker` and a sound `cue` ('*click click*') lead the text; false when captions are off
+	// a caption line: `speaker` and a sound `cue` ('*click click*' ) lead the text; false when captions are off.
+	// One caption at a time: a line that arrives while another shows waits in a short queue (src/features/voices/Queue.js)
 	subtitle( text, ms = 3000, { speaker = '', cue = '' } = {} ) {
 
 		if ( ! this.o.subtitles || ! this.doc || ! text ) return false;
+		if ( ! this._subQ ) this._subQ = new SubtitleQueue();
+		const item = this._subQ.add( { text, ms, speaker, cue }, Date.now() );
+		if ( item ) this._showSub( item );
+		return true;
+
+	}
+
+	_showSub( { text, ms, speaker, cue } ) {
+
 		const doc = this.doc;
 		const host = this._host();
 		const line = doc.createElement( 'div' );
@@ -825,15 +836,16 @@ export class Accessibility {
 
 		line.append( doc.createTextNode( text ) );
 		host.append( line );
-		while ( host.children.length > 3 ) host.firstElementChild.remove();
+		while ( host.children.length > 2 ) host.firstElementChild.remove();
 		requestAnimationFrame( () => line.classList.add( 'is-in' ) );
 		setTimeout( () => {
 
 			line.classList.add( 'is-out' );
 			setTimeout( () => line.remove(), 260 );
+			const next = this._subQ.finish( Date.now() );
+			if ( next ) this._showSub( next );
 
 		}, ms );
-		return true;
 
 	}
 

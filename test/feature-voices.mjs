@@ -318,5 +318,21 @@ const flush = () => new Promise( ( res ) => setTimeout( res, 0 ) );
 
 }
 
+{
+
+	// subtitle queue (wave 27): one caption at a time, a short waiting list, stale lines dropped
+	const { SubtitleQueue } = await import( '../src/features/voices/Queue.js' );
+	const q = new SubtitleQueue( { maxWaiting: 2, maxWait: 6000 } );
+	const L = ( n ) => ( { text: n, ms: 2000 } );
+	ok( q.add( L( 'a' ), 0 )?.text === 'a', 'queue: the first line shows at once' );
+	ok( q.add( L( 'b' ), 100 ) === null && q.add( L( 'c' ), 200 ) === null, 'queue: a second and third line wait (never two at once)' );
+	ok( q.add( L( 'd' ), 300 ) === null && q.waiting.length === 2 && q.dropped === 1, 'queue: at most two waiting, the oldest is dropped' );
+	ok( q.finish( 2000 )?.text === 'c' && q.active.text === 'c', 'queue: the next waiting line follows in order' );
+	ok( q.finish( 4000 )?.text === 'd' && q.finish( 6000 ) === null && q.active === null, 'queue: drains to empty' );
+	q.add( L( 'e' ), 0 ); q.add( L( 'f' ), 10 );
+	ok( q.finish( 9000 ) === null && q.dropped === 2, 'queue: a line that waited past maxWait is dropped' );
+
+}
+
 console.log( fails ? `\n${ fails } FAILED` : '\nall voices checks passed' );
 process.exit( fails ? 1 : 0 );
