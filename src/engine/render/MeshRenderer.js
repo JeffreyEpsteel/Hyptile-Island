@@ -78,6 +78,7 @@ const objId = ( o ) => {
 };
 
 const DRAW_STRIDE = 256; // minUniformBufferOffsetAlignment
+const FADE_BAND = 0.12; // share of a culled group's reach (cullDistance) over which it dissolves
 const DRAW_FLOATS = 40;
 
 export class MeshRenderer {
@@ -107,6 +108,8 @@ export class MeshRenderer {
 		this.minPixels = on ? 1 : 0;
 		this.viewHeight = 1080;
 		this.culled = 0; // objects skipped by the distance / size culls in the last collect (debug)
+		this.waiting = 0; // draws skipped in frame _waitFrame because their pipeline was still compiling (waitingIn)
+		this._waitFrame = - 1;
 		this.sharePipelines = on; // identical materials share shader modules and pipelines (see _createPipeline)
 		this.packStatic = on; // never-updated geometry draws from one interleaved vertex buffer (see _layout)
 		this.matrixOncePerFrame = on; // scene.updateMatrixWorld() in the first pass of a frame only (nothing moves between passes)
@@ -173,6 +176,7 @@ export class MeshRenderer {
 		d[ o + 34 ] = p ? p[ 1 ] : 0;
 		d[ o + 35 ] = p ? p[ 2 ] : 0;
 		if ( p && p.length > 3 ) for ( let i = 0; i < 4; i ++ ) d[ o + 36 + i ] = p[ 3 + i ] ?? 0;
+		d[ o + 39 ] = obj.__fade ?? 1; // params2.w: the distance cross-fade (collect)
 		return g.slot;
 
 	}
@@ -560,6 +564,7 @@ export class MeshRenderer {
 		if ( ! handle || handle.failed || ! this.sharePipelines ) {
 
 			handle = GPU.renderPipeline( desc );
+			handle.mesh = true; // (engine/Warmup.js: the frame's own kernels and passes first, the meshes as their draws ask)
 			_sharedPipelines.set( share, handle );
 
 		}
@@ -600,23 +605,51 @@ export class MeshRenderer {
 		const all = this.precompiling && ! GPU.lazyPipelines;
 		const dScale = this.distanceScale;
 		let culled = 0;
+		// wave 25A: a distance-culled subtree dissolves over the last FADE_BAND of its reach instead of popping (fade: the
+		// share drawn, 1 = whole; the main pass dithers it, MeshShader DISTANCE_FADE). Its materials are marked the first
+		// time they are seen under such a group (the precompile visits every mesh: the flag is in before their pipelines)
+		let fade = 1, under = false;
 		const visit = ( o ) => {
 
 			if ( ! o.visible && ! all ) return;
-			if ( o.cullDistance && ! all && cull ) {
+			const fade0 = fade, under0 = under;
+			if ( o.cullDistance ) {
 
-				const far = o.cullDistance * dScale + ( o.cullRadius || 0 );
-				_o.setFromMatrixPosition( o.matrixWorld );
-				if ( _o.distanceToSquared( _viewPos ) > far * far ) {
+				under = true;
+				if ( ! all && cull ) {
 
-					culled ++;
-					return;
+					const far = o.cullDistance * dScale + ( o.cullRadius || 0 );
+					_o.setFromMatrixPosition( o.matrixWorld );
+					const d2 = _o.distanceToSquared( _viewPos );
+					if ( d2 > far * far ) {
+
+						culled ++;
+						under = under0;
+						return;
+
+					}
+
+					const band = Math.max( 4, ( far - ( o.cullRadius || 0 ) ) * FADE_BAND ), near = far - band;
+					if ( d2 > near * near ) {
+
+						const t = ( far - Math.sqrt( d2 ) ) / band;
+						fade = Math.min( fade, t * t * ( 3 - 2 * t ) );
+
+					}
 
 				}
 
 			}
 
 			if ( o.isMesh && o.material && o.geometry && ( o.layers.mask & layerMask ) !== 0 && ( ! filter || filter( o ) ) && ( kind !== 'depth' || o.castShadow ) ) {
+
+				o.__fade = fade;
+				if ( under ) {
+
+					if ( Array.isArray( o.material ) ) { for ( const m of o.material ) if ( m && ! m.distanceFade ) m.distanceFade = true; }
+					else if ( ! o.material.distanceFade ) o.material.distanceFade = true;
+
+				}
 
 				if ( all || ! cull || ! camera || o.frustumCulled === false || this._inFrustum( o ) ) {
 
@@ -629,6 +662,8 @@ export class MeshRenderer {
 			}
 
 			for ( const c of o.children ) visit( c );
+			fade = fade0;
+			under = under0;
 
 		};
 
@@ -647,6 +682,13 @@ export class MeshRenderer {
 		opaque.sort( ( a, b ) => a.renderOrder - b.renderOrder || a.pipeKey - b.pipeKey || a.z - b.z );
 		transparent.sort( ( a, b ) => a.renderOrder - b.renderOrder || b.z - a.z );
 		return { opaque, transparent };
+
+	}
+
+	// draws of frame f (GPU.frame) skipped because their pipeline was still compiling
+	waitingIn( f ) {
+
+		return this._waitFrame === f ? this.waiting : 0;
 
 	}
 
@@ -798,7 +840,21 @@ export class MeshRenderer {
 			vl = this._cachedLayout( o, geo, material );
 			p = this._pipeline( material, vl, pass );
 			const pipeline = p.handle.pipeline || ( this.syncPipelines ? GPU.ready( p.handle ) : null );
-			if ( ! pipeline ) continue; // still compiling
+			if ( ! pipeline ) {
+
+				// still compiling: skipped this frame, its compile moved to the head of the queue; the draws waiting on a
+				// compile are counted per frame (engine/Warmup.js holds the loader until a frame has none)
+				if ( ! p.handle.failed ) {
+
+					GPU.prioritize( p.handle );
+					if ( this._waitFrame !== GPU.frame ) { this._waitFrame = GPU.frame; this.waiting = 0; }
+					this.waiting ++;
+
+				}
+
+				continue;
+
+			}
 			if ( p !== lastPipeline ) {
 
 				rp.setPipeline( pipeline );

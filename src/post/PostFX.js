@@ -637,6 +637,13 @@ fn fragment( in: FSIn ) -> vec4f {
 
 	// size the targets, jitter the camera for this frame and write it into the frame uniforms (call
 	// before rendering the scene)
+	// a script drives the camera (the opening glide): the motion blur fades out until the player has the camera again
+	setCameraScripted( on ) {
+
+		this.motionBlur.setScripted( on );
+
+	}
+
 	beginFrame() {
 
 		if ( ! this._built ) {

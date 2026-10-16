@@ -296,6 +296,16 @@ struct FragOut {
 
 @fragment fn fs( vs: VSOut, @builtin( front_facing ) front: bool ) -> FragOut {
 	let in = fragInput( vs, front );
+#if PASS_MAIN && DISTANCE_FADE
+	// the distance cross-fade of a group near its cull distance (MeshRenderer: draw.params2.w, 1 = whole): an ordered
+	// 4x4 dither shifted every frame, which the temporal resolve turns into a dissolve instead of a pop
+	if ( draw.params2.w < 0.999 ) {
+		let fp = vec2u( in.pixel ) + vec2u( frame.frameIndex * 3u, frame.frameIndex >> 2u );
+		let x0 = fp.x & 1u; let x1 = ( fp.x >> 1u ) & 1u; let y0 = fp.y & 1u; let y1 = ( fp.y >> 1u ) & 1u;
+		let th = ( f32( ( ( x0 ^ y0 ) << 3u ) | ( y0 << 2u ) | ( ( x1 ^ y1 ) << 1u ) | y1 ) + 0.5 ) / 16.0;
+		if ( th >= draw.params2.w ) { discard; }
+	}
+#endif
 #if REFRACTION_CLIP
 #if !CLIP_DISTANCES
 	// the water's refraction source only holds what is under the water (pass.defines)

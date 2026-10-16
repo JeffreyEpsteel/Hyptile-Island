@@ -38,7 +38,7 @@ fn mbUvVelocity( vel: vec4f, uv: vec2f, d: f32 ) -> vec2f {
 
 // uv velocity -> half streak vector in output pixels (shutter applied, capped at one tile)
 fn mbToPx( vel: vec2f ) -> vec2f {
-	let v = vel * mbParams.outSize * ( mbParams.shutter * 0.5 );
+	let v = vel * mbParams.outSize * ( mbParams.shutter * 0.5 * mbParams.amount );
 	let l = length( v );
 	return v * min( 1.0, MB_TILE / max( l, 1e-6 ) );
 }
@@ -56,12 +56,17 @@ export class MotionBlur {
 			// fraction of the frame time the shutter is open: 0.5 = 180 degree shutter, 0 = off
 			shutter: [ 'f32', 0.5 ],
 			frameIndex: [ 'f32', 0 ],
+			// wave 25A: the share of the blur in use (0 while a script drives the camera: the opening glide; eased, setScripted)
+			amount: [ 'f32', 1 ],
 		}, { label: 'motionBlur' } );
 		const U = this.uniforms.fields;
 		this.shutter = U.shutter;
 		this.outSize = U.outSize;
 		this.tileCount = U.tileCount;
 		this.frameIndex = U.frameIndex;
+		this.amount = U.amount;
+		this._scripted = false;
+		this._lastT = 0;
 		this.skyReproj = U.skyReproj;
 		this._vp = new Matrix4();
 		this._prevVP = new Matrix4();
@@ -287,6 +292,20 @@ ${ neigh }
 		// previous view-projection * inverse current: far-plane NDC -> last frame's clip position
 		this.skyReproj.value.copy( this._vp ).invert().premultiply( this._prevVP );
 		this._prevVP.copy( this._vp );
+		// the blur fades out in ~0.15 s when a script takes the camera and back in over ~0.6 s when the player has it again
+		const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+		const dt = this._lastT ? Math.min( 0.1, ( now - this._lastT ) / 1000 ) : 0;
+		this._lastT = now;
+		const a = this.amount.value, goal = this._scripted ? 0 : 1;
+		this.amount.value = goal < a ? Math.max( goal, a - dt / 0.15 ) : Math.min( goal, a + dt / 0.6 );
+
+	}
+
+	// a script drives the camera (the opening glide, src/world/start/Intro.js): no blur until it hands the camera back.
+	// The glide's lanterns and the string close to the lens smeared into streaks (A-CLASS 1.3)
+	setScripted( on ) {
+
+		this._scripted = !! on;
 
 	}
 

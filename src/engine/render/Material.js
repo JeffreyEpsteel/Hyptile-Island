@@ -161,7 +161,7 @@ export class Material {
 	// the state that selects a pipeline (besides geometry layout and pass)
 	pipelineKey() {
 
-		return `${ this.id }.${ this.version }.${ this.side }.${ this.transparent }.${ typeof this.blending === 'string' ? this.blending : JSON.stringify( this.blending ) }.${ this.depthWrite }.${ this.depthTest }.${ this.depthCompare }.${ this.colorWrite }.${ this.topology }.${ this.alphaTest > 0 }.${ this.underwaterLighting }.${ this.appliesHillShadow }.${ this.localLightsCheap }.${ this.receiveShadows }.${ this.depthBias }.${ this.depthBiasSlopeScale }.${ this.vertexColors }`;
+		return `${ this.id }.${ this.version }.${ this.side }.${ this.transparent }.${ typeof this.blending === 'string' ? this.blending : JSON.stringify( this.blending ) }.${ this.depthWrite }.${ this.depthTest }.${ this.depthCompare }.${ this.colorWrite }.${ this.topology }.${ this.alphaTest > 0 }.${ this.underwaterLighting }.${ this.appliesHillShadow }.${ this.localLightsCheap }.${ this.receiveShadows }.${ this.depthBias }.${ this.depthBiasSlopeScale }.${ this.vertexColors }.${ this.distanceFade ? 1 : 0 }`;
 
 	}
 
@@ -177,6 +177,8 @@ export class Material {
 			BACK_SIDE: this.side === 'back' ? 1 : 0,
 			TRANSPARENT: this.transparent ? 1 : 0,
 			RECEIVE_SHADOWS: this.receiveShadows ? 1 : 0,
+			// drawn under a distance-culled group (MeshRenderer sets it): dissolves over the last stretch of its reach
+			DISTANCE_FADE: this.distanceFade ? 1 : 0,
 		};
 
 	}
