@@ -130,6 +130,68 @@ function dinghyGeometry() {
 
 }
 
+// wave 25F: what a near body wears, as props over the skinned avatar (origin at the feet, +y up, +z the way it faces; the
+// instance colour is the cloth): an oilskin cape over the shoulders, a bride's gown, a groom's long coat, a sou'wester, a top hat,
+// a veil. The roster's measures (tools/life25f/headscan.js): the head joint at 1.21, the head's underside at ~1.14, its crown
+// at 1.6 (a quiff to 1.79), flat and wide (to 0.4 m from the joint), the shoulders at ~1.05 and 0.2 out: the cloth stops under
+// the head and the hats sit on its crown. The far figures take the same from the crowd's flags (a cap in the outfit's colour).
+function capeGeometry() {
+
+	return mergePrepared( [ prepare( lathe( [ [ 0.36, 0.55 ], [ 0.34, 0.72 ], [ 0.31, 0.92 ], [ 0.27, 1.04 ], [ 0.2, 1.1 ], [ 0.1, 1.13 ], [ 0.0, 1.13 ] ], 14 ), { color: 0xffffff, rough: 0.28, pattern: PAT.cloth } ) ] );
+
+}
+
+function gownGeometry() {
+
+	return mergePrepared( [
+		prepare( lathe( [ [ 0.66, 0.02 ], [ 0.6, 0.12 ], [ 0.47, 0.42 ], [ 0.34, 0.72 ], [ 0.26, 0.94 ], [ 0.22, 1.04 ], [ 0.18, 1.1 ], [ 0.1, 1.13 ], [ 0.0, 1.13 ] ], 16 ), { color: 0xffffff, rough: 0.55, pattern: PAT.cloth } ),
+		// the train: a flat fan behind
+		prepare( box( 0.5, 0.02, 0.9 ), { color: 0xffffff, rough: 0.55, pattern: PAT.cloth, matrix: mat4( 0, 0.03, - 0.75, - 0.05, 0, 0 ) } ),
+	] );
+
+}
+
+function coatGeometry() {
+
+	return mergePrepared( [
+		prepare( lathe( [ [ 0.37, 0.42 ], [ 0.34, 0.62 ], [ 0.31, 0.88 ], [ 0.27, 1.03 ], [ 0.2, 1.1 ], [ 0.1, 1.13 ], [ 0.0, 1.13 ] ], 14 ), { color: 0xffffff, rough: 0.7, pattern: PAT.cloth } ),
+		// a pale waistcoat showing at the front
+		prepare( box( 0.16, 0.36, 0.02 ), { color: 0xe8e2d4, rough: 0.7, pattern: PAT.cloth, matrix: mat4( 0, 0.9, 0.3, 0.04, 0, 0 ) } ),
+	] );
+
+}
+
+// a sou'wester: a round crown and a brim that sweeps down behind (origin at the crown's base, on the head's crown)
+function souwesterGeometry() {
+
+	return mergePrepared( [
+		prepare( lathe( [ [ 0.27, 0.0 ], [ 0.265, 0.1 ], [ 0.21, 0.2 ], [ 0.0, 0.24 ] ], 12 ), { color: 0xffffff, rough: 0.3, pattern: PAT.cloth } ),
+		prepare( lathe( [ [ 0.44, - 0.04 ], [ 0.34, 0.0 ], [ 0.24, 0.03 ] ], 14 ), { color: 0xffffff, rough: 0.3, pattern: PAT.cloth } ),
+		prepare( box( 0.5, 0.03, 0.3 ), { color: 0xffffff, rough: 0.3, pattern: PAT.cloth, matrix: mat4( 0, - 0.12, - 0.34, 0.8, 0, 0 ) } ),
+	] );
+
+}
+
+function topperGeometry() {
+
+	return mergePrepared( [
+		prepare( cylinder( 0.17, 0.2, 0.32, 12 ), { color: 0xffffff, rough: 0.35, matrix: mat4( 0, 0.16, 0 ) } ),
+		prepare( cylinder( 0.3, 0.3, 0.025, 14 ), { color: 0xffffff, rough: 0.35, matrix: mat4( 0, 0.012, 0 ) } ),
+		prepare( cylinder( 0.205, 0.205, 0.05, 12 ), { color: 0xc8b070, rough: 0.5, matrix: mat4( 0, 0.06, 0 ) } ),
+	] );
+
+}
+
+// a veil (origin on the head's crown): a small bridal crown and a sheet falling behind the head to the shoulders
+function veilGeometry() {
+
+	return mergePrepared( [
+		prepare( sphere( 0.27, 12, 6, 0, Math.PI * 2, 0, Math.PI * 0.5 ), { color: 0xffffff, rough: 0.6, pattern: PAT.cloth, matrix: mat4( 0, - 0.06, 0, 0, 0, 0, 1, 0.45, 1 ) } ),
+		prepare( box( 0.5, 0.78, 0.012 ), { color: 0xffffff, rough: 0.6, pattern: PAT.cloth, matrix: mat4( 0, - 0.38, - 0.27, 0.12, 0, 0 ) } ),
+	] );
+
+}
+
 class List {
 
 	constructor( scene, geometry, material, cap, name, { shadow = true } = {} ) {
@@ -192,7 +254,7 @@ export class TownMeshes {
 		this.material = createPropMaterial( 'townlife' );
 		this.glass = createPropMaterial( 'townlifeLanterns' );
 		this.pegs = new CrowdBatch( scene, crowd );
-		this.crates = new List( scene, crateGeometry(), this.material, props, 'townlife-crates' );
+		this.crates = new List( scene, crateGeometry(), this.material, props + 6, 'townlife-crates' );
 		this.barrows = new List( scene, barrowGeometry(), this.material, props, 'townlife-barrows' );
 		this.lanterns = new List( scene, lanternFrameGeometry(), this.material, props, 'townlife-lanterns', { shadow: false } );
 		this.glow = new List( scene, mergePrepared( [ prepare( cylinder( 0.07, 0.07, 0.24, 8 ), { color: 0xffd9a0, rough: 0.2 } ) ] ), this.glass, props, 'townlife-lanternGlass', { shadow: false } );
@@ -205,7 +267,16 @@ export class TownMeshes {
 		this.bulbs = new List( scene, bulbGeometry(), this.paper, 96, 'townlife-festoon', { shadow: false } );
 		this.posts = new List( scene, postGeometry(), this.material, 8, 'townlife-posts' );
 		this.dinghies = new List( scene, dinghyGeometry(), this.material, 8, 'townlife-dinghies' );
-		this.lists = [ this.crates, this.barrows, this.lanterns, this.glow, this.skiffs, this.umbrellas, this.buckets, this.bulbs, this.posts, this.dinghies ];
+		// wave 25F: the outfits (double-sided: a cape is open at the hem)
+		this.cloth = createPropMaterial( 'townlifeOutfit' );
+		this.cloth.side = 'double';
+		this.capes = new List( scene, capeGeometry(), this.cloth, props, 'townlife-capes' );
+		this.gowns = new List( scene, gownGeometry(), this.cloth, 4, 'townlife-gowns' );
+		this.coats = new List( scene, coatGeometry(), this.cloth, 4, 'townlife-coats' );
+		this.hats = new List( scene, souwesterGeometry(), this.cloth, props, 'townlife-souwesters' );
+		this.toppers = new List( scene, topperGeometry(), this.cloth, 4, 'townlife-toppers' );
+		this.veils = new List( scene, veilGeometry(), this.cloth, 4, 'townlife-veils' );
+		this.lists = [ this.crates, this.barrows, this.lanterns, this.glow, this.skiffs, this.umbrellas, this.buckets, this.bulbs, this.posts, this.dinghies, this.capes, this.gowns, this.coats, this.hats, this.toppers, this.veils ];
 
 	}
 

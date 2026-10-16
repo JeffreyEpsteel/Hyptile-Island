@@ -39,6 +39,9 @@ import { Calendar, EVENT_KINDS } from './Events.js';
 //   tl.lights (the watch's lanterns, the festival lamps), update( dt ), reset(), dispose()
 //   (wave 24E) tl.shipArrived( port ) / tl.fire( x, z ) / tl.startEvent( 'market' | 'festival' | 'procession' | 'regatta', townId )
 //   tl.occasions -> { townId: { market, festival, regatta, procession } }   tl.sea (SeaLife: fish, dolphins)   tl.calendar
+// (wave 25F) tl.startEvent( 'auction', townId ): the catch sold off at the quay (also after every skiff's return); tl.occasions[ id ].auction;
+// townOccasion kind 'auction' ( on, x, z of the lot ). Near citizens wear oilskins in the rain, the wedding couple their clothes, and hold
+// the umbrella in a hand (contact IK).
 // Events emitted: townsfolkTalked { id, name, role, port }, townOccasion { kind, town, port, on, x, z }. Listens to:
 // cannonFired, cannonballImpact, explosion, gunshot, retaliationRaid, strongholdAlarm, fishCaught, fishSold, portVisited,
 // rivalArrived, firePool, cityFire; reads weather.rain / .day, firearms.drawn, naval.ships, cars.graph / .traffic / .busLoop().
@@ -109,6 +112,11 @@ export function resolveClip( model, name ) {
 }
 
 const _yAxis = new Vector3( 0, 1, 0 );
+const _hp = new Vector3();
+// (wave 25F) what a near body wears: linear colours (the instance colour is the cloth)
+const WHITE_L = [ 0.8, 0.78, 0.74 ], DARK_L = [ 0.012, 0.012, 0.016 ];
+// the top of each roster head over the feet (m, tools/life25f/headscan.js: the head-skinned vertices): a hat sits on it
+const HEAD_TOP = { bravile: 1.79, heptyle: 1.555 }, HEAD_TOP_DEFAULT = 1.6;
 // wave 20A: the roster faces' pupils, rims and lids sit on the eyeball (inside its silhouette): they cast no shadow of their own
 // (6 of a body's 9 meshes, each drawn again in every shadow cascade); the eyes themselves still do
 export const EYE_PART = /_(Pupil|Rim|Lid)_[lr]$/;
@@ -326,6 +334,7 @@ export class TownLife {
 		const t = this.towns.find( ( q ) => q.plan.id === townId );
 		if ( ! t ) return false;
 		if ( kind === 'procession' ) return this._procession( t, true ) > 0;
+		if ( kind === 'auction' ) return t.ready && t.sim.auction() > 0; // (wave 25F)
 		return this.calendar.force( kind, townId, seconds );
 
 	}
@@ -334,7 +343,7 @@ export class TownLife {
 	get occasions() {
 
 		const out = {};
-		for ( const t of this.towns ) out[ t.plan.id ] = { market: t.sim.marketDay, festival: t.sim.festival, regatta: this.regattas.has( t.plan.id ), procession: !! t.sim.event };
+		for ( const t of this.towns ) out[ t.plan.id ] = { market: t.sim.marketDay, festival: t.sim.festival, regatta: this.regattas.has( t.plan.id ), procession: !! t.sim.event, auction: !! t.sim.auc };
 		return out;
 
 	}
@@ -570,13 +579,14 @@ export class TownLife {
 	// feature's music and crowds, the HUD's tips)
 	_announce( t ) {
 
-		const was = t._occ || ( t._occ = { market: false, festival: false, procession: false, regatta: false } );
-		const now = { market: t.sim.marketDay, festival: t.sim.festival, procession: !! t.sim.event, regatta: this.regattas.has( t.plan.id ) };
+		const was = t._occ || ( t._occ = { market: false, festival: false, procession: false, regatta: false, auction: false } );
+		if ( t.sim.auc ) t._lot = t.sim.auc.lot;
+		const now = { market: t.sim.marketDay, festival: t.sim.festival, procession: !! t.sim.event, regatta: this.regattas.has( t.plan.id ), auction: !! t.sim.auc };
 		for ( const k in now ) {
 
 			if ( now[ k ] === was[ k ] ) continue;
 			was[ k ] = now[ k ];
-			const F = t.sim.places.fest, at = k === 'festival' && F ? F : k === 'regatta' && this.regattas.get( t.plan.id ) ? this.regattas.get( t.plan.id ).marks[ 1 ] : t.plan.center;
+			const F = t.sim.places.fest, at = k === 'auction' && t._lot ? t._lot : k === 'festival' && F ? F : k === 'regatta' && this.regattas.get( t.plan.id ) ? this.regattas.get( t.plan.id ).marks[ 1 ] : t.plan.center;
 			if ( this.features && this.features.emit ) this.features.emit( 'townOccasion', { kind: k, town: t.plan.id, port: t.plan.port, on: now[ k ], x: at.x, z: at.z } );
 
 		}
@@ -795,6 +805,8 @@ export class TownLife {
 			else if ( h >= s.back && h < s.back + s.tr ) { phase = 'in'; f = 1 - ( h - s.back ) / s.tr; }
 			if ( s.phase === 'in' && phase === 'dock' && d < t.plan.radius + 100 ) {
 
+				// (wave 25F) the catch goes under the hammer at the quay: the bidders are chosen first, the hall's queue after
+				if ( t.sim.auction() ) this._toast( `The morning's catch is going under the hammer at the ${ t.plan.name } quay.`, 3000, true );
 				t.sim.callQueue();
 				t.sim.unloadCatch( s.dock ); // (wave 24E) the crates carried up to the hall
 
@@ -927,6 +939,7 @@ export class TownLife {
 		c.body = null;
 		if ( ! body ) return;
 		body.citizen = null;
+		if ( body.ikHeld && body.avatar.ik ) { body.avatar.ik.setTargets( null ); body.ikHeld = false; }
 		const g = body.avatar.group;
 		if ( g ) g.visible = false;
 		if ( this.pool.length < 8 ) this.pool.push( body );
@@ -1058,11 +1071,14 @@ export class TownLife {
 
 		const g = body.avatar.group;
 		const m = body.model;
+		// (wave 25F) a standing idler is not squared to the street: a small turn of its own, eased in
+		const jt = ! c.moving && ! c.react && ! c.sitting && c.goal && c.goal.look && c.goal.look.alts ? c.yawJit : 0;
+		body.jit = ( body.jit || 0 ) + ( jt - ( body.jit || 0 ) ) * Math.min( 1, dt * 3 );
 		if ( g ) {
 
 			g.visible = true;
 			g.position.set( c.x + ox, c.y, c.z + oz );
-			if ( g.quaternion ) g.quaternion.setFromAxisAngle( _yAxis, c.yaw + wob + Math.PI );
+			if ( g.quaternion ) g.quaternion.setFromAxisAngle( _yAxis, c.yaw + wob + body.jit + Math.PI );
 			if ( g.scale ) g.scale.set( c.scale, c.scale, c.scale );
 			if ( typeof g.updateMatrixWorld === 'function' ) g.updateMatrixWorld( true );
 			const casts = d2 < shadow * shadow;
@@ -1075,21 +1091,18 @@ export class TownLife {
 
 		}
 
-		// (wave 24E) an umbrella up in the rain: over the head, a little forward and to the right hand's side
+		// (wave 25F) the outfit and the umbrella in the hand
 		const M0 = this.meshes;
-		if ( M0 && c.umbrella && ! c.sitting ) {
-
-			const s0 = c.scale, fx0 = - Math.sin( c.yaw ), fz0 = - Math.cos( c.yaw ), rx = - Math.cos( c.yaw ), rz = Math.sin( c.yaw );
-			M0.umbrellas.push( c.x + fx0 * 0.12 * s0 + rx * 0.1 * s0, c.y + 1.95 * s0, c.z + fz0 * 0.12 * s0 + rz * 0.1 * s0, c.yaw, s0, umbrellaTint( c ), 0.08, 0 );
-
-		}
+		if ( M0 ) this._wear( body, c, M0, ox, oz, c.yaw + wob + body.jit + Math.PI, dt );
 
 		if ( d2 > animate * animate ) { m.hold(); return; }
 		const want = c.clip( this._clip );
 		const name = resolveClip( m, want.name );
 		if ( m.current !== name ) {
 
-			m.play( name, { fade: c.moving ? 0.25 : 0.35, loop: want.loop, speed: want.speed } );
+			// (wave 25F: a standing citizen starts its loop part-way in, so a row of them is not in step)
+			const dur = want.from > 0 && ! c.moving && m.clipDuration ? m.clipDuration( name ) : 0;
+			m.play( name, { fade: c.moving ? 0.25 : 0.35, loop: want.loop, speed: want.speed, from: dur * want.from } );
 			body.playing = name;
 
 		}
@@ -1109,6 +1122,64 @@ export class TownLife {
 			const x = c.x + Math.cos( c.yaw ) * 0.32 * s + fx * 0.25 * s, z = c.z - Math.sin( c.yaw ) * 0.32 * s + fz * 0.25 * s;
 			M.lanterns.push( x, c.y + 0.95 * s, z, c.yaw, 1 );
 			M.glow.push( x, c.y + 0.95 * s, z, c.yaw, 1 );
+
+		}
+
+	}
+
+	// (wave 25F) what a near citizen wears and holds, as props over its avatar: oilskins (a cape and a sou'wester) in the rain, the
+	// wedding couple's clothes, an umbrella held up in the right hand (the contact IK puts the hand on the grip; a rig without
+	// the IK carries it over its head). th: the body's heading (the group's yaw about y).
+	_wear( body, c, M, ox, oz, th, dt ) {
+
+		const s = c.scale, ct = Math.cos( th ), st = Math.sin( th );
+		const px = c.x + ox, pz = c.z + oz, m = body.model;
+		const ik = body.avatar && body.avatar.ik ? body.avatar.ik : null;
+		const umb = c.umbrella && ! c.sitting && ! c.dress;
+		if ( ! umb && body.ikHeld && ik ) { ik.setTargets( null ); body.ikHeld = false; }
+		if ( ! c.oilskin && ! c.dress && ! umb ) return;
+		// the head joint in the avatar's own frame (a crowd figure's when the rig has no such node)
+		let hx = 0, hz = 0;
+		if ( m && m.nodeWorld && m.nodeWorld( 'head', _hp ) ) { hx = _hp.x; hz = _hp.z; }
+		const top = HEAD_TOP[ c.character ] || HEAD_TOP_DEFAULT;
+		const wx = px + ( hx * ct + hz * st ) * s, wz = pz + ( - hx * st + hz * ct ) * s, wy = c.y + ( top - 0.15 ) * s; // (a hat's base sinks into the dome a little)
+		if ( c.dress === 'bride' ) {
+
+			M.gowns.push( px, c.y, pz, th, s, WHITE_L );
+			M.veils.push( wx, c.y + top * s, wz, th, s, WHITE_L );
+
+		} else if ( c.dress === 'groom' ) {
+
+			M.coats.push( px, c.y, pz, th, s, DARK_L );
+			M.toppers.push( wx, wy, wz, th, s, DARK_L );
+
+		} else if ( c.oilskin && ! umb ) {
+
+			if ( ! c.sitting ) M.capes.push( px, c.y, pz, th, s, OILSKIN );
+			M.hats.push( wx, wy, wz, th, s, OILSKIN );
+
+		}
+
+		if ( ! umb ) return;
+		// the grip: ahead of the shoulder and out to the rig's right, beside the head; the canopy over it, clear of the crown
+		let sx = - 1; // (the rig faces +z: its right is -x)
+		if ( m && m.nodeWorld && m.nodeWorld( 'hand_r', _hp ) && _hp.x > 0.02 ) sx = 1;
+		const gx = sx * 0.32, gy = 1.32, gz = 0.34;
+		const tint = umbrellaLinear( c );
+		if ( ik ) {
+
+			const x = px + ( gx * ct + gz * st ) * s, z = pz + ( - gx * st + gz * ct ) * s, y = c.y + gy * s;
+			ik.dt = dt; ik.enabled = true; ik.footWeight = 0;
+			if ( body.avatar.group ) ik.setAnchor( body.avatar.group.matrixWorld.elements );
+			ik.setTargets( { rightHand: { x, y, z }, weight: 1 } );
+			body.ikHeld = true;
+			M.umbrellas.push( x, y + 0.62 * s, z, th, s, tint, 0, 0 );
+
+		} else {
+
+			// (no IK: over the head, as before)
+			const fx = - Math.sin( th - Math.PI ), fz = - Math.cos( th - Math.PI ), rx = - Math.cos( th - Math.PI ), rz = Math.sin( th - Math.PI );
+			M.umbrellas.push( px + fx * 0.12 * s + rx * 0.1 * s, c.y + 1.95 * s, pz + fz * 0.12 * s + rz * 0.1 * s, th - Math.PI, s, tint, 0.08, 0 );
 
 		}
 
@@ -1155,9 +1226,9 @@ export class TownLife {
 		if ( c.bucket ) flags |= FLAG.bucket;
 		const look = CROWD_LOOKS[ c.character ] || CROWD_LOOKS.hyptile;
 		// oilskins: a sou'wester on the workers out in the rain
-		if ( c.oilskin ) flags |= FLAG.cap;
+		if ( c.oilskin || c.dress ) flags |= FLAG.cap;
 		const bob = 0;
-		M.pegs.push( x, c.y + bob, z, c.yaw + Math.PI, c.scale, look, { phase: c.stepPh, stride, pose, flags, seed: ( c._seed ?? ( c._seed = ( c.x * 0.37 + c.z * 0.11 ) % 1 ) ), hat: c.oilskin ? OILSKIN : umbrellaLinear( c ) } );
+		M.pegs.push( x, c.y + bob, z, c.yaw + Math.PI, c.scale, look, { phase: c.stepPh, stride, pose, flags, seed: ( c._seed ?? ( c._seed = ( c.x * 0.37 + c.z * 0.11 ) % 1 ) ), hat: c.dress ? ( c.dress === 'bride' ? WHITE_L : DARK_L ) : c.oilskin ? OILSKIN : umbrellaLinear( c ) } );
 
 	}
 
@@ -1222,6 +1293,10 @@ export class TownLife {
 
 			}
 
+			// (wave 25F) the auction's lot: the crates stacked on the quay between the host and the bidders
+			const A = t.sim.auc;
+			if ( A && ( ! viewer || Math.hypot( viewer.x - A.lot.x, viewer.z - A.lot.z ) < 300 ) ) for ( const k of A.crates ) M.crates.push( k.x, ( t.sim.ground ? t.sim.ground( k.x, k.z ) : 0 ) + 0.16 + k.y, k.z, k.yaw, 1 );
+
 			const R = this.regattas.get( t.plan.id );
 			if ( R ) for ( const b of R.boats ) M.dinghies.push( b.x, Math.sin( T * 1.4 + b.speed * 3 ) * 0.05 - 0.05, b.z, b.yaw, 1, null, 0, b.heel );
 
@@ -1250,8 +1325,8 @@ export class TownLife {
 
 		for ( const t of this.towns ) {
 
-			for ( const c of t.sim.list ) { c.act = null; c.fleeing = false; c.react = null; c.eventRole = null; c.bucket = false; c.sheltering = false; c.umbrella = false; }
-			t.sim.event = null; t.sim.chain = null;
+			for ( const c of t.sim.list ) { c.act = null; c.fleeing = false; c.react = null; c.eventRole = null; c.bucket = false; c.sheltering = false; c.umbrella = false; c.dress = null; }
+			t.sim.event = null; t.sim.chain = null; t.sim._auctionEnd();
 
 		}
 

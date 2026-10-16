@@ -204,11 +204,12 @@ section( 'rain' );
 	w.weather.rain = 0.8;
 	run( w, 90 );
 	const strollers = w.sim.list.filter( ( c ) => c.act === 'stroll' || c.act === 'wake' );
-	const wetOut = strollers.filter( ( c ) => outdoors( c ) && ! c.umbrella && ! c.sheltering );
+	// (wave 25F: the hardy third stay out in oilskins)
+	const wetOut = strollers.filter( ( c ) => outdoors( c ) && ! c.umbrella && ! c.sheltering && ! ( c.hardy && c.oilskin ) );
 	ok( out0 >= 8 && wetOut.length <= 1, `in out of the rain: ${ out0 } strolling before, ${ wetOut.length } still out with no umbrella` );
 	ok( strollers.filter( ( c ) => c.sheltering ).length >= 5, `gone in (${ strollers.filter( ( c ) => c.sheltering ).length })` );
 	ok( strollers.some( ( c ) => c.umbrella && outdoors( c ) ), `umbrellas up (${ strollers.filter( ( c ) => c.umbrella ).length })` );
-	ok( ! w.sim.list.some( ( c ) => c.sitting && outdoors( c ) && c.indoorFloor === null && ( c.act === 'stroll' || c.act === 'eat' ) ), 'nobody sits about outside in it' );
+	ok( ! w.sim.list.some( ( c ) => c.sitting && outdoors( c ) && c.indoorFloor === null && ( c.act === 'stroll' || c.act === 'eat' ) && ! c.hardy ), 'nobody (but the hardy in oilskins) sits about outside in it' );
 	const workers = w.sim.list.filter( ( c ) => c.act === 'work' && ( c.role === 'fisher' || c.role === 'dockworker' ) );
 	ok( workers.length && workers.every( ( c ) => c.oilskin ), `the fishers and dockhands work on in oilskins (${ workers.length })` );
 	w.weather.rain = 0;

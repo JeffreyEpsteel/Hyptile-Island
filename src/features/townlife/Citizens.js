@@ -14,7 +14,9 @@ import { townPlaces, onFreeGround } from './Places.js';
 //   const sim = new TownSim( plan, { grid, rand, count: scale, ground } );
 //   sim.update( dt, hour, viewer )      viewer { x, z } | null; near citizens step every frame, the rest at 2 Hz
 //   sim.alarm( x, z, seconds ) / sim.cheer( x, z ) / sim.callQueue() / sim.crowd() / sim.byId( id )
-//   citizen: { id, name, role, act, x, z, y, yaw, moving, hidden, clip(): { name, loop, speed }, lines }
+//   citizen: { id, name, role, act, x, z, y, yaw, moving, hidden, clip(): { name, loop, speed, from }, lines }
+//   (wave 25F) sim.auction() / sim.varyIdles(): the catch sold off at the quay; no two neighbours standing in the same pose;
+//   citizen.dress ( 'bride' | 'groom' | null ), .oilskin, .umbrella: what a near body wears
 
 export const TOWN_SCHEDULES = {
 	fisher: SCHEDULES.fisher,
@@ -81,37 +83,44 @@ const EXTRA_LINES = {
 const TIME_HELLO = ( hour ) => hour < 11 ? 'Morning!' : hour < 17 ? 'Afternoon!' : hour < 22 ? 'Evening!' : 'Late one, eh?';
 
 // the clip names a body plays (the feature resolves each through its fallback chain)
+// (wave 25F) `alts`: other standing loops a citizen may hold in place of the base (picked per citizen, and re-picked when a
+// neighbour stands in the same one: varyIdles), so a row of people at the same kind of spot do not strike one pose
+const IDLERS = [ 'Swagger_Idle', 'Look_Around' ];
+const TALKERS = [ 'Chat_Gesture', 'Talk', 'Laugh' ];
 const LOOK = {
-	stall: { base: 'Idle_Breathe', gestures: [ 'Point_Out', 'Talk', 'Wave', 'Shrug' ] },
+	stall: { base: 'Idle_Breathe', alts: IDLERS, gestures: [ 'Point_Out', 'Talk', 'Wave', 'Shrug' ] },
 	nets: { base: 'Fish_Net', gestures: [ 'Inspect_Catch', 'Look_Around' ] },
 	fish: { base: 'Fishing_Hold', gestures: [ 'Fishing_Reel', 'Inspect_Catch' ] },
 	hammer: { base: 'Hammer', gestures: [ 'Inspect_Catch', 'Kneel_Work' ] },
 	carryEnd: { base: 'Kneel_Work', gestures: [] },
 	sweep: { base: 'Sweep', gestures: [ 'Look_Around' ] },
-	wake: { base: 'Idle_Breathe', gestures: [ 'Look_Around', 'Shrug', 'Friendly_Wave' ] },
-	gather: { base: 'Talk_Group', gestures: [ 'Laugh', 'Point', 'Shrug', 'Chat_Gesture' ] },
-	alone: { base: 'Idle_Breathe', gestures: [ 'Look_Around', 'Lean_Wall' ] },
-	browse: { base: 'Idle_Breathe', gestures: [ 'Point', 'Inspect_Catch', 'Shrug' ] },
+	wake: { base: 'Idle_Breathe', alts: IDLERS, gestures: [ 'Look_Around', 'Shrug', 'Friendly_Wave' ] },
+	gather: { base: 'Talk_Group', alts: TALKERS, gestures: [ 'Laugh', 'Point', 'Shrug', 'Chat_Gesture' ] },
+	alone: { base: 'Idle_Breathe', alts: IDLERS, gestures: [ 'Look_Around', 'Lean_Wall' ] },
+	browse: { base: 'Idle_Breathe', alts: IDLERS, gestures: [ 'Point', 'Inspect_Catch', 'Shrug' ] },
 	// (seated: no standing gestures; Sit_Chair on the way down, Stand_From_Chair on the way up: wave 18E's clips)
 	seatEat: { base: 'Sit_Chair_Idle', gestures: [], sit: true },
 	seat: { base: 'Sit_Chair_Idle', gestures: [], sit: true },
 	standEat: { base: 'Eat', gestures: [ 'Chat_Gesture', 'Laugh' ] },
 	patio: { base: 'Drink', gestures: [ 'Talk_Group', 'Laugh', 'Cheer_Clap', 'Point' ] },
-	patrol: { base: 'Idle_Breathe', gestures: [ 'Look_Around' ] },
+	patrol: { base: 'Idle_Breathe', alts: IDLERS, gestures: [ 'Look_Around' ] },
 	lamp: { base: 'Lamp_Light', gestures: [] },
-	queue: { base: 'Idle_Breathe', gestures: [ 'Look_Around', 'Shrug' ] },
+	queue: { base: 'Idle_Breathe', alts: IDLERS, gestures: [ 'Look_Around', 'Shrug' ] },
 	play: { base: 'Idle_Breathe', gestures: [ 'Cheer_Clap', 'Dance' ] },
 	cheer: { base: 'Clap', gestures: [] },
 	// wave 24E
 	stallSetup: { base: 'Kneel_Work', gestures: [ 'Inspect_Catch' ] }, // the morning: crates out, the awning up
-	haggle: { base: 'Idle_Breathe', gestures: [ 'Shrug', 'Point', 'Chat_Gesture', 'Inspect_Catch', 'Talk' ] },
+	haggle: { base: 'Idle_Breathe', alts: IDLERS, gestures: [ 'Shrug', 'Point', 'Chat_Gesture', 'Inspect_Catch', 'Talk' ] },
 	siesta: { base: 'Sit_Chair_Idle', gestures: [], sit: true },
 	walkTalk: { base: 'Chat_Gesture', gestures: [ 'Laugh', 'Point', 'Talk' ] }, // the evening walk's pauses
-	quay: { base: 'Idle_Breathe', gestures: [ 'Point_Out', 'Friendly_Wave', 'Wave', 'Talk', 'Cheer_Clap' ] }, // a ship coming in
+	quay: { base: 'Idle_Breathe', alts: IDLERS, gestures: [ 'Point_Out', 'Friendly_Wave', 'Wave', 'Talk', 'Cheer_Clap' ] }, // a ship coming in
 	chain: { base: 'Inspect_Catch', gestures: [] }, // the bucket passed on
 	dance: { base: 'Dance', gestures: [ 'Dance_2', 'Cheer_Clap', 'Clap' ] },
 	watchFest: { base: 'Clap', gestures: [ 'Cheer_Clap', 'Laugh', 'Talk_Group' ] },
 	stare: { base: 'Idle_Breathe', gestures: [] },
+	// wave 25F: the fish auction at the quay
+	auctioneer: { base: 'Point_Out', gestures: [ 'Talk', 'Point', 'Cheer_Clap', 'Laugh', 'Point_Out' ] },
+	bid: { base: 'Idle_Breathe', alts: IDLERS, gestures: [ 'Wave', 'Point', 'Friendly_Wave', 'Shrug', 'Beckon', 'Cheer_Clap' ] },
 	busk: { base: 'Dance_2', gestures: [ 'Cheer_Clap', 'Laugh', 'Friendly_Wave', 'Dance' ] },
 };
 
@@ -123,6 +132,8 @@ const FAR_TICK = 0.5; // s: citizens away from the player step at 2 Hz
 const NEAR_R = 75; // m: within this they step every frame
 const DORMANT_R = 450; // m beyond the town's radius: activities jump (no walking)
 const SEP = 0.85; // m: personal space
+const AUCTION_S = 70; // s a fish auction runs
+const VARY_R = 3.2; // m: neighbours closer than this do not strike the same pose
 
 const wrap = ( a ) => Math.atan2( Math.sin( a ), Math.cos( a ) );
 
@@ -162,6 +173,9 @@ class Slots {
 	}
 
 }
+
+// the pose a standing citizen strikes: its loop and the quarter of the loop it is in
+export const poseKey = ( c ) => c.idleClip() + ':' + Math.floor( c.idlePhase * 4 );
 
 export class Citizen {
 
@@ -227,6 +241,14 @@ export class Citizen {
 		this.unloadN = 0; // crates left to carry up from a skiff
 		this.cross = null; // the crossing waited at: { cr, a, b }
 		this.stepPh = ( h % 628 ) / 100; // the far figure's walk cycle
+		// wave 25F: idle variety, outfits (a near body wears them as props), the auction
+		this.idleSeed = ( h >>> 13 ) % 7; // which of a look's alternative loops it holds
+		this.idleVar = 0; // bumped when a neighbour holds the same one (varyIdles)
+		this.idlePhase = ( ( h >>> 17 ) % 100 ) / 100; // where in the loop it starts (not in step with the next one)
+		this.idleRate = 0.92 + ( ( h >>> 21 ) % 17 ) / 100;
+		this.yawJit = ( ( ( h >>> 6 ) % 100 ) / 100 - 0.5 ) * 0.7; // rad: a standing idler is not squared to the street
+		this.hardy = this.role !== 'child' && ! this.hasUmbrella && ( ( h >>> 9 ) % 3 ) === 0; // stays out in the rain in oilskins
+		this.dress = null; // 'bride' | 'groom' in a wedding procession
 
 	}
 
@@ -239,9 +261,21 @@ export class Citizen {
 	}
 
 	// the clip the body should play now: { name, loop, speed }
-	clip( out = { name: 'Idle_Breathe', loop: true, speed: 1 } ) {
+	// the standing loop now: the look's base, or one of its alternatives (this citizen's own, bumped by varyIdles)
+	idleClip() {
 
-		out.loop = true; out.speed = 1;
+		const l = this.goal && this.goal.look;
+		if ( ! l ) return 'Idle_Breathe';
+		const a = l.alts;
+		if ( ! a || ! a.length ) return l.base;
+		const k = ( this.idleSeed + this.idleVar ) % ( a.length + 1 );
+		return k === 0 ? l.base : a[ k - 1 ];
+
+	}
+
+	clip( out = { name: 'Idle_Breathe', loop: true, speed: 1, from: 0 } ) {
+
+		out.loop = true; out.speed = 1; out.from = 0;
 		if ( this.react ) { out.name = this.react.clip; out.loop = true; return out; }
 		if ( this.standT > 0 ) { out.name = 'Stand_From_Chair'; out.loop = false; return out; }
 		if ( this.talkT > 0 ) { out.name = 'Talk'; return out; }
@@ -256,7 +290,9 @@ export class Citizen {
 		}
 
 		if ( this.gesture ) { out.name = this.gesture; out.loop = false; return out; }
-		out.name = ( this.goal && this.goal.look && this.goal.look.base ) || 'Idle_Breathe';
+		out.name = this.idleClip();
+		out.from = this.idlePhase;
+		out.speed = this.idleRate;
 		return out;
 
 	}
@@ -294,7 +330,7 @@ export class TownSim {
 		this._routeQ = [];
 		this.dormant = true;
 		this.seats = plan.seats.slice();
-		this._clipScratch = { name: '', loop: true, speed: 1 };
+		this._clipScratch = { name: '', loop: true, speed: 1, from: 0 };
 		// wave 24E: the weather, the island day (market days, the festival), the events running, the places they use
 		this.rain = 0;
 		this.wet = false;
@@ -308,6 +344,8 @@ export class TownSim {
 		this.crossings = []; // signalled crossings: { node, edge, a, b } (the city's; setStreets)
 		this.busStops = []; // { node, x, z, yaw }
 		this.crossOK = null; // ( crossing ) -> true while its traffic has a red light
+		this.auc = null; // (wave 25F) the fish auction running: { lot, host, members, t, stage, hard }
+		this._varyT = 0;
 		this._populate( roster || plan, scale );
 		// the evening walk goes in pairs: folk (and the vendors) two by two
 		const walkers = this.list.filter( ( c ) => c.role === 'folk' || c.role === 'vendor' );
@@ -547,6 +585,230 @@ export class TownSim {
 
 	}
 
+
+	// ------------------------------------------------------------------ wave 25F: the fish auction
+
+	// the lot of an auction: where the crates stand and the auctioneer behind them, and the fan the bidders stand in. At the
+	// quay by the first skiff berth (the crates are carried up from the boat), else on the fish hall's front, else the first
+	// quay spot. { lot: { x, z }, host: spot, ring: [ spot ] (facing the lot), crates: [ { x, y, z, yaw } ] }
+	auctionPlace() {
+
+		const spots = this.quaySpots();
+		const sk = ( this.plan.skiffs || [] )[ 0 ], H = this.plan.hall;
+		let lot = null, face = null;
+		if ( sk && spots.length ) {
+
+			const d = sk.dock, o = sk.out && sk.out[ 0 ] || d;
+			let sx = o.x - d.x, sz = o.z - d.z;
+			const L = Math.hypot( sx, sz ) || 1;
+			sx /= L; sz /= L;
+			lot = { x: d.x - sx * 3.2, z: d.z - sz * 3.2 }; // (the boards at the berth's end are narrow: the crates stand where the quay is wide)
+			face = { x: - sx, z: - sz }; // the bidders stand inland of the lot, along this way
+
+		} else if ( H ) {
+
+			const q = H.queue[ H.queue.length - 1 ];
+			lot = { x: q.x + Math.sin( H.yaw ) * 2.5, z: q.z + Math.cos( H.yaw ) * 2.5 };
+			face = { x: Math.sin( H.yaw ), z: Math.cos( H.yaw ) };
+
+		} else if ( spots.length ) {
+
+			lot = { x: spots[ 0 ].x, z: spots[ 0 ].z };
+			face = { x: 0, z: 1 };
+
+		}
+
+		if ( ! lot ) return null;
+		const G = this.grid && this.grid.ready ? this.grid : null;
+		if ( G ) { const f = G.nearestFree( lot.x, lot.z, 3 ); if ( f ) lot = { x: f.x, z: f.z }; }
+		// the host stands behind the crates (the side away from the bidders) facing them; the bidders in a fan of two rows
+		const fx = face.x, fz = face.z, px = fz, pz = - fx;
+		// (on free ground, and never on the crates: else a step to the side)
+		const px0 = fz, pz0 = - fx;
+		let hostAt = { x: lot.x - fx * 1.0, z: lot.z - fz * 1.0 };
+		if ( G ) {
+
+			for ( const [ ax, az ] of [ [ 0, 0 ], [ px0 * 1.2, pz0 * 1.2 ], [ - px0 * 1.2, - pz0 * 1.2 ], [ - fx * 0.6, - fz * 0.6 ] ] ) {
+
+				const f = G.nearestFree( hostAt.x + ax, hostAt.z + az, 2 );
+				if ( f && Math.hypot( f.x - lot.x, f.z - lot.z ) >= 0.7 ) { hostAt = { x: f.x, z: f.z }; break; }
+
+			}
+
+		}
+
+		const yaw = yawToward( 0, 0, fx, fz );
+		const crates = [
+			{ x: lot.x - px * 0.28, y: 0, z: lot.z - pz * 0.28, yaw }, { x: lot.x + px * 0.28, y: 0, z: lot.z + pz * 0.28, yaw: yaw + 0.1 },
+			{ x: lot.x, y: 0.32, z: lot.z, yaw: yaw - 0.15 },
+		];
+		const ring = [];
+		for ( let i = 0; i < 9; i ++ ) {
+
+			const a = ( i - 4 ) / 4 * 1.0, r = 2.5 + ( i % 2 ) * 1.0;
+			const dx = fx * Math.cos( a ) - fz * Math.sin( a ), dz = fz * Math.cos( a ) + fx * Math.sin( a );
+			const x = lot.x + dx * r, z = lot.z + dz * r;
+			ring.push( { x: Math.round( x * 100 ) / 100, z: Math.round( z * 100 ) / 100, yaw: yawToward( x, z, lot.x, lot.z ) } );
+
+		}
+
+		return { lot, host: { x: hostAt.x, z: hostAt.z, yaw: yawToward( hostAt.x, hostAt.z, lot.x + fx * 3, lot.z + fz * 3 ) }, ring: G ? onFreeGround( G, ring, 2 ) : ring, crates };
+
+	}
+
+	// the morning's catch goes under the hammer: a host behind the crates calls the lots, up to eight bidders stand in a fan
+	// in front of him and raise a hand; at the end the hammer falls and they clap. Returns how many are in it.
+	auction( seconds = AUCTION_S, max = 8 ) {
+
+		if ( this.auc || this.dormant || ! this.grid || ! this.grid.ready ) return 0;
+		const W = this.auctionPlace();
+		if ( ! W ) return 0;
+		const free = ( c ) => ! c.hidden && close( c ) && ! c.fleeing && ! c.eventRole && ! c.bucket && ! c.sheltering && c.queueSlot < 0 && ! ( c.unloadN > 0 ) && c.role !== 'child';
+		const near = ( a, b ) => Math.hypot( a.x - W.lot.x, a.z - W.lot.z ) - Math.hypot( b.x - W.lot.x, b.z - W.lot.z );
+		const close = ( c ) => Math.hypot( c.x - W.lot.x, c.z - W.lot.z ) < 90; // (it is the quay's own crowd: those within a minute's walk)
+		// the host: the harbour's man (watchman, lamplighter) or a loud vendor, the nearest of them
+		const hosts = this.list.filter( ( c ) => free( c ) && c.act !== 'work' && [ 'watchman', 'lamplighter', 'vendor', 'regular', 'folk', 'sweeper' ].includes( c.role ) ).sort( near );
+		const host = hosts[ 0 ] || this.list.filter( free ).sort( near )[ 0 ];
+		if ( ! host ) return 0;
+		const rest = this.list.filter( ( c ) => c !== host && free( c ) && ( c.act === 'stroll' || c.act === 'wake' || c.act === 'promenade' || c.act === 'eat' || c.act === 'siesta' || c.act === 'play' || c.act === 'work' ) ).sort( near );
+		const members = [ host ];
+		this.slots.release( host.id );
+		host.eventRole = 'auction';
+		this._goal( host, { x: W.host.x, z: W.host.z, yaw: W.host.yaw, look: LOOK.auctioneer, kind: 'auction', dwell: Infinity } );
+		let n = 0;
+		for ( const c of rest ) {
+
+			if ( n >= Math.min( max, W.ring.length ) ) break;
+			// the ones at work keep to it unless there are too few others
+			if ( c.act === 'work' && rest.length > max ) continue;
+			this.slots.release( c.id );
+			const q = W.ring[ n ];
+			c.eventRole = 'auction';
+			this._goal( c, { x: q.x, z: q.z, yaw: q.yaw, look: LOOK.bid, kind: 'auction', dwell: Infinity }, 'walk' );
+			members.push( c );
+			n ++;
+
+		}
+
+		this.auc = { lot: W.lot, crates: W.crates, host, members, t: seconds, stage: 'gather', start: this.time, hard: this.time + seconds + 90, lots: 0, lotT: 8 };
+		return members.length;
+
+	}
+
+	_auctionStep( dt ) {
+
+		const A = this.auc;
+		if ( ! A ) return;
+		// whoever fled or was taken by another event drops out; without the host (or with fewer than two) it is over
+		A.members = A.members.filter( ( c ) => {
+
+			if ( c.eventRole !== 'auction' ) return false;
+			// (one that could not get a route has no goal: back to its day)
+			if ( ! c.goal && ! c.pending && ! c.moving ) { c.eventRole = null; c.act = null; return false; }
+			return true;
+
+		} );
+		if ( ! A.members.includes( A.host ) || A.members.length < 2 || this.time > A.hard ) { this._auctionEnd(); return; }
+		if ( A.stage === 'gather' ) {
+
+			// the crowd comes: the lots start once the host is at his crates and most of the bidders are in their places (or after 50 s)
+			const there = A.members.filter( ( c ) => c.arrived ).length;
+			if ( ( A.host.arrived && there >= Math.ceil( A.members.length * 0.6 ) ) || this.time - A.start > 50 ) A.stage = 'bidding';
+			return;
+
+		}
+
+		if ( A.stage === 'bidding' ) {
+
+			A.t -= dt;
+			A.lotT -= dt;
+			// a lot every ~10 s: the host calls it, and a few of the bidders put a hand up
+			if ( A.lotT <= 0 ) {
+
+				A.lotT = 9 + this.rand() * 4;
+				A.lots ++;
+				const h = A.host;
+				if ( h.arrived && ! h.gesture ) { h.gesture = A.lots % 2 ? 'Point' : 'Talk'; h.gestureLeft = 3; }
+				const bidders = A.members.filter( ( c ) => c !== h && c.arrived && ! c.gesture );
+				for ( let i = 0; i < Math.min( 3, bidders.length ); i ++ ) {
+
+					const c = bidders[ Math.floor( this.rand() * bidders.length ) ];
+					if ( c && ! c.gesture ) { c.gesture = [ 'Wave', 'Point', 'Friendly_Wave' ][ Math.floor( this.rand() * 3 ) ]; c.gestureLeft = 2.2; }
+
+				}
+
+			}
+
+			if ( A.t <= 0 ) {
+
+				// the hammer: the last lot sold; everyone turns to the crates and claps
+				A.stage = 'sold';
+				A.t = 6;
+				A.members.forEach( ( c, i ) => { c.react = { clip: c === A.host ? 'Cheer_Clap' : i % 2 ? 'Clap' : 'Cheer_Clap', t: 5, yaw: yawToward( c.x, c.z, A.lot.x, A.lot.z ) }; } );
+
+			}
+
+			return;
+
+		}
+
+		A.t -= dt;
+		if ( A.t <= 0 ) this._auctionEnd();
+
+	}
+
+	_auctionEnd() {
+
+		const A = this.auc;
+		if ( ! A ) return;
+		for ( const c of A.members ) if ( c.eventRole === 'auction' ) { c.eventRole = null; c.act = null; c.react = null; c.gesture = null; }
+		this.auc = null;
+
+	}
+
+	// ------------------------------------------------------------------ wave 25F: no two neighbours in the same pose
+
+	// standing citizens near each other must not hold the same loop at the same point of it: each one that does is moved on to
+	// another of its look's loops, else another start phase. Cheap: near, standing ones only. Returns how many changed.
+	varyIdles( radius = VARY_R ) {
+
+		const list = this._varyList || ( this._varyList = [] );
+		list.length = 0;
+		for ( const c of this.list ) if ( c.near && ! c.hidden && c.arrived && ! c.react && ! c.gesture && c.talkT <= 0 && c.goal && c.goal.look && ! c.sitting ) list.push( c );
+		let changed = 0;
+		const r2 = radius * radius;
+		for ( let i = 1; i < list.length; i ++ ) {
+
+			const c = list[ i ];
+			// the poses of the ones before it within reach
+			const taken = new Set();
+			for ( let j = 0; j < i; j ++ ) {
+
+				const o = list[ j ];
+				if ( ( o.x - c.x ) ** 2 + ( o.z - c.z ) ** 2 < r2 ) taken.add( poseKey( o ) );
+
+			}
+
+			if ( ! taken.size || ! taken.has( poseKey( c ) ) ) continue;
+			const n = ( c.goal.look.alts ? c.goal.look.alts.length : 0 ) + 1;
+			let done = false;
+			for ( let v = 1; v < n && ! done; v ++ ) {
+
+				c.idleVar += 1;
+				if ( ! taken.has( poseKey( c ) ) ) done = true;
+
+			}
+
+			// out of loops: the same one, but at another point of it
+			for ( let k = 0; k < 4 && ! done; k ++ ) { c.idlePhase = ( c.idlePhase + 0.25 ) % 1; if ( ! taken.has( poseKey( c ) ) ) done = true; }
+			changed ++;
+
+		}
+
+		return changed;
+
+	}
+
 	// a delivery: a dockhand or carter carries crates from a parked van (its back doors) to a shop door, a few trips
 	delivery( from, to, trips = 3 ) {
 
@@ -574,6 +836,9 @@ export class TownSim {
 			.sort( ( a, b ) => Math.hypot( a.x - r0.x, a.z - r0.z ) - Math.hypot( b.x - r0.x, b.z - r0.z ) ).slice( 0, followers + 2 );
 		if ( cand.length < 4 ) return 0;
 		for ( const c of cand ) { this.slots.release( c.id ); c.eventRole = 'procession'; }
+		// (wave 25F) the couple in wedding clothes: a gown and veil, a long coat and a top hat
+		cand[ 0 ].dress = 'bride';
+		cand[ 1 ].dress = 'groom';
 		this.event = { kind: 'procession', name, route, k: 0, members: cand, waitT: 0, endT: 0 };
 		this._eventLeg();
 		return cand.length;
@@ -609,7 +874,7 @@ export class TownSim {
 		if ( E.endT > 0 ) {
 
 			E.endT -= dt;
-			if ( E.endT <= 0 ) { for ( const c of E.members ) { c.eventRole = null; c.act = null; c.react = null; } this.event = null; }
+			if ( E.endT <= 0 ) { for ( const c of E.members ) { c.eventRole = null; c.act = null; c.react = null; c.dress = null; } this.event = null; }
 			return;
 
 		}
@@ -900,7 +1165,7 @@ export class TownSim {
 		const home = c.home;
 		c.umbrella = false;
 		// (wave 24E) out in the rain: up goes the umbrella, or in out of it (the workers work on in oilskins)
-		if ( this.wet && OUTDOOR.has( act ) && ! c.hasUmbrella ) {
+		if ( this.wet && OUTDOOR.has( act ) && ! c.hasUmbrella && ! c.hardy ) {
 
 			c.sheltering = true;
 			const T = P.tavern;
@@ -912,7 +1177,7 @@ export class TownSim {
 		}
 
 		c.umbrella = this.wet && OUTDOOR.has( act );
-		c.oilskin = this.wet && act === 'work';
+		c.oilskin = this.wet && ( act === 'work' || ( c.hardy && OUTDOOR.has( act ) ) ); // (wave 25F: the hardy third wear oilskins out)
 		if ( this.festival && ( act === 'tavern' || act === 'promenade' || act === 'stroll' || ( act === 'play' && this.hour >= 18 ) ) ) act = 'festival';
 		// (a festival night keeps the town up: the grown-ups till half past eleven, the children till ten)
 		const late = ( ( this.hour % 24 ) + 24 ) % 24;
@@ -1391,6 +1656,8 @@ export class TownSim {
 		if ( ! this.dormant ) this._tag( dt );
 		this._eventStep( dt );
 		this._chainStep( dt );
+		this._auctionStep( dt );
+		if ( ! this.dormant && ( this._varyT -= dt ) <= 0 ) { this._varyT = 0.6; this.varyIdles(); }
 
 	}
 
@@ -1429,10 +1696,10 @@ export class TownSim {
 		if ( ! c.eventRole && ! c.hidden && c.act === act ) {
 
 			const out = OUTDOOR.has( act );
-			if ( this.wet && out && ( ! c.hasUmbrella || ( c.goal && c.goal.look && c.goal.look.sit ) ) && ! c.umbrella ) { this._plan( c, act ); return; }
+			if ( this.wet && out && ( ( ! c.hasUmbrella && ! c.hardy ) || ( c.goal && c.goal.look && c.goal.look.sit && ! c.hardy ) ) && ! c.umbrella ) { this._plan( c, act ); return; }
 			if ( this.wet && out && c.hasUmbrella && ! c.umbrella ) c.umbrella = true;
 			if ( ! this.wet && ( c.umbrella || c.oilskin ) ) { c.umbrella = false; c.oilskin = false; }
-			if ( this.wet && act === 'work' ) c.oilskin = true;
+			if ( this.wet && ( act === 'work' || ( c.hardy && out ) ) ) c.oilskin = true;
 
 		}
 
@@ -1443,6 +1710,7 @@ export class TownSim {
 			if ( ! c.arrived || ! c.goal ) return;
 			c.waitT += dt;
 			if ( c.waitT >= ( c.goal.dwell ?? Infinity ) ) return this._next( c );
+			if ( c.goal.kind === 'auction' ) c.gestureT -= dt * 1.5; // (the host and the bidders are busy)
 			this._gesture( c, dt );
 			return;
 
