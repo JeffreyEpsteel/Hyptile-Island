@@ -41,6 +41,61 @@ export const SKY_ISLES = [
 
 const lin = ( hex ) => new Color().set( hex );
 
+// The sky isles' look (wave 27B). They are seen from a kilometre off the home beach, where the old flat vertex colours
+// (a rock grey of 0.15 linear) came out near black under this engine's light. So: the palette lifted to a warm sandstone
+// with strata, weathered pale on the upward faces, mossy green where the vertex colour is green (the grass face, the
+// hanging crowns), the roots kept brown. All procedural, no extra geometry: octaves finer than a pixel at the viewing
+// distance fade out (about 0.0016 m of the view per m of distance per pixel), so the far look is the coarse strata and
+// mottling and the near look adds the grain and a little relief. Pattern coordinates are world space (the isles do not
+// move; the sway only shifts the roots' vertices).
+const SKY_SURFACE = /* wgsl */`
+	let base = in.color.rgb;
+	let P = in.P;
+	let N = in.N;
+	let dist = length( frame.cameraPos - P );
+	let px = max( dist * 0.0016, 0.05 ); // metres per pixel
+	// an octave of wavelength lam (m) is faded out once it is under ~3 pixels
+	let fa = 1.0 - smoothstep( 0.18, 0.5, px * 3.0 / 6.0 );
+	let fb = 1.0 - smoothstep( 0.18, 0.5, px * 3.0 / 2.0 );
+	let fc = 1.0 - smoothstep( 0.18, 0.5, px * 3.0 / 0.6 );
+	let n0 = gpNoise( P * 0.045 + vec3f( 3.1, 0.0, 7.7 ) );
+	let n1 = gpNoise( P * vec3f( 0.16, 0.16, 0.16 ) + 11.0 );
+	let n2 = gpNoise( P * 0.5 + 5.0 );
+	let n3 = gpNoise( P * 1.7 + 2.0 );
+	let mott = n0 * 0.5 + mix( 0.5, n1, fa ) * 0.32 + mix( 0.5, n2, fb ) * 0.18;
+	// the green of the grass face and of the hanging crowns: where the vertex colour leans green
+	let green = clamp( ( base.g - max( base.r, base.b ) ) * 16.0, 0.0, 1.0 );
+	// strata: bands in world height bent by the noise, warm and pale in turns
+	let band = sin( P.y * 0.62 + n0 * 5.5 + n1 * 1.4 ) * 0.5 + 0.5;
+	let band2 = sin( P.y * 2.3 + n1 * 3.0 ) * 0.5 + 0.5;
+	let lum = dot( base, vec3f( 0.33 ) );
+	// rock: the vertex grey (0.07 - 0.35) lifted into a sandstone; the pale top cap keeps its lift
+	var rock = mix( vec3f( 0.46, 0.38, 0.30 ), vec3f( 0.78, 0.66, 0.50 ), clamp( lum * 3.2, 0.0, 1.0 ) );
+	rock *= mix( 0.5, 1.28, band ) * mix( 0.9, 1.08, mix( 0.5, band2, fb ) ) * mix( 0.78, 1.18, mott );
+	rock = mix( rock, rock * vec3f( 1.3, 0.95, 0.66 ), smoothstep( 0.5, 0.95, band ) * 0.6 );
+	// the sun-bleached weathering on the faces that look at the sky, grime in the hollows
+	rock = mix( rock, vec3f( 0.92, 0.86, 0.74 ), smoothstep( 0.55, 0.95, N.y ) * 0.4 * smoothstep( 0.35, 0.8, mott ) );
+	rock *= 1.0 - 0.22 * smoothstep( 0.55, 0.9, 1.0 - mott ) * ( 1.0 - smoothstep( 0.2, 0.6, N.y ) );
+	// moss creeping onto the ledges
+	rock = mix( rock, vec3f( 0.22, 0.36, 0.10 ), smoothstep( 0.62, 0.9, N.y ) * smoothstep( 0.55, 0.8, mix( 0.5, n1, fa ) ) * 0.55 );
+	// the grass face and the crowns: a living green with meadow patches
+	let meadow = mix( 0.5, n1, fa ) * 0.6 + n0 * 0.4;
+	var grass = mix( vec3f( 0.16, 0.36, 0.07 ), vec3f( 0.42, 0.55, 0.15 ), smoothstep( 0.3, 0.8, meadow ) );
+	grass *= mix( 0.8, 1.2, mix( 0.5, n2, fb ) ) * mix( 0.9, 1.1, mix( 0.5, n3, fc ) );
+	// roots and bark keep their brown, lifted
+	var col = mix( rock, grass, green );
+	let brown = clamp( ( base.r - base.g * 1.12 ) * 22.0, 0.0, 1.0 ) * ( 1.0 - green );
+	col = mix( col, base * 2.5 * mix( 0.8, 1.15, mott ), brown );
+	var h = ( n2 * mix( 0.5, 1.0, fb ) + n3 * 0.5 * fc ) * 0.12 * ( 1.0 - green );
+	s.albedo = col;
+	// a fill by day (the sun and sky light reach these isles weakly: they stood black): shaded by the sun's side, off at night
+	let day = smoothstep( - 0.08, 0.3, frame.sunDir.y ) * ( 1.0 - 0.85 * frame.night );
+	s.emissive = col * day * ( 0.16 + 0.5 * clamp( 0.5 + 0.5 * dot( N, frame.sunDir ), 0.0, 1.0 ) );
+	s.roughness = mix( 0.94, 0.8, green * 0.5 );
+	s.metalness = 0.0;
+	s.normal = gpBump( P, s.normal, h * clamp( 80.0 / dist, 0.0, 1.0 ) );
+`;
+
 const fallModule = new ShaderModule( {
 	name: 'upwardFalls',
 	code: /* wgsl */`
@@ -88,6 +143,7 @@ export class InvertedIsles {
 `,
 		} );
 		this.skyMaterial.underwaterLighting = 'none';
+		this.skyMaterial.surface = SKY_SURFACE;
 		const S = [];
 		this.sky = [];
 		this.roots = 0;
