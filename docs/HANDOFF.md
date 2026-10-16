@@ -103,3 +103,13 @@ Wave history in one line each (details: docs/PLAN.md and git log):
 - Released db545f1: waves 25A-F (load time, shadows, LOD, shore, one UI language, feedback and mix, camera and free vehicle camera, life details, realistic cars, avatar driver / pilot, live mirrors, realistic helicopter with aerobatics), 26A (three fighters + three crewed warbirds, consent-armed PvP), 26B (69 ElevenLabs v4 voice lines, sampled effects), 26C (ElevenLabs Music soundtrack + music director), the multiplayer keep-alive.
 - Next: a fresh A-class audit (docs/A-CLASS.md rows left: helicopter stunt leaderboard, avatar hand grips, car proportions, cockpit interiors of warbirds, Tidemark warbird line in tall grass, Inverted Isles domes, phone touch for dogfights, music vocals check by ear, real-phone pass).
 
+
+## Update 2026-10-16 (end of session): wave 27
+
+- 27A Fable re-audit: docs/A-CLASS.md rewritten from a 30-minute play (screenshots tools/polish/out/w27a/); P1 fix eb047b8 (the rod spring diverged at the 0.1 s dt clamp and filled the screen). Root: Play with an empty name keeps the islander's name (90255c5).
+- 27B: the Tidemark warbird line on the shoulder with the grass cleared, a phone dogfight cluster (numeric layout tests only), the Inverted Isles' far look (sandstone strata, day fill), a helicopter stunt leaderboard (Paper Hands ... Satoshi of the Skies) in the trick toast and the pause menu.
+- 27C: the start overlay never overlaps the title card (d8e52bb); Meridian at night lit (NightLight.js one additive mesh: 483 lamp pools, apron and airstrip floods, 61 shop spills; lit shop glass; runway lights; CarBeams.js headlight cones).
+- **Investigate first next session (P1 for phones):** tools/perf/headless.mjs at meridianDowntown / meridianDrive reported ~563 / 566 MB on 27C's run, against 357-369 MB measured in wave 22A (docs/PERF.md). Either the harness flags differ or waves 25-26 (car bodies, warbirds, interiors, music, voices) added GPU memory at Meridian. Re-measure with the 22A command line; cut until <= 387 MB.
+- Open A-class rows (docs/A-CLASS.md): HUD collisions at 800 px, camera inside the avatar at the fish stand, subtitles stacking 3 deep (Roid two lines at once), helicopter / engineer readouts look like debug boxes, flat green Meridian minimap, blown-out car gauges at night, warbird full throttle from the Meridian line ditches in 8 s, bare warbird cockpits, runway light bands every 20 m, two tabs autosaving one slot, Longreach price vs a first session, music vocals check by ear, a real-phone pass, avatar hand grips, car proportions.
+- Usage at the end: weekly ~90 %. Workers all finished; nothing running.
+
