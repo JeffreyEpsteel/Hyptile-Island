@@ -14,6 +14,7 @@ import { carPanelSnapshot, carControl, systemsOf, wiperAngle, drivetrain, WIPE }
 import { LAYERS } from '../../core/SceneRenderer.js';
 import { ATLAS, buildInterior, loadInteriorGLB, rainSetup, rayScreens, LimbSet, turnNode, cabinMaterial } from './CarInterior.js';
 import { CONTROLS, controlsFor, hitControl, drawInstruments, controlOn, controlState } from './CarInstruments.js';
+import { CarMirrors } from './CarMirrors.js';
 
 export { CONTROLS, hitControl, controlsFor };
 export const PANEL = ATLAS;
@@ -173,7 +174,11 @@ export class CarCockpit {
 		const r = this.record, gltf = this.gltfs.get( r.kind );
 		if ( ! gltf || this.interiorKind === r.kind && this.interior ) return;
 		this._releaseVisual();
-		const it = this.interior = buildInterior( gltf, { screenTexture: this._texture(), layers: LAYERS.TRANSPARENT } );
+		// (wave 25E) the live mirrors: one rear view on desktop for every mirror of the cabin; phones keep the metal's sky
+		if ( ! this.mirrors && GPU.device ) this.mirrors = new CarMirrors();
+		const it = this.interior = buildInterior( gltf, { screenTexture: this._texture(), layers: LAYERS.TRANSPARENT, mirrorTexture: this.mirrors?.texture || null } );
+		this.mirrorMat = it.materials.get( 'Mirror' ) || null;
+		if ( this.mirrorMat && this.mirrors ) { let g = null; it.group.traverse( ( m ) => { if ( m.isMesh && m.material === this.mirrorMat ) g = m.geometry; } ); this.mirrors.setCenters( g ); }
 		this.interiorKind = r.kind;
 		this.group = it.group; this.group.name = 'car-local-cockpit'; this.group.userData.cabinStyle = CABIN_STYLES[ r.kind ]?.id;
 		this.app.scene.add( this.group );
@@ -357,6 +362,13 @@ export class CarCockpit {
 		_w.copy( dp ).applyQuaternion( this.group.quaternion ).add( this.group.position );
 		L.position.copy( _w );
 		it.set( { cabin: _cabin.setRGB( dome ? 0.05 : glowOn ? 0.004 : 0, dome ? 0.044 : glowOn ? 0.009 : 0, dome ? 0.034 : glowOn ? 0.011 : 0 ), dome: dome ? 1 : r.kind === 'bus' && night && driven ? 0.7 : 0, power: driven ? ( r.engineOn !== false ? 1 : 0.25 ) : 0, glow: driven && r.engineOn !== false ? ( r.kind === 'police' && ! this.cars.siren ? 0.35 : 1 ) : 0 } );
+		// the mirrors: the rear view follows the car while you drive it in the first person (CarMirrors.js)
+		if ( this.mirrors ) {
+
+			this.mirrors.update( this.group, r.spec, driven && fp );
+			this.mirrors.apply( this.mirrorMat );
+
+		}
 		// rain: the glass up direction, the wipers' pivots and their current angles, the drops' density
 		if ( rig && it.rainMesh ) {
 
@@ -444,6 +456,7 @@ export class CarCockpit {
 	dispose() {
 
 		this.close(); this.setRecord( null ); this.disposed = true;
+		this.mirrors?.dispose(); this.mirrors = null;
 		this.tex?.destroy(); this.tex = null;
 		if ( this._lightsAdded ) for ( const l of this.lights ) this.app.localLights?.remove?.( l );
 		this.app.ui?.ui?.root?.classList?.remove( 'car-cockpit' );

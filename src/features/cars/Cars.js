@@ -222,6 +222,8 @@ export class Cars {
 	hidesDriver() { return false; }
 
 	isOpen() { return this.panel.isOpen || this.cockpit.isOpen; }
+	// the live mirrors' rear view, after the main scene (App hook, wave 25E): nothing unless you drive in the first person
+	renderMirrors( meshRenderer, scene ) { return this.cockpit?.mirrors ? this.cockpit.mirrors.render( meshRenderer, scene || this.app.scene ) : false; }
 	close() { this.panel.close(); this.cockpit.close(); }
 	wantsMouse() { return this.cockpit.firstPerson && !! this.cockpit.hover; }
 	cockpitAct( id ) { return this.cockpit.act( id ); }

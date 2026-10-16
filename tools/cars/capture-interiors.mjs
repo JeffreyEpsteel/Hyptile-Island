@@ -112,7 +112,14 @@ if ( app.avatar && ( arg( 'avatar' ) !== null || ! /hidesDriver/.test( String( a
 const node = ( id ) => plan.roads.nodes.find( ( n ) => n.id === id );
 const yAt = ( x, z ) => tile.roadHeight( x, z );
 const C = node( 'n3_3' );
-const LOOKS = { forward: [ 0, - 0.12 ], stack: [ - 0.38, - 0.42 ], wheel: [ 0, - 0.38 ], back: [ 2.4, - 0.1 ], side: [ - 1.1, - 0.15 ], aux: [ - 0.2, - 0.18 ], up: [ 0, 0.5 ] };
+// --mirrors=1: emulate wave 25E's App hook (the live mirrors' rear view rendered after the main scene)
+if ( arg( 'mirrors' ) !== null && app.sceneRenderer ) {
+
+	const render = app.sceneRenderer.render.bind( app.sceneRenderer );
+	app.sceneRenderer.render = ( ...a ) => { const r = render( ...a ); cars.renderMirrors?.( app.engine.meshRenderer, app.scene ); return r; };
+
+}
+const LOOKS = { rearview: [ - 0.95, 0.32 ], doormirror: [ 0.62, - 0.2 ], forward: [ 0, - 0.12 ], stack: [ - 0.38, - 0.42 ], wheel: [ 0, - 0.38 ], back: [ 2.4, - 0.1 ], side: [ - 1.1, - 0.15 ], aux: [ - 0.2, - 0.18 ], up: [ 0, 0.5 ] };
 const kinds = ( arg( 'kinds' ) || Object.keys( carsModule.KINDS ).join( ',' ) ).split( ',' );
 const times = ( arg( 'times' ) || 'day,night' ).split( ',' );
 const looks = ( arg( 'look' ) || 'forward' ).split( ',' );
@@ -170,6 +177,7 @@ for ( const kind of kinds ) for ( const time of times ) for ( const look of look
 	const s = cars.cockpit?.snapshot || {};
 	console.log( JSON.stringify( { file, kind, time, look, speed: s.speed?.toFixed?.( 1 ), rpm: Math.round( s.rpm || 0 ), gear: s.gear, fuel: s.fuel, temp: s.temp, detailed: !! rec.cockpitDetailed, interior: cars.cockpit?.interiorKind || null, meshes: cars.cockpit?.group?.children?.length || 0, steer: rec.body?.steer?.toFixed?.( 3 ),
 		head: app.avatar?.headPosition && cars.cockpit?.group ? ( ( v ) => [ v.x, v.y, v.z ].map( ( n ) => +n.toFixed( 3 ) ) )( cars.cockpit.group.worldToLocal( app.avatar.headPosition( new ( app.camera.position.constructor )() ) ) ) : null,
+		mirror: { renders: cars.cockpit?.mirrors?.renders, active: cars.cockpit?.mirrors?.active, mat: !! cars.cockpit?.mirrorMat, live: cars.cockpit?.mirrorMat?.uniforms?.mirrorLive?.value },
 		avatar: !! app.avatar?.model, vis: app.avatar?.group?.visible, dbg: [ app.firstPersonBody, typeof app.player.vehicle?.showsDriver, cars.hidesDriver(), app.avatar.visible ], mode: app.player.mode, view: app.player.view,
 		root: app.avatar?.group && cars.cockpit?.group ? ( ( v ) => [ v.x, v.y, v.z ].map( ( n ) => +n.toFixed( 3 ) ) )( cars.cockpit.group.worldToLocal( app.avatar.group.position.clone() ) ) : null } ) );
 	cars.opts.input = null;

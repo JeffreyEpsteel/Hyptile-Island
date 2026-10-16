@@ -15,6 +15,7 @@ import { Material } from '../../engine/render/Material.js';
 import { ShaderModule } from '../../engine/gpu/Shader.js';
 import { commonModule } from '../../engine/render/wgsl/common.js';
 import { loadGLB } from '../../engine/loaders/GLTF.js';
+import { MIRROR_SURFACE } from './CarMirrors.js';
 
 // the instrument atlas: one canvas, three regions (normalized x, y, w, h; y down like the canvas)
 export const ATLAS = Object.freeze( { w: 1024, h: 512 } );
@@ -203,7 +204,7 @@ const RAIN = /* wgsl */`
 	s.alpha = drop * ( 0.35 + 0.35 * rim ) + spark * 0.3 + rain * 0.04;
 `;
 
-export function cabinMaterial( name, { color = null, roughness = 0.6, metalness = 0, rotor = false, screenTexture = null, rect = null, atlas = ATLAS, batched = false } = {} ) {
+export function cabinMaterial( name, { color = null, roughness = 0.6, metalness = 0, rotor = false, screenTexture = null, rect = null, atlas = ATLAS, batched = false, mirrorTexture = null } = {} ) {
 
 	const fam = familyOf( name );
 	const uniforms = { cabin: [ 'vec3f', new Color( 0, 0, 0 ) ] };
@@ -218,6 +219,13 @@ export function cabinMaterial( name, { color = null, roughness = 0.6, metalness 
 
 		Object.assign( o, { surface: RAIN, transparent: true, depthWrite: false, side: 'double', varyings: { vLocal: 'vec3f' }, vertex: 'o.vLocal = v.position;' } );
 		for ( const k of [ 'wipeA', 'wipeB', 'glassUp', 'params' ] ) uniforms[ k ] = [ 'vec4f', new Vector4() ];
+
+	} else if ( fam === 'mirror' && mirrorTexture ) {
+
+		// a live mirror (wave 25E, CarMirrors.js): the rear view looked up along the reflected ray
+		Object.assign( o, { textures: { mirrorTex: mirrorTexture }, surface: MIRROR_SURFACE + COMMON, side: 'double', varyings: { vMirror: 'vec3f' }, vertex: 'o.vMirror = v.position;' } );
+		uniforms.mirrorVP = [ 'mat4x4f', new Matrix4() ]; uniforms.mirrorLive = [ 'f32', 0 ];
+		for ( const k of [ 'mirrorEye', 'mirrorBack', 'mirrorC0', 'mirrorC1', 'mirrorC2' ] ) uniforms[ k ] = [ 'vec4f', new Vector4() ];
 
 	} else if ( fam === 'glass' ) {
 
@@ -255,10 +263,12 @@ const SCREEN_KEYS = { Screen_Cluster: 'cluster', Screen_Stack: 'stack', Screen_A
 const ANIMATED = /^(Wheel|Pedal_|Gear|Handbrake|Stalk_|Wiper_|Cyclic|Collective)/;
 // materials kept apart from their family's batch: the live screens, the rain, glass, lamps (their own glow), the
 // driver's gloves and boots (hidden in the chase view)
-const OWN = /^(Screen_|RainGlass|Glass|Lamp_|Glove|Shoe)/;
+const OWN = /^(Screen_|RainGlass|Glass|Lamp_|Glove|Shoe)/, OWN_MIRROR = /^(Screen_|RainGlass|Glass|Lamp_|Glove|Shoe|Mirror)/;
 const _mrel = new Matrix4(), _mn = new Matrix4(), _inv4 = new Matrix4();
 
-export function buildInterior( gltf, { screenTexture = null, rotor = false, regions = REGIONS, layers = null, atlas = ATLAS } = {} ) {
+export function buildInterior( gltf, { screenTexture = null, rotor = false, regions = REGIONS, layers = null, atlas = ATLAS, mirrorTexture = null } = {} ) {
+	// (with a live mirror texture the mirrors keep their own material: not batched into the family)
+	const own = mirrorTexture ? OWN_MIRROR : OWN;
 
 	const group = new Group();
 	group.name = 'vehicle-interior';
@@ -291,7 +301,7 @@ export function buildInterior( gltf, { screenTexture = null, rotor = false, regi
 
 		if ( ! owner ) continue;
 		const name = gltf.materials[ p.material ?? 0 ]?.name || 'Plastic_Dark';
-		if ( OWN.test( name ) ) continue;
+		if ( own.test( name ) ) continue;
 		const c = mainFamily.get( owner ) || new Map(), fam = familyOf( name );
 		c.set( fam, ( c.get( fam ) || 0 ) + p.attributes.POSITION.array.length );
 		mainFamily.set( owner, c );
@@ -301,11 +311,11 @@ export function buildInterior( gltf, { screenTexture = null, rotor = false, regi
 	for ( const { node, owner, p } of parts ) {
 
 		const gm = gltf.materials[ p.material ?? 0 ] || {}, name = gm.name || 'Plastic_Dark';
-		const own = OWN.test( name ), target = own && ( SCREEN_KEYS[ name ] || name === 'RainGlass' ) ? node : owner || group;
-		const key = own ? name : owner ? mainFamily.get( owner ) : familyOf( name );
+		const isOwn = own.test( name ), target = isOwn && ( SCREEN_KEYS[ name ] || name === 'RainGlass' ) ? node : owner || group;
+		const key = isOwn ? name : owner ? mainFamily.get( owner ) : familyOf( name );
 		const id = target.uuid ?? target.id;
 		const bk = id + '|' + key;
-		if ( ! batches.has( bk ) ) batches.set( bk, { target, key, own, name, list: [] } );
+		if ( ! batches.has( bk ) ) batches.set( bk, { target, key, own: isOwn, name, list: [] } );
 		// the part's frame relative to its batch's target
 		node.updateWorldMatrix( true, false ); target.updateWorldMatrix( true, false );
 		_mrel.copy( target.matrixWorld ).invert().multiply( node.matrixWorld );
@@ -356,7 +366,7 @@ export function buildInterior( gltf, { screenTexture = null, rotor = false, regi
 
 			const gm = b.list[ 0 ].gm, pbr = gm.pbrMetallicRoughness || {}, f = pbr.baseColorFactor || [ 0.5, 0.5, 0.5, 1 ];
 			const sk = SCREEN_KEYS[ b.name ];
-			if ( ! materials.has( b.name ) ) materials.set( b.name, cabinMaterial( b.name, { color: new Color( f[ 0 ], f[ 1 ], f[ 2 ] ), roughness: pbr.roughnessFactor ?? 0.6, metalness: pbr.metallicFactor ?? 0, rotor, screenTexture, rect: sk ? regions[ sk ] : null, atlas } ) );
+			if ( ! materials.has( b.name ) ) materials.set( b.name, cabinMaterial( b.name, { color: new Color( f[ 0 ], f[ 1 ], f[ 2 ] ), roughness: pbr.roughnessFactor ?? 0.6, metalness: pbr.metallicFactor ?? 0, rotor, screenTexture, rect: sk ? regions[ sk ] : null, atlas, mirrorTexture } ) );
 			mat = materials.get( b.name );
 
 		} else {
