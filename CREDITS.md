@@ -428,3 +428,12 @@ The full licence text as shipped in `node_modules/@dimforge/rapier3d-compat/LICE
 
 `public/ui/codex-nautical-chart.png` was generated with ChatGPT Image for this project.
 The map renders navigable terrain and quest locations from game coordinates; the image supplies the chart decoration.
+
+### October 16, 2026 additions (wave 26B)
+
+Character voices (`public/audio/voices`: PoorGoat, Ethena, Captain Roid and his harbour agents, the tavern keepers, Lieutenant Hale,
+the navy, the press gang, townsfolk, the crew, Meridian's police and the radio) were generated with ElevenLabs text to speech
+(model `eleven_v4`, stock voices Callum, Beth, Charlie, Roger, Stres1, Aaron, Harry, Bobby, Sarah, Laura, George, Kurt, Will, Arron and Bella
+from the account's voice list) and the effect samples (`public/audio/sfx11`: engines, cannon, musket, pistol, sail, rope, rain on canvas,
+thunder, gulls, crowd, splashes) with ElevenLabs sound effects (`eleven_text_to_sound_v2`), both under the project owner's account.
+The lines are original writing for this game; sources and timings: `tools/voices`.

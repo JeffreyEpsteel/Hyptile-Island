@@ -44,6 +44,7 @@ import * as interiors from '../world/interiors/index.js';
 import * as cars from './cars/index.js';
 import * as citywreck from './citywreck/index.js';
 import * as capsize from './capsize/index.js';
+import * as voices from './voices/index.js';
 
 export const MODULES = [
 	[ 'start', start ], // Jade Landing + intro (first: later modules see its colliders)
@@ -81,6 +82,7 @@ export const MODULES = [
 	[ 'weapons', weapons ], // wave 18D: cutlass, axe, pin, harpoon, bombs, fire bottles, smoke pots, the swivel gun, quick slots 1-4 / 0
 	[ 'navy', navy ], // wave 19B: Tidemark's frigate and cutters, hails, navy bounties and standing, sea events
 	[ 'cars', cars ], // wave 21B: Meridian's traffic, parked cars, police; every car drivable (E at a door)
+	[ 'voices', voices ], // wave 26B: ElevenLabs voices for the characters and sampled effects over the weakest synth cues (after sfx, navy, cars, crew)
 	[ 'citywreck', citywreck ], // wave 21C: Meridian's destructible buildings (finds app.meridian / app.ports.meridian itself)
 	[ 'inverted', inverted ], // the upside-down sky layer (off until ?inverted or the Inverted Isles)
 	[ 'life', life ],
